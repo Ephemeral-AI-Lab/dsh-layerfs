@@ -252,7 +252,7 @@ try {
   await draft.getByRole('radio', { name: new RegExp(`^${store.replace(/[.]/g, '\\.')}\\b`) }).click()
   await draft.getByRole('navigation').locator('button[data-ready]').filter({ hasText: /^Store/ }).waitFor()
   // The fixture Store is on native: keep it there instead of the docker default.
-  await draft.getByRole('radio', { name: /^LayerFS Home/ }).click()
+  await draft.getByRole('radio', { name: /^native/ }).click()
   await draft.getByRole('button', { name: 'Create and open' }).click()
   await draft.waitFor({ state: 'detached', timeout: 60000 })
   await until('hero on the new project', async () => (await page.locator('[data-layerfs-hero] button[aria-label^="LayerFS project:"]').first().innerText().catch(() => '')).trim() === 'blank', 60000)

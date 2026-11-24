@@ -108,11 +108,12 @@ test('6: the Store\'s Backups tab says a backup\'s state and provider in the wor
   for (const lang of ['en', 'zh']) assert.equal(Object.keys(M.storageLocales[lang]).some((k) => k.startsWith('spBackupState_')), false)
 })
 
-test('7: a Store on the native machine is in the LayerFS Home, on every page', () => {
-  assert.equal(M.placeWords('native', tOf(M.storageLocales.en)), 'LayerFS Home')
-  assert.equal(M.placeWords('docker', tOf(M.storageLocales.en)), 'docker')
-  assert.match(src('src/client/hero/HeroProject.tsx'), /m === 'native' \? t\('home'\) : m/)
-  assert.match(src('src/client/projects/setup/ProjectDialog.tsx'), /placeName\(s\.machine \?\? 'native', wordsOf\(t\)\)/)
+test('7 (revised 2026-11-24): a Store on the native machine names native like any machine; the LayerFS home is not a machine', () => {
+  assert.equal(M.placeWords('native'), 'native')
+  assert.equal(M.placeWords('docker'), 'docker')
+  assert.doesNotMatch(src('src/client/hero/HeroProject.tsx'), /m === 'native' \? t\('home'\)/)
+  assert.doesNotMatch(src('src/client/projects/setup/ProjectDialog.tsx'), /placeName\(/)
+  for (const file of ['src/client/storage/locale.ts', 'src/client/machines/locale.ts', 'src/client/projects/setup/locale.ts', 'src/client/doctor/locale.ts', 'src/client/picker/locale.ts', 'src/client/hero/locale.ts']) assert.doesNotMatch(src(file), /LayerFS Home/, file)
 })
 
 test('8: the Move dialog\'s notice names the move', () => {

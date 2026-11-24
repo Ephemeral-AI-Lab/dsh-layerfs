@@ -177,13 +177,13 @@ hold".
 | 1 New machine | **+ New machine**, at the right end of the tab bar | Press → the New machine dialog ([Machine](machine.md)) | `home get`, `machine create` | always there; off with the reason as its tip when no platform can create one |
 | 2 Diagnose this host | The **</>** button beside it | Press → the home checks run and the [Doctor](health.md) page opens on them | `home doctor` | — |
 | 3 Row toggle | A chevron | Press → what it holds; remembered | — | open by default when it needs you, is starting, or is the only machine |
-| 4 Name | **docker**, `Docker · Linux namespaces` (or `This Mac · Host processes`) | Press → the [Machine](machine.md) page | `home get`, `machine get`, `machine list`, `sandbox list`, `store list` (read) | — |
+| 4 Name | **docker**, `Docker · Linux namespaces` (or `Native · Host processes` for native) | Press → the [Machine](machine.md) page | `home get`, `machine get`, `machine list`, `sandbox list`, `store list` (read) | — |
 | State | A chip: **Running**, **Stopped**, **Starting**, … | — | as above | **Blocked** rows say why, with a fix |
 | Memory · Disk | Bars | — | memory: `GET /api/metrics` (read, host memory); disk: `machine stats` (read) | `—` while stopped |
 | Holds | **1 Store**, **1 Sandbox** | — | as above | — |
 | 5 Power | **Stop** / **Start** (not on This Mac) | **Start** → the machine starts. **Stop** asks a second press: the button becomes **Confirm: Stop** (**Confirm: Stop worker** for docker) for a few seconds | `machine stop` / `machine start` | disabled while it settles |
 | 6 ⋯ | **More for {name}** | [Components › Machine menu](components.md#machine-menu) | see there | — |
-| 7 Add Store | **Add Store** | Press → a dialog to move a SQLite Store onto this machine (shows size, target free disk, **Held now** and **Start** *m* checks; on LayerFS Home also **Or create an empty Store here: New Store**) | `store move` (a job) | — |
+| 7 Add Store | **Add Store** | Press → a dialog to move a SQLite Store onto this machine (shows size, target free disk, **Held now** and **Start** *m* checks; on native also **Or create an empty Store here: New Store**) | `store move` (a job) | — |
 | 8 New Sandbox | **New Sandbox** | Press → the New Sandbox dialog ([Sandbox](sandbox.md)) | `sandbox create` | — |
 
 ## Variants

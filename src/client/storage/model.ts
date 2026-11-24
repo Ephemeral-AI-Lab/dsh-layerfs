@@ -359,7 +359,7 @@ export const latestBackup = (s: StoreRow): number | null =>
   s.links.reduce<number | null>((n, l) => (l.last?.at != null && (n === null || l.last.at > n) ? l.last.at : n), null)
 
 /** Where a Store is, in words: the home, a machine, or PostgreSQL. */
-export const placeWords = (machine: string | null | undefined, t: StorageT): string => (machine === 'native' ? t('layerfsHome') : (machine ?? '?'))
+export const placeWords = (machine: string | null | undefined): string => machine ?? '?'
 
 /** One file a bucket holds: the file, the Store it belongs to, its last listed state. */
 export interface BucketFileRow {
@@ -499,9 +499,9 @@ export function stepWords(step: string | null, t: StorageT): string {
 /** What a running job does, in words. */
 export function doingWords(j: StorageJob, t: StorageT): string {
   switch (j.kind) {
-    case 'push': return t(j.made ? 'jobMaking' : 'jobPushing', { place: placeWords(j.target, t) })
-    case 'pull': return t('jobPulling', { place: placeWords(j.from, t) })
-    case 'move': return t('jobMoving', { place: placeWords(j.target, t) })
+    case 'push': return t(j.made ? 'jobMaking' : 'jobPushing', { place: placeWords(j.target) })
+    case 'pull': return t('jobPulling', { place: placeWords(j.from) })
+    case 'move': return t('jobMoving', { place: placeWords(j.target) })
     case 'backup': return t('jobBackingUp', { place: j.target })
     case 'restore': return t('jobRestoring', { place: j.file ? `${j.target}/${j.file}` : j.target })
     case 'compact': return t('jobCompacting', { place: j.store })
@@ -536,12 +536,12 @@ export const holderTab = (b: Holder): `sandbox:${string}` => `sandbox:${b.machin
 export function endedWords(j: StorageJob, t: StorageT, size?: (n: number) => string): string {
   if (j.outcome === 'unknown') return t('jobUnknown')
   if (j.outcome === 'interrupted') return t('jobInterrupted')
-  const place = j.kind === 'pull' ? placeWords(j.from, t) : j.kind === 'backup' || j.kind === 'restore' ? j.target : j.kind === 'compact' ? j.store : placeWords(j.target, t)
+  const place = j.kind === 'pull' ? placeWords(j.from) : j.kind === 'backup' || j.kind === 'restore' ? j.target : j.kind === 'compact' ? j.store : placeWords(j.target)
   const failPhase = j.error?.phase ?? j.phase ?? null
   if (j.error && failPhase === 'retire' && (j.kind === 'push' || j.kind === 'pull' || j.kind === 'move')) {
     return j.kind === 'pull' || j.half === 'pull'
-      ? t('jobRetireHome', { from: placeWords(j.from, t) })
-      : t('jobRetireTarget', { place: placeWords(j.target, t) })
+      ? t('jobRetireHome', { from: placeWords(j.from) })
+      : t('jobRetireTarget', { place: placeWords(j.target) })
   }
   if (movePushFailed(j)) {
     return inUseJob(j)
@@ -549,7 +549,7 @@ export function endedWords(j: StorageJob, t: StorageT, size?: (n: number) => str
       : t('jobMovePushFailed', { place, phase: failPhase ? stepWords(failPhase, t) : '—' })
   }
   if (j.error && j.kind === 'move' && j.half === 'pull' && j.from) {
-    const from = placeWords(j.from, t)
+    const from = placeWords(j.from)
     return inUseJob(j)
       ? t('jobMovePullInUse', { place, from })
       : t('jobMovePullFailed', { place, from, phase: failPhase ? stepWords(failPhase, t) : '—' })

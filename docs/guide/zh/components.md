@@ -1,4 +1,4 @@
-<!-- source: 80d1ce173f97 -->
+<!-- source: 9c8b5dfa6e70 -->
 # 组件
 
 > 标有「隔离测试数据」的截图来自当前版本的实际组件，使用独立浏览器和示例数据。其余截图来自早期演示环境。
@@ -79,7 +79,7 @@ Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker una
 | 组件 | 级别 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
 | **完成 LayerFS 设置**（Finish setting up LayerFS，在你选了 **稍后**，Later，之后出现） | 警告 | **设置 LayerFS…**（Set up LayerFS…） → 打开对话框 | `home get` | 设置完成后消失 |
-| 失败的任务：**{what} {place} 在{phase}时失败**（{what} {place} failed while {phase}）、**推送到 {place} 在{phase}时失败 · Store 留在 LayerFS Home**（Push to {place} failed while {phase} · Store stays in LayerFS Home）、**已中断 · 最终结果不可用**（Interrupted · final result unavailable）、**结果未知 · 请检查 Store**（Outcome unknown · inspect the Store） | 危险 | [修复按钮](#fix-buttons)（**启动 {name}**，Start {name}；**重启 {name}**，Restart {name}；**压缩 {name}**，Compact {name}；**保存登录…**，Save a login…；**重新连接…**，Connect again…；**运行 {n} 步修复…**，Run the {n}-step fix…），或 **打开 {name}**（Open {name}，存放该 Store 的 Sandbox），或 **重试**（Retry；迁移已拉回 LayerFS Home 时为 **重试推送**，Retry push）。**关闭**（Dismiss） | 修复的调用（例如 `machine start`）。**重试** 会重复这个任务（`store move` 等）；**重试推送** 直接从 LayerFS Home 推送而不重复拉回 | 之后成功一次（含迁移失败后的推送成功）、Store 被移除或按了关闭后消失 |
+| 失败的任务：**{what} {place} 在{phase}时失败**（{what} {place} failed while {phase}）、**推送到 {place} 在{phase}时失败 · Store 留在 native**（Push to {place} failed while {phase} · Store stays on native）、**已中断 · 最终结果不可用**（Interrupted · final result unavailable）、**结果未知 · 请检查 Store**（Outcome unknown · inspect the Store） | 危险 | [修复按钮](#fix-buttons)（**启动 {name}**，Start {name}；**重启 {name}**，Restart {name}；**压缩 {name}**，Compact {name}；**保存登录…**，Save a login…；**重新连接…**，Connect again…；**运行 {n} 步修复…**，Run the {n}-step fix…），或 **打开 {name}**（Open {name}，存放该 Store 的 Sandbox），或 **重试**（Retry；迁移已拉回 native 时为 **重试推送**，Retry push）。**关闭**（Dismiss） | 修复的调用（例如 `machine start`）。**重试** 会重复这个任务（`store move` 等）；**重试推送** 直接从 native 推送而不重复拉回 | 之后成功一次（含迁移失败后的推送成功）、Store 被移除或按了关闭后消失 |
 | **{kind} 现在无法在此运行：{reason}**（{kind} can’t run here now: {reason}） | 警告 | **打开**（Open） → 这台机器 | — | 平台可用后消失 |
 | **{machine} 的 worker 无响应[，{stores} 无法打开]**（{machine}'s worker is not answering[, so {stores} cannot open]） | 危险 | **打开**（Open）。**停止 {machine}**（Stop {machine}） → **确认：停止 {machine}**（Confirm: stop {machine}，关闭 {machine} 的虚拟机并记录为已停止） | `machine stop` | worker 有响应后消失 |
 | **{machine} 的虚拟机已不存在[，{stores} 无法打开]**（{machine}’s VM is gone[, so {stores} cannot open]） | 危险 | 修复，或 **打开**（Open） | 修复的调用 | |
@@ -120,7 +120,7 @@ Store、机器和平台信息（`home get`、`machine get`、`machine list`、`s
   （Add project）；备份标签页的 **备份到…**（Back up to…）、**立即备份**（Back up now）、
   **另存为新文件…**（Back up as new file…）和 **恢复…**（Restore…）；备份对话框的行内按钮与底部
   **备份到另一个存储桶**（Back up to another bucket）；存储桶页的 **立即备份**。
-- **菜单项**：Store 菜单的 **推送到…**、**拉回 Home**（Pull to home）、**迁移到其他机器…**
+- **菜单项**：Store 菜单的 **推送到…**、**拉回 native**（Pull to native）、**迁移到其他机器…**
   （Move to another machine…）、**备份到…**、**立即备份 · *存储桶*/*文件***（Back up now · …）和
   **压缩…**（Compact…）；PostgreSQL 登录组的 **移除登录**（Remove login，有 Store 在用时不可用）；
   机器菜单的 **重启 worker**（Restart worker，它的修复需要 `--force` 时）和 **移除…**（Remove…）；
@@ -207,12 +207,12 @@ LayerFS 拒绝读取时，视图会显示拒绝的关键词，并把 LayerFS 的
 | 1 | 名称 | 图标和 Store 名 | 点击 → [Store 页](store.md) | `store list` (读取) | |
 | 2 | ⋯ | [Store 菜单](#store-menu) | 见 Store 菜单 | 每项各不相同 | |
 | | 数字 | SQLite：文件大小和 **最近写入**（last write）*时间*。PostgreSQL：打包后的字节数（或 **n 个项目**）和数据库名。悬停可看服务器和 **数据库 ID**（Database id） | — | `store list`；PostgreSQL 还有 `store get --with stats` (读取) | **大小未知**（Size unknown）。可能过时的大小显示为 **大小读取于**（size seen）*时间*，提示为 **……它的机器已停止**（…its machine is stopped）或 **……现在没有响应**（…does not answer now）。统计被拒绝时显示 `—` |
-| 3 | **存放于**（Stored on）标签（SQLite，仅在主页上） | 所在机器（或 **LayerFS Home**）及其图标 | 点击 → 机器页 | `home get` (读取) | 机器损坏时有红点，其余情况没有圆点（停机的状态写在标签的提示里，不用圆点） |
+| 3 | **存放于**（Stored on）标签（SQLite，仅在主页上） | 所在机器（`native` 也一样）及其图标 | 点击 → 机器页 | `home get` (读取) | 机器损坏时有红点，其余情况没有圆点（停机的状态写在标签的提示里，不用圆点） |
 | 4 | 项目行 | 最多三个项目（有状态显示时只有一个），各带打包后的字节数和占比条 | 点击 → 项目页 | `project list`、`project stats`、`branch get` (读取；统计期间每 2 秒轮询一次) | **读取中…**（Reading…）、`—` 加 **此处未统计**（Not counted here）、**初始化后尚无提交**（No commits since Init）、**没有项目 · 添加项目**（No projects · Add project，`project init`） |
 | | 状态行 | 只在有事发生时出现：一张正在运行或刚结束的[任务卡片](#job-card)、**另一个客户端正在运行 …**（Another client runs …），或者一个说明需要你处理什么的词（**Waiting on docker**、**Broken · …**），加上它唯一的操作（**启动**（Start）*m*、一个[修复](#fix-buttons)，或 **修复**（Repair）*m*） | 那个操作 | `machine start`，或修复的调用 | |
 | 5 | 备份徽标（SQLite） | 服务商标志、**n 个备份**（n backup(s)），以及一个表示最糟状态的圆点。提示：**x 个需要处理，y 个已过期，z 个最新，w 个未列出**（x need attention, y out of date, z current, w not listed） | 点击 → *store* 的备份（Backups of *store*）对话框。没有备份时显示 **无备份**（No backup），点击打开备份对话框 | 打开对话框时，对每个关联的存储桶运行 `backup list` (读取) | |
 | | **另有 n 个项目**（+n projects） | 这个 Store 的项目比卡片上显示的多 | 点击 → Store 页 | — | |
-| 6 | 底部操作（SQLite） | LayerFS Home 里的 Store 显示 **推送到…**（Push to…），机器上的 Store 显示 **拉取**（Pull） | **推送到…** → 推送对话框。**拉取** → 一个拉取任务 | `store move <s> <m>`，或先 `store get` 再 `store move <s> native` | Store 不是就绪状态时不可用。任务运行时隐藏 |
+| 6 | 底部操作（SQLite） | native 上的 Store 显示 **推送到…**（Push to…），机器上的 Store 显示 **拉取**（Pull） | **推送到…** → 推送对话框。**拉取** → 一个拉取任务 | `store move <s> <m>`，或先 `store get` 再 `store move <s> native` | Store 不是就绪状态时不可用。任务运行时隐藏 |
 
 PostgreSQL Store 没有卡片：机器页把挂接到它的 Store 列成行（地址、那台机器上次的检查和
 **解除挂接**，Detach），主页 › Store 列出全部（见 [Store › 主页 › Store 行](store.md)）。
@@ -225,8 +225,8 @@ Store 页面头部和每张 Store 卡片上的 ⋯。
 
 | 组件 | 适用于 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
-| **推送到…**（Push to…） | LayerFS Home 里的 SQLite | 推送对话框 → 一个任务 | `store move <s> <m>` | 未就绪时不可用 |
-| **拉回 Home**（Pull to home） | 机器上的 SQLite | 立即开始一个任务 | `store get`、`store move <s> native` | 未就绪时不可用 |
+| **推送到…**（Push to…） | native 上的 SQLite | 推送对话框 → 一个任务 | `store move <s> <m>` | 未就绪时不可用 |
+| **拉回 native**（Pull to native） | 机器上的 SQLite | 立即开始一个任务 | `store get`、`store move <s> native` | 未就绪时不可用 |
 | **迁移到其他机器…**（Move to another machine…） | 机器上的 SQLite | 迁移对话框 → 一个任务 | `store get`，然后经由 native 运行两次 `store move` | 未就绪时不可用 |
 | **备份到…**（Back up to…） | SQLite | 备份对话框。还没有存储桶时先添加存储桶 | `backup create`，然后 `backup list` | 未就绪时不可用 |
 | **立即备份 · *bucket*/*file***（Back up now · *bucket*/*file*） | SQLite，每个关联的存储桶一行 | 立即开始一个任务 | `backup create`，然后 `backup list` | 未就绪时不可用 |
@@ -245,8 +245,8 @@ Store 页面头部下方、Store 卡片的状态行里，以及在[诊断](healt
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
 | 进行中 | 圆点、任务正在做什么（**正在推送到** / **正在从…拉回** / **正在迁移到** *m*，Pushing to / Pulling from / Moving to；**正在…上创建** *m*，Creating on；**正在备份到** *b*，Backing up to；**正在从…恢复** *b/f*，Restoring from；**压缩中** *s*，Compacting）、按完整步骤表计算的 **第 n/N 步**（Step n of N；迁移带前缀 **1/2 拉回 Home ·** 或 **2/2 推送 ·**）及步骤名（检查、拍快照、发送、校验、安装、记录、清理、上传、下载、计算哈希、标记、构建、交换）、**已完成量 / 总量**、与导航栏传输条及 Home 卡片共用口径的单调递增百分比（结束前上限 99%），以及一个进度条。主页 › Store 紧凑卡片将标题 + 百分比与步骤 + 字节数分作两行 | — | 任务自己的调用，它会流式报告进度（`store move`、`backup create`、`backup restore`、`store compact`）。卡片跟随 `storage-job` 事件更新 | |
-| 结束 | **已推送到** / **已从…拉回** / **已迁移到** / **已在…上创建** / **已备份到** / **已从…恢复** / **已压缩** …（Pushed to / Pulled from / Moved to / Created on / Backed up to / Restored from / Compacted；**· 没有可回收的空间**，· nothing to reclaim；**· 释放** *n*，· freed）。失败时：*种类 位置* **在** *步骤* **时失败**（failed while）、**推送到** *位置* **在** *步骤* **时失败 · Store 留在 LayerFS Home**（拉回半程失败为 **Store 仍留在** *from*；清理阶段失败为 **已移至** *位置* **· LayerFS Home 中的旧副本未删除**）、**…：正在使用**（… : in use）、**结果未知 · 请检查 Store**（Outcome unknown · inspect the Store），或 **已中断 · 最终结果不可用**（Interrupted · final result unavailable）。拒绝的代码、说明和修复都在提示里 | — | — | 绿色或红色圆点 |
-| 操作（仅失败的任务） | 一个按钮：Center 能运行时是[修复](#fix-buttons)，否则是 **打开** *Sandbox*（Open，存放该 Store 的 Sandbox），再否则是 **重试**（Retry；迁移已拉回 LayerFS Home 时为 **重试推送**，Retry push） | **重试** 再运行一次同样的任务；**重试推送** 直接从 LayerFS Home 推送而不重复拉回。**打开** 去 Sandbox 页 | 重试会重复任务的调用：推送 `store move`；拉回 `store get` + `store move`；迁移 `store move` ×2（**重试推送** 为 `store move` ×1）；备份 `backup create`；恢复 `backup restore`；压缩 `store compact` | |
+| 结束 | **已推送到** / **已从…拉回** / **已迁移到** / **已在…上创建** / **已备份到** / **已从…恢复** / **已压缩** …（Pushed to / Pulled from / Moved to / Created on / Backed up to / Restored from / Compacted；**· 没有可回收的空间**，· nothing to reclaim；**· 释放** *n*，· freed）。失败时：*种类 位置* **在** *步骤* **时失败**（failed while）、**推送到** *位置* **在** *步骤* **时失败 · Store 留在 native**（拉回半程失败为 **Store 仍留在** *from*；清理阶段失败为 **已移至** *位置* **· native 上的旧副本未删除**）、**…：正在使用**（… : in use）、**结果未知 · 请检查 Store**（Outcome unknown · inspect the Store），或 **已中断 · 最终结果不可用**（Interrupted · final result unavailable）。拒绝的代码、说明和修复都在提示里 | — | — | 绿色或红色圆点 |
+| 操作（仅失败的任务） | 一个按钮：Center 能运行时是[修复](#fix-buttons)，否则是 **打开** *Sandbox*（Open，存放该 Store 的 Sandbox），再否则是 **重试**（Retry；迁移已拉回 native 时为 **重试推送**，Retry push） | **重试** 再运行一次同样的任务；**重试推送** 直接从 native 推送而不重复拉回。**打开** 去 Sandbox 页 | 重试会重复任务的调用：推送 `store move`；拉回 `store get` + `store move`；迁移 `store move` ×2（**重试推送** 为 `store move` ×1）；备份 `backup create`；恢复 `backup restore`；压缩 `store compact` | |
 | **关闭**（Dismiss） | | 隐藏一个已结束的任务 | —（记在这个浏览器里） | |
 | 其他客户端 | **另一个客户端正在此 Store 上运行** *op · phase*（Another client runs *op · phase* on this Store） | — | `store list` (读取) | 没有操作 |
 
@@ -319,7 +319,7 @@ Center 把这条命令变成一个按钮。按钮的文字说明它要做什么�
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
 | **打开**（Open） | 只在面板上有 | 打开机器页 | — | |
-| **启动 worker (docker)**（Start worker (docker)） / **停止 worker (docker)**（Stop worker (docker)） / **启动 (name)**（Start (name)） / **停止 (name)**（Stop (name)） | 与机器当前状态相符的电源操作 | 启动机器（显示启动进度）或停止它 | `machine start` / `machine stop` | 有其他电源操作在运行时不可用。LayerFS Home 上不显示 |
+| **启动 worker (docker)**（Start worker (docker)） / **停止 worker (docker)**（Stop worker (docker)） / **启动 (name)**（Start (name)） / **停止 (name)**（Stop (name)） | 与机器当前状态相符的电源操作 | 启动机器（显示启动进度）或停止它 | `machine start` / `machine stop` | 有其他电源操作在运行时不可用。native 上不显示 |
 | **重启 worker (name)**（Restart worker (name)），加上 **停止 worker**（Stop worker） / **停止（关闭虚拟机）**（Stop (shut down the VM)） | worker 不正常（无响应、版本过旧、无法连接）时，替换上面那一项 | **重启** 运行 LayerFS 建议的修复。**停止** 停止机器 | `machine get`，然后 `machine stop` 和 `machine start`（或只有 `machine start`）；`machine stop` | 如果因为机器上有 Sandbox，LayerFS 的修复需要 `--force`，**重启** 不可用。悬停可看原因 |
 | **强制停止…**（Force stop…，红色） | CLI 的 `machine stop` 支持强制、且机器正在运行或上面有 Sandbox 时出现。ssh 和 Firecracker 机器没有 | **强制停止 *name*？**（Force stop *name*?） → **Force stop** | `machine stop --force` | |
 | **更新设置…**（Update settings…） | 仅 Docker 机器 | **Update settings**（Docker 套接字：**自动**，Automatic，或它找到的某个套接字） → **保存**（Save） | `machine update docker --docker <socket>`（留空表示自动） | |
@@ -338,7 +338,7 @@ Center 把这条命令变成一个按钮。按钮的文字说明它要做什么�
 | 状态标签 | **运行中**（Running）、**守护进程未运行**（Daemon not running）、**需要修复**（Needs repair）……悬停可看 LayerFS 的消息 | — | `sandbox list` (读取) | |
 | ⋯ | **删除 Sandbox…**（Delete Sandbox…；删除结果不明确时改为 **读取 Sandbox**，Read Sandbox）、**强制删除 Sandbox…**（Force delete Sandbox…） | 打开一个[确认框](#confirm-dialog) | `sandbox remove` / `sandbox remove --force`（**读取 Sandbox** 用 `sandbox get`） | 有操作在运行时 **删除** 不可用 |
 | 副标题行 | 项目 · **up *time*** · ***n* 个 Workspace**（*n* Workspaces） | — | 指标采样器；`sandbox list` | 列表没有报告 Workspace 数时不显示 |
-| **镜像**（Image） | 镜像名，链接到镜像标签页；名称未知时显示短 ID | → 镜像标签页 | `machine images` (读取) | LayerFS Home 上不显示 |
+| **镜像**（Image） | 镜像名，链接到镜像标签页；名称未知时显示短 ID | → 镜像标签页 | `machine images` (读取) | native 上不显示 |
 | 数字 | **处理器**（Processor，*n* **of** *cpus*）、**内存**（Memory）、**占用空间**（On disk，一个分成 Workspace 改动、Sandbox 自己的文件、运行时和日志三段的进度条） | — | 采样器的 `machine stats`；`machine stats --with space` (读取) | 某个数字未知时显示破折号并说明原因。宿主进程类型：**未读取处理器和内存：*why*。**（Processor and memory not read: *why*.） |
 | 已消失 / 已损坏提示 | **文件夹仍在磁盘上**（Folder kept on disk，*大小*）或 **不可用 · 记录仍在**（Unusable · records kept） | **关闭**（Close） | `sandbox remove` | 取代数字区域 |
 | **终端**（Terminals） / **文件**（Files） | | 打开 Sandbox 页的 Workspace 或文件视图 | — | Sandbox 已消失时隐藏 |

@@ -35,7 +35,7 @@ import { clockTime, dateTime } from '../ui/locale-sync.ts'
 export interface SandboxOverviewProps {
   name: string
   machine: string
-  /** The machine's title with its kind ("LayerFS Home (Native)"). */
+  /** The machine's title with its kind ("native (Native)"). */
   machineTitle: string
   info: SandboxInfo | null
   /** What the list row knows until sandbox.get answers. */

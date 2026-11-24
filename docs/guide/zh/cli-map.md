@@ -1,4 +1,4 @@
-<!-- source: a10dd72677d9 -->
+<!-- source: 16beeac960d5 -->
 # 每个操作及其 LayerFS 调用
 
 每一行是你能做的一件事（或者一个视图为了绘制自己所做的一次读取），它调用的主机路由或操作，以及背后的
@@ -72,7 +72,7 @@ LayerFS CLI 调用。各页面指南的表格里也写着同样的调用；这�
 | 项目会话列 | `… › <store> › 项目` | op `sessions.list` | — （当前这个 DSH） |
 | **检查完整性**（Check integrity）/ **测试连接**（Test connection） | `… › <store>` 头部 | `POST /api/doctor/runs` `{kind: store}` | `store doctor` |
 | **⋯ › 推送到…**（⋯ › Push to…）→ **推送**（Push） | `… › <store> ⋯` | `POST /api/stores/:id/push` | `store move <s> <m>`（一个任务）, `backup list` |
-| **⋯ › 拉回 Home**（⋯ › Pull to home）/ 卡片 **拉取**（Pull） | `… › <store> ⋯` | `POST /api/stores/:id/pull` | `store get`, `store move <s> native` |
+| **⋯ › 拉回 Home**（⋯ › Pull to native）/ 卡片 **拉取**（Pull） | `… › <store> ⋯` | `POST /api/stores/:id/pull` | `store get`, `store move <s> native` |
 | **⋯ › 迁移到其他机器…**（⋯ › Move to another machine…）→ **迁移**（Move） | `… › <store> ⋯` | `POST /api/stores/:id/move` | `store get`，经 native 两次 `store move` |
 | **⋯ › 备份到…**（⋯ › Back up to…）→ **备份**（Back up）/ **立即备份**（Back up now） | `… › <store> ⋯`、备份标签页 | `POST /api/stores/:id/backup` | `backup create`，然后 `backup list` |
 | **⋯ › 压缩…**（⋯ › Compact…）→ **压缩**（Compact） | `… › <store> ⋯` | `POST /api/stores/:id/compact` | `store get`, `store compact` |

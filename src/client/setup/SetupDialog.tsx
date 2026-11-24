@@ -23,7 +23,7 @@ import type { LayerfsApi } from '../api.ts'
 import { MachineGlyph } from '../machines/icons.tsx'
 import type { MachinesKey } from '../machines/locale.ts'
 import { kindKey, type AvailableView, type MachinesView, type Words } from '../machines/model.ts'
-import { nativeGlyphOs, nativeNameKey, osOfView, stepReasons, type HostOs } from '../machines/needs.ts'
+import { nativeGlyphOs, osOfView, stepReasons, type HostOs } from '../machines/needs.ts'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { CopyLine } from '../ui/index.tsx'
 import { useQuery } from '../ui/use-query.ts'
@@ -298,7 +298,7 @@ function PlatformLine({ row, os, open, onOpen, t, tm, tw, recheck }: {
   const check = () => { setChecking(true); void recheck().finally(() => setChecking(false)) }
   const native = row.platform === 'native'
   const key = kindKey(row.platform)
-  const name = native ? tm(nativeNameKey(os)) : key ? tm(key) : row.platform
+  const name = key ? tm(key) : row.platform
   const blocked = row.state !== 'ready' && row.state !== 'available'
   // the state word says it (Not installed, Not running, Needs the Linux bundle); only a host fact to set up needs its reason
   const line = row.state === 'needsSetup' ? stepReasons(row.readiness, tw) : null

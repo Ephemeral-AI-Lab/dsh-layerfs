@@ -237,7 +237,7 @@ function SandboxesBody({ m, view, canCreate, onCreate, onImages, images }: TabPr
   const filters = SANDBOX_FILTERS.filter((f) => f === 'all' || counts[f] > 0 || f === filter)
   const running = machineState(m, view.live[m.name]).key === 'running'
   const emptyKey = sandboxesEmptyKey(m, view, running)
-  const empty = filter !== 'all' ? t('sbFilterEmpty') : t(emptyKey.key, { name: emptyKey.home ? t('homeName') : m.name })
+  const empty = filter !== 'all' ? t('sbFilterEmpty') : t(emptyKey, { name: m.name })
   return (
     <div className={css.tabStack}>
       <div className={css.tabToolbar}>

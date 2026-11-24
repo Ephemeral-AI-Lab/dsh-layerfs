@@ -155,7 +155,7 @@ test('P0-1 (Option A): opt-in Signal dot renders StateDot + full HoverCard body 
   for (const lang of ['en', 'zh']) {
     const t = makeT(lang)
     const doctorT = makeDocT(lang)
-    const place = (m) => (m === 'native' ? t('layerfsHome') : m ?? '?')
+    const place = (m) => m ?? '?'
 
     // app on unavailable stopped docker: opt-in dot -> warning StateDot; HoverCard content body itself carries full reason (no fix button)
     const appTrouble = M.storeTrouble(troubleView.stores[0], troubleView, t, place, emptyFleet)

@@ -616,7 +616,6 @@ const en = {
   mountPath: 'Mount path',
   wsNoneMounted: 'No Workspaces are mounted in this Sandbox.',
   // machine blocks: a machine over its Stores and Sandboxes (Board.tsx, Inventory.tsx, MachineDetail.tsx)
-  homeName: 'LayerFS Home',
   storesOnMachine: 'Stores on {name}',
   sandboxesOnMachine: 'Sandboxes on {name}',
   sandboxesUnread: 'Sandboxes could not be read',
@@ -1763,7 +1762,6 @@ const zh: typeof en = {
   wsStatusUnavailable: 'Workspace 状态不可用',
   mountPath: '挂载路径',
   wsNoneMounted: '此 Sandbox 中没有挂载 Workspace。',
-  homeName: 'LayerFS Home',
   storesOnMachine: '{name} 上的 Store',
   sandboxesOnMachine: '{name} 上的 Sandbox',
   sandboxesUnread: '无法读取 Sandbox',

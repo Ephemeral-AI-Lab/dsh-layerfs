@@ -45,7 +45,7 @@ export * from './e2e-inspect-logs-lib.mjs'
 
 const standin = cfg.standin
 export const home = process.env.DSH_LAYERFS_HOME || join(cfg.devDir, 'layerfs-home')
-const title = (name) => (name === 'native' ? 'LayerFS Home' : name.charAt(0).toUpperCase() + name.slice(1))
+const title = (name) => (name === 'native' ? name : name.charAt(0).toUpperCase() + name.slice(1))
 /** The four targets a row can use; `name` null when the environment names none. */
 export const T = {
   machine: { kind: 'machine', name: cfg.machine, title: cfg.machineTitle, env: 'MACHINE' },

@@ -74,7 +74,7 @@ Pages: [Store](store.md) · [Bucket](bucket.md)
 | Project sessions column | `… › <store> › Projects` | op `sessions.list` | — (this DSH) |
 | **Check integrity** / **Test connection** | `… › <store>` head | `POST /api/doctor/runs` `{kind: store}` | `store doctor` |
 | **⋯ › Push to…** → **Push** | `… › <store> ⋯` | `POST /api/stores/:id/push` | `store move <s> <m>` (a job), `backup list` |
-| **⋯ › Pull to home** / card **Pull** | `… › <store> ⋯` | `POST /api/stores/:id/pull` | `store get`, `store move <s> native` |
+| **⋯ › Pull to native** / card **Pull** | `… › <store> ⋯` | `POST /api/stores/:id/pull` | `store get`, `store move <s> native` |
 | **⋯ › Move to another machine…** → **Move** | `… › <store> ⋯` | `POST /api/stores/:id/move` | `store get`, `store move` ×2 through native |
 | **⋯ › Back up to…** → **Back up** / **Back up now** | `… › <store> ⋯`, Backups tab | `POST /api/stores/:id/backup` | `backup create`, then `backup list` |
 | **⋯ › Compact…** → **Compact** | `… › <store> ⋯` | `POST /api/stores/:id/compact` | `store get`, `store compact` |

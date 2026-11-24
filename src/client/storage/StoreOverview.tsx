@@ -314,7 +314,7 @@ function HealthCard({ store: s, view, t, now, stats, machineState }: { store: St
     rows.push({ key: 'server', tone: r === false ? 'danger' : r ? 'ok' : 'info', label: t('spServer'), text: r === false ? storeStateWords(s.state, t, s.reason) : r ? storeStateWords(s.state, t) : t('unknown') })
     rows.push({ key: 'backups', tone: 'info', label: t('backupsSection'), text: t('spPgBackups') })
   } else {
-    const place = s.machine === 'native' ? t('layerfsHome') : (s.machine ?? '?')
+    const place = s.machine ?? '?'
     const mh = overviewMachineHealth(s, machineState)
     rows.push({ key: 'machine', tone: mh.tone, label: t('spMachine'), text: t(mh.key, { machine: place }) })
     const backups = storeBackups(s, view.buckets)

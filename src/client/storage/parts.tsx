@@ -35,17 +35,6 @@ export function CloudGlyph({ size = 12 }: { size?: number }): ReactNode {
   )
 }
 
-/** The LayerFS Home's glyph in the explorer: a house. */
-export function HomeGlyph({ size = 15 }: { size?: number }): ReactNode {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" aria-hidden="true">
-      <path d="M2.5 7.25 8 2.75l5.5 4.5" />
-      <path d="M4 6.1v7.15h8V6.1" />
-      <path d="M6.75 13.25v-3.5h2.5v3.5" />
-    </svg>
-  )
-}
-
 /** A bucket's glyph. */
 export function BucketGlyph({ size = 18 }: { size?: number }): ReactNode {
   return (
@@ -223,7 +212,7 @@ export function FileGlyph({ size = 14 }: { size?: number }): ReactNode {
 export function locationWords(t: StorageT, view: Pick<StorageView, 'computer'> | undefined): LocationWords {
   const os = view?.computer?.os
   return {
-    home: t('layerfsHome'), thisMac: t(os === 'linux' ? 'nsThisLinux' : os === 'windows' ? 'nsThisPc' : 'nsThisMac'),
+    thisMac: t(os === 'linux' ? 'nsThisLinux' : os === 'windows' ? 'nsThisPc' : 'nsThisMac'),
     running: t('nsRunning'), stopped: t('nsStopped'), default: t('nsDefault'), here: t('nsHere'),
     nativeOs: os === 'linux' ? 'linux' : os === 'windows' || os === 'other' ? 'pc' : 'mac',
     state: (s) => storeStateWords(s, t),

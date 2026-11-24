@@ -14,7 +14,7 @@ import { ConfirmDialog as SharedConfirmDialog, Contained, Field, MenuSelect, Not
 import type { StorageT } from './locale.ts'
 import { backupStateOf, bucketParts, canMove, diskFit, inHome, listStatusWords, reconnectOf, storeStateWords, storeWaitsFor, type BackupState, type Reconnect } from './model.ts'
 import { BucketProviderGlyph } from '../machines/icons.tsx'
-import { LocationPicker, placeName, StartFirst } from '../projects/setup/MachineTiles.tsx'
+import { LocationPicker, StartFirst } from '../projects/setup/MachineTiles.tsx'
 import { defaultMachine, machinesFor, stoppedOf } from '../projects/setup/model.ts'
 import { placeStore, startMachine, waitJob } from '../projects/setup/run.ts'
 import { Signal } from './Signal.tsx'
@@ -127,7 +127,7 @@ function NewStoreDialog({ api, t, view, opened, initialPane, onClose, done, onDi
   const [placeChoice, setPlace] = useState<string | null>(null)
   const place = placeChoice ?? fallback
   const words = locationWords(t, view)
-  const where = placeName(place, words)
+  const where = place
   /** A Store this dialog made whose move failed: a retry only finishes that. */
   const [made, setMade] = useState<string | null>(null)
   const [stage, setStage] = useState<string | undefined>(undefined)
@@ -414,7 +414,7 @@ function ToMachineDialog({ api, t, view, machine, onClose, done, onDialog }: {
   const noPg = !supports('postgresql_sandbox') ? t('msNoPostgresql') : null
   const [chosen, setChosen] = useState('')
   if (!view) return null
-  const placeName = (name: string | null) => (name === 'native' ? t('layerfsHome') : name ?? '')
+  const placeName = (name: string | null) => name ?? ''
   const rows = view.stores
     .filter((s) => s.kind === 'sqlite' && s.machine !== machine)
     .map((s) => ({ s, why: noSqlite ?? (canMove(s) ? null : (storeWaitsFor(s, t) ?? t('storeBusyNow'))) }))

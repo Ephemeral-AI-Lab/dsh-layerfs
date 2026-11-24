@@ -354,7 +354,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
 
   // ---------- what the bar shows: crumbs, Jump to, Add ----------
 
-  const machineWord = (name: string) => (name === 'native' ? t('groupHome') : name)
+  const machineWord = (name: string) => name
   /** Every machine once: the home, Docker, then created machines by name. */
   const places = useMemo(() => {
     const byName = new Map<string, string>()

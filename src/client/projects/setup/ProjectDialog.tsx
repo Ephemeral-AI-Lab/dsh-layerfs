@@ -17,7 +17,6 @@ import { LayerfsGlyph } from '../../overview/glyph.tsx'
 import { messageOf, NAME, type ProjectInitJob, type ProjectRow } from '../../picker/NewProjectForm.tsx'
 import { slugify } from '../../picker/location.ts'
 import { useHostEvents } from '../../storage/hooks.ts'
-import { HomeGlyph } from '../../storage/parts.tsx'
 import { hasPgUrlLogin, isLinuxLocalhostUrl, PgLocalhostNotice, replaceLocalhostWithIpv4 } from '../../storage/pg-fields.tsx'
 import { Signal } from '../../storage/Signal.tsx'
 import type { StorageView, StoreRow } from '../../storage/types.ts'
@@ -33,7 +32,7 @@ import { setupStateWord, type SetupT } from './locale.ts'
 import type { MachinePlatformInfo } from '../../machines/model.ts'
 import { createSteps, defaultMachine, machinesFor, needsStart, pgLoginProblem, pickable, resolveNewStoreName, stoppedOf, tileBlocks, type CreatePlan, type PgLogin, type PgLoginProblem, type Step, type StoreKind } from './model.ts'
 import { pgDefaultMachine, pgPlaceable } from '../../storage/model.ts'
-import { LocationPicker, placeName, StartFirst, Tick, type LocationWords } from './MachineTiles.tsx'
+import { LocationPicker, StartFirst, Tick, type LocationWords } from './MachineTiles.tsx'
 import { placeStore, runStep, startMachine } from './run.ts'
 import css from './dialog.module.css'
 
@@ -140,7 +139,7 @@ function KindCard({ kind, selected, t, onSelect }: { kind: StoreKind, selected: 
 
 /** The tiles' words from this dialog's locale. */
 /** The tiles' words; `os` names the native machine (This Mac, unisolated; This computer, sandboxed; This PC). */
-const wordsOf = (t: SetupT, os?: string): LocationWords => ({ home: t('layerfsHome'), thisMac: t(os === 'linux' ? 'thisLinux' : os === 'windows' ? 'thisPc' : 'thisMac'), nativeOs: os === 'linux' ? 'linux' : os === 'windows' || os === 'other' ? 'pc' : 'mac', running: t('running'), stopped: t('stopped'), default: t('default'), here: t('here'), blocked: t('machineBlocked'), engineDown: t('engineDown'), state: (s) => setupStateWord(s, t) })
+const wordsOf = (t: SetupT, os?: string): LocationWords => ({ thisMac: t(os === 'linux' ? 'thisLinux' : os === 'windows' ? 'thisPc' : 'thisMac'), nativeOs: os === 'linux' ? 'linux' : os === 'windows' || os === 'other' ? 'pc' : 'mac', running: t('running'), stopped: t('stopped'), default: t('default'), here: t('here'), blocked: t('machineBlocked'), engineDown: t('engineDown'), state: (s) => setupStateWord(s, t) })
 
 function NewMachineTile({ api, t }: { api: LayerfsApi, t: SetupT }): ReactNode {
   return <button type="button" className={clsx(css.machine, css.newMachine)} onClick={() => { projectDialog.close(); openStorage(api, 'machines:new') }}>
@@ -168,7 +167,7 @@ function stepLabel(step: Step, plan: CreatePlan, t: SetupT): string {
   if (id === 'store') return t('step_store', { store })
   if (id === 'connect') return t('step_connect', { store })
   if (id === 'init') return plan.source ? t('step_import', { source: shortPath(plan.source), name: plan.name }) : t('step_init', { name: plan.name })
-  const machine = placeName(step.machine ?? '', wordsOf(t))
+  const machine = step.machine ?? ''
   if (id === 'open') return step.machine ? t('step_open_on', { machine }) : t('step_open')
   if (id.startsWith('attach:')) return t('step_attach', { store, machine })
   return t('step_place', { store, machine })
@@ -391,7 +390,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
     0: ok[0] ? (importing ? t('fromSummary', { name: slug, source: shortPath(source.trim()) }) : slug) : importing && !source.trim() ? t('needFolder') : t('notNamed'),
     1: !ok[1] ? (mode === 'existing' ? t('pickStore') : storeNameError ? t('renameStore') : kind === 'postgresql' && NAME.test(chosenStoreName) ? pgMissing(url.trim() && !urlError ? loginProblem : 'url', t) : t('needStoreName'))
       : existing ? `${kindWord} · ${existing.name}` : `${kindWord} · ${t('newWord')} · ${chosenStoreName}`,
-    2: ok[2] ? chosen.map((m) => placeName(m, words)).join(', ') : stopped.length ? t('needsStart', { machine: stopped.join(', ') }) : t('noneChosen'),
+    2: ok[2] ? chosen.map((m) => m).join(', ') : stopped.length ? t('needsStart', { machine: stopped.join(', ') }) : t('noneChosen'),
   }
   const railTitles: Record<Part, string> = { 0: t('stepProject'), 1: t('store'), 2: t('stepMachine') }
   const titles: Record<Part, string> = { 0: t('stepProject'), 1: t('store'), 2: kind === 'sqlite' ? t('stepMachine') : t('runsOn') }
@@ -494,7 +493,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
                       <span className={css.storeName}>{s.name}</span>
                       {storeFail ? <span className={clsx(css.storeStatusTag, broken ? css.storeStatusError : css.storeStatusWarn)}>{storeFail.short}</span> : null}
                       <span className={css.storeNote}>
-                        {kind === 'sqlite' ? placeName(s.machine ?? 'native', wordsOf(t)) : s.postgresql?.target ?? ''}
+                        {kind === 'sqlite' ? s.machine ?? 'native' : s.postgresql?.target ?? ''}
                         {' · '}{s.projects.length === 1 ? t('oneProject') : t('projects', { n: s.projects.length })}
                       </span>
                       {existing?.name === s.name ? <IconCheckOutlineRegular size={14} className={css.storeCheck} /> : null}
@@ -529,7 +528,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
           {offered.length === 0 ? <p className={css.notice}>{t('noMachines')}</p> : null}
           {/* Create starts no machine: each stopped one it needs has its own Start here */}
           <StartFirst names={stopped} words={startWords} start={(m) => startMachine(api, m)} onStarted={view.reload} />
-          {moving ? <p className={css.warn}>{t('moveWarn', { store: existing!.name, machine: placeName(chosenSqlite, words), n: Math.max(0, existing!.projects.length) })}</p> : null}
+          {moving ? <p className={css.warn}>{t('moveWarn', { store: existing!.name, machine: chosenSqlite, n: Math.max(0, existing!.projects.length) })}</p> : null}
           </div>
         </section>
       </fieldset>
@@ -613,7 +612,7 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
             <NewMachineTile api={api} t={t} />
           </LocationPicker>
         </Group>
-        {chosen !== current ? <p className={css.warn}>{t('moveWarn', { store: store.name, machine: placeName(chosen, words), n: others })}</p> : null}
+        {chosen !== current ? <p className={css.warn}>{t('moveWarn', { store: store.name, machine: chosen, n: others })}</p> : null}
         {/* moving starts no machine: each stopped one it needs has its own Start here */}
         {chosen !== current ? <StartFirst names={stoppedOf([current, chosen], view.data)} words={startWords} start={(m) => startMachine(api, m)} onStarted={view.reload} /> : null}
         {error ? <p className={css.error} role="alert">{error}</p> : null}
@@ -626,7 +625,7 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
               <Button variant="outline" disabled={!!busy} onClick={() => setTarget(null)}>{t('cancel')}</Button>
               <Button variant="primary" disabled={!!busy || stoppedOf([current, chosen], view.data).length > 0} icon={busy ? <StatusDot state="ongoing" size={13} /> : undefined}
                 onClick={() => void run('move', () => placeStore(api, store.name, chosen))}>
-                {busy ? t('moving') : t('moveTo', { machine: placeName(chosen, words) })}
+                {busy ? t('moving') : t('moveTo', { machine: chosen })}
               </Button>
             </>
             : <Button variant="primary" onClick={() => projectDialog.close()}>{t('done')}</Button>}
@@ -652,10 +651,8 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
                   ? t('pgReachFailed')
                   : t('pgReachUnchecked')
               return <span key={machine} className={css.reachChip} data-reach={c.reached} title={err ?? undefined}>
-                {machine === 'native'
-                  ? <HomeGlyph size={12} />
-                  : <MachineGlyph platform={mInfo?.platform ?? 'unknown'} size={12} mono />}
-                <span>{placeName(machine, words)}</span>
+                <MachineGlyph platform={mInfo?.platform ?? 'unknown'} size={12} mono />
+                <span>{machine}</span>
                 <span className={css.reachSep} aria-hidden="true">·</span>
                 <span className={css.reachState}>{statusText}</span>
               </span>

@@ -62,7 +62,7 @@ export function StoreProjects({ api, store, names, projects, stored, stores, fle
     stored && stored > 0 ? bytes(stored) : null,
     runningAll ? t('spRunningN', { n: String(runningAll) }) : null,
   ].filter(Boolean).join(' · ')
-  const place = (machine: string | null | undefined) => (machine === 'native' ? t('groupHome') : machine ?? '?')
+  const place = (machine: string | null | undefined) => machine ?? '?'
   return (
     <div className={css.stack}>
       <div className={css.toolbar}>

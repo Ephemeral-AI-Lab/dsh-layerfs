@@ -135,14 +135,14 @@ its note names them.
 The ⋯ in the head (and on every Store card) holds every Store-wide action. Full component
 reference: [Components › Store menu](components.md#store-menu).
 
-| SQLite on a machine | SQLite in the LayerFS Home |
+| SQLite on a machine | SQLite on native |
 |---|---|
 | ![Menu of demo-starter on docker](img/store-menu-machine.png) | ![Menu of guide-notes in the home](img/store-menu-home.png) |
 
 | Row | Shown for | Interaction → result | LayerFS call | Disabled when |
 |---|---|---|---|---|
-| **Push to…** | SQLite in the LayerFS Home | [Push](#modals-opened-here) → a job card | `store move <store> <machine>` | not Ready |
-| **Pull to home** | SQLite on a machine | A pull job starts at once | `store get`, then `store move <store> native` | not Ready |
+| **Push to…** | SQLite on native | [Push](#modals-opened-here) → a job card | `store move <store> <machine>` | not Ready |
+| **Pull to native** | SQLite on a machine | A pull job starts at once | `store get`, then `store move <store> native` | not Ready |
 | **Move to another machine…** | SQLite on a machine | [Move](#modals-opened-here) → a job card | `store get`, then `store move` ×2 through native | not Ready |
 | **Back up to…** | SQLite | [Back up](#modals-opened-here) (no bucket: Add bucket first) | `backup create`, then `backup list` | not Ready |
 | **Back up now · *bucket*/*file*** | SQLite, one row per linked bucket | A backup job starts at once | `backup create`, then `backup list` | not Ready |
@@ -163,11 +163,11 @@ Stores is the same board for every Store. The machine page itself is described i
 
 | # | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|---|
-| 1 | Kind switch | **SQLite** *n* **Stores · size** and **PostgreSQL** *n* **databases**; the note on hover (**The Store file lives on docker's disk. Pull brings it back to the LayerFS Home.**) | Click or ←/→ → that kind | — (remembered per machine in the browser) | a kind the machine cannot hold says why on hover |
-| 2 | **Push a Store here** (SQLite; **Add Store** on the LayerFS Home) | | Press → [Add a Store to *machine*](#modals-opened-here) | `store move` (push, pull, or pull then push) | off with a reason (**This machine cannot hold SQLite Stores.**) via `ExplainedButton` when the machine holds no SQLite Stores |
+| 1 | Kind switch | **SQLite** *n* **Stores · size** and **PostgreSQL** *n* **databases**; the note on hover (**The Store file lives on docker's disk. Pull brings it back to native.**) | Click or ←/→ → that kind | — (remembered per machine in the browser) | a kind the machine cannot hold says why on hover |
+| 2 | **Push a Store here** (SQLite; **Add Store** on native) | | Press → [Add a Store to *machine*](#modals-opened-here) | `store move` (push, pull, or pull then push) | off with a reason (**This machine cannot hold SQLite Stores.**) via `ExplainedButton` when the machine holds no SQLite Stores |
 | 2 | **+ Attach Store** (PostgreSQL) | | Press → the [attach picker](#modals-opened-here) listing PostgreSQL Stores not attached to this machine | `store attach` | |
 | 3 | Store card | [Components › Store card](components.md#store-card) | Name → Store page; ⋯ → Store menu; **Pull** / **Push to…** | `store move` | |
-| | Empty line | **No SQLite Store is on docker. Push one here to run its Sandboxes on it.** (**No SQLite Store is in LayerFS Home. Create one or pull one back from a machine.** on LayerFS Home) / **No PostgreSQL Store is attached to docker.** | — | — | |
+| | Empty line | **No SQLite Store is on docker. Push one here to run its Sandboxes on it.** (**No SQLite Store is on native. Create one or pull one back from a machine.** on native) / **No PostgreSQL Store is attached to docker.** | — | — | |
 
 A Store card on Home › Stores (the same card as on a machine's tab, plus **Stored on**):
 
@@ -197,8 +197,8 @@ failed. **Connect a database** and **New Store** start new ones.
 
 ## Variants
 
-- **SQLite in the LayerFS Home vs on a machine.** The place reads the machine's name, `native`
-  included (a link). The menu offers **Push to…** at home, **Pull to home** and
+- **SQLite on native vs on another machine.** The place reads the machine's name, `native`
+  included (a link). The menu offers **Push to…** on native, **Pull to native** and
   **Move to another machine…** on a machine; Health's Machine row follows the machine's state.
   A machine-held Store whose machine is stopped shows **docker is stopped.** with **Start
   docker**, and its size as **size seen** *when*.
@@ -211,11 +211,11 @@ failed. **Connect a database** and **New Store** start new ones.
 
 | Modal | Opened by | What it does | LayerFS call | Undo |
 |---|---|---|---|---|
-| [Push *store* to…](img/store-push.png) | ⋯ › **Push to…**; a card's **Push to…** | Pick a machine (with its free disk and the Store's size; refuses with a danger notice and disables **Push** when free disk is smaller than the Store, warns when headroom is under 1.15×; guarded **Start** *m* via `StartFirst` for a stopped machine); **Held now: LayerFS refuses to move the Store while these remain** lists the Sandboxes in the way and disables **Push** with a footer hint | `store move <s> <m>` (as a job) | **Pull to home** |
-| [Move *store* to another machine](img/store-move.png) | ⋯ › **Move to another machine…** | **A pull to LayerFS Home, then a push to the machine: two operations. If the push fails, the Store stays in LayerFS Home.** Shares Push's disk refusal/warning, guarded **Start** *m*, and **Held now** block | `store get`, `store move <s> native`, `store move <s> <m>` | move back |
+| [Push *store* to…](img/store-push.png) | ⋯ › **Push to…**; a card's **Push to…** | Pick a machine (with its free disk and the Store's size; refuses with a danger notice and disables **Push** when free disk is smaller than the Store, warns when headroom is under 1.15×; guarded **Start** *m* via `StartFirst` for a stopped machine); **Held now: LayerFS refuses to move the Store while these remain** lists the Sandboxes in the way and disables **Push** with a footer hint | `store move <s> <m>` (as a job) | **Pull to native** |
+| [Move *store* to another machine](img/store-move.png) | ⋯ › **Move to another machine…** | **A pull to native, then a push to the machine: two operations. If the push fails, the Store stays on native.** Shares Push's disk refusal/warning, guarded **Start** *m*, and **Held now** block | `store get`, `store move <s> native`, `store move <s> <m>` | move back |
 | [Back up *store* to…](img/store-backup.png) | ⋯ › **Back up to…**; Backups tab **Back up to…** or **Back up as new file…** | Buckets by provider, each saying what writing there does (**Already current**, **Updates the copy from…**, **New backup in this bucket**, **The copy is gone…**, **Both sides changed…**, **Bucket copy was rewritten elsewhere…**, **Not listed…**); **File** with **Change** (**Missing**, **Both changed** and **Bucket changed** require a fresh, valid file name); **Add a bucket** | `backup create <s> <b> [--file]`, then `backup list` | the old copy is replaced; no undo |
 | [Backups of *store*](img/store-backups-dialog.png) | A card's backups badge | Every copy grouped by provider under a health bar; each row's action (**Update**, **Back up now**, **Restore…**, **Back up as new file…** + **Restore…** on **Both changed**, or **Connect again…** on key refusal); **Back up to another bucket**; disabled row and footer buttons explain why. Lists each linked bucket again on open | `backup list` per linked bucket (read); `backup create` | — |
-| [Restore *bucket*/*file*](img/store-restore.png) | **Restore…** on Backups, a bucket page or the Backups dialog | **As a new Store** (with real-time name validation) or **Replace** *store* (refused with specific reasons unless the Store is in LayerFS Home, ready and idle, held by no running Sandbox, linked to that bucket, the bucket is listed without error, and the copy is present and verified unchanged since the last transfer; offers **List the bucket** inline when unlisted) | `backup restore <b> <file> <store>`, then `backup list` | remove the new Store |
+| [Restore *bucket*/*file*](img/store-restore.png) | **Restore…** on Backups, a bucket page or the Backups dialog | **As a new Store** (with real-time name validation) or **Replace** *store* (refused with specific reasons unless the Store is on native, ready and idle, held by no running Sandbox, linked to that bucket, the bucket is listed without error, and the copy is present and verified unchanged since the last transfer; offers **List the bucket** inline when unlisted) | `backup restore <b> <file> <store>`, then `backup list` | remove the new Store |
 | [Add project to *store*](img/store-add-project.png) | Projects tab **Add project** | Name, optional absolute **Source folder**; shows **Creating** *name* · *step* and counts | `project init` (host job, `GET /api/project-inits/:id` polls) | delete the project |
 | [Compact *store*?](img/store-compact.png) | ⋯ › **Compact…** | Plain confirm; **Compact** starts a job | `store compact` | — |
 | [Remove *store*?](img/store-remove.png) | ⋯ › **Remove…**, Store details **Remove…** | [Typed-name confirm](components.md#confirm-dialog): **Type** *name* **to confirm** | `store remove` ↻ | none (backups stay in buckets) |
@@ -225,7 +225,7 @@ failed. **Connect a database** and **New Store** start new ones.
 | Edit *store*'s connection | **Edit connection…**, **Edit…**, a failure's **Edit connection…** | Titled **Edit connection** with the Store's name under it: Address, User and Password (**Saved · leave empty to keep**); only what changed is sent. **Save and check** checks this computer, then every attached machine; the hint says **Checks from this computer, then from** *machines*. A refusal reads as in Connect | `store connect`, then `store doctor` ↻ | edit again |
 | Attach machines to *store* | **+ Attach machine**, ⋯ › **Attach a machine…**, a fix line | Titled **Attach machines**, the Store's name under it. Machines not attached yet, grouped by provider in alphabetical order (a lone machine named like its provider has no heading), with search from 6 choices; several at once. One that cannot attach is greyed with why and its action, in this order: **cannot run PostgreSQL Sandboxes**, **cannot reach this address** (**Edit connection…**; a local address and a machine LayerFS reports apart from this computer's network), **stopped** (**Start**). **Attach and check** attaches each in turn; a refusal names the machine and its label (a failed check from the machine keeps its status label, with **Edit connection…** when the connection can fix it; LayerFS's loopback refusal reads **cannot reach this address** with **Edit connection…**; any other refusal reads **not attached**; LayerFS's words on hover), the rest go on | `store attach --machine` per machine | **Detach** |
 | Attach Stores to *machine* | machine › Stores › PostgreSQL **+ Attach Store** | The same picker the other way, titled **Attach Stores**: PostgreSQL Stores not attached to this machine. A stopped machine shows **{machine} is stopped. Start it to attach Stores.** with **Start** above its greyed list | `store attach --machine` per Store | **Detach** |
-| [Add a Store to *machine*](img/store-to-machine.png) | machine › Stores **Push a Store here** / **Add Store** | **SQLite** (**Move one here**) or **PostgreSQL** (**Connect one, or run one here**); lists SQLite Stores on other machines with size and place (unavailable ones show why, e.g. **Start machine** *m* **first**); checks target free disk (refuses when smaller than the Store, warns under 1.15×), guarded **Start** *m*, **Held now** block, two-step note when moving between two non-Home machines; **Move here**; on LayerFS Home also **Or create an empty Store here: New Store** | `store get`, then `store move` (push, pull, or pull then push) | move it back |
+| [Add a Store to *machine*](img/store-to-machine.png) | machine › Stores **Push a Store here** / **Add Store** | **SQLite** (**Move one here**) or **PostgreSQL** (**Connect one, or run one here**); lists SQLite Stores on other machines with size and place (unavailable ones show why, e.g. **Start machine** *m* **first**); checks target free disk (refuses when smaller than the Store, warns under 1.15×), guarded **Start** *m*, **Held now** block, two-step note when moving between two non-Home machines; **Move here**; on native also **Or create an empty Store here: New Store** | `store get`, then `store move` (push, pull, or pull then push) | move it back |
 | [Add bucket](img/store-bucket-add.png) | Nav bar **Add › Add bucket**; Back up's **Add a bucket**; Backups tab **Add bucket…** | **MinIO** or **Cloudflare R2**, **Name**, **Bucket**, **Endpoint** or **Account ID** + **Jurisdiction**, **Prefix**, **Access key**, **Secret key**; returns to Back up when opened from it | `backup connect` (secret on stdin) ↻ | Disconnect the bucket |
 | Connect *bucket* again | **Connect again…** on a bucket whose key was refused | Same form, name locked and URL filled; the same URL replaces the key (**Key replaced; links kept**) and relists that bucket | `backup connect`, then `backup list` | — |
 

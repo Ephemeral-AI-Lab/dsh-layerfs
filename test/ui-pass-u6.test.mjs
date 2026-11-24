@@ -134,11 +134,11 @@ test('FAIL 9: an unreadable machine says "Record unreadable" (the message is the
   assert.match(spec, /<Item label=\{t\('downBecause'\)\} tone="danger" title=\{m\.message \?\? undefined\}>\{t\('stateUnreadable'\)\}<\/Item>/)
   assert.match(spec, /m\.fix && !unreadable/)
   const view = { readErrors: undefined }
-  assert.deepEqual(N.sandboxesEmptyKey(unreadable, view, false), { key: 'sandboxesRecordUnreadable', home: false })
+  assert.equal(N.sandboxesEmptyKey(unreadable, view, false), 'sandboxesRecordUnreadable')
   assert.doesNotMatch(M.machineLocales.en.sandboxesRecordUnreadable, /Start/)
-  assert.equal(N.sandboxesEmptyKey({ ...unreadable, platform: 'lima', state: 'stopped', reason: undefined }, view, false).key, 'sandboxesAfterStart')
-  assert.equal(N.sandboxesEmptyKey({ ...unreadable, platform: 'docker', state: 'stopped', reason: undefined }, view, false).key, 'sandboxesAfterWorker')
-  assert.equal(N.sandboxesEmptyKey({ ...unreadable, platform: 'lima', state: 'ready', reason: undefined }, view, true).key, 'noSandboxesHere')
+  assert.equal(N.sandboxesEmptyKey({ ...unreadable, platform: 'lima', state: 'stopped', reason: undefined }, view, false), 'sandboxesAfterStart')
+  assert.equal(N.sandboxesEmptyKey({ ...unreadable, platform: 'docker', state: 'stopped', reason: undefined }, view, false), 'sandboxesAfterWorker')
+  assert.equal(N.sandboxesEmptyKey({ ...unreadable, platform: 'lima', state: 'ready', reason: undefined }, view, true), 'noSandboxesHere')
   for (const file of ['src/client/machines/Inventory.tsx', 'src/client/machines/SandboxCards.tsx']) assert.match(src(file), /sandboxesEmptyKey\(m, view, running\)/, file)
 })
 

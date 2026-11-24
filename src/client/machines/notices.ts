@@ -74,12 +74,11 @@ export function chipOpWords(look: Pick<StateLook, 'label'> & { op?: SdkOperation
  * (start it, or its worker). A machine whose record LayerFS cannot read says
  * so: starting it is not offered.
  */
-export function sandboxesEmptyKey(m: MachineInfo, view: Pick<AvailableView, 'readErrors'>, running: boolean): { key: MachinesKey, home: boolean } {
-  const home = m.platform === 'native'
-  if (view.readErrors?.sandboxes) return { key: 'sandboxesUnread', home }
-  if (unreadableRecord(m)) return { key: 'sandboxesRecordUnreadable', home }
-  if (running) return { key: 'noSandboxesHere', home }
-  return { key: m.platform === 'docker' ? 'sandboxesAfterWorker' : 'sandboxesAfterStart', home }
+export function sandboxesEmptyKey(m: MachineInfo, view: Pick<AvailableView, 'readErrors'>, running: boolean): MachinesKey {
+  if (view.readErrors?.sandboxes) return 'sandboxesUnread'
+  if (unreadableRecord(m)) return 'sandboxesRecordUnreadable'
+  if (running) return 'noSandboxesHere'
+  return m.platform === 'docker' ? 'sandboxesAfterWorker' : 'sandboxesAfterStart'
 }
 
 /**

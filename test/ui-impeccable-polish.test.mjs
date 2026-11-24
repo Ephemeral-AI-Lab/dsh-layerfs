@@ -146,8 +146,8 @@ test('#1: storeStateWords and doctor words localize known reasons and fall back 
   assert.equal(dwZh.rowWord('record:custom_code'), 'Custom code')
 
   const nativeMachine = { key: 'machine:native', kind: 'machine', name: 'native', platform: 'native', machine: null, state: 'ready', reason: null, fix: null, message: null, op: null }
-  assert.equal(dwZh.nameOf(nativeMachine), 'LayerFS Home')
-  assert.equal(dwEn.nameOf(nativeMachine), 'LayerFS Home')
+  assert.equal(dwZh.nameOf(nativeMachine), 'native')
+  assert.equal(dwEn.nameOf(nativeMachine), 'native')
 
   const treeState = M.dm.setTree(M.dm.emptyState(), {
     at: 1000,

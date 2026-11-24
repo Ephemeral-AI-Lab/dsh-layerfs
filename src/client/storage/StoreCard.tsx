@@ -47,10 +47,9 @@ export interface StoreActions {
   detach: (machine: string) => void
 }
 
-/** Where a Store is: the home, a machine (opens it on Machines), or its PostgreSQL server. */
+/** Where a Store is: its machine (`native` too; opens it on Machines), or its PostgreSQL server. */
 export function Location({ store: s, t, onMachine }: { store: StoreRow, t: StorageT, onMachine: (name: string) => void }): ReactNode {
   if (s.kind === 'postgresql') return <span className={css.mono} title={s.postgresql?.target ?? undefined}>{s.postgresql?.target ?? t('postgresql')}</span>
-  if (inHome(s)) return <span>{t('layerfsHome')}</span>
   return <LinkButton onClick={() => s.machine && onMachine(s.machine)}>{s.machine ?? '?'}</LinkButton>
 }
 

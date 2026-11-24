@@ -39,7 +39,7 @@ The page remembers the tab per Sandbox.
 | **Diagnose** | | Press → the Doctor page runs this Sandbox's checks | `sandbox doctor` (on the Doctor page) | |
 | **Refresh** | | Reads the Sandbox now | `sandbox get` (read) | |
 | ⋯ | **Delete Sandbox…** (**Read Sandbox** after an uncertain delete), **Force delete Sandbox…** | See [Modals](#modals-opened-here) | `sandbox remove` / `sandbox remove --force` | **Delete** off while an operation runs |
-| Usage card | **Processor** (*n* **of** *m* **processors**, a bar), **Memory** (now, **peak**, file cache and tmpfs), **Processes** (**now**), **Out-of-memory kills** (**since it started**, red above 0), **read** *time* | — | — (the host's metrics sampler reads `machine stats` on the machine every 15 s) | A Sandbox with no cgroup of its own (LayerFS Home): **Not measured for this Sandbox:** *reason***. The whole machine is shown instead.**; an older worker: **This machine's worker is an older build: it sends no per-Sandbox values.** |
+| Usage card | **Processor** (*n* **of** *m* **processors**, a bar), **Memory** (now, **peak**, file cache and tmpfs), **Processes** (**now**), **Out-of-memory kills** (**since it started**, red above 0), **read** *time* | — | — (the host's metrics sampler reads `machine stats` on the machine every 15 s) | A Sandbox with no cgroup of its own (native): **Not measured for this Sandbox:** *reason***. The whole machine is shown instead.**; an older worker: **This machine's worker is an older build: it sends no per-Sandbox values.** |
 | Usage line | Without `machine stats`: **Usage** CPU time, memory now and peak, processes, from `sandbox get` | — | `sandbox get` (read) | Older CLIs |
 | On disk | Total, a bar and **Workspace changes**, **Own files**, **Runtime and log** | — | `machine stats --with space` on its machine (read, kept a minute) | **Reading disk use…**; not read with why |
 | Daemon | **Daemon reachable** / **Daemon not reached** / **Daemon not running** / **Daemon not reported**, one square per control slot, ***n* of *m* slots free · pid *n* · started *time***, ***n* retained failures** | **View** / **Hide** → a table of **Retained daemon failures** (slot, cause, age) | `sandbox get` (read) | |
@@ -136,11 +136,11 @@ gone, a refused read stops polling (**Stopped reading**).
 
 ## Variants
 
-- **A project conversation's Sandbox** (named `dsh-…`, on LayerFS Home for `handbook`): its
+- **A project conversation's Sandbox** (named `dsh-…`, on native for `handbook`): its
   Workspace is the conversation's. **Delete Sandbox…** closes it the way the conversation
   does: a checkpoint is saved first (`workspace status`, `workspace commit`), then
   `sandbox remove --force`.
-- **LayerFS Home** Sandboxes run as host processes: the Image fact reads **None · host
+- **native** Sandboxes run as host processes: the Image fact reads **None · host
   processes**, and the Usage card shows the whole machine, muted, with why.
 - **A gone Sandbox** (its daemon ended with the machine): no **New workspace**, the Daemon
   card says **Daemon not running**, and its card on the machine page offers **Close**.

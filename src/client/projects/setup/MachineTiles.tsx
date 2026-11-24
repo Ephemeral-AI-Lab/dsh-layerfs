@@ -2,7 +2,7 @@
  * Machines as tiles, shared by the project dialog and Storage's New Store:
  * one tile per machine (its mark, name, state, a badge), and the Location
  * picker: where a SQLite Store is placed, or where a PostgreSQL Store's
- * sessions run. `native` is shown as the LayerFS Home.
+ * sessions run. `native` is named like any machine.
  * A machine whose platform is not ready here (`blocks`, model.ts tileBlocks)
  * shows so and cannot be picked, except a docker machine whose Docker Engine
  * its Start launches (picked by the person, who presses its named Start).
@@ -18,8 +18,6 @@ import css from './dialog.module.css'
 
 /** The words a tile uses, from the caller's locale. */
 export interface LocationWords {
-  /** `native`'s name: LayerFS Home. */
-  home: string
   /** `native`'s note: This Mac, unisolated. */
   thisMac: string
   running: string
@@ -39,9 +37,6 @@ export interface LocationWords {
 }
 
 const NO_BLOCKS: ReadonlyMap<string, TileBlock> = new Map()
-
-/** A machine's name as shown: `native` is the LayerFS Home. */
-export const placeName = (name: string, words: Pick<LocationWords, 'home'>): string => (name === 'native' ? words.home : name)
 
 /** A machine's state in words: This Mac, Running, Stopped; Can't run here now when `block` says so. */
 export function machineNote(m: Machine, words: LocationWords, block?: TileBlock | undefined): string {
@@ -142,7 +137,7 @@ export function MachineTile({ m, label, selected, multi, note, badge, onSelect, 
 }
 
 /**
- * One machine, the LayerFS Home among them: where a SQLite Store lives, or
+ * One machine, `native` among them: where a SQLite Store lives, or
  * where a PostgreSQL Store's sessions run. `current` marks the Store's
  * machine (Here now); without it `fallback` is marked Default. `children` follow the tiles (a New machine tile).
  */
@@ -157,7 +152,7 @@ export function LocationPicker({ machines, value, onChange, words, label, curren
     {machines.map((m) => {
       const badge = current ? (m.name === current ? words.here : null) : m.name === fallback ? words.default : null
       const block = blocks.get(m.name)
-      return <MachineTile key={m.name} m={m} os={words.nativeOs} label={placeName(m.name, words)} multi={false} selected={value === m.name}
+      return <MachineTile key={m.name} m={m} os={words.nativeOs} label={m.name} multi={false} selected={value === m.name}
         // a broken machine is not picked here (its page holds the fix); one already chosen stays shown
         disabled={disabled || (((!!block && !block.startable) || m.state === 'broken') && value !== m.name)} blocked={!!block}
         note={machineNote(m, words, block)} badge={badge} compact={compact} onSelect={() => onChange(m.name)} />

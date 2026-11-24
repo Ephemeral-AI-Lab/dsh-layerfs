@@ -251,7 +251,7 @@ test('ui/205 StorePage: header chip, notice banner, and Health › Machine match
     const okHealthIdx = okHtml.indexOf('data-store-health')
     const okHealth = okHtml.slice(okHealthIdx, okHtml.indexOf('</ul>', okHealthIdx))
     assert.ok(okHealth.includes('data-tone="ok"'), `ready Health › Machine row must be ok (${lang})`)
-    assert.ok(okHealth.includes(t('spMachineRunning', { machine: M.storageLocales[lang].layerfsHome })), `ready Health › Machine must say running (${lang})`)
+    assert.ok(okHealth.includes(t('spMachineRunning', { machine: 'native' })), `ready Health › Machine must say running (${lang})`)
   }
 })
 

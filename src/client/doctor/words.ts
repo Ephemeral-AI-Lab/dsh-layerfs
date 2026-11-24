@@ -68,7 +68,7 @@ export function wordsOf(t: DoctorT) {
     const key = REASON_SHORT.get(raw.toLowerCase())
     return key ? cap(tt(key)) : human(raw)
   }
-  const nameOf = (x: Thing): string => (x.kind === 'home' ? tt('dpHomeName', { version: x.version ?? '' }).trim() : x.kind === 'machine' && x.name === 'native' ? tt('dpHomeMachine') : x.name)
+  const nameOf = (x: Thing): string => (x.kind === 'home' ? tt('dpHomeName', { version: x.version ?? '' }).trim() : x.name)
   const platform = (p: string | null | undefined): string => (p === 'native' ? tt('dpThisComputer') : p ?? '')
   const engine = (e: string | null | undefined): string => (e === 'postgresql' ? 'PostgreSQL' : 'SQLite')
   const provider = (p: string | null | undefined): string => (p === 'r2' ? 'Cloudflare R2' : p === 'minio' ? 'MinIO' : p === 's3' ? 'S3' : p ?? '')

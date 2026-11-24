@@ -20,7 +20,6 @@ import { TabBar } from '../ui/TabBar.tsx'
 import { useMachinesContext } from './context.tsx'
 import { useDetailTab } from './detail-tabs.ts'
 import { SandboxGlyph } from './icons.tsx'
-import { useMachineTitle } from './Inventory.tsx'
 import { InspectFiles } from './InspectFiles.tsx'
 import { LogPane } from './LogPane.tsx'
 import type { View } from './context.tsx'
@@ -43,8 +42,7 @@ export function SandboxDetail({ machine, name, go, refreshKey }: { refreshKey?: 
   const detail = useSandboxRead(name, listed?.state, listed?.workspaces, refreshKey)
   usePageReading(detail.loading)
   const closing = useClose(name)
-  const title = useMachineTitle()
-  const machineTitle = title({ name: machine, platform: parent?.platform ?? (machine === 'native' ? 'native' : '') })
+  const machineTitle = machine
   // 'terminals' keeps its stored value; it reads "Workspaces"
   const tabs: { value: 'overview' | 'terminals' | 'files' | 'log', label: string }[] = [
     { value: 'overview', label: t('tabOverview') },

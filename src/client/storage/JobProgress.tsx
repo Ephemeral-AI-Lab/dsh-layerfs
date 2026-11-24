@@ -47,7 +47,7 @@ function JobPanelView({ job: j, t, compact, onRetry, onDismiss, sandboxes, onOpe
     : resolved?.fix && fixes ? <FixAction line={resolved.line} fix={resolved.fix} runner={fixes} labels={refusalLabels(t)} />
       : holder && onOpen ? <Button variant="outline" size="sm" onClick={() => onOpen(holderTab(holder))}>{t('jobOpenSandbox', { name: holder.name })}</Button>
         : onRetry ? (
-          <Button variant="outline" size="sm" title={pushOnlyRetry ? t('jobRetryPushTip', { place: placeWords(j.target, t) }) : undefined} onClick={onRetry}>
+          <Button variant="outline" size="sm" title={pushOnlyRetry ? t('jobRetryPushTip', { place: placeWords(j.target) }) : undefined} onClick={onRetry}>
             {t(pushOnlyRetry ? 'jobRetryPush' : 'jobRetry')}
           </Button>
         ) : null

@@ -23,7 +23,6 @@ import { InspectFiles } from './InspectFiles.tsx'
 import { sandboxOfRunFolder } from './inspect-files.ts'
 import { LogPane } from './LogPane.tsx'
 import type { View } from './context.tsx'
-import { useMachineTitle } from './Inventory.tsx'
 import { BUILT_IN, clearingCall, downReason, fixAction, gib, runsFix, machineState, recordOutdated, vmGone, runtimeOf, sandboxesOn, heldStores, supports, unreadableRecord, type AvailableView, type MachineInfo } from './model.ts'
 import { MachineDialogs, MachineMenu, MachineProgress, MachineStateChip, PowerButton, hasSettings, useMachineRun } from './parts.tsx'
 import { engineStart, osOfView, stepReasons } from './needs.ts'
@@ -46,11 +45,10 @@ import logCss from './log.module.css'
 /** `onAddStore`: the page's Add Store for this machine (Storage's dialog); without it the Stores column has no action. `storesTab`: the Stores tab Storage draws (its Store cards and dialogs), else the plain list. */
 export function MachineDetail({ name, go, onAddStore, storesTab }: { name: string, go: (view: View) => void, onAddStore?: ((machine: string) => void) | undefined, storesTab?: ((machine: string) => ReactNode) | undefined }): ReactNode {
   const { t, useMachines, refusal } = useMachinesContext()
-  const title = useMachineTitle()
   const read = useMachines((s) => s)
   const view = read.data?.available ? read.data : null
   const m = view?.machines.find((x) => x.name === name)
-  const label = title({ name, platform: m?.platform ?? (name === 'native' ? 'native' : '') })
+  const label = name
   if (!view) {
     return (
       <Page wide label={label}>
@@ -79,7 +77,6 @@ function resourcesOf(m: MachineInfo, t: ReturnType<typeof useMachinesContext>['t
 
 function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableView, m: MachineInfo, go: (view: View) => void, onAddStore?: ((machine: string) => void) | undefined, storesTab?: ((machine: string) => ReactNode) | undefined }): ReactNode {
   const { t, tw, kind, api, doctorT, useStartups, refusal, stateWord } = useMachinesContext()
-  const title = useMachineTitle()
   const startup = useStartups((all) => all[m.name])
   const { run, pending: localPending, error: lastError, clear: clearError } = useMachineRun()
   const pending = localPending ?? (startup?.status === 'running' ? startup.kind : null)
@@ -104,7 +101,7 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
   const calls = clearingCall('machine', m.name, state.op)
   // New Sandbox also works on a stopped machine (Start and create); it waits only while a power action runs
   const canSandbox = pending === null
-  const name = title(m)
+  const name = m.name
   // Worker log: the pinned CLI has the call, and LayerFS says this machine has a worker log (no platform test here)
   const hasLog = view.features?.inspect?.machineLog === true && supports(m, 'log') === true
   // Files: the pinned CLI has machine.files (which views it has is LayerFS's answer, never a platform test here)

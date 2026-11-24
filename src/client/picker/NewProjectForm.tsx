@@ -110,8 +110,8 @@ export function NewProjectForm({ api, t, scratchKey, withSource, optionalSource 
   const sourceError = source.trim() && !source.trim().startsWith('/') ? t('sourceInvalid') : null
   const valid = locations !== null && !!target && NAME.test(slug) && !sourceError && (!withSource || !!source.trim()) && !busy
   const chosen = locations?.find((l) => l.store === store) ?? null
-  const machineLabel = (m: string) => (m === 'native' ? t('home') : m)
-  const locationLabel = (l: Location) => `${l.store} · ${l.kind === 'postgresql' ? (l.server ?? 'PostgreSQL') : t('home')}`
+  const machineLabel = (m: string) => m
+  const locationLabel = (l: Location) => `${l.store} · ${l.kind === 'postgresql' ? (l.server ?? 'PostgreSQL') : 'native'}`
 
   const changeSource = (value: string) => { setSource(value); if (!named) setName(slugify(basename(value))) }
   const browse = async () => {

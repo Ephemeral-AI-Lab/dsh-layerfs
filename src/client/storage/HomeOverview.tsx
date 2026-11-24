@@ -133,7 +133,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
     )
   }
 
-  const place = (machine: string | null | undefined) => (machine === 'native' ? t('groupHome') : machine ?? '?')
+  const place = (machine: string | null | undefined) => machine ?? '?'
   const stores = orderStores(view.stores)
   const sqlite = stores.filter((s) => s.kind === 'sqlite')
   const projectCount = stores.reduce((n, s) => n + s.projects.length, 0)
