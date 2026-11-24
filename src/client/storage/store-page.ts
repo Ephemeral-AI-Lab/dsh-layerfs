@@ -2,17 +2,17 @@
  * The Store page's tabs and the numbers its views draw, kept free of React so
  * they are unit tested (test/store-page.test.mjs).
  *
- * - Tabs: Overview, Projects, and Backups (SQLite) or Connections (PostgreSQL).
+ * - Tabs (SQLite): Overview, Projects, and Backups.
  * - The database file's parts (`store get --with stats`: stored content, metadata, reusable pages).
  * - The Store's growth from the host's observation journal of `store.stats` reads.
  * - Each project's share of the Store's packed bytes, from the project ledgers.
  * - The project cards: order, search and the Sandboxes running per project.
  */
-export type StoreTab = 'overview' | 'projects' | 'backups' | 'connections'
+export type StoreTab = 'overview' | 'projects' | 'backups'
 
-/** The third tab follows the Store's family: a SQLite Store has backups, a PostgreSQL Store has its connection. */
+/** A SQLite Store page's tabs (a PostgreSQL Store has its own page: PgStorePage.tsx). */
 export function storeTabs(kind: string): StoreTab[] {
-  return ['overview', 'projects', kind === 'postgresql' ? 'connections' : 'backups']
+  return kind === 'postgresql' ? ['overview', 'projects'] : ['overview', 'projects', 'backups']
 }
 
 /** `GET /api/stores/<name>/stats`: the Store's engine and its `store get --with stats` section (LayerFS 2.0). */
@@ -88,7 +88,7 @@ export function growthRuns(journal: ObservationJournal | null | undefined): Grow
 export interface StoreProject {
   name: string
   created: number | null
-  totals: { saves: number, merges: number, branches: number, stored: number, metadata: number, commitLogical: number, canonical: number } | null
+  totals: { saves: number, merges: number, branches: number, stored: number, metadata: number, commitLogical: number, canonical: number, publications?: number } | null
   last: { id: string, time: number | null, branch: string, message: string } | null
   files: { files: number | null, complete: boolean } | null
   partial: boolean

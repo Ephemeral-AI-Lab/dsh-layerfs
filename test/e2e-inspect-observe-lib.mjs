@@ -33,7 +33,7 @@ import { NotRun, T, cfg, editor, home, probe, setup, sleep } from './e2e-inspect
 export * from './e2e-inspect-files-lib.mjs'
 
 const standin = cfg.standin
-const title = (name) => (name === 'native' ? 'LayerFS Home' : name === 'docker' ? 'Docker' : name)
+const title = (name) => (name === 'docker' ? 'Docker' : name)
 const target = (kind, name, env) => ({ kind, name, title: name ? (kind === 'machine' ? title(name) : name) : null, env })
 /** The machines and Sandboxes these rows open; `name` null when the environment names none. */
 export const O = {

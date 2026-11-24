@@ -18,38 +18,36 @@ export interface StoreBackupLink {
   attempt?: { op: string, at: number | null, error: unknown } | null
 }
 
-/** A PostgreSQL Store's login and the home's address for it (no user or password: the login is saved apart). */
+/**
+ * A PostgreSQL Store's saved connection (`store get`): the host is the one
+ * place its address and login are saved. Never a password.
+ */
 export interface PgServer {
-  /** The saved login's name (`store auths`). */
-  auth: string | null
-  /** The address every machine dials, `host:port/db` as `target`. */
+  /** The address (no user or password), `user@host:port/db` as `target`. */
   url: string | null
   target: string | null
   /** The server as `host:port` (host in lower case, port 5432 by default). */
   server: string | null
   database: string | null
+  /** The saved user; null when LayerFS gave none. */
+  user: string | null
+  /** Whether a password is saved; null when the Store's record could not be read. */
+  passwordSaved: boolean | null
+  passwordChangedAt: number | null
   /** The Store's synchronous_commit, or null (LayerFS's default). */
   synchronousCommit: string | null
-  /** The database's id (16 hex, `store get` `binding`): one database behind two addresses has one. */
+  /** The Store's id in its database (`store get` `id`). */
   binding?: string | null
+  /** The host's last check of the database; null when none was recorded. */
+  host?: PgReach | null
 }
 
-/** The last reach LayerFS saw from one side (spec v23 `connections[].reach`). */
+/** The last reach LayerFS saw from one side (`reach`, `machines[].reach`). */
 export interface PgReach { at: number | null, ok: boolean, latencyMs: number | null, version: string | null, error: string | null }
 
-/**
- * One side that connects to a PostgreSQL Store's database (spec v23
- * `connections` rows): this computer (`machine: null`, the Store's address),
- * a machine with an address of its own, one a reach was seen from, or one
- * with a Sandbox of the Store.
- */
-export interface PgConnection {
-  machine: string | null
-  /** The URL it dials (never a login). */
-  url: string | null
-  /** Whether the URL is the machine's own (`store connect --machine`). */
-  own: boolean
-  server: { host: string, port: number | null, database: string | null } | null
+/** One machine attached to a PostgreSQL Store (`store attach`): its Sandboxes may run there; it inherits the Store's address and login. */
+export interface PgAttached {
+  machine: string
   /** The last reach's word: `ok`, `failed`, or null when none was seen. */
   reached: 'ok' | 'failed' | null
   reach: PgReach | null
@@ -82,47 +80,25 @@ export interface StoreRow extends StateCompanions {
   links: StoreBackupLink[]
   job: string | null
   postgresql?: PgServer | null
-  /** PostgreSQL: every side that connects (this computer first), as LayerFS lists them (spec v23). */
-  connectedFrom?: PgConnection[]
-  /** PostgreSQL: the machines with an address of their own (store connect --machine). */
-  ownConnections?: PgOwnConnection[]
+  /** PostgreSQL: the machines attached to it, as LayerFS lists them. */
+  attached?: PgAttached[]
 }
 
-/** A machine's own address for a PostgreSQL Store; every other machine dials the Store's. */
-export interface PgOwnConnection {
-  machine: string
-  url: string
-  target: string | null
+/** GET /api/stores/:s/check: the reaches LayerFS recorded (host, then attached machines) and the doctor's failed checks. */
+export interface PgCheck {
+  store: string
+  host: PgReach | null
+  machines: PgAttached[]
+  findings: { check: string | null, from: string | null, message: string, fix?: string }[]
+  state?: string
+  reason?: string | null
+  error?: SdkRefusal
 }
 
-/** GET /api/stores/:s/check?machine=: what `machine` found (store doctor --machine: its store.connection check). Nothing keeps it. */
-export type PgCheck =
-  | { machine: string, host: string | null, port?: number | null, ok: true, at: number, version: string | null, latencyMs: number | null }
-  | { machine: string, host: string | null, port?: number | null, ok: false, error: { code: string, message: string, fix?: string, step?: string } }
-
-/** GET /api/store-auths: one saved PostgreSQL login (never its password); a file LayerFS cannot read is `broken` with its fix. */
-export interface PgAuth { auth: string, user: string | null, stores: string[], state?: string, reason?: string, fix?: string, created?: number | null, updated?: number | null }
-
-export interface PgRotationSide {
-  machine: string | null
-  own: boolean
-  host: string | null
-  status: 'ok' | 'failed' | 'skipped'
-  latencyMs?: number | null
-  reason?: string
-  error?: { code: string, message: string, fix?: string, step?: string }
-}
-
-/** POST /api/store-auths/:a/rotate: the login's Stores, each checked across its addresses after the new password was saved. */
-export interface PgRotation {
-  auth: string
-  checks: {
-    store: string
-    ok: boolean
-    partial?: boolean
-    sides?: PgRotationSide[]
-    error?: { code: string, message: string, fix?: string, step?: string }
-  }[]
+/** POST /api/stores/:s/attach: each machine's own answer. */
+export interface PgAttachResult {
+  store: string
+  results: ({ machine: string, ok: true, outcome: string, latencyMs: number | null, version: string | null } | { machine: string, ok: false, error: SdkRefusal })[]
 }
 
 /**
@@ -190,12 +166,11 @@ export type MachineSupports = readonly string[]
 
 /** GET /api/storage. */
 export interface StorageView {
-  machines: { name: string, platform: string, state: string | null, supports: MachineSupports | null }[]
+  /** `loopback`: whether the machine shares this computer's network (LayerFS's `shared` / `apart`), null when unknown. */
+  machines: { name: string, platform: string, state: string | null, supports: MachineSupports | null, reason?: string | null, loopback?: 'shared' | 'apart' | null }[]
   /** This computer (the native machine); absent from an older host. */
   computer?: { os: 'macos' | 'linux' | 'windows' | 'other', name: string | null, arch: string }
   stores: StoreRow[]
-  /** The saved PostgreSQL logins, with those no Store names (absent from an older host). */
-  auths?: PgAuth[]
   buckets: BucketRow[]
   /** Whether the home tree read succeeded and includes unlinked buckets. */
   bucketInventoryComplete?: boolean

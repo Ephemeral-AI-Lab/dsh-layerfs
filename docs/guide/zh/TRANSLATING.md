@@ -80,7 +80,8 @@ other word. The last column lists those known variants, so a reviewer does not "
 | Branch / Commit / checkpoint | 分支 / 提交 / 检查点 | |
 | bucket / backup / restore | 存储桶 / 备份 / 恢复 | |
 | Home (Center's first page) | 主页 | |
-| LayerFS Home, the native machine: where a Store lives, a machine card, a location, "pull to home" | LayerFS Home（保留英文） | **拉回 Home**（Pull to home） |
+| native, the machine whose Sandboxes run on the host OS (a Store's place, a machine card, a location, "pull to native"); never "LayerFS Home" | native（保留英文，机器名） | **拉回 native**（Pull to native） |
+| the LayerFS home: this computer's control data (records, secrets, runtimes); not a machine | LayerFS 主目录 | **此 LayerFS 主目录** |
 | the LayerFS home as a whole: its records, runtime, machines, call log ("this LayerFS home") | LayerFS 主目录 / 此主目录 | |
 | Overview / Files / History / Stats / Trajectory | 概览 / 文件 / 历史 / 统计 / 轨迹 | |
 | Doctor / Logs / Presets / Settings | 诊断 / 日志 / 预设 / 设置 | |

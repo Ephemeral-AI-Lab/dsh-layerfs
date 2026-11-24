@@ -15,12 +15,12 @@ import { Card, Empty, LoadError, Loading, Meter, Notice, Refusal, refusalOf } fr
 import { useMachinesContext } from './context.tsx'
 import { MachineGlyph, MachinesGlyph } from './icons.tsx'
 import type { View } from './context.tsx'
-import { Inventory, creatingOn, storeLines, useMachineTitle, type StoreMenuOf } from './Inventory.tsx'
+import { Inventory, creatingOn, storeLines, type StoreMenuOf } from './Inventory.tsx'
 import {
   RANK, downReason, gib, machineOrder, machineState, runsFix, runtimeOf, sandboxesOn, unreadableNamed, unreadableRecord, unreportedDiskKey,
   type AvailableView, type MachineInfo,
 } from './model.ts'
-import { engineStart, machineBlock, nativeGlyphOs, nativeNameKey, osOfView, stepReasons, type Readiness } from './needs.ts'
+import { engineStart, machineBlock, nativeGlyphOs, osOfView, stepReasons, type Readiness } from './needs.ts'
 import { MachineDialogs, MachineMenu, MachineProgress, MachineStateChip, PowerButton, useMachineRun } from './parts.tsx'
 import { ObservedDisk, useMachineStats } from './MachineStats.tsx'
 import { MemoryCell } from './MetricsViews.tsx'
@@ -211,7 +211,6 @@ function MachineRow({ m, view, chosen, onToggle, onOpen, onAddStore, storeMenu, 
   onAddStore?: ((machine: string) => void) | undefined, storeMenu?: StoreMenuOf | undefined, only: boolean
 }): ReactNode {
   const { t, tw, kind, api, doctorT, useStartups, refusal, stateWord } = useMachinesContext()
-  const title = useMachineTitle()
   const startup = useStartups((all) => all[m.name])
   const live = view.live[m.name]
   const startingNow = startup?.status === 'running'
@@ -224,7 +223,7 @@ function MachineRow({ m, view, chosen, onToggle, onOpen, onAddStore, storeMenu, 
   const pending = localPending ?? (startingNow ? startup.kind : null)
   const [dialog, setDialog] = useState<'settings' | 'remove' | 'force-stop' | null>(null)
   const [creating, setCreating] = useState(false)
-  const name = title(m)
+  const name = m.name
   const open = chosen ?? (only || attention !== null || startingNow || error !== null)
   const detailId = `machine-detail-${m.name}`
   const plus = <IconPlusOutlineRegular size={11} />
@@ -237,7 +236,7 @@ function MachineRow({ m, view, chosen, onToggle, onOpen, onAddStore, storeMenu, 
   const sandboxAction = !block
     ? <button type="button" className={css.columnAction} disabled={pending !== null || noUse !== null} onClick={() => setCreating(true)} title={noUse ?? t('newSandboxOn', { name })} data-no-use={noUse ? '' : undefined}>{plus}{t('newSandbox')}</button>
     : null
-  const sub = m.platform === 'native' ? `${t(nativeNameKey(osOfView(view)))} · ${tw(runtimeOf(m))}` : m.platform ? `${kind(m.platform)} · ${tw(runtimeOf(m))}` : t('platformUnknown')
+  const sub = m.platform ? `${kind(m.platform)} · ${tw(runtimeOf(m))}` : t('platformUnknown')
   // an unreadable record: the page's sentence, LayerFS's own words as its tip
   const unreadable = unreadableRecord(m)
   return (

@@ -71,8 +71,7 @@ test('the rows are the tree: every thing once, under its parent, with the facts 
   const api = p.thing('project:shop/api')
   assert.deepEqual([api.name, api.label, api.store, api.parent, api.machine], ['shop/api', 'api', 'shop', 'store:shop', 'machine:dev'])
   const pg = p.thing('store:analytics')
-  assert.deepEqual([pg.engine, pg.parent, pg.machine, pg.connections], ['postgresql', w.homeKey, null, 2])
-  assert.equal(p.thing('store:shop').connections, null)
+  assert.deepEqual([pg.engine, pg.parent, pg.machine], ['postgresql', w.homeKey, null])
   const ws = p.thing('workspace:tests:agent')
   assert.deepEqual([ws.label, ws.branch, ws.sandbox, ws.parent, ws.machine], ['agent', 'agent', 'tests', 'sandbox:tests', 'machine:native'])
   const box = p.thing('sandbox:sdk-1')
@@ -571,6 +570,5 @@ test('the page says everything in both languages: the same keys, the same placeh
   // the words the coordinator fixed
   assert.equal(en.dpOffSandboxes, '{n} Sandboxes are on it. Copy the fix to stop it anyway.')
   assert.equal(en.dpOffSandboxesOne, '1 Sandbox is on it. Copy the fix to stop it anyway.')
-  assert.deepEqual([en.dpFactConnectionsOne, en.dpFactConnections], ['1 connection', '{n} connections'])
   assert.deepEqual([en.dpTipWriteTested, en.dpTipWriteNever, en.dpTipFullStopped], ['Write tested at {time}.', 'Write never tested: Full check only.', 'Full check stopped at {elapsed}.'])
 })

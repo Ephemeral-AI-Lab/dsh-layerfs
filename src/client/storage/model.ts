@@ -1,6 +1,6 @@
 /** Storage's pure rules: placement, attention and job words. No React. */
 import type { Tone } from '../ui/index.tsx'
-import type { BackupFile, BucketRow, JobKind, PgConnection, StorageJob, StorageView, StoreBackupLink, StoreRow } from './types.ts'
+import type { BackupFile, BucketRow, JobKind, StorageJob, StorageView, StoreBackupLink, StoreRow } from './types.ts'
 import type { StorageKey, StorageT } from './locale.ts'
 import { connectBucketFix } from '../../shared/doctor.ts'
 
@@ -255,15 +255,14 @@ export function storeStateWords(state: string, t: StorageT, reason?: string | nu
 }
 
 /**
- * A PostgreSQL Store whose record names no saved login (one connected before
- * saved logins). LayerFS 2.0 does not dial it: it is `broken` `outdated` and
- * every call is refused until a login is saved and named
- * (`store save-auth` then `store update --auth`).
+ * A broken PostgreSQL Store with no saved password: every call is refused
+ * until its connection is given again (`store connect` with the user and
+ * password: Edit connection…).
  */
-export const needsLogin = (s: Pick<StoreRow, 'kind' | 'state' | 'reason' | 'postgresql'>): boolean =>
-  s.kind === 'postgresql' && s.state === 'broken' && ((s.reason === 'outdated' && !s.postgresql?.auth) || (s.reason === 'missing' && !!s.postgresql?.auth))
+export const needsLogin = (s: Pick<StoreRow, 'kind' | 'state' | 'postgresql'>): boolean =>
+  s.kind === 'postgresql' && s.state === 'broken' && s.postgresql?.passwordSaved === false
 
-/** A broken Store's words: an unknown outcome, a PostgreSQL Store with no saved login, else the state word and its reason. */
+/** A broken Store's words: an unknown outcome, a PostgreSQL Store with no saved password, else the state word and its reason. */
 export function brokenWords(s: Pick<StoreRow, 'kind' | 'state' | 'reason' | 'postgresql'>, t: StorageT): string {
   if (s.reason === 'unresolved') return t('unresolved')
   if (needsLogin(s)) return `${t('stateBroken')} · ${t('reasonNoLogin')}`
@@ -275,8 +274,8 @@ export const sessionsUnavailable = (s: { state?: string | null } | undefined): b
 
 /**
  * A Store's hover tip: LayerFS's own sentence when its answer has one; a
- * PostgreSQL Store with no saved login says what LayerFS's refusal says
- * (`store list` gives no sentence for it); else its fix line.
+ * PostgreSQL Store with no saved password says to edit its connection;
+ * else its fix line.
  */
 export function storeTip(s: Pick<StoreRow, 'name' | 'kind' | 'state' | 'reason' | 'postgresql' | 'message' | 'fix'>, t: StorageT): string | undefined {
   if (s.message) return s.message
@@ -360,7 +359,7 @@ export const latestBackup = (s: StoreRow): number | null =>
   s.links.reduce<number | null>((n, l) => (l.last?.at != null && (n === null || l.last.at > n) ? l.last.at : n), null)
 
 /** Where a Store is, in words: the home, a machine, or PostgreSQL. */
-export const placeWords = (machine: string | null | undefined, t: StorageT): string => (machine === 'native' ? t('layerfsHome') : (machine ?? '?'))
+export const placeWords = (machine: string | null | undefined): string => machine ?? '?'
 
 /** One file a bucket holds: the file, the Store it belongs to, its last listed state. */
 export interface BucketFileRow {
@@ -500,9 +499,9 @@ export function stepWords(step: string | null, t: StorageT): string {
 /** What a running job does, in words. */
 export function doingWords(j: StorageJob, t: StorageT): string {
   switch (j.kind) {
-    case 'push': return t(j.made ? 'jobMaking' : 'jobPushing', { place: placeWords(j.target, t) })
-    case 'pull': return t('jobPulling', { place: placeWords(j.from, t) })
-    case 'move': return t('jobMoving', { place: placeWords(j.target, t) })
+    case 'push': return t(j.made ? 'jobMaking' : 'jobPushing', { place: placeWords(j.target) })
+    case 'pull': return t('jobPulling', { place: placeWords(j.from) })
+    case 'move': return t('jobMoving', { place: placeWords(j.target) })
     case 'backup': return t('jobBackingUp', { place: j.target })
     case 'restore': return t('jobRestoring', { place: j.file ? `${j.target}/${j.file}` : j.target })
     case 'compact': return t('jobCompacting', { place: j.store })
@@ -537,12 +536,12 @@ export const holderTab = (b: Holder): `sandbox:${string}` => `sandbox:${b.machin
 export function endedWords(j: StorageJob, t: StorageT, size?: (n: number) => string): string {
   if (j.outcome === 'unknown') return t('jobUnknown')
   if (j.outcome === 'interrupted') return t('jobInterrupted')
-  const place = j.kind === 'pull' ? placeWords(j.from, t) : j.kind === 'backup' || j.kind === 'restore' ? j.target : j.kind === 'compact' ? j.store : placeWords(j.target, t)
+  const place = j.kind === 'pull' ? placeWords(j.from) : j.kind === 'backup' || j.kind === 'restore' ? j.target : j.kind === 'compact' ? j.store : placeWords(j.target)
   const failPhase = j.error?.phase ?? j.phase ?? null
   if (j.error && failPhase === 'retire' && (j.kind === 'push' || j.kind === 'pull' || j.kind === 'move')) {
     return j.kind === 'pull' || j.half === 'pull'
-      ? t('jobRetireHome', { from: placeWords(j.from, t) })
-      : t('jobRetireTarget', { place: placeWords(j.target, t) })
+      ? t('jobRetireHome', { from: placeWords(j.from) })
+      : t('jobRetireTarget', { place: placeWords(j.target) })
   }
   if (movePushFailed(j)) {
     return inUseJob(j)
@@ -550,7 +549,7 @@ export function endedWords(j: StorageJob, t: StorageT, size?: (n: number) => str
       : t('jobMovePushFailed', { place, phase: failPhase ? stepWords(failPhase, t) : '—' })
   }
   if (j.error && j.kind === 'move' && j.half === 'pull' && j.from) {
-    const from = placeWords(j.from, t)
+    const from = placeWords(j.from)
     return inUseJob(j)
       ? t('jobMovePullInUse', { place, from })
       : t('jobMovePullFailed', { place, from, phase: failPhase ? stepWords(failPhase, t) : '—' })
@@ -619,32 +618,16 @@ export function jobCounts(jobs: readonly StorageJob[], dismissed: ReadonlySet<st
   return { running: last.filter((j) => !j.ended).length, failed: last.filter((j) => j.ended && j.error && !dismissed.has(j.id)).length }
 }
 
-// ---------- PostgreSQL: who connects (spec v23) ----------
+// ---------- PostgreSQL: the machines attached to a Store ----------
 
-/** A connections row's machine as the page names machines: this computer is `native`. */
-export const rowMachine = (c: Pick<PgConnection, 'machine'>): string => c.machine ?? 'native'
-
-/** The machines a PostgreSQL Store's database is connected from, this computer first (as `native`). */
-export function connectedMachines(s: Pick<StoreRow, 'connectedFrom'>): string[] {
-  return (s.connectedFrom ?? []).map(rowMachine)
+/** The machines attached to a PostgreSQL Store, in LayerFS's order. */
+export function attachedMachines(s: Pick<StoreRow, 'attached'>): string[] {
+  return (s.attached ?? []).map((a) => a.machine)
 }
 
-/** `machine`'s row of a PostgreSQL Store (this computer's for `native` without an address of its own), or null. */
-export function connectionOf(s: Pick<StoreRow, 'connectedFrom'>, machine: string): PgConnection | null {
-  const rows = s.connectedFrom ?? []
-  return rows.find((c) => c.machine === machine) ?? (machine === 'native' ? rows.find((c) => c.machine === null) ?? null : null)
-}
-
-/** The name a new login for `server` (`host:port`) gets by default (spec v23 V23-12): `pg-<host>-<port>`, never the Store's. */
-export function pgServerLogin(server: string | null | undefined): string | null {
-  if (!server) return null
-  const name = `pg-${server}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '').slice(0, 63).replace(/-+$/, '')
-  return /^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/.test(name) ? name : null
-}
-
-/** The PostgreSQL Stores connected from `machine` (its `connections` name it), or with a Sandbox there now (`busy`: their names), by name. */
+/** The PostgreSQL Stores attached to `machine`, or with a Sandbox there now (`busy`: their names), by name. */
 export function pgStoresOn(view: Pick<StorageView, 'stores'>, machine: string, busy: ReadonlySet<string> = new Set()): StoreRow[] {
-  return view.stores.filter((s) => s.kind === 'postgresql' && (connectedMachines(s).includes(machine) || busy.has(s.name))).sort((a, b) => a.name.localeCompare(b.name))
+  return view.stores.filter((s) => s.kind === 'postgresql' && (attachedMachines(s).includes(machine) || busy.has(s.name))).sort((a, b) => a.name.localeCompare(b.name))
 }
 
 /** Whether a new PostgreSQL session may be placed on `m`: it runs, runs PostgreSQL Sandboxes and is not broken (the host's placement.ts). */
@@ -654,21 +637,13 @@ export const pgPlaceable = (m: { state?: string | null, supports?: readonly stri
 /**
  * The machine a new session of PostgreSQL Store `s` runs on when the person
  * names none (the host's placement.ts order, without its Sandbox read): the
- * project's last machine when given, a machine the database was reached
- * from, else native. Never a broken or stopped machine.
+ * project's last machine while it is attached, else the only attached
+ * machine, else none (null: the person picks one). Never a broken or stopped
+ * machine, and never a machine guessed.
  */
-export function pgDefaultMachine(s: Pick<StoreRow, 'connectedFrom'> | undefined, machines: readonly { name: string, state?: string | null, supports?: readonly string[] | null }[], last?: string | null): string {
+export function pgDefaultMachine(s: Pick<StoreRow, 'attached'> | undefined, machines: readonly { name: string, state?: string | null, supports?: readonly string[] | null }[], last?: string | null): string | null {
   const ok = (name: string | null | undefined): name is string => !!name && pgPlaceable(machines.find((m) => m.name === name))
-  if (ok(last)) return last
-  return (s?.connectedFrom ?? []).filter((c) => c.reached === 'ok').map(rowMachine).find(ok) ?? 'native'
-}
-
-/** What a machine of `platform` dials for a server on this host's localhost (LayerFS's reach rewrite). Linux docker uses `--network host` (no rewrite). */
-export function loopbackAlias(platform: string, hostOs?: 'macos' | 'linux' | 'windows' | 'other'): string | null {
-  switch (platform) {
-    case 'docker': return hostOs === 'linux' ? null : 'host.docker.internal'
-    case 'lima': return '192.168.5.2'
-    case 'apple-container': return '192.168.64.1'
-    default: return null
-  }
+  const rows = s?.attached ?? []
+  if (ok(last) && rows.some((a) => a.machine === last)) return last
+  return rows.length === 1 && ok(rows[0]!.machine) ? rows[0]!.machine : null
 }

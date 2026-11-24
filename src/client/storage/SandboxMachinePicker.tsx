@@ -25,7 +25,7 @@ export function SandboxMachinePicker({ t, machines, reason, onPick, onClose }: {
       <div className={css.form}>
         {reason ? <p role="status">{reason}</p> : machines.map((m) => (
           <Button key={m.name} variant="outline" onClick={() => onPick(m)}>
-            {m.name === 'native' ? t('groupHome') : m.name} · {mc.kind(m.platform)} · {mc.stateWord(machineState(m))}
+            {m.name} · {mc.kind(m.platform)} · {mc.stateWord(machineState(m))}
           </Button>
         ))}
       </div>

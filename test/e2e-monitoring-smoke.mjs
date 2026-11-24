@@ -56,14 +56,14 @@ try {
 
   // Overview → Machines tab: the native machine is listed.
   await editor().getByRole('tab', { name: /^Machines\b/ }).first().click()
-  // The machines table has a row for the native machine ("LayerFS Home") and one for docker.
+  // The machines table has a row for the native machine ("native") and one for docker.
   for (const name of ['native', 'docker']) await editor().locator(`[data-machine="${name}"]`).first().waitFor().catch(() => fail(`Machines tab: no ${name} machine row`))
   await page.screenshot({ path: join(shots, 'smoke-machines-tab.png') })
 
-  // The native machine's page (Jump to → LayerFS Home).
+  // The native machine's page (Jump to → native).
   await bar.getByRole('button', { name: /^Jump to/ }).click()
-  await page.getByRole('combobox', { name: 'Jump to' }).fill('LayerFS Home')
-  await page.getByRole('listbox', { name: 'Jump to' }).getByRole('option').filter({ has: page.locator('span', { hasText: /^LayerFS Home$/ }) }).first().click()
+  await page.getByRole('combobox', { name: 'Jump to' }).fill('native')
+  await page.getByRole('listbox', { name: 'Jump to' }).getByRole('option').filter({ has: page.locator('span', { hasText: /^native$/ }) }).first().click()
   await editor().getByRole('heading', { level: 1 }).first().waitFor().catch(() => fail('machine page: no heading'))
   await page.waitForTimeout(1500)
   await page.screenshot({ path: join(shots, 'smoke-machine-native.png') })

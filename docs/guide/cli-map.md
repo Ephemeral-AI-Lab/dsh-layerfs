@@ -8,7 +8,7 @@ the same calls in their tables; this is the whole list in one place.
   operation. **ops** are named host operations (`session.place`, `sessions.choose`, …).
 - **LayerFS calls** are `layerfs <family> <call>`. "(read)" marks reads a view makes to
   draw itself. ↻ means the Storage view is read again afterwards (`home get`, `project list`,
-  `store auths`, `store list`). `—` means no LayerFS call: the answer comes from host memory,
+  `store get` per PostgreSQL Store, `store list`). `—` means no LayerFS call: the answer comes from host memory,
   the host's own logs, or this browser.
 - Several calls in a row run in that order. When the first is refused, the rest don't run.
 - To see the calls a click actually ran, open [Logs](logs.md): every row there is one call,
@@ -21,13 +21,13 @@ Pages: [Home](home.md) · [Entry points](entry-points.md)
 
 | Interaction | Where | Host route or op | LayerFS call(s) |
 |---|---|---|---|
-| Home draws | `LayerFS › Home` | `GET /api/storage`, `GET /api/projects` | `home get`, `project list`, `store auths`, `store list` (read) |
+| Home draws | `LayerFS › Home` | `GET /api/storage`, `GET /api/projects` | `home get`, `project list`, `store list`, `store get` per PostgreSQL Store (read) |
 | Doctor count, home checks | Home › Overview head | `GET /api/doctor/results`, `POST /api/doctor/runs` `{kind: home}` | host memory; `home doctor` |
 | Overview head Refresh | Home › Overview head | the Storage view, projects and a doctor run | the reads above, then `home doctor` |
 | Runtime, Settings | Home › Overview head | ops `setup.status`, `runtime.status` | `home get` (+ `home init` if missing); `--version --json` |
 | Jump to, crumb switcher, Back, Forward | nav bar | — | — |
 | **Add › New Store** | nav bar | `POST /api/stores` | `store create` |
-| **Add › Connect a database** | nav bar | `POST /api/stores/postgresql` | `store save-auth`, `store connect`, `store get` |
+| **Add › Connect a database** | nav bar | `POST /api/stores/postgresql` | `store connect` (password on stdin) |
 | **Add › New machine** | nav bar | `POST /api/machines` | `home get`, `machine create` |
 | **Add › Add bucket** | nav bar | `POST /api/buckets` | `backup connect` |
 | Project rows (commit line, counts, size) | `Home › Projects` | `GET /api/stores/:id/projects`, `GET /api/projects/:key/size` | `branch get`, `project list`, `project stats`; `project get`, `store get` (read) |
@@ -35,7 +35,7 @@ Pages: [Home](home.md) · [Entry points](entry-points.md)
 | Open a session line | `Home › Projects`; the sidebar's LayerFS view | op `sessions.open` | none if local; else `branch list`, `project export` |
 | **⋯ › New session** / **+ New session** | `Home › Projects` | op `sessions.choose` | `project get` (+ `branch list`, `branch fork` on first use) |
 | **⋯ › Delete project…** | `Home › Projects` | `DELETE /api/projects/:key` | `project delete` |
-| PostgreSQL sizes and logins | `Home › Stores › PostgreSQL` | `GET /api/stores/:id/stats`, `GET /api/store-auths` | `store get`; `store auths` |
+| PostgreSQL rows: sizes, connection and reaches | `Home › Stores › PostgreSQL` | `GET /api/stores/:id/stats`, `GET /api/storage` | `store get` |
 | Machines table | `Home › Machines` | `GET /api/machines`, `GET /api/metrics`, `GET /api/machines/:id/space` | `home get`, `machine get`, `machine list`, `sandbox list`, `store list`; sampler memory; `machine stats` |
 | Row power **Start**, **Stop** → **Confirm: Stop** | `Home › Machines` | `POST /api/machines/:id/stop` / `start` | `machine stop` / `machine start` |
 | Row **Add Store** | `Home › Machines` | `POST /api/machines/:id/stores` | `store move` (a job) |
@@ -52,8 +52,8 @@ Pages: [Home](home.md) · [Entry points](entry-points.md)
 | Project control chip | New Session row | op `session.place` | — |
 | Scratch folder picker | New Session row, project session | ops `sessions.scratchOptions`, `sessions.scratch` | — |
 | Project dialog: **Create and open** | project dialog | `POST /api/project-sources/check`, `POST /api/stores`, `POST /api/projects`, `POST /api/machines/:id/stores`, op `sessions.choose` | `store create`, `project init`, `store move`, `project get` |
-| Project dialog: PostgreSQL **Connect** | project dialog | `POST /api/stores/postgresql` | `store save-auth`, `store connect`, `store get` |
-| Project dialog reads | project dialog | `GET /api/storage`, `GET /api/platforms`, `GET /api/store-auths` | the Storage view; `home get`; `store auths` |
+| Project dialog: PostgreSQL **Connect** | project dialog | `POST /api/stores/postgresql`, then `POST /api/stores/:id/attach` | `store connect`, then `store attach --machine` when the machine picked is not attached |
+| Project dialog reads | project dialog | `GET /api/storage`, `GET /api/platforms` | the Storage view; `home get` |
 | Project settings: **Move to {machine}** | project dialog › settings | `POST /api/machines/:id/stores` | `store move` |
 | Project settings: **Hide from sidebar** | project dialog › settings | — (this browser) | — |
 | Set up LayerFS: **Check** / **Check again** | Set up LayerFS | op `setup.status`, `GET /api/machines?fresh=1` | `home get`; `machine get`, `machine list` (read) |
@@ -66,7 +66,7 @@ Pages: [Store](store.md) · [Bucket](bucket.md)
 
 | Interaction | Where | Host route or op | LayerFS call(s) |
 |---|---|---|---|
-| Open the Store page | `LayerFS › Home › Stores › <store>` | `GET /api/storage` | `home get`, `project list`, `store auths`, `store list` (read) |
+| Open the Store page | `LayerFS › Home › Stores › <store>` | `GET /api/storage` | `home get`, `project list`, `store list`, `store get` per PostgreSQL Store (read) |
 | Overview file card and tiles | `… › <store> › Overview` | `GET /api/stores/:id/stats` | `store get --with stats` (read) |
 | How the Store grew | `… › <store> › Overview` | `GET /api/stores/:id/observations` | — (host journal of earlier reads) |
 | Projects tile, Projects tab, card rows | `… › <store> › Projects` | `GET /api/stores/:id/projects` | `project list`, `project stats`, `branch get` (read) |
@@ -74,20 +74,20 @@ Pages: [Store](store.md) · [Bucket](bucket.md)
 | Project sessions column | `… › <store> › Projects` | op `sessions.list` | — (this DSH) |
 | **Check integrity** / **Test connection** | `… › <store>` head | `POST /api/doctor/runs` `{kind: store}` | `store doctor` |
 | **⋯ › Push to…** → **Push** | `… › <store> ⋯` | `POST /api/stores/:id/push` | `store move <s> <m>` (a job), `backup list` |
-| **⋯ › Pull to home** / card **Pull** | `… › <store> ⋯` | `POST /api/stores/:id/pull` | `store get`, `store move <s> native` |
+| **⋯ › Pull to native** / card **Pull** | `… › <store> ⋯` | `POST /api/stores/:id/pull` | `store get`, `store move <s> native` |
 | **⋯ › Move to another machine…** → **Move** | `… › <store> ⋯` | `POST /api/stores/:id/move` | `store get`, `store move` ×2 through native |
 | **⋯ › Back up to…** → **Back up** / **Back up now** | `… › <store> ⋯`, Backups tab | `POST /api/stores/:id/backup` | `backup create`, then `backup list` |
 | **⋯ › Compact…** → **Compact** | `… › <store> ⋯` | `POST /api/stores/:id/compact` | `store get`, `store compact` |
 | **⋯ › Remove…** → **Remove** | `… › <store> ⋯`, Store details | `DELETE /api/stores/:id?confirm=` | `store remove` ↻ |
 | **⋯ › Disconnect…** (PostgreSQL) | `… › <store> ⋯` | `POST /api/stores/:id/disconnect` | `store disconnect` ↻ |
-| **⋯ › Disconnect <machine>** / Connection › **Forget** | `… › <store>` | `POST /api/stores/:id/connection` `{machine, clear}` | `store disconnect --machine` ↻ |
-| **⋯ › Check**, Connection › **Check**, a Connected-from chip, **Connect a machine** | `… › <store>` | `GET /api/stores/:id/check?machine=` | `store doctor --machine`, `store get` |
-| **Change login…** → Edit connection | `… › <store> › Connection` | `POST /api/stores/:id/connection` | `store connect`, `store save-auth`, `store update`, `store get` ↻ |
-| **Give <m> its own address** → **Save and check** | `… › Connection`, check screen | `POST /api/stores/:id/connection` `{machine, url}` | `store connect --machine`, then `store doctor --machine` |
-| **Save a login…** → **Save** | `… › <store>` | `POST /api/stores/:id/connection` | `store save-auth`, `store update --auth` ↻ |
-| **Rotate password…** → **Save and check** | `Home › Stores` PostgreSQL login header | `POST /api/store-auths/:id/rotate` | `store save-auth`, `store doctor` per Store, `store get` ↻ |
-| **Remove login** | `Home › Stores` PostgreSQL login ⋯ | `DELETE /api/store-auths/:id` | `store remove-auth` ↻ |
-| Saved logins list | PostgreSQL dialogs | `GET /api/store-auths` | `store auths` (read) |
+| **Detach** (Runs on row; a machine's Stores) | `… › <store>`, machine › Stores | `POST /api/stores/:id/detach` `{machine}` | `store detach --machine` ↻ |
+| **⋯ › Check**, **Check**, **Check all** | `… › <store>`, `Home › Stores` | `GET /api/stores/:id/check` | `store doctor`, `store get` |
+| **Edit connection…** → **Save and check** | `… › <store>`, a row's failure | `POST /api/stores/:id/connection` | `store connect`, then `store doctor` ↻ |
+| **+ Attach machine** → **Attach and check** | `… › <store> › Runs on`, a row | `POST /api/stores/:id/attach` `{machines}` | `store attach --machine` per machine |
+| **+ Attach Store** → **Attach and check** | machine › Stores › PostgreSQL | `POST /api/stores/:id/attach` `{machines: [m]}` per Store | `store attach --machine` |
+| A fix line's **Attach** *machine* | `… › <store>`, a project or session refusal | `POST /api/stores/:id/attach` `{machines: [m]}` | `store attach --machine` |
+| A fix line's **Edit connection…** | `… › <store>`, a project or session refusal | — (opens Edit connection) | — |
+| A failure's **Start** / **Update…** | a Runs on row, the attach picker | `POST /api/machines/:id/start`; the machine page | `machine start` |
 | **Add project** → **Create project** | `… › <store> › Projects` | `POST /api/projects`, `GET /api/project-inits/:id` | `project init` |
 | Backups tab › **Restore…** → **Restore Store** | `… › <store> › Backups` | `POST /api/buckets/:id/restore` | `backup restore`, then `backup list` |
 | Backups badge → Backups of <store> | Store cards | `GET /api/buckets/:id/files` (each linked bucket) | `backup list` (read) |
@@ -96,7 +96,7 @@ Pages: [Store](store.md) · [Bucket](bucket.md)
 | New Store › Restore from a backup → **Restore Store** | New Store dialog | `POST /api/buckets/:id/restore` (+ `POST /api/machines/:m/stores`) | `backup restore`, `backup list` (then `store move`) |
 | New Store › **List the bucket** | New Store dialog | `GET /api/buckets/:id/files` | `backup list` (read) |
 | **Start <machine>** in New Store or Push | dialogs | `POST /api/machines/:id/start` | `machine start` |
-| **Add › Connect a database** → **Connect** | nav bar Add, Home › Stores › PostgreSQL, a machine's Stores | `POST /api/stores/postgresql` | `store save-auth` (a new login), `store connect`, `store get` ↻, then `store doctor --machine` |
+| **Add › Connect a database** → **Connect** | nav bar Add, Home › Stores › PostgreSQL | `POST /api/stores/postgresql` | `store connect` ↻ (the check from this computer is the connect itself) |
 | Push a Store here / **Add Store** → **Move here** | `Machines › <m> › Stores` | `POST /api/machines/:id/stores` | `store get`, `store move` (push, pull, or pull then push) |
 | Job **Retry** | job card | the job's route again | the job's own calls |
 | Job **Dismiss** | job card | — | — (this browser) |

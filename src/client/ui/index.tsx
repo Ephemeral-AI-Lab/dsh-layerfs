@@ -354,8 +354,8 @@ export function FixAction({ line, fix, runner, labels }: { line: string, fix: Ru
   const [armedFor, setArmedFor] = useState(line)
   if (armedFor !== line) { setArmedFor(line); setStep('idle'); setFailed(null); setAt(null) }
   const removes = removesSomething(fix)
-  // a fix that opens something (the save-login dialog, the Doctor page) is not done when it opens
-  const opens = fix.kind === 'saveAuth' || fix.kind === 'doctor' || fix.kind === 'connectBucket'
+  // a fix that opens something (the Edit connection dialog, the Doctor page) is not done when it opens
+  const opens = fix.kind === 'connection' || fix.kind === 'doctor' || fix.kind === 'connectBucket'
   const steps: RunnableFix[] = fix.kind === 'chain' ? fix.steps : [fix]
   // a chain that removes data asks the typed-name confirm (every step listed) instead of the second press
   const typed = typedNameOf(fix)
@@ -489,14 +489,16 @@ export function Meter({ share, label, className, tone: fixed }: { share: number,
 // ---------- forms and menus ----------
 
 /** A labelled form field: its label, the control, then its error or hint. */
-export function Field({ label, error, hint, children, className, group }: {
+export function Field({ label, error, invalid, hint, children, className, group }: {
   label: string, error?: string | null | undefined, hint?: string | undefined, children: ReactNode, className?: string
+  /** Marked as refused with no words of its own (the form says why once, elsewhere). */
+  invalid?: boolean | undefined
   /** Several controls (a set of tiles): a div, so a click on the label or hint does not press the first one. */
   group?: boolean
 }): ReactNode {
   const Tag = group ? 'div' : 'label'
   return (
-    <Tag className={clsx(css.field, className)} data-invalid={error ? '' : undefined}>
+    <Tag className={clsx(css.field, className)} data-invalid={error || invalid ? '' : undefined}>
       <span className={css.fieldLabel}>{label}</span>
       {children}
       {error ? <span className={css.fieldError} role="alert">{error}</span> : hint ? <span className={css.fieldHint}>{hint}</span> : null}

@@ -28,6 +28,22 @@ export const opOf = (o: any) => {
 /** An ISO time (2.0 `*_at`) as epoch ms, or null. */
 export const msAt = (v: unknown): number | null => { if (typeof v !== 'string') return null; const at = Date.parse(v); return Number.isFinite(at) ? at : null }
 
+/**
+ * The machines attached to a PostgreSQL Store record (`store get` /
+ * `store list` `machines`: names, or `{ machine, reached, reach }` rows) in
+ * LayerFS's order. A machine attached but not checked yet has no reach
+ * (`reached` null).
+ */
+export function attachedOf(s: any): { machine: string, reached: 'ok' | 'failed' | null, reach: any }[] {
+  const rows: any[] = (Array.isArray(s?.machines) ? s.machines : []).map((r: any) => (typeof r === 'string' ? { machine: r } : r))
+    .filter((r: any) => typeof r?.machine === 'string' && r.machine)
+  return rows.map((r) => {
+    const reach = r.reach && typeof r.reach === 'object' ? r.reach : null
+    const reached = r.reached === 'ok' || r.reached === 'failed' ? r.reached : reach ? (reach.ok === true ? 'ok' : 'failed') : null
+    return { machine: String(r.machine), reached, reach }
+  })
+}
+
 /** A 2.0 thing's state companions: `blocked_by`, `reason`, `fix`, `message`, `observed_at` (absent when LayerFS gave none). */
 export function companionsOf(s: any): { blockedBy?: { machine?: string, store?: string, sandbox?: string, reason: string }, reason?: string, fix?: string, message?: string, observedAt?: number } {
   const out: ReturnType<typeof companionsOf> = {}
@@ -64,6 +80,8 @@ export function machineOf(m: any) {
     observedAt: text(m.observed_at),
     // `sqlite`, `postgresql_sandbox`, `log` (the machine has a worker log to read)
     supports: list(m.supports).map(String),
+    // whether the machine shares this computer's network (`shared`) or not (`apart`): a loopback database address works only when shared; null when LayerFS gives none
+    loopback: m.loopback === 'shared' || m.loopback === 'apart' ? m.loopback as 'shared' | 'apart' : null,
     cpus: num(m.cpus),
     memory: num(m.memory_bytes),
     disk: num(m.disk_bytes),

@@ -8,12 +8,12 @@ import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { FixAction, FixContext, LinkButton, MoreMenu, resolveFix, usePressGuard } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { blockedWords, brokenBlock, brokenWords, compactWaitsFor, inHome, latestBackup, needsLogin, stoppedBlock, storeMachineStopped, storeStateWords, storeTip, storeWaitsFor } from './model.ts'
+import { blockedWords, brokenBlock, brokenWords, compactWaitsFor, inHome, latestBackup, stoppedBlock, storeMachineStopped, storeStateWords, storeTip, storeWaitsFor } from './model.ts'
 export { brokenBlock, stoppedBlock }
 import { useMachinesMaybe } from '../machines/context.tsx'
 import type { MachineInfo } from '../machines/model.ts'
 import { refusalLabels } from './parts.tsx'
-import type { StorageJob, StoreBackupLink, StoreRow } from './types.ts'
+import type { PgCheck, StorageJob, StoreBackupLink, StoreRow } from './types.ts'
 import css from './Storage.module.css'
 
 export interface StoreActions {
@@ -33,38 +33,32 @@ export interface StoreActions {
   retry: (job: StorageJob) => void
   dismiss: (job: StorageJob) => void
   openMachine: (name: string) => void
-  /** PostgreSQL: edit the Store's connection, or (`machine`) that machine's own. */
-  editConnection: (machine?: string) => void
-  /** PostgreSQL: the check from a machine (this computer unless named); LayerFS records what it saw. */
-  check: (machine?: string) => void
-  /** PostgreSQL: Connect a machine: the check from a machine not yet connected, then its own address if it fails (spec v23). */
-  connectMachine: () => void
-  /** PostgreSQL: confirm, then remove a machine's own address (`own: true`) or forget its recorded check (`own: false`). */
-  removeOwn: (machine: string, own?: boolean) => void
-  /** PostgreSQL: Connect a database on this Store's server, with its user and password. */
-  newOnServer: () => void
+  /** Starts a machine (a stopped machine attached to a PostgreSQL Store). */
+  startMachine: (name: string) => void
+  /** SQLite: the Store's Backups dialog (its copies, Restore). */
+  backups: () => void
+  /** PostgreSQL: edit the Store's saved connection (address, user, password). */
+  editConnection: () => void
+  /** PostgreSQL: check from the host, then every attached machine; LayerFS records what it saw. Null when it was refused (the page shows why). */
+  check: () => Promise<PgCheck | null>
+  /** PostgreSQL: the attach picker (machines not attached yet, by provider). */
+  attach: () => void
+  /** PostgreSQL: detach a machine (refused while a Sandbox of the Store runs there). */
+  detach: (machine: string) => void
 }
 
-/** Where a Store is: the home, a machine (opens it on Machines), or its PostgreSQL server. */
+/** Where a Store is: its machine (`native` too; opens it on Machines), or its PostgreSQL server. */
 export function Location({ store: s, t, onMachine }: { store: StoreRow, t: StorageT, onMachine: (name: string) => void }): ReactNode {
   if (s.kind === 'postgresql') return <span className={css.mono} title={s.postgresql?.target ?? undefined}>{s.postgresql?.target ?? t('postgresql')}</span>
-  if (inHome(s)) return <span>{t('layerfsHome')}</span>
   return <LinkButton onClick={() => s.machine && onMachine(s.machine)}>{s.machine ?? '?'}</LinkButton>
 }
 
-/** A saved PostgreSQL login's own actions (a login group's header): a new password, and Remove while no Store names it. */
-export interface LoginActions {
-  rotate: (auth: string) => void
-  remove: (auth: string) => void
-}
-
 /**
- * A Store's ⋯ menu: every Store-wide action. A PostgreSQL Store's (spec v23
- * §5.1): Check (from this computer; on a machine page, `machine`: from that
- * one), Change login…, Disconnect a machine for each machine with an address
- * of its own, and Disconnect.
+ * A Store's ⋯ menu: every Store-wide action. A PostgreSQL Store's: Check
+ * (the host, then its attached machines), Edit connection…, Attach a
+ * machine…, and Disconnect.
  */
-export function StoreMenu({ store: s, on, t, machine, runningJob }: { store: StoreRow, on: StoreActions, t: StorageT, machine?: string | undefined, runningJob?: boolean | undefined }): ReactNode {
+export function StoreMenu({ store: s, on, t, runningJob }: { store: StoreRow, on: StoreActions, t: StorageT, machine?: string | undefined, runningJob?: boolean | undefined }): ReactNode {
   const pg = s.kind === 'postgresql'
   const storeBlocked = storeWaitsFor(s, t, !!runningJob)
   // LayerFS compacts a Store where it lives (a machine's sqlite Store on its worker); the 2.0 state alone decides
@@ -76,11 +70,9 @@ export function StoreMenu({ store: s, on, t, machine, runningJob }: { store: Sto
         const compact = on.compact ? <MenuItemButton disabled={compactBlocked !== null} disabledReason={compactBlocked ?? undefined} onSelect={run(on.compact)}>{t('compactStore')}</MenuItemButton> : null
         return pg ? (
           <>
-            <MenuItemButton onSelect={run(() => on.check(machine))}>{t('pgCheck')}</MenuItemButton>
-            <MenuItemButton onSelect={run(() => on.editConnection())}>{needsLogin(s) ? t('fixRunSaveLogin') : t('pgEditConnectionMenu')}</MenuItemButton>
-            {(s.ownConnections ?? []).map((c) => (
-              <MenuItemButton key={c.machine} onSelect={run(() => on.removeOwn(c.machine, true))}>{t('pgRemoveOwnMenu', { machine: c.machine === 'native' ? t('layerfsHome') : c.machine })}</MenuItemButton>
-            ))}
+            <MenuItemButton onSelect={run(() => { void on.check() })}>{t('pgCheck')}</MenuItemButton>
+            <MenuItemButton onSelect={run(on.editConnection)}>{t('pgEditConnectionShort')}</MenuItemButton>
+            <MenuItemButton onSelect={run(on.attach)}>{t('rowAttachMachineMenu')}</MenuItemButton>
             {compact}
             <MenuItemButton danger separatorBefore onSelect={run(on.disconnect)}>{t('disconnect')}</MenuItemButton>
           </>
@@ -150,9 +142,9 @@ export function storePageNotice(s: StoreRow, machineState: string | null | undef
 
 /**
  * A broken Store's one action: its `fix` line where Center can run it
- * ({@link FixContext}): Compact for an unknown outcome, Save a login… for a
- * PostgreSQL Store that names no saved login (the save-login dialog), and so
- * on. Null when the line stays a tip.
+ * ({@link FixContext}): Compact for an unknown outcome, Edit connection… for
+ * a PostgreSQL Store whose connection needs changing, and so on. Null when
+ * the line stays a tip.
  */
 export function StoreFixAction({ store: s, t }: { store: Pick<StoreRow, 'state' | 'fix'>, t: StorageT }): ReactNode {
   const fixes = useContext(FixContext)

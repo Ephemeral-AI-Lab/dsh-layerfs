@@ -16,7 +16,7 @@ import { EmptyState } from '../files/States.tsx'
 import { Card, FixContext, LoadError, Loading, Refusal, resolveFix, usePressGuard } from '../ui/index.tsx'
 import { isOverviewTab, type OverviewTab, type TabId } from './tabs.ts'
 import { BucketCards } from './BucketCards.tsx'
-import { HomeStores } from './MachineStores.tsx'
+import { StoreRows } from './StoreRows.tsx'
 import { ProjectTable } from './ProjectTable.tsx'
 import { ProjectFinderBar, useProjectFinder } from './ProjectFinder.tsx'
 import { projectMatches } from './project-list.ts'
@@ -25,7 +25,7 @@ import { useStartDoctor } from '../doctor/Doctor.tsx'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { projectDialog } from '../projects/dialog.ts'
 import { HomeHero, panelId } from './HomeHero.tsx'
-import { StoreMenu, type LoginActions, type StoreActions } from './StoreCard.tsx'
+import { StoreMenu, type StoreActions } from './StoreCard.tsx'
 import { compareNeeds, visibleFailures, worstTone } from './home-notices.ts'
 import { storeTrouble } from './HomeCards.tsx'
 import { Signal } from './Signal.tsx'
@@ -69,9 +69,7 @@ export interface HomeOverviewProps {
   onBackup: (store: string) => void
   /** A Store's actions (the Store menu, Back up, Edit connection), through the page's dialogs. */
   actionsFor: (store: StoreRow) => StoreActions
-  /** A saved PostgreSQL login's own actions (the PostgreSQL tab's login headers). */
-  loginActions: LoginActions
-  /** The Sandboxes the Machines view knows: a Connected from chip counts the machine's Sandboxes of the Store. */
+  /** The Sandboxes the Machines view knows: a Runs on row counts the machine's Sandboxes of the Store. */
   sandboxes?: readonly { machine?: string | null, project?: string | null }[]
   onAddBucket: () => void
   /** Lists a bucket's files. */
@@ -135,7 +133,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
     )
   }
 
-  const place = (machine: string | null | undefined) => (machine === 'native' ? t('groupHome') : machine ?? '?')
+  const place = (machine: string | null | undefined) => machine ?? '?'
   const stores = orderStores(view.stores)
   const sqlite = stores.filter((s) => s.kind === 'sqlite')
   const projectCount = stores.reduce((n, s) => n + s.projects.length, 0)
@@ -234,7 +232,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
     // a broken Store (2.0): its word, its fix line as the detail; a machine already listed above is not repeated
     if (s.state === 'broken' && !(s.kind === 'sqlite' && unreachable.has(s.machine ?? ''))) {
       const pgDown = s.kind === 'postgresql' && s.reason === 'unreachable'
-      // a PostgreSQL Store that is only outdated or names a missing login is reachable: it needs its update, not "down" (R1 F1);
+      // a PostgreSQL Store that is only outdated or lost its saved login is reachable: it needs its update, not "down" (R1 F1);
       // its state word with LayerFS's fix as the tip, and that fix as the one action where the page runs it
       const needsKey = s.kind !== 'postgresql' ? null : needsLogin(s) || s.reason === 'missing' ? 'ovStoreNeedsLogin' : s.reason === 'outdated' ? 'ovStoreNeedsUpdate' : null
       const fix = needsKey && fixes ? resolveFix(fixes, s.fix)?.fix ?? null : null
@@ -413,8 +411,8 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
               </EmptyState>
             </Card>
           ) : (
-            <HomeStores actionHost={storeActionsHost} api={mc.api} stores={stores} view={view} t={t} now={now} jobs={props.jobs} dismissed={props.dismissed} actionsFor={props.actionsFor} loginActions={props.loginActions} sandboxes={props.sandboxes}
-              onOpenStore={(name) => props.onOpen(`store:${name}`)} onOpenProject={(key) => props.onOpen(`project:${key}`)} onBackups={props.onBackups}
+            <StoreRows actionHost={storeActionsHost} api={mc.api} stores={stores} view={view} t={t} now={now} jobs={props.jobs} dismissed={props.dismissed} actionsFor={props.actionsFor} sandboxes={props.sandboxes}
+              onOpenStore={(name) => props.onOpen(`store:${name}`)} onOpenProject={(key) => props.onOpen(`project:${key}`)}
               onNewStore={props.onNewStore} onConnect={props.onConnect} alt={storesAlt} />
           )}
         </section>

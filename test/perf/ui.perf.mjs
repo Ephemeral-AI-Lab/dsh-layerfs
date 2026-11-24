@@ -90,7 +90,7 @@ const PAGES = [
   // Stores › SQLite › Buckets (once the Backups tab; the id is kept so baselines still compare)
   { id: 'resources.backups', title: 'Resources overview: Stores › Buckets', pre: [resources, click(tabRe(/^Stores\s*\d/)), click((p) => p.locator('[data-store-kind=sqlite]').first())], action: click(tabRe(/^Buckets\s*\d/)), ready: selected('Buckets') },
   { id: 'store', title: `Store page (${store})`, pre: [resources], action: click(tree(new RegExp(`^${store}`))), ready: selected(store) },
-  { id: 'machine.native', title: 'Native machine page', pre: [resources], action: click(tree(/^LayerFS Home/)), ready: selected('LayerFS Home') },
+  { id: 'machine.native', title: 'Native machine page', pre: [resources], action: click(tree(/^native/)), ready: selected('native') },
   ...(sandboxShort ? [{ id: 'sandbox', title: `Sandbox page (${sandboxShort})`, pre: [resources], action: click(tree(new RegExp(`^${sandboxShort}`))), ready: selected(sandboxShort) }] : []),
   { id: 'project.files', title: `Project ${projectName}: Files`, pre: [resources], action: click(openProject), ready: visible((p) => p.getByRole('tab', { name: 'Files', exact: true, selected: true })) },
   ...['History', 'Sandboxes', 'Sessions', 'Stats'].map((name) => ({ id: `project.${name.toLowerCase()}`, title: `Project ${projectName}: ${name}`, pre: toProject, action: click(tab(name)), ready: visible((p) => p.getByRole('tab', { name, exact: true, selected: true }).first()) })),

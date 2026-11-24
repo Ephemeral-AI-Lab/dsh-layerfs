@@ -249,10 +249,22 @@ const GATED = [
  */
 const KNOWN_BUGS = []
 
+/**
+ * The PostgreSQL connect/attach contract (docs/specs/store-home-rows.md;
+ * LayerFS branch claude/pg-connect-attach): `store connect` with the user and
+ * the password on stdin, `store attach`, `store detach`. The plugin sends them
+ * ungated (owner: no fallback, no probing) before a pinned runtime has them;
+ * they are reported by the todo test below until the pinned CLI carries them.
+ */
+const CONTRACT_AHEAD = [
+  /^store\.connect (option (user|password)|--(user|password-stdin))$/,
+  /^store\.(attach|detach)$/,
+]
+
 /** Splits violations into gated (gate seen), known bugs, and failures. */
 export function classify(found, files) {
   const byFile = new Map(files.map((f) => [f.file, stripComments(f.text).split('\n')]))
-  const gated = [], known = [], failures = []
+  const gated = [], known = [], ahead = [], failures = []
   for (const v of found) {
     const rule = GATED.find((g) => g.site.test(v.site) && g.file === v.file)
     if (rule) {
@@ -260,9 +272,10 @@ export function classify(found, files) {
       if (rule.gate.test(window)) { gated.push({ ...v, rule }); continue }
     }
     if (KNOWN_BUGS.some((k) => k.site.test(v.site) && k.file === v.file)) { known.push(v); continue }
+    if (CONTRACT_AHEAD.some((site) => site.test(v.site))) { ahead.push(v); continue }
     failures.push(v)
   }
-  return { gated, known, failures }
+  return { gated, known, ahead, failures }
 }
 
 function sources() {
@@ -338,6 +351,10 @@ test('the guard would have caught an ungated machine.images', { skip }, () => {
 })
 
 // KNOWN BUG list: each entry still reproduces (todo until the product code is fixed).
+test('the pinned CLI carries the PostgreSQL connect/attach contract', { skip, todo: !skip && result.ahead.length > 0 }, () => {
+  assert.deepEqual(result.ahead, [], `contract calls the pinned CLI does not carry yet:\n${show(result.ahead)}`)
+})
+
 test('no known ungated calls the pinned CLI lacks', { skip, todo: !skip && result.known.length > 0 }, () => {
   assert.deepEqual(result.known, [], `KNOWN BUG: ungated calls the pinned CLI lacks:\n${show(result.known)}`)
 })

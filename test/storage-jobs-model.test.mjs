@@ -159,20 +159,19 @@ test('a bucket that did not list is worded by its not_listed reason', () => {
   assert.equal(M.listStatusWords('Unavailable', t), 'bucketStatusOther')
 })
 
-// CUT (LayerFS 2.0, 2026-11-19): a PostgreSQL Store recorded before saved logins is
-// `broken` `outdated` (no `auth`). It is never a normal Store: its words say it has no
-// saved login, the tip is what LayerFS's refusal says, and its fix is the one action.
-test('a PostgreSQL Store naming no saved login is broken: its words, its tip and its fix', () => {
-  const fix = 'layerfs store save-auth <auth> --user <user> --password-stdin && layerfs store update old --auth <auth>'
-  const pg = store({ name: 'old', kind: 'postgresql', machine: null, state: 'broken', reason: 'outdated', fix, postgresql: { auth: null } })
+// A broken PostgreSQL Store with no saved password: its words say so, the tip says to edit
+// its connection, and LayerFS's own sentence wins when its answer has one.
+test('a broken PostgreSQL Store with no saved password: its words, its tip and its fix', () => {
+  const fix = 'layerfs store connect old postgresql://db/old --user <user> --password-stdin'
+  const pg = store({ name: 'old', kind: 'postgresql', machine: null, state: 'broken', reason: 'failed', fix, postgresql: { passwordSaved: false } })
   assert.equal(M.needsLogin(pg), true)
   assert.equal(M.brokenWords(pg, t), 'stateBroken · reasonNoLogin')
   assert.equal(M.storeTip(pg, t), 'pgNoLoginTip {"store":"old"}')
   assert.deepEqual(M.storeSignal(pg, undefined, null, [], t), { state: 'error', reason: 'stateBroken · reasonNoLogin' })
-  // LayerFS's own sentence wins when its answer has one
-  assert.equal(M.storeTip({ ...pg, message: 'PostgreSQL Store old names no saved login' }, t), 'PostgreSQL Store old names no saved login')
-  // a Store with a login, or a sqlite Store from another build, is not this case
-  assert.equal(M.needsLogin({ ...pg, postgresql: { auth: 'team' } }), false)
+  assert.equal(M.storeTip({ ...pg, message: 'PostgreSQL Store old has no password saved' }, t), 'PostgreSQL Store old has no password saved')
+  // a Store with a saved password, an unread record, or a sqlite Store is not this case
+  assert.equal(M.needsLogin({ ...pg, postgresql: { passwordSaved: true } }), false)
+  assert.equal(M.needsLogin({ ...pg, postgresql: { passwordSaved: null } }), false)
   assert.equal(M.needsLogin(store({ state: 'broken', reason: 'outdated' })), false)
   assert.equal(M.brokenWords(store({ state: 'broken', reason: 'not_answering' }), t), 'stateBroken · reasonNotAnswering')
   assert.equal(M.brokenWords(store({ state: 'broken', reason: 'unresolved' }), t), 'unresolved')

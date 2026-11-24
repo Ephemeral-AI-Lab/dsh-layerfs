@@ -1,8 +1,6 @@
-// The Stores boards and Connect a database, as data
-// (src/client/storage/machine-stores.ts): the two kinds on a machine, the kind
-// the tab opens on, PostgreSQL Stores under their server, connection URLs and
-// which step a failed check stopped at; a card's projects split and a Store's
-// backups by provider (src/client/storage/store-backups.ts).
+// A machine's Stores, as data (src/client/storage/machine-stores.ts): the two
+// kinds on a machine, the kind the tab opens on and connection URLs; a card's
+// projects split and a Store's backups by provider (src/client/storage/store-backups.ts).
 //   node --test test/machine-stores.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -13,45 +11,45 @@ import { build } from 'esbuild'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const out = mkdtempSync(join(root, 'lib', '.test-machine-stores-'))
-await build({ absWorkingDir: root, stdin: { contents: "export * from './src/client/storage/machine-stores.ts'; export * from './src/client/storage/store-backups.ts'; export { loopbackAlias } from './src/client/storage/model.ts'; export { pgUsable } from './src/client/machines/model.ts'", resolveDir: root, loader: 'ts' }, outfile: join(out, 'ms.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', external: ['@deepseek-ai/*'], logLevel: 'warning' })
+await build({ absWorkingDir: root, stdin: { contents: "export * from './src/client/storage/machine-stores.ts'; export * from './src/client/storage/store-backups.ts'; export { pgUsable } from './src/client/machines/model.ts'", resolveDir: root, loader: 'ts' }, outfile: join(out, 'ms.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', external: ['@deepseek-ai/*'], logLevel: 'warning' })
 const M = await import(pathToFileURL(join(out, 'ms.mjs')).href)
 test.after(() => rmSync(out, { recursive: true, force: true }))
 
 const t = (key, params) => (params ? `${key} ${JSON.stringify(params)}` : key)
-// the host's 2.0 StoreRow: the six-state `state` with its companions; a PostgreSQL Store's saved login is `postgresql.auth`
+// the host's 2.0 StoreRow: the six-state `state` with its companions
 const sqlite = (name, machine, bytes) => ({ name, kind: 'sqlite', machine, projects: [name], projectsCount: 1, size: bytes == null ? null : { bytes }, state: 'ready', links: [], job: null })
-// `from`: the machine its database is connected from (spec v23 `connections`; this computer is the row with no machine)
-const pg = (name, target, from, more = {}) => ({
+// `on`: the machine attached to it (`store get` `machines`)
+const pg = (name, target, on, more = {}) => ({
   name, kind: 'postgresql', machine: null, projects: ['p'], projectsCount: 1, size: null, state: 'ready', links: [], job: null,
-  postgresql: { auth: 'layerfs', url: `postgresql://${target}`, target, server: null, database: target.split('/').at(-1), synchronousCommit: null },
-  connectedFrom: from ? [{ machine: from === 'native' ? null : from, reached: 'ok' }] : [], ownConnections: [], ...more,
+  postgresql: { url: `postgresql://${target}`, target, server: null, database: target.split('/').at(-1), user: 'app', passwordSaved: true, passwordChangedAt: null, synchronousCommit: null },
+  attached: on ? [{ machine: on, reached: 'ok', reach: null }] : [], ...more,
 })
 // 2.0 `machine list --detail`: `supports` lists what the machine takes
 const machine = (name, platform, supports = ['sqlite', 'postgresql_sandbox'], state = 'ready') => ({ name, platform, state, supports })
 const view = (stores, machines = [machine('native', 'native'), machine('docker', 'docker')]) => ({ stores, machines, buckets: [], jobs: [], at: 0 })
 
-test('a machine\'s Stores: its SQLite files with their total size, and the PostgreSQL Stores connected from it, by name', () => {
+test('a machine\'s Stores: its SQLite files with their total size, and the PostgreSQL Stores attached to it, by name', () => {
   const v = view([sqlite('b', 'docker', 300), sqlite('a', 'docker', null), sqlite('h', 'native', 5), pg('z', 'u@localhost:5432/z', 'docker'), pg('y', 'u@localhost:5432/y', 'native'), pg('x', 'u@localhost:5432/x', 'native')])
   const s = M.machineStores(v, 'docker', t)
   assert.deepEqual(s.sqlite.map((x) => x.name), ['a', 'b'])
   assert.equal(s.sqliteBytes, 300, 'a Store without a size is left out of the total, never counted as 0')
-  assert.deepEqual(s.postgresql.map((x) => x.name), ['z'], 'only the Store connected from docker')
+  assert.deepEqual(s.postgresql.map((x) => x.name), ['z'], 'only the Store attached to docker')
   assert.deepEqual(M.machineStores(v, 'docker', t, new Set(['x'])).postgresql.map((x) => x.name), ['x', 'z'], 'and one with a Sandbox on docker now')
   assert.deepEqual(M.machineStores(v, 'native', t).postgresql.map((x) => x.name), ['x', 'y'])
   assert.equal(s.noSqlite, null)
   assert.equal(M.machineStores(view([sqlite('a', 'docker', null)]), 'docker', t).sqliteBytes, null, 'no size known is null')
   const unseen = { ...pg('w', 'u@db:5432/w', null) }
-  assert.deepEqual(M.machineStores(view([unseen]), 'native', t).postgresql.map((x) => x.name), [], 'a Store no side connected from yet is on no machine page')
+  assert.deepEqual(M.machineStores(view([unseen]), 'native', t).postgresql.map((x) => x.name), [], 'a Store attached to no machine is on no machine page')
 })
 
-test('the Machines board lists a PostgreSQL Store on each machine it is connected from, and on any machine holding one of its Sandboxes', () => {
+test('the Machines board lists a PostgreSQL Store on each machine attached to it, and on any machine holding one of its Sandboxes', () => {
   const fleet = {
-    postgresql: [{ name: 'team', projects: 1, connectedFrom: [{ machine: 'native', reached: null }, { machine: 'docker', reached: 'ok' }] }, { name: 'lab', projects: 1, connectedFrom: [{ machine: 'native', reached: 'ok' }] }, { name: 'idle', projects: 0, connectedFrom: [{ machine: 'native', reached: null }] }],
+    postgresql: [{ name: 'team', projects: 1, attached: [{ machine: 'native', reached: null }, { machine: 'docker', reached: 'ok' }] }, { name: 'lab', projects: 1, attached: [{ machine: 'native', reached: 'ok' }] }, { name: 'idle', projects: 0, attached: [{ machine: 'native', reached: null }] }],
     sandboxes: [{ name: 'b1', machine: 'vm1', project: 'lab/app', workspaces: 1 }, { name: 'b2', machine: 'vm1', project: null, workspaces: 0 }, { name: 'b3', machine: 'docker', project: 'file/app', workspaces: 0 }],
   }
   const on = (name) => M.pgUsable(fleet, { name }).map((s) => s.name)
   assert.deepEqual(on('docker'), ['team'])
-  assert.deepEqual(on('native'), ['team', 'lab', 'idle'], 'this computer\'s row: every Store')
+  assert.deepEqual(on('native'), ['team', 'lab', 'idle'], 'every Store attached to this computer')
   assert.deepEqual(on('vm1'), ['lab'], 'a Sandbox of its project runs here now')
   assert.deepEqual(on('other'), [], 'no machine lists every Store: a PostgreSQL Store is attached to none')
 })
@@ -68,141 +66,12 @@ test('a machine that takes neither kind says why; the tab opens on the kind aske
   assert.equal(M.startKind(pgOnly, null), 'postgresql', 'with nothing asked, the kind that has Stores here')
 })
 
-test('PostgreSQL Stores sit under their server: its address, saved login and state, said once for all its databases', () => {
-  const groups = M.serverGroups([
-    sqlite('file', 'native', 1),
-    pg('demo-services', 'localhost:5432/demo_services', 'docker'),
-    pg('demo-experiments', 'localhost:5432/demo_experiments', 'native', { state: 'broken', reason: 'no_database', fix: 'layerfs store connect demo-experiments …' }),
-    pg('analytics', 'warehouse.lan:5432/analytics', 'native', { state: 'broken', reason: 'unreachable', postgresql: { auth: 'ro_user', url: null, target: 'warehouse.lan:5432/analytics', server: null, database: 'analytics', synchronousCommit: null } }),
-    pg('later', 'new.lan:5432/later', 'native', { state: 'unknown', postgresql: { auth: 'app', url: null, target: 'new.lan:5432/later', server: null, database: 'later', synchronousCommit: null } }),
-  ])
-  assert.deepEqual(groups.map((g) => [g.server, g.user, g.state, g.stores.map((s) => s.name)]), [
-    ['localhost:5432', 'layerfs', 'ok', ['demo-experiments', 'demo-services']],
-    ['new.lan:5432', 'app', 'unknown', ['later']],
-    ['warehouse.lan:5432', 'ro_user', 'failed', ['analytics']],
-  ], 'servers by address, Stores by name, SQLite Stores left out')
-  assert.deepEqual([groups[0].version, groups[0].latencyMs, groups[0].error], [null, null, null], 'a server one Store reached is reachable; a 2.0 list row carries no version or latency')
-  assert.equal(groups[2].error, 'unreachable')
-  // a card says its own status only when it is not its server's
-  assert.equal(M.storeOffServer(groups[0].stores[0], groups[0]), 'no_database', 'this database fails while its server answers')
-  assert.equal(M.storeOffServer(groups[0].stores[1], groups[0]), null, 'a ready Store says nothing')
-  assert.equal(M.storeOffServer(groups[2].stores[0], groups[2]), null, 'an unreachable server is said once, in its header')
-  assert.equal(M.serverKey({ name: 's', postgresql: { server: 'db:6000', target: 'u@other:1/x' } }), 'db:6000', 'the host\'s own reading of the URL first')
-  assert.equal(M.serverKey({ name: 's', postgresql: null }), 's')
-})
-
-test('PostgreSQL Stores sit under their saved login (spec v23 V23-1): every login, one no Store uses too, then No login; each with its worst state and servers', () => {
-  const at = (server) => ({ server })
-  const groups = M.loginGroups([
-    sqlite('file', 'native', 1),
-    pg('b', 'h:1/b', 'native', { postgresql: { auth: 'demo-pg', ...at('h:5432') } }),
-    pg('a', 'h:1/a', 'native', { state: 'broken', reason: 'outdated', postgresql: { auth: 'demo-pg', ...at('h:5432') } }),
-    pg('far', 'w:1/far', 'native', { postgresql: { auth: 'demo-pg', ...at('w:6000') } }),
-    pg('lost', 'h:1/lost', 'native', { state: 'broken', reason: 'missing', postgresql: { auth: 'gone', ...at('h:5432') } }),
-    pg('none', 'h:1/none', 'native', { state: 'broken', reason: 'outdated', postgresql: { auth: null, ...at('h:5432') } }),
-  ], [{ auth: 'unused', user: 'u', stores: [] }, { auth: 'demo-pg', user: 'postgres', stores: ['a', 'b', 'far'], updated: 7 }, { auth: 'bad', user: null, stores: [], state: 'broken', reason: 'failed', fix: 'layerfs store save-auth bad --user <user> --password-stdin' }])
-  assert.deepEqual(groups.map((g) => [g.auth, g.user, g.state, g.stores.map((s) => s.name), g.servers]), [
-    ['bad', null, 'broken', [], []],
-    ['demo-pg', 'postgres', 'broken', ['a', 'b', 'far'], ['h:5432', 'w:6000']],
-    ['unused', 'u', 'ready', [], []],
-    [null, null, 'broken', ['lost', 'none'], ['h:5432']],
-  ], 'logins by name; a login serves Stores on several servers (V21-3); a missing login and none go under No login')
-  assert.equal(groups[1].saved, 7)
-  assert.equal(groups[0].fix, 'layerfs store save-auth bad --user <user> --password-stdin')
-  assert.deepEqual(M.loginGroups([], []), [])
-})
-
-test('connection URLs: parsed from a URL or a bare target, built back without a password; a loopback server becomes the machine\'s alias', () => {
+test('connection URLs: parsed from a URL or a bare target', () => {
   assert.deepEqual(M.parsePgUrl('postgresql://app@db.internal:5432/orders'), { user: 'app', host: 'db.internal:5432', database: 'orders' })
   assert.deepEqual(M.parsePgUrl('ro_user@warehouse.lan:5432/analytics'), { user: 'ro_user', host: 'warehouse.lan:5432', database: 'analytics' })
   assert.equal(M.parsePgUrl(''), null)
-  assert.equal(M.pgUrl({ user: 'app', host: 'db:5432', database: 'orders' }), 'postgresql://app@db:5432/orders')
-  assert.equal(M.routedServer('localhost:5432', 'host.docker.internal'), 'host.docker.internal:5432')
-  assert.equal(M.routedServer('127.0.0.1:5432', '192.168.5.2'), '192.168.5.2:5432')
-  assert.equal(M.routedServer('db.internal:5432', 'host.docker.internal'), 'db.internal:5432', 'a remote server is dialled as it is')
-  assert.equal(M.routedServer('127.0.0.2:15432', 'host.docker.internal'), '127.0.0.2:15432', 'non-127.0.0.1 loopback is never rewritten')
-  assert.equal(M.routedServer('localhost:5432', null), 'localhost:5432', 'native dials the host itself')
-  assert.equal(M.loopbackAlias('docker', 'linux'), null, 'Linux docker uses --network host')
-  assert.equal(M.loopbackAlias('docker', 'macos'), 'host.docker.internal')
-  assert.equal(M.loopbackAlias('lima', 'macos'), '192.168.5.2')
 })
 
-test('serverGroups: mixed logins on one server clear the header login and record every distinct auth', () => {
-  const groups = M.serverGroups([
-    pg('a', '127.0.0.1:5432/a', 'native', { postgresql: { auth: 'auth-a', server: '127.0.0.1:5432', database: 'a', target: '127.0.0.1:5432/a', url: null, synchronousCommit: null } }),
-    pg('b', '127.0.0.1:5432/b', 'native', { postgresql: { auth: 'auth-b', server: '127.0.0.1:5432', database: 'b', target: '127.0.0.1:5432/b', url: null, synchronousCommit: null } }),
-  ])
-  assert.equal(groups.length, 1)
-  assert.equal(groups[0].user, '')
-  assert.deepEqual(groups[0].auths, ['auth-a', 'auth-b'])
-})
-
-test('the step and failure kind a failed check stopped at: server unreachable, wrong login (incl. Rejected), missing privilege, outdated record; ambiguous and unknown refusals never guess', () => {
-  // 1. Server unreachable -> server (incl. transport evidence even when code is not Unavailable)
-  assert.equal(M.failedStep('Unavailable', 'machine docker cannot reach PostgreSQL Store x\'s server at db:5432: connection refused'), 'server')
-  assert.equal(M.failedStep('Failed', 'network closed before server banner', 'transport'), 'server', 'transport evidence classifies server even without Unavailable')
-  assert.equal(M.checkFailureKind('Failed', 'network closed before server banner', 'transport'), 'server')
-
-  // 2. Wrong login -> login (only with authentication evidence, Rejected, or explicit auth wording)
-  assert.equal(M.failedStep('Denied', 'password authentication failed for user "app"'), 'login', 'explicit auth wording is a login refusal, never server')
-  assert.equal(M.failedStep('Denied', 'PostgreSQL server refused the connection: db error', 'authentication'), 'login')
-  assert.equal(M.failedStep('Rejected', 'Rejected'), 'login', 'Rejected from LayerFS is a login refusal')
-  assert.equal(M.checkFailureKind('Rejected', 'Rejected'), 'login')
-  assert.equal(M.checkFailureKind('Denied', 'password authentication failed for user "app"'), 'login')
-
-  // 2b. Ambiguous refusals (28* and 3D000 collapsed by LayerFS without evidence.step) -> undetermined (never login, never server)
-  assert.equal(M.failedStep('Denied', 'machine docker, PostgreSQL Store x at 172.17.0.2: PostgreSQL server refused the connection: db error'), null)
-  assert.equal(M.checkFailureKind('Denied', 'machine docker, PostgreSQL Store x at 172.17.0.2: PostgreSQL server refused the connection: db error'), null)
-  assert.equal(M.failedStep('Unavailable', 'the server refused the session: the database does not exist, or the user or password is wrong'), null)
-  assert.equal(M.checkFailureKind('Failed', 'the server refused the session: the database does not exist, or the user or password is wrong'), null)
-
-  // 3. Missing privilege -> store (USAGE on schema) or write (CREATE on schema / table / database privileges), both kind 'privilege'
-  assert.equal(M.failedStep('Denied', 'role app lacks USAGE on schema layerfs (3 privilege(s) missing in all)'), 'store')
-  assert.equal(M.failedStep('Denied', 'role lowwrite lacks CREATE on schema layerfs (94 privilege(s) missing in all)'), 'write', 'CREATE on schema is a write/compaction privilege, Store was already found')
-  assert.equal(M.failedStep('Denied', 'role app lacks INSERT on table layerfs.objects (1 privilege(s) missing in all)'), 'write')
-  assert.equal(M.checkFailureKind('Denied', 'role lowwrite lacks CREATE on schema layerfs (94 privilege(s) missing in all)'), 'privilege')
-  assert.equal(M.checkFailureKind('Denied', 'role app lacks USAGE on schema layerfs (3 privilege(s) missing in all)'), 'privilege')
-  assert.deepEqual(M.missingPrivilege('role lowwrite lacks CREATE on schema layerfs (94 privilege(s) missing in all)'), { role: 'lowwrite', privilege: 'CREATE on schema layerfs', count: 94 })
-  assert.deepEqual(
-    M.missingPrivilege('role analytics read lacks CREATE on schema layerfs (94 privilege(s) missing in all)'),
-    { role: 'analytics read', privilege: 'CREATE on schema layerfs', count: 94 },
-    'PG current_user::text role names may contain spaces',
-  )
-  assert.deepEqual(
-    M.missingPrivilege('machine docker, PostgreSQL Store pg at 172.17.0.2: role analytics read lacks CREATE on schema layerfs (94 privilege(s) missing in all)'),
-    { role: 'analytics read', privilege: 'CREATE on schema layerfs', count: 94 },
-  )
-
-  // 4. Outdated record -> record
-  assert.equal(M.failedStep('Outdated', 'its record is outdated: it holds what 2.0 no longer writes (a password, a login in a URL or an old machine entry)', 'record'), 'record')
-  assert.equal(M.failedStep('Outdated', 'its record is outdated: it names no saved login', 'record'), 'record')
-  assert.equal(M.checkFailureKind('Outdated', 'its record is outdated: it holds what 2.0 no longer writes'), 'record')
-
-  // 5. Another Store / missing database -> store (not server, not login)
-  assert.equal(M.failedStep('Unavailable', 'machine docker, PostgreSQL Store x at db:5432: the PostgreSQL server holds another Store than x'), 'store')
-  assert.equal(M.failedStep('NotFound', 'PostgreSQL server refused the connection: db error', 'database'), 'store')
-  assert.equal(M.checkFailureKind('NotFound', 'PostgreSQL server refused the connection: db error', 'database'), 'store')
-
-  // 6. Unrecognized failures never guess a step
-  assert.equal(M.failedStep('Conflict', 'Store x changed while machine docker was checked'), null)
-  assert.equal(M.checkFailureKind('Failed', 'something unexpected happened'), null)
-  assert.equal(M.failedStep(undefined, undefined), null)
-})
-
-test('check path wires: unknown failures keep both wires neutral (unknown), never pointing red at either hop', () => {
-  assert.deepEqual(M.checkWires('ready', null), ['pending', 'pending'])
-  assert.deepEqual(M.checkWires('running', null), ['running', 'running'])
-  assert.deepEqual(M.checkWires('ok', null), ['ok', 'ok'])
-  assert.deepEqual(M.checkWires('failed', null), ['unknown', 'unknown'], 'unknown failure never marks either wire failed')
-  assert.deepEqual(M.checkWires('failed', 'record'), ['pending', 'pending'])
-  assert.deepEqual(M.checkWires('failed', 'server'), ['failed', 'pending'])
-  assert.deepEqual(M.checkWires('failed', 'login'), ['ok', 'failed'])
-  assert.deepEqual(M.checkWires('failed', 'store'), ['ok', 'failed'])
-  assert.deepEqual(M.checkWires('failed', 'write'), ['ok', 'failed'])
-  const cd = readFileSync(join(root, 'src/client/storage/ConnectDatabase.tsx'), 'utf8')
-  assert.match(cd, /const \[serverWire, storeWire\] = checkWires\(check\.state, at\)/)
-  assert.doesNotMatch(cd, /state === 'unknown' \? 'failed'/)
-})
 
 const proj = (name, stored, time, more = {}) => ({ name, created: 1, totals: stored == null ? null : { saves: 1, merges: 0, branches: 1, stored, metadata: 0, commitLogical: 0, canonical: 0 }, last: time == null ? null : { id: 'c', time, branch: 'main', message: '' }, files: null, partial: false, building: null, error: null, ...more })
 

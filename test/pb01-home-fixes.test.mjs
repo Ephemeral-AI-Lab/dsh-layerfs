@@ -76,7 +76,6 @@ await build({
       export { Signal } from './src/client/storage/Signal.tsx'
       export { FixContext } from './src/client/ui/index.tsx'
       export { storeTrouble, troubleAction } from './src/client/storage/HomeCards.tsx'
-      export { HomeStores, MachineLine } from './src/client/storage/MachineStores.tsx'
       export { BucketCards } from './src/client/storage/BucketCards.tsx'
       export { BucketPage } from './src/client/storage/BucketPage.tsx'
       export { HomeOverview } from './src/client/storage/HomeOverview.tsx'
@@ -156,7 +155,7 @@ test('P0-1 (Option A): opt-in Signal dot renders StateDot + full HoverCard body 
   for (const lang of ['en', 'zh']) {
     const t = makeT(lang)
     const doctorT = makeDocT(lang)
-    const place = (m) => (m === 'native' ? t('layerfsHome') : m ?? '?')
+    const place = (m) => m ?? '?'
 
     // app on unavailable stopped docker: opt-in dot -> warning StateDot; HoverCard content body itself carries full reason (no fix button)
     const appTrouble = M.storeTrouble(troubleView.stores[0], troubleView, t, place, emptyFleet)
@@ -225,48 +224,6 @@ test('P0-1 (Option A): opt-in Signal dot renders StateDot + full HoverCard body 
 
   const signalCss = src('src/client/storage/Signal.module.css')
   assert.match(signalCss, /\.signal\[data-dot\]\s*\{[\s\S]*border-radius:\s*50%;/)
-})
-
-test('P0-3: MachineStores shows broken red dot and amber stale backup dot while leaving stopped-machine Store/MachineLine quiet', () => {
-  const t = makeT('en')
-  const html = renderToStaticMarkup(createElement(M.HomeStores, {
-    api: { call: async () => ({}) },
-    stores: troubleView.stores,
-    view: troubleView,
-    t,
-    now: 61000,
-    jobs: [],
-    dismissed: new Set(),
-    actionsFor: noopStoreActions,
-    loginActions: () => ({}),
-    sandboxes: [],
-    place: (m) => (m === 'native' ? t('layerfsHome') : m ?? '?'),
-    onOpenStore: () => {},
-    onOpenProject: () => {},
-    onOpenBackups: () => {},
-    onStartMachine: () => {},
-    onNewStore: () => {},
-    onConnect: () => {},
-  }))
-
-  const statusDots = [...html.matchAll(/StatusDot_dot[^"]*" data-state="([^"]+)"/g)].map((m) => m[1])
-  assert.deepEqual(statusDots, ['error'], 'only broken StoreStatus renders a StatusDot; stopped machine alpha-store has none')
-
-  assert.match(html, /data-health="stale"/, 'backup behind: true keeps amber stale health dot')
-  const alphaMachineHtml = renderToStaticMarkup(createElement(M.MachineLine, { s: troubleView.stores[0], view: troubleView, t, on: noopStoreActions() }))
-  assert.ok(!alphaMachineHtml.includes('data-health='), 'stopped docker MachineLine must not show health dot')
-
-  // Verify MachineStores.module.css does not hide status dots or backup .dot via display:none, opacity:0, or visibility:hidden
-  const msCss = src('src/client/storage/MachineStores.module.css')
-  assert.ok(!msCss.includes('.statusRow > :first-child:not(.statusText)'), 'CSS must not hide statusRow first child')
-  for (const rule of msCss.matchAll(/(?:^|\})\s*([^{}]+)\{([^}]*)\}/g)) {
-    const [, sel, body] = rule
-    if (/\.(dot|statusRow)\b/.test(sel)) {
-      assert.doesNotMatch(body, /display\s*:\s*none/, `${sel} must not use display: none`)
-      assert.doesNotMatch(body, /opacity\s*:\s*0(?:\s|;|$)/, `${sel} must not use opacity: 0`)
-      assert.doesNotMatch(body, /visibility\s*:\s*hidden/, `${sel} must not use visibility: hidden`)
-    }
-  }
 })
 
 test('P0-2 (Option A) & P1-2: Hero identity shows LayerFS version + 8-char SHA; empty Stores/Buckets cards wire live callbacks', () => {

@@ -192,13 +192,11 @@ export function parseFix(line: string | null | undefined): Fix | null {
  *   removeMachine  `layerfs machine remove M` (a record with no vm_name: only its record goes; a built-in comes back fresh)
  *   removeStore    `layerfs store remove S` (a Store record LayerFS cannot place, no `kind`: records only)
  *   removeSandbox  `layerfs sandbox remove B` (a broken Sandbox, an `lfs-` one included: LayerFS's remove)
- *   saveAuth  `layerfs store save-auth <auth> --user <user> --password-stdin && layerfs store update S --auth <auth>`
- *             (a PostgreSQL Store naming no saved login), or the same with the login's name and
- *             user filled in (spec v23: a Store naming a login the home lacks, `missing`): opens
- *             the save-login dialog for S; the page never fills a password in for the person
- *   updateAuth  `layerfs store update S --auth A` (spec v23: a record holding fields 2.0 no
- *             longer writes, `outdated`): store update names its own login again, which
- *             rewrites the record
+ *   connection  `layerfs store connect S <url> …` (a PostgreSQL Store whose saved address,
+ *             user or password needs changing): opens the Edit connection dialog for S; the
+ *             page never fills a password in for the person
+ *   attach    `layerfs store attach S --machine M` (a PostgreSQL Store's Sandbox on a machine
+ *             not attached to it): attaches M, which checks the database from there
  *   connectBucket  `layerfs backup connect <name> <url> --access-key <key> --key-stdin` (a bucket
  *             whose key was refused or whose record has none, V21-4): opens the Connect dialog
  *             with the name and URL; connecting again with the same URL rotates the key
@@ -212,8 +210,8 @@ export type RunnableFix =
   | { kind: 'delete', project: string }
   | { kind: 'backup', store: string, bucket: string }
   | { kind: 'homeInit' }
-  | { kind: 'saveAuth', store: string }
-  | { kind: 'updateAuth', store: string, auth: string }
+  | { kind: 'connection', store: string }
+  | { kind: 'attach', store: string, machine: string }
   | { kind: 'connectBucket', bucket: string, url: string }
   | { kind: 'chain', steps: ChainStep[] }
 
@@ -264,11 +262,6 @@ export const removesMachine = (fix: RunnableFix | null | undefined): string | nu
   const last = fix?.kind === 'chain' ? fix.steps[fix.steps.length - 1] : fix
   return last?.kind === 'removeMachine' ? last.machine : null
 }
-
-/** LayerFS's fix for a PostgreSQL Store that names no saved login (its placeholders are for the person). */
-const SAVE_AUTH = /^layerfs store save-auth <auth> --user \S+ --password-stdin && layerfs store update (\S+) --auth <auth>(?: && layerfs store connect \1 \S+(?: --machine \S+)?)?$/
-/** The same fix for a login the home lacks (spec v23 `missing`): the login's name in both places, a user or `<user>`. */
-const SAVE_NAMED = /^layerfs store save-auth (\S+) --user \S+ --password-stdin && layerfs store update (\S+) --auth (\S+)$/
 
 /**
  * A shell line's words, with '…' and "…" quoting and backslash escapes undone
@@ -321,12 +314,10 @@ export function runnableFix(line: string | null | undefined): RunnableFix | null
   const words = line.trim().split(/\s+/)
   const plain = (n: number) => words.length === n && words.slice(3).every((w) => WORD.test(w) && !w.startsWith('-'))
   if (words.join(' ') === 'layerfs home init') return { kind: 'homeInit' }
-  const login = SAVE_AUTH.exec(words.join(' '))
-  if (login && WORD.test(login[1]!)) return { kind: 'saveAuth', store: login[1]! }
-  const named = SAVE_NAMED.exec(words.join(' '))
-  if (named && named[1] === named[3] && WORD.test(named[1]!) && WORD.test(named[2]!)) return { kind: 'saveAuth', store: named[2]! }
-  if (words[1] === 'store' && words[2] === 'update' && words.length === 6 && words[4] === '--auth' && WORD.test(words[3]!) && WORD.test(words[5]!)) return { kind: 'updateAuth', store: words[3]!, auth: words[5]! }
   if (words[0] !== 'layerfs') return null
+  // a PostgreSQL Store's connection to change (its address, user or password): the Edit connection dialog, never a filled-in password
+  if (words[1] === 'store' && words[2] === 'connect' && words.length >= 5 && !line.includes('&&') && WORD.test(words[3]!)) return { kind: 'connection', store: words[3]! }
+  if (words[1] === 'store' && words[2] === 'attach' && words.length === 6 && words[4] === '--machine' && WORD.test(words[3]!) && WORD.test(words[5]!)) return { kind: 'attach', store: words[3]!, machine: words[5]! }
   if (words[1] === 'machine' && words[2] === 'doctor' && plain(4)) return { kind: 'doctor', machine: words[3]! }
   if (words[1] === 'machine' && words[2] === 'remove' && plain(4)) return { kind: 'removeMachine', machine: words[3]! }
   if (words[1] === 'machine' && words[2] === 'stop' && plain(4)) return { kind: 'stop', machine: words[3]! }
@@ -379,8 +370,7 @@ export type TreeWorkspace = string | { workspace: string, branch?: string | null
 /**
  * `home get --with tree --detail`: one node of `tree`, from records only. A
  * machine has `machine, platform, cpus, memory_bytes`; a Store `store, engine,
- * projects` (bare names; a project's handle is `<store>/<project>`), a
- * PostgreSQL Store also `connections`; a Sandbox `sandbox, project, image,
+ * projects` (bare names; a project's handle is `<store>/<project>`); a Sandbox `sandbox, project, image,
  * workspaces`; a bucket `bucket, provider`. `state` and its companion (`op`,
  * `blocked_by`, `reason` with `fix`, `observed_at`) are there when it is not
  * ready. A state's `reason` is its own list of codes, not a check's
@@ -397,8 +387,6 @@ export interface TreeNode {
   cpus?: number | null
   memory_bytes?: number | null
   engine?: string | null
-  /** A PostgreSQL Store: its connections, `{ machine, url }` each (`machine` null is the home's own); null on a sqlite Store. */
-  connections?: unknown[] | null
   provider?: string | null
   project?: string | null
   image?: string | null

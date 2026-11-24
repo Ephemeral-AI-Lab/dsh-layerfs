@@ -114,12 +114,14 @@ function presetCommandPlan({ configuration, spec, sandboxes, resetPlan, resetNot
   // A PostgreSQL Store: a fresh database on the preset's own server, then connect; it is placed on no machine.
   const postgres = new PresetPostgres({ state: spec.state })
   const port = postgres.recorded()?.port ?? '<port>'
-  // 2.0: the login is saved first (`store save-auth`, the password on stdin), then the address without a user is connected with it
+  // the address carries no user: the user is given apart and the password goes on stdin; the host saves both for the Store
   const createStore = (store, note) => isPostgresql(store)
-    ? (add('build', ['store', 'save-auth', postgres.authName, '--user', 'postgres', '--password-stdin'], { note: `The preset runs its own PostgreSQL server (Docker container ${postgres.container}, ${POSTGRES_IMAGE}, on 127.0.0.1); its password stays in the presets state folder and goes to LayerFS on stdin. ` }),
-      add('build', ['store', 'connect', store.name, `postgresql://127.0.0.1:${port}/${store.database}`, '--auth', postgres.authName], { note: `An empty database ${store.database} is created first. ${note}` }))
+    ? add('build', ['store', 'connect', store.name, `postgresql://127.0.0.1:${port}/${store.database}`, '--user', 'postgres', '--password-stdin'], { note: `The preset runs its own PostgreSQL server (Docker container ${postgres.container}, ${POSTGRES_IMAGE}, on 127.0.0.1); its password stays in the presets state folder and goes to LayerFS on stdin. An empty database ${store.database} is created first. ${note}` })
     : add('build', ['store', 'create', store.name], { note })
-  const placeStore = store => !isPostgresql(store) && store.machine !== 'native' && add('build', ['store', 'move', store.name, store.machine, '--progress'])
+  // a PostgreSQL Store's sessions run only on an attached machine: its preset machine is attached (checked from there)
+  const placeStore = store => isPostgresql(store)
+    ? add('build', ['store', 'attach', store.name, '--machine', store.machine], { note: 'Only if the machine is not attached yet.' })
+    : store.machine !== 'native' && add('build', ['store', 'move', store.name, store.machine, '--progress'])
   if (configuration.concurrentHistory) {
     for (const store of configuration.stores) {
       createStore(store, 'Preparation only: project imports are serial within this store; independent stores can prepare concurrently.')

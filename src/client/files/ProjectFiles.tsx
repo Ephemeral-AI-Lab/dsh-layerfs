@@ -50,7 +50,7 @@ export function ProjectFiles(props: ProjectFilesProps): ReactNode {
     // a refusal is a word, LayerFS's message as its tip, and its fix (a chain step by step) or Repair as the one action (UI pass 3 R FAIL 3);
     // a Store blocked by a broken machine reads `Blocked · <m> broken`, whether LayerFS answers Failed with the machine's fix or a blocked refusal
     return <ErrorState title={t('files_readFailed', { what: project })} error={query.error} retryLabel={t('files_retry')} onRetry={query.reload}
-      fixWord={(fix) => (fix.kind === 'saveAuth' ? t('files_noSavedLogin') : removesMachine(fix) ? t('files_blockedMachine', { machine: removesMachine(fix)! }) : null)}
+      fixWord={(fix) => (fix.kind === 'connection' ? t('files_noSavedLogin') : removesMachine(fix) ? t('files_blockedMachine', { machine: removesMachine(fix)! }) : null)}
       blockedWord={(b) => (b?.machine ? t('files_blockedMachine', { machine: b.machine }) : b ? t('files_blocked') : null)}
       fixLabel={t('files_fix')} inTheWay={t('files_inTheWay')} />
   }

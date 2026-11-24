@@ -14,7 +14,7 @@
  *   (a doctor's also carries `node`, `workspace exec`'s start event `exec`),
  *   handed to `on_progress` as it comes;
  * - a secret option (kind `content` with a `shell` flag, e.g. `store
- *   save-auth --password-stdin`) goes on stdin under that flag, never in argv;
+ *   connect --password-stdin`) goes on stdin under that flag, never in argv;
  * - `workspace exec` answers one result JSON like every call (no `--events`
  *   frames): its `stdout`/`stderr` are the command's output;
  * - discovery reads each row's `form` (short and long keys, `with`, paging,
@@ -414,7 +414,7 @@ export function laneOf(argv: readonly string[]): Lane {
 const LONG_CALLS = new Set([
   'project.init', 'project.export',
   'machine.create', 'machine.start', 'machine.stop', 'machine.update', 'machine.remove', 'machine.load_image', 'machine.prune',
-  'store.move', 'store.connect', 'store.update', 'store.compact',
+  'store.move', 'store.connect', 'store.attach', 'store.detach', 'store.doctor', 'store.compact',
   'backup.connect', 'backup.create', 'backup.restore',
   'sandbox.create', 'sandbox.remove',
 ])
@@ -718,7 +718,7 @@ export function inspectRead(spec: CliSpec, argv: readonly string[], options: { t
   })
 }
 
-const READS = new Set(['list', 'get', 'status', 'images', 'stats', 'read', 'stat', 'glob', 'grep', 'blame', 'diff', 'history', 'log', 'auths'])
+const READS = new Set(['list', 'get', 'status', 'images', 'stats', 'read', 'stat', 'glob', 'grep', 'blame', 'diff', 'history', 'log'])
 const invalid = (message: string) => new CliError('InvalidInput', message)
 const isPlain = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v)
 

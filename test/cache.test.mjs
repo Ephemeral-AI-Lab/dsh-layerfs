@@ -40,7 +40,7 @@ const MUTATING = new Set([
   'home.clear_log', 'home.init',
 ])
 /** The read calls (cli.ts READS plus workspace.status and home.log): anything else a GET makes is suspect too. */
-const READS = new Set(['list', 'get', 'status', 'log', 'images', 'stats', 'read', 'stat', 'glob', 'grep', 'blame', 'diff', 'history', 'auths', 'doctor'])
+const READS = new Set(['list', 'get', 'status', 'log', 'images', 'stats', 'read', 'stat', 'glob', 'grep', 'blame', 'diff', 'history', 'doctor'])
 /** Monitoring reads, named with their family (cli.ts INSPECT_CALLS). */
 const INSPECT = new Set(['machine.log', 'sandbox.log', 'sandbox.files', 'machine.files', 'machine.stats'])
 const isRead = (call) => (READS.has(call.split('.')[1]) || INSPECT.has(call)) && !MUTATING.has(call)
@@ -103,7 +103,6 @@ function fakeLayerfs() {
       list: async () => ({ items: state.stores.map((s) => ({ ...s, projects_count: s.projects.length, size: 105 })) }),
       get: async (name) => ({ ...(state.stores.find((s) => s.store === name) ?? { store: name, state: 'ready' }), stats: { canonical_bytes: 10, stored_bytes: 10, metadata_bytes: 1, history_logical_bytes: 10, size: 105 } }),
       create: async (name) => { state.stores.push({ store: name, machine: 'native', engine: 'sqlite', projects: [], state: 'ready' }); return { ok: true } },
-      auths: async () => ({ items: [] }),
     },
     // the 2.0 machine family (long forms); platforms come from home.get --with platforms
     machine: {
@@ -477,7 +476,6 @@ const GETS = [
   ['stores/:id/observations', '/api/stores/s1/observations'],
   ['stores/:id/projects', '/api/stores/s1/projects'],
   ['stores/:id/check', '/api/stores/s1/check?machine=native'],
-  ['store-auths', '/api/store-auths'],
   ['buckets/:id/files', '/api/buckets/b1/files'],
   ['storage-jobs/:id', '/api/storage-jobs/job-x'],
   ['platforms', '/api/platforms'],

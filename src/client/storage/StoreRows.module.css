@@ -1,0 +1,581 @@
+/* Home › Stores accordion rows (StoreRows.tsx), shared by the PostgreSQL Store page and the machine page's Stores tab. */
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  container-type: inline-size;
+}
+
+/* ---------- the switch and the view's actions ---------- */
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+/* the Stores | Buckets switch stands apart from SQLite | PostgreSQL */
+.tiles + .tiles {
+  position: relative;
+  margin-inline-start: 17px;
+}
+.tiles + .tiles::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: -13px;
+  top: 50%;
+  width: 0.5px;
+  height: 16px;
+  background: var(--dsw-alias-border-l3);
+  transform: translateY(-50%);
+}
+.barActions {
+  display: inline-flex;
+  gap: 8px;
+  margin-inline-start: auto;
+}
+.tiles {
+  display: inline-flex;
+  gap: 2px;
+  max-width: 100%;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-module-platform);
+}
+.tile {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tile[aria-selected='true'] {
+  background: var(--dsw-alias-settings-card-fill);
+  color: var(--dsw-alias-label-primary);
+  box-shadow: var(--dsw-elevation-soft);
+}
+.tile:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
+  outline-offset: 1px;
+}
+@media (hover: hover) {
+  .tile[aria-selected='false']:hover {
+    color: var(--dsw-alias-label-primary);
+  }
+}
+.count {
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.empty {
+  margin: 0;
+  padding: 16px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md, 8px);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+}
+
+/* a name that opens something: a plain button that keeps the name's own type (.name, .itemName come after it) */
+.linkPlain {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.linkPlain:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
+  outline-offset: 1px;
+}
+@media (hover: hover) {
+  .linkPlain:hover {
+    color: var(--dsw-alias-link);
+  }
+}
+
+/* ---------- the list: one bordered box, a hairline between rows ---------- */
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md, 8px);
+  background: var(--dsw-alias-settings-card-fill);
+  overflow: hidden;
+}
+.row + .row {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.head {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) auto minmax(max-content, 1fr) 16px;
+  grid-template-areas: 'main copy summary chevron';
+  align-items: center;
+  column-gap: 12px;
+  min-width: 0;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+/* Copy address beside the toggle (never inside it), on the address line */
+.copySlot {
+  grid-area: copy;
+  align-self: end;
+  display: inline-flex;
+  margin-inline-start: -8px;
+}
+/* an open row is set apart */
+.row:has(> .head[data-open]) {
+  background: var(--dsw-alias-bg-layer-2);
+}
+@media (hover: hover) {
+  .head:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+.main {
+  all: unset;
+  grid-area: main;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  cursor: pointer;
+}
+.main:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.line1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+/* every status dot sits in one fixed slot, so names line up */
+.dotSlot {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 10px;
+  height: 10px;
+}
+.name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.line2 {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding-inline-start: 18px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+.line2 > :first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mono {
+  font-family: var(--ds-font-family-code, ui-monospace, monospace);
+  font-size: 12px;
+}
+.summary {
+  grid-area: summary;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.chevron {
+  grid-area: chevron;
+  display: inline-flex;
+  color: var(--dsw-alias-label-tertiary);
+  transition: transform 120ms ease;
+}
+.head[data-open] .chevron {
+  transform: rotate(180deg);
+}
+/* the summary's columns line up from row to row */
+.summary > .num:first-child {
+  min-width: 10ch;
+  text-align: end;
+}
+.divider {
+  flex: none;
+  width: 0.5px;
+  height: 12px;
+  background: var(--dsw-alias-border-l3);
+}
+.num {
+  font-variant-numeric: tabular-nums;
+}
+.muted {
+  color: var(--dsw-alias-label-tertiary);
+}
+.word {
+  font-weight: 500;
+}
+.word[data-tone='danger'] {
+  color: var(--lf-tone-danger-fg);
+}
+.word[data-tone='warning'] {
+  color: var(--lf-tone-warning-fg);
+}
+.word[data-tone='muted'] {
+  color: var(--dsw-alias-label-tertiary);
+  font-weight: 400;
+}
+.icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.icon {
+  position: relative;
+  display: inline-flex;
+  color: var(--dsw-alias-label-secondary);
+}
+/* a machine's reach as a StatusDot on its glyph's corner, ringed by the row's fill */
+.iconDot {
+  position: absolute;
+  inset-inline-end: -2px;
+  bottom: -2px;
+}
+.icon .iconDot[data-state] {
+  --halo: 0 0 0 1.5px var(--dsw-alias-settings-card-fill);
+}
+.more {
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.machine {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 9em;
+  max-width: 180px;
+}
+.machineName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.backups {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.job {
+  display: inline-flex;
+  min-width: 140px;
+}
+
+/* the summary moves under the name on a narrow list */
+@container (max-width: 719px) {
+  .head {
+    grid-template-columns: minmax(0, max-content) 1fr 16px;
+    grid-template-areas: 'main copy chevron' 'summary summary summary';
+    row-gap: 6px;
+  }
+  .copySlot {
+    justify-self: start;
+  }
+  .summary {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    column-gap: 12px;
+    row-gap: 2px;
+    padding-inline-start: 18px;
+    white-space: normal;
+  }
+  .summary > .num:first-child {
+    min-width: 0;
+    text-align: start;
+  }
+  .machine {
+    min-width: 0;
+  }
+  .divider {
+    display: none;
+  }
+}
+
+/* ---------- a status word with its one action ---------- */
+
+.reach {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.reachText {
+  flex: 0 1 auto;
+  min-width: 6ch;
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary);
+  text-overflow: ellipsis;
+}
+.reach[data-tone='danger'] .reachText {
+  color: var(--lf-tone-danger-fg);
+}
+.reach[data-tone='warning'] .reachText {
+  color: var(--lf-tone-warning-fg);
+}
+.reach[data-tone='idle'] .reachText,
+.reach[data-tone='ongoing'] .reachText {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.link {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--dsw-alias-link);
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.link:disabled {
+  color: var(--dsw-alias-label-tertiary);
+  cursor: default;
+}
+.link:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+@media (hover: hover) {
+  .link:not(:disabled):hover {
+    text-decoration: underline;
+  }
+}
+.copy {
+  all: unset;
+  flex: none;
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 4px;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+.copy:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
+}
+@media (hover: hover) {
+  .copy:hover {
+    color: var(--dsw-alias-label-primary);
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+/* ---------- the unfolded body ---------- */
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 14px 14px 32px;
+}
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 20px;
+}
+@container (max-width: 559px) {
+  .columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  container-type: inline-size;
+}
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  container-type: inline-size;
+}
+.section[data-stale] .items {
+  opacity: 0.55;
+}
+.sectionHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 22px;
+}
+.sectionTitle {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+.sectionMeta {
+  margin-inline-start: auto;
+  margin-inline-end: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.sectionTitle + .link {
+  margin-inline-start: auto;
+}
+.none {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12.5px;
+}
+.items {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* one line: mark, name (truncates), its words, its status, its action; the trailing parts never get pushed out */
+.item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  font-size: 12.5px;
+}
+.item + .item {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+.projectItem {
+  grid-template-columns: minmax(0, 1fr) auto minmax(64px, auto);
+}
+.itemMark {
+  display: inline-flex;
+  color: var(--dsw-alias-label-secondary);
+}
+.itemName {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.itemMeta {
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+}
+/* a machine row: the name keeps at least 12ch (or 40%); the provider gives way first, then the reach words */
+.machineItem {
+  grid-template-columns: auto minmax(min(12ch, 40%), 1fr) minmax(0, max-content) max-content auto;
+  grid-template-areas: 'mark name meta end action';
+}
+.machineItem > .itemMark { grid-area: mark; }
+.machineItem > .itemName { grid-area: name; }
+.machineItem > .itemMeta {
+  grid-area: meta;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.machineItem > .itemEnd { grid-area: end; }
+.machineItem > :last-child { grid-area: action; }
+.itemEnd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+@container (max-width: 380px) {
+  .machineItem {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: 'mark name action' '. end .';
+    row-gap: 0;
+    padding-block: 4px;
+  }
+  .machineItem > .itemMeta {
+    display: none;
+  }
+  .machineItem > .itemEnd {
+    justify-content: flex-start;
+  }
+}
+.size {
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+.boxes {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.detach {
+  all: unset;
+  display: inline-flex;
+  padding: 6px;
+  margin: -3px 0 -3px -3px;
+  border-radius: 4px;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+.detach:disabled {
+  color: var(--dsw-alias-label-tertiary);
+  opacity: 0.45;
+  cursor: default;
+}
+.detach:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
+}
+@media (hover: hover) {
+  .detach:not(:disabled):hover {
+    color: var(--dsw-alias-label-primary);
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  padding-top: 8px;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+.end {
+  margin-inline-start: auto;
+}

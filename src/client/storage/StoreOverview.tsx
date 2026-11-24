@@ -16,6 +16,7 @@ import type { StorageT } from './locale.ts'
 import { backupChip, overviewMachineHealth, storeStateWords } from './model.ts'
 import { latestBackupCopy, overviewBackupHealth, storeBackups } from './store-backups.ts'
 import { commitTotal, commitTotalWords, compressionOf, fileParts, growthRuns, projectShares, type ObservationJournal, type StoreProject, type StoreStats } from './store-page.ts'
+import { listWords } from './store-rows.ts'
 import type { StorageView, StoreRow } from './types.ts'
 import css from './StorePage.module.css'
 import storageCss from './Storage.module.css'
@@ -33,7 +34,7 @@ export interface StoreOverviewProps {
   projects: readonly StoreProject[] | undefined
   running: ReadonlyMap<string, number>
   machineState: string | null | undefined
-  onTab: (tab: 'projects' | 'backups' | 'connections') => void
+  onTab: (tab: 'projects' | 'backups') => void
   onRemove: () => void
 }
 
@@ -71,8 +72,8 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
           sub={commits ? t(commitTotalWords(commits).key, { n: commitTotalWords(commits).n }) : undefined} />
         <Tile label={t('spRunning')} value={t(sandboxes === 1 ? 'spSandboxOne' : 'spSandboxes', { n: String(sandboxes) })} />
         {pg ? (
-          <Tile label={t('pgConnectedFromLabel')} value={String((s.connectedFrom ?? []).length)} onOpen={() => onTab('connections')}
-            sub={(s.connectedFrom ?? []).map((c) => (c.machine === null ? t('pgThisComputer') : c.machine)).join(', ') || undefined} />
+          <Tile label={t('rowRunsOn')} value={String((s.attached ?? []).length)}
+            sub={listWords((s.attached ?? []).map((a) => a.machine)) || undefined} />
         ) : (
           <Tile label={t('factLastBackup')} value={backupTileValue} title={latestCopy?.at != null ? when(latestCopy.at) : undefined}
             onOpen={() => onTab('backups')} tone={backupTileTone} sub={backupTileSub} />
@@ -313,7 +314,7 @@ function HealthCard({ store: s, view, t, now, stats, machineState }: { store: St
     rows.push({ key: 'server', tone: r === false ? 'danger' : r ? 'ok' : 'info', label: t('spServer'), text: r === false ? storeStateWords(s.state, t, s.reason) : r ? storeStateWords(s.state, t) : t('unknown') })
     rows.push({ key: 'backups', tone: 'info', label: t('backupsSection'), text: t('spPgBackups') })
   } else {
-    const place = s.machine === 'native' ? t('layerfsHome') : (s.machine ?? '?')
+    const place = s.machine ?? '?'
     const mh = overviewMachineHealth(s, machineState)
     rows.push({ key: 'machine', tone: mh.tone, label: t('spMachine'), text: t(mh.key, { machine: place }) })
     const backups = storeBackups(s, view.buckets)

@@ -32,16 +32,16 @@ test('studio: half its Stores are PostgreSQL, each with the one machine its sess
   assert.ok(pg.every((s) => /^[a-z_]+$/.test(s.database)))
 })
 
-test('script: PostgreSQL Stores save the preset\'s login and connect, nothing more: never create or move', () => {
+test('script: PostgreSQL Stores connect with the preset\'s user (the password on stdin) and attach their machine: never create or move', () => {
   const state = mkdtempSync(join(tmpdir(), 'dsh-presets-pg-state-'))
   const { commands, configuration } = presetScript({ preset: 'studio', spec: { state, home: join(state, 'home') }, sandboxes: false })
   assert.equal(configuration.historyLimits.perStore, 1) // one writer per Store
   const lines = commands.filter((c) => c.phase === 'build').map((c) => c.argv.join(' '))
-  // 2.0: the login is saved with the password on stdin; the Store's address carries no user and names the login
-  assert.ok(lines.includes('store save-auth dsh-preset-postgres --user postgres --password-stdin'))
-  assert.ok(lines.includes('store connect demo-services postgresql://127.0.0.1:<port>/demo_services --auth dsh-preset-postgres'))
+  // the address carries no user: the user is given apart and the password goes on stdin
+  assert.ok(lines.includes('store connect demo-services postgresql://127.0.0.1:<port>/demo_services --user postgres --password-stdin'))
   assert.ok(!lines.some((l) => /password|file:/.test(l.replace('--password-stdin', ''))), 'no password or reference on any argv')
-  assert.ok(!lines.some((l) => /^store (attach|detach|update)\b/.test(l)), 'a PostgreSQL Store is on no machine: LayerFS is told nothing about where it runs')
+  assert.ok(!lines.some((l) => /^store (save-auth|update|detach)\b/.test(l)), 'no saved login, no Store update')
+  assert.ok(lines.includes('store attach demo-services --machine docker'), 'its sessions\' machine is attached')
   assert.ok(!lines.some((l) => /store (create|move) demo-(services|experiments)\b/.test(l)))
   assert.ok(lines.includes('store create demo-studio') && lines.includes('store move demo-build-cache demo-build --progress'))
   // every machine a Store uses is started, the ones PostgreSQL Stores run on included
@@ -57,8 +57,8 @@ function fakeDriver() {
     if (!options.read) { calls.push(argv.join(' ')); inputs.push(options.input ?? null) }
     if (family === 'store' && call === 'list') return { items: [...stores.values()] }
     if (family === 'store' && call === 'get') { if (!stores.has(name)) throw Object.assign(new Error('no'), { code: 'NotFound' }); return stores.get(name) }
-    if (family === 'store' && call === 'save-auth') return { ok: true }
-    if (family === 'store' && call === 'connect') { stores.set(name, { store: name, engine: 'postgresql', created_at: '2026-11-19T00:00:01Z', url: rest[0] }); return { ok: true } }
+    if (family === 'store' && call === 'connect') { stores.set(name, { store: name, engine: 'postgresql', created_at: '2026-11-19T00:00:01Z', url: rest[0], machines: [] }); return { ok: true } }
+    if (family === 'store' && call === 'attach') { stores.get(name).machines.push({ machine: rest[1], reached: 'ok' }); return { ok: true, outcome: 'attached' } }
     if (family === 'store' && call === 'create') { stores.set(name, { store: name, engine: 'sqlite', created_at: '2026-11-19T00:00:02Z', machine: 'native' }); return { ok: true } }
     if (family === 'store' && call === 'move') { stores.get(name).machine = rest[0]; return { ok: true } }
     throw new Error(`unexpected ${argv.join(' ')}`)
@@ -66,7 +66,7 @@ function fakeDriver() {
   return { stores, calls, inputs, driver: { invoke, spec: {} } }
 }
 
-test('runner: a fresh database, then connect; placing a PostgreSQL Store records no machine anywhere (spec v23)', async () => {
+test('runner: a fresh database, then connect with the password on stdin; placing a PostgreSQL Store attaches its machine once', async () => {
   const state = mkdtempSync(join(tmpdir(), 'dsh-presets-pg-runner-'))
   const { calls, inputs, driver } = fakeDriver()
   const log = []
@@ -74,7 +74,6 @@ test('runner: a fresh database, then connect; placing a PostgreSQL Store records
     ensure: async () => { log.push('ensure'); return { container: 'c', port: 54999 } },
     freshDatabase: async (db) => { log.push(`fresh ${db}`) },
     url: (port, db) => `postgresql://127.0.0.1:${port}/${db}`,
-    authName: 'dsh-preset-postgres',
     password: () => 'pw-from-state',
   }
   const runner = new DemoRunner({ state, home: join(state, 'home'), adoptHome: true, preset: 'studio', driver, postgres, report: () => {} })
@@ -84,10 +83,13 @@ test('runner: a fresh database, then connect; placing a PostgreSQL Store records
   await runner.placeStore(services)
   assert.deepEqual(log, ['ensure', 'fresh demo_services'])
   assert.deepEqual(calls, [
-    'store save-auth dsh-preset-postgres --user postgres --password-stdin',
-    'store connect demo-services postgresql://127.0.0.1:54999/demo_services --auth dsh-preset-postgres',
-  ], 'placing a PostgreSQL Store makes no LayerFS call')
+    'store connect demo-services postgresql://127.0.0.1:54999/demo_services --user postgres --password-stdin',
+    'store attach demo-services --machine docker',
+  ])
   assert.deepEqual(inputs, ['pw-from-state', null], 'the password goes on stdin, once')
+  // placing it again finds the machine attached: nothing more
+  await runner.placeStore(services)
+  assert.equal(calls.length, 2)
   assert.equal(runner.manifest.resources.store['demo-services'].owned, true)
   // a second ensure finds the owned Store and neither drops nor reconnects it
   await runner.ensureStore(services)
@@ -117,7 +119,6 @@ test('server: one 127.0.0.1-only container on a fixed port, password kept 0600, 
   assert.equal(statSync(pg.passwordFile).mode & 0o777, 0o600)
   assert.ok(readFileSync(pg.passwordFile, 'utf8').length >= 20)
   assert.equal(pg.password(), readFileSync(pg.passwordFile, 'utf8').trim(), 'the password LayerFS gets on stdin')
-  assert.equal(pg.authName, 'dsh-preset-postgres')
   assert.equal(pg.url(port, 'demo_services'), `postgresql://127.0.0.1:${port}/demo_services`, 'no user in the address')
   await pg.freshDatabase('demo_services')
   const psql = runs.at(-1)
