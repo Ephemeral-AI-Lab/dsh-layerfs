@@ -111,7 +111,7 @@ export function FilesView(props: ViewProps): ReactNode {
         <div className={css.frame}>
           <SessionLine view={view} sessionId={sessionId} t={t} />
           <div className={css.fill}>
-            <ProjectFiles key={`${project}:${n}`} api={api} project={project} t={t} tick={state.tick}
+            <ProjectFiles key={`${project}:${n}`} api={api} project={project} t={t} tick={state.contentTick}
               initialBranch={focus?.branch ?? view.binding.branch} initialPin={focus?.commit} initialPath={focus?.path} />
           </div>
         </div>
@@ -131,7 +131,7 @@ export function HistoryView(props: ViewProps): ReactNode {
       {(view, project) => (
         <div className={css.frame}>
           <div className={css.fill}>
-            <ProjectHistory key={`${project}:${n}`} api={api} project={project} t={t} tick={state.tick}
+            <ProjectHistory key={`${project}:${n}`} api={api} project={project} t={t} tick={state.contentTick}
               initialBranch={focus?.branch ?? view.binding.branch} initialCommit={focus?.commit}
               onOpenFile={openView ? (branch, path, pin) => openView(FILES_VIEW, JSON.stringify({ branch, path, commit: pin })) : undefined} />
           </div>

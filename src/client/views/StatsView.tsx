@@ -20,7 +20,7 @@ export function StatsView(props: ViewProps): ReactNode {
       {(_view, project) => (
         <div className={css.frame}>
           <div className={css.scroll}>
-            <ProjectStorage key={project} api={api} t={storageT} project={project} tick={state.tick}
+            <ProjectStorage key={project} api={api} t={storageT} project={project} tick={state.contentTick}
               hero={false} onOpenStore={(store) => openStorage(api, `store:${store}`)} />
           </div>
         </div>

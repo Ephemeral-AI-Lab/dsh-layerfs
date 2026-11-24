@@ -27,7 +27,11 @@ export function useEffect(fn, deps) {
   c.s[i] = deps ?? []
 }
 export const useLayoutEffect = useEffect
-export const useCallback = (fn) => fn
+export function useCallback(fn, deps) {
+  const c = cur, i = slot(), prev = c.s[i]
+  if (!prev || !deps || deps.length !== prev[1].length || deps.some((d, k) => !Object.is(d, prev[1][k]))) c.s[i] = [fn, deps ?? []]
+  return c.s[i][0]
+}
 export const useMemo = (fn) => fn()
 export const useId = () => 'mini-id'
 export const useSyncExternalStore = (_subscribe, get) => get()
