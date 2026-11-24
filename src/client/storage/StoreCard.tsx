@@ -58,7 +58,11 @@ export function Location({ store: s, t, onMachine }: { store: StoreRow, t: Stora
  * (the host, then its attached machines), Edit connection…, Attach a
  * machine…, and Disconnect.
  */
-export function StoreMenu({ store: s, on, t, runningJob }: { store: StoreRow, on: StoreActions, t: StorageT, machine?: string | undefined, runningJob?: boolean | undefined }): ReactNode {
+export function StoreMenu({ store: s, on, t, runningJob, onOpen, withRestore }: {
+  store: StoreRow, on: StoreActions, t: StorageT, machine?: string | undefined, runningJob?: boolean | undefined
+  /** Home › Stores rows: Open (the Store page) first, and Restore… for a Store with backups. */
+  onOpen?: (() => void) | undefined, withRestore?: boolean | undefined
+}): ReactNode {
   const pg = s.kind === 'postgresql'
   const storeBlocked = storeWaitsFor(s, t, !!runningJob)
   // LayerFS compacts a Store where it lives (a machine's sqlite Store on its worker); the 2.0 state alone decides
@@ -68,8 +72,10 @@ export function StoreMenu({ store: s, on, t, runningJob }: { store: StoreRow, on
       {(close) => {
         const run = (fn: () => void) => () => { close(); fn() }
         const compact = on.compact ? <MenuItemButton disabled={compactBlocked !== null} disabledReason={compactBlocked ?? undefined} onSelect={run(on.compact)}>{t('compactStore')}</MenuItemButton> : null
+        const open = onOpen ? <MenuItemButton onSelect={run(onOpen)}>{t('openStore', { name: s.name })}</MenuItemButton> : null
         return pg ? (
           <>
+            {open}
             <MenuItemButton onSelect={run(() => { void on.check() })}>{t('pgCheck')}</MenuItemButton>
             <MenuItemButton onSelect={run(on.editConnection)}>{t('pgEditConnectionShort')}</MenuItemButton>
             <MenuItemButton onSelect={run(on.attach)}>{t('rowAttachMachineMenu')}</MenuItemButton>
@@ -78,6 +84,7 @@ export function StoreMenu({ store: s, on, t, runningJob }: { store: StoreRow, on
           </>
         ) : (
           <>
+            {open}
             {inHome(s)
               ? <MenuItemButton disabled={storeBlocked !== null} disabledReason={storeBlocked ?? undefined} onSelect={run(on.push)}>{t('pushTo')}</MenuItemButton>
               : (
@@ -92,6 +99,7 @@ export function StoreMenu({ store: s, on, t, runningJob }: { store: StoreRow, on
                 {`${t('backupNow')} · ${l.bucket}/${l.file}`}
               </MenuItemButton>
             ))}
+            {withRestore && s.links.length ? <MenuItemButton onSelect={run(on.backups)}>{t('restore')}</MenuItemButton> : null}
             {compact}
             <MenuItemButton danger separatorBefore onSelect={run(on.remove)}>{t('remove')}</MenuItemButton>
           </>

@@ -81,8 +81,8 @@ export function providerWords(provider: string | null | undefined, t: StorageT):
 }
 
 /** The bucket's mark: its provider's brand, else the plain bucket. */
-export function BucketMark({ provider, size = 14 }: { provider: string | null | undefined, size?: number }): ReactNode {
-  return provider === 'r2' || provider === 'minio' ? <BucketProviderGlyph provider={provider} size={size} /> : <BucketGlyph size={size} />
+export function BucketMark({ provider, size = 14, mono }: { provider: string | null | undefined, size?: number, mono?: boolean }): ReactNode {
+  return provider === 'r2' || provider === 'minio' ? <BucketProviderGlyph provider={provider} size={size} mono={mono} /> : <BucketGlyph size={size} />
 }
 
 export function BucketPage({ name, view, t, api, doctorT, now, listing, runningStores, onList, onRestore, onBackup, onBackupNewFile, onDisconnect, onReconnect, onOpenStore, onOpenFile }: BucketPageProps): ReactNode {

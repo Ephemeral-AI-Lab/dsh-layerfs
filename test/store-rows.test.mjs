@@ -35,11 +35,10 @@ const machines = [
   { name: 'win', platform: 'wsl', state: 'ready', supports: ['sqlite'] },
 ]
 
-test('caps: 3 machine icons in a summary, 5 rows in a list, and how many more', () => {
-  assert.equal(R.SUMMARY_ICONS, 3)
+test('caps: 5 rows in a list, and how many more', () => {
   assert.equal(R.LIST_ROWS, 5)
   assert.deepEqual(R.capped([1, 2, 3, 4, 5, 6, 7], R.LIST_ROWS), { shown: [1, 2, 3, 4, 5], more: 2 })
-  assert.deepEqual(R.capped([1, 2], R.SUMMARY_ICONS), { shown: [1, 2], more: 0 })
+  assert.deepEqual(R.capped([1, 2], 3), { shown: [1, 2], more: 0 })
   assert.deepEqual(R.capped([1, 2], 0), { shown: [], more: 2 })
 })
 
@@ -71,27 +70,25 @@ test('the host\'s check: its recorded reach, else a broken unreachable Store\'s 
   assert.equal(R.hostStatus({ ...none, state: 'broken', reason: 'unreachable', message: 'connection refused' }).key, 'address')
 })
 
-test('a PostgreSQL row\'s summary: projects, the host, the first 3 machines and +N; the status word is N failed, else N stopped, else local address', () => {
+test('a PostgreSQL row\'s summary: projects, the host, every machine with its status, failures and stopped machines', () => {
   const attached = ['native', 'docker', 'vm1', 'vm2', 'win'].map((m, i) => ({ machine: m, reached: null, reach: i === 1 ? reach(false, 'connection refused') : i === 0 ? reach(true) : null }))
   const sum = R.pgSummary(pg('a', { attached }), { machines })
   assert.equal(sum.projects, 2)
   assert.equal(sum.host.key, 'reachable')
-  assert.deepEqual(sum.shown.map((m) => [m.machine, m.platform, m.status.key]), [['native', 'native', 'reachable'], ['docker', 'docker', 'address'], ['vm1', 'lima', 'machineStopped']])
-  assert.equal(sum.more, 2)
+  assert.deepEqual(sum.machines.slice(0, 3).map((m) => [m.machine, m.platform, m.status.key]), [['native', 'native', 'reachable'], ['docker', 'docker', 'address'], ['vm1', 'lima', 'machineStopped']])
+  assert.equal(sum.machines.length, 5)
   assert.equal(sum.failed, 1, 'a stopped machine or one needing an update is not a failure')
   assert.equal(sum.stopped, 1)
-  assert.deepEqual(R.pgStatusWord(sum), { key: 'pgRowFailed', n: 1, tone: 'danger' })
-  const stoppedOnly = R.pgSummary(pg('s', { attached: [{ machine: 'vm1', reached: null, reach: null }] }), { machines })
-  assert.deepEqual(R.pgStatusWord(stoppedOnly), { key: 'pgRowStopped', n: 1, tone: 'warning' })
-  const nativeOnly = [{ machine: 'native', reached: 'ok', reach: reach(true) }]
-  const local = R.pgSummary(pg('l', { postgresql: { ...pg('l').postgresql, url: 'postgresql://127.0.0.1:5432/x' }, attached: nativeOnly }), { machines })
-  assert.equal(R.pgStatusWord(local), null, 'a local address says nothing by itself: reach is tested, never predicted')
-  const none = R.pgSummary(pg('n', { postgresql: { ...pg('n').postgresql, url: 'postgresql://127.0.0.1:5432/x' } }), { machines })
-  assert.equal(R.pgStatusWord(none), null, 'no machine attached: no word (the row says no machines · Attach…)')
-  assert.equal(R.pgStatusWord(R.pgSummary(pg('ok', { attached: nativeOnly }), { machines })), null, 'all well: no word')
+  // machines as icons, one per provider: a group's dot is its worst member's
+  const members = sum.machines.map((m) => ({ name: m.machine, provider: m.platform ?? '', tone: m.status.tone, words: m.status.key }))
+  assert.deepEqual(R.providerGroups(members).map((g) => [g.provider, g.members.map((m) => m.name), g.tone]),
+    [['native', ['native'], 'ok'], ['docker', ['docker'], 'danger'], ['lima', ['vm1', 'vm2'], 'warning'], ['wsl', ['win'], 'idle']])
+  assert.deepEqual(R.providerGroups([{ name: 'b', provider: 'docker', tone: 'ok', words: '' }, { name: 'a', provider: 'docker', tone: 'danger', words: '' }])
+    .map((g) => [g.members.map((m) => m.name), g.tone]), [[['a', 'b'], 'danger']], 'several of one provider: one icon, its worst dot, members by name')
+  assert.equal(R.worstTone([]), 'ok')
   for (const lang of ['en', 'zh']) for (const key of ['pgRowFailed', 'pgRowStopped', 'rowBackupsFailed']) assert.ok(R.locales[lang][key], `${lang} ${key}`)
   assert.deepEqual([R.locales.zh.pgRowFailed, R.locales.zh.rowBackupsFailed], ['{n} 台未通过', '{n} 个失败'])
-  assert.equal(R.pgSummary(pg('c', { attached }), { machines }, new Set(['docker'])).shown[1].status.key, 'checking')
+  assert.equal(R.pgSummary(pg('c', { attached }), { machines }, new Set(['docker'])).machines[1].status.key, 'checking')
   assert.equal(R.pgAddress(pg('a')), 'app@db.lan:5432/team', 'never a password')
 })
 

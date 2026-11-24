@@ -53,57 +53,78 @@
 
 ## Home view, Store tab
 
-The SQLite | PostgreSQL switch stays. Each view is one bordered list (not a
-card grid) of **accordion rows**, one per Store. Several rows may be open at
-once; the open set is remembered per viewer (localStorage, wrapped in
-try/catch). After "Check all", a row whose host check just failed opens itself.
+Home's tabs are Projects, Stores, Machines and Buckets (the bucket cards moved
+out of Stores). Stores has a **SQLite | PostgreSQL** switch (remembered per
+viewer) and shows one kind at a time as a **table of accordion rows**, one per
+Store, under column headings. Several rows may be open at once; the open set is
+remembered per viewer (localStorage, wrapped in try/catch). After "Check all",
+a row whose host check just failed opens itself.
+
+A row's head is one line, built as on the Machines board: the **chevron**
+(folds the row; the whole head folds too), the Store's **glyph with its state
+dot** and its **name** (opens the Store page), the kind's cells, then the
+Store's **⋯ menu** (Open <name> first, then the Store page's own actions).
+Glyphs are drawn in the text colour (`mono`); colour is kept for state: the dot
+on a glyph's corner, danger/warning words, and links.
+
+Unfolded, the row shows the Machines board's **bordered two-column panel**
+(inset 10 px from the row's edges, not aligned to the table's columns). Each
+column section has the Machines board head: title, count, then its actions at
+the end (`+ Add project`, `Move…`, `+ Add bucket`, `Check`, `+ Attach
+machine`). Lines are the Machines board's lines: glyph (with its state dot),
+name, quiet words, then the line's own state and action at the end.
+
+- **Projects** (both kinds, left): one line per project: folder glyph, name
+  (opens it), a box icon + count when Sandboxes run, its size or "no commits
+  yet" / "No commits since Init". Largest first; max 5, then `+N projects →`
+  (the Store page). `+ Add project` opens "Add project to <Store>" (import a
+  folder or create an empty project) and shows only while the Store is ready
+  and no operation runs. Empty: "Add a project to start using this Store."
+  Host failed (PostgreSQL): the lines are greyed and the head says "last read
+  <time>".
 
 ### PostgreSQL row
 
-Folded:
-
-| Part | Content |
+| Column | Content |
 |---|---|
-| Left, line 1 | Health dot (host check: ok / failed / unchecked) and Store name |
-| Left, line 2 | `user@host:port/database` in mono |
-| Right | `N projects` · divider · up to 3 machine provider icons, each with a reach dot, then `+N` · `N machines` · one status word: `N failed` (danger), or `N stopped` (warning) |
-| Right, host failed | `N projects` · the failure label (danger) · `Edit connection…` link; machine icons are not shown |
-| End | Chevron, rotates when open |
+| Name | Elephant glyph with the host check's dot (ok / failed / unchecked / checking), then the name |
+| Projects | Count (`N projects` when narrow) |
+| Machine | One machine: its glyph with its reach dot and its name. Several: one glyph per provider with a count and the worst member's dot; the tooltip lists each machine and its reach. None: `Attach…` |
+| Address | `user@host:port/database` in mono with Copy; when the host check failed, the failure label (danger) and `Edit connection…` |
 
-Unfolded body, two columns (projects wider):
+Unfolded, right column **Machines N** (`Check`: this Store's host, then its
+machines; `+ Attach machine`): one line per attached machine: provider glyph
+with its reach dot, name (opens it), provider, a box icon + count when
+Sandboxes run, the reach words with their one fix (Edit connection… / Start /
+Update), then `×` (detach; disabled with why while Sandboxes run there). Max 5,
+then `+N machines →`. Empty: "No machines yet. Attach one to run Sandboxes."
 
-- **Projects:** each project, its size or "no commits yet", a box icon + count
-  when Sandboxes run. Total size on the heading line. Max 5, then `+N projects →`
-  (opens the Store page). Host failed: list greyed, heading says "last read
-  <time>".
-- **Runs on:** one row per attached machine: provider icon, name, provider
-  name, reach dot + result (`reachable` / failure label / `checking` /
-  `not checked`), then `×` (detach) or, when Sandboxes run there, a box icon +
-  count with a tooltip instead. Max 5, then `+N →`. Heading action
-  `+ Attach machine` opens the attach picker.
-- **Footer links:** `Check` (this Store: host, then its machines),
-  `Edit connection…`, `Open Store page →`.
-
-Header actions of the view: `Check all`, `Connect database`.
+⋯ menu: Open <name>, Check, Edit connection…, Attach a machine…, Compact…,
+Disconnect…. View actions: `Check all` beside the switch; `New Store` and
+`Connect a database` in the tab bar.
 
 ### SQLite row
 
-Folded:
-
-| Part | Content |
+| Column | Content |
 |---|---|
-| Left, line 1 | State dot (ready / machine stopped / operation running / needs attention) and Store name |
-| Left, line 2 | Size |
-| Right | `N projects` · divider · the one machine (provider icon + name), or `stopped · Start`, or a running operation with progress · divider · backups: bucket icon + `N buckets · <last success>` and `N failed` (danger), or `not backed up` (muted) |
+| Name | Feather glyph with the state dot (ready / machine stopped / operation running / needs attention), then the name |
+| Projects | Count (`N projects` when narrow) |
+| Machine | The one machine's glyph and name; stopped: the name muted and `Start` |
+| Size | The database file's size |
+| Backups | One glyph per bucket provider with a count and the worst result's dot, then the newest backup's age, or `N failed` (danger); none: `not backed up` (muted) |
 
-Unfolded body: **Projects** (same as PostgreSQL) on the left; on the right
-**Lives on** (one machine row with state; heading action `Move…`, tooltip states
-the move rule) and below it **Backups** (one row per linked bucket: name,
-provider, last success or "last attempt failed" with the last success in the
-tooltip, a `Back up` link; heading action `+ Add bucket`; empty: "not backed up
-to any bucket"). Footer links: `Compact…`, `Restore…`, `Open Store page →`.
+While an operation runs, its progress line takes the Machine, Size and Backups
+columns.
 
-Header action of the view: `New Store`.
+Unfolded, right column: **Machine** (`Move…`, its tooltip states the move rule;
+one line: glyph with the state dot, name, provider, state words or the running
+operation, `Start` when stopped) and below it **Backups N** (`+ Add bucket`;
+one line per linked bucket: provider glyph, name, `provider · last success` or
+"last attempt failed" (danger) with the last success in the tooltip, `Back up`;
+empty: "Not backed up to any bucket").
+
+⋯ menu: Open <name>, Push to… / Pull / Move to…, Back up to…, Back up now per
+bucket, Restore… (when backed up), Compact…, Remove….
 
 ## Dialogs and picker
 
@@ -161,11 +182,12 @@ on rows (full text in the tooltip or the Store page).
 ## Layout and overflow rules
 
 - Rows: name and address truncate with an ellipsis on one line; the full value in
-  `title` and a copy action where it is an address. The right summary never
-  wraps under the name at ≥ 720 px; below 720 px it moves to its own line under
-  the name. Below 560 px the unfolded columns stack (projects first).
+  `title` and a copy action where it is an address. At a table width of 880 px
+  and more the cells sit in their columns under the headings; below that the
+  headings hide and the cells move to their own line under the name (counts in
+  words). Below 640 px the unfolded panel's columns stack (projects first).
 - Numbers right-aligned in a fixed column; sizes formatted (B/KB/MB/GB), counts
-  with `+N` caps: 3 icons in summaries, 5 rows in unfolded lists.
+  with `+N` caps: 4 provider icons in a cell, 5 lines in unfolded lists.
 - Long machine, bucket and project names truncate inside their row; the
   trailing status/action never gets pushed out or overlaps.
 - Both locales (en, zh): no fixed widths sized for one language; check zh and en.

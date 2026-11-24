@@ -8,70 +8,12 @@
   container-type: inline-size;
 }
 
-/* ---------- the switch and the view's actions ---------- */
+/* ---------- the tab's actions (when no tab bar holds them) ---------- */
 
-.bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-/* the Stores | Buckets switch stands apart from SQLite | PostgreSQL */
-.tiles + .tiles {
-  position: relative;
-  margin-inline-start: 17px;
-}
-.tiles + .tiles::before {
-  content: '';
-  position: absolute;
-  inset-inline-start: -13px;
-  top: 50%;
-  width: 0.5px;
-  height: 16px;
-  background: var(--dsw-alias-border-l3);
-  transform: translateY(-50%);
-}
 .barActions {
   display: inline-flex;
   gap: 8px;
   margin-inline-start: auto;
-}
-.tiles {
-  display: inline-flex;
-  gap: 2px;
-  max-width: 100%;
-  padding: 2px;
-  border-radius: 8px;
-  background: var(--dsw-alias-bg-module-platform);
-}
-.tile {
-  all: unset;
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  height: 28px;
-  padding: 0 10px;
-  border-radius: 6px;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 13px;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.tile[aria-selected='true'] {
-  background: var(--dsw-alias-settings-card-fill);
-  color: var(--dsw-alias-label-primary);
-  box-shadow: var(--dsw-elevation-soft);
-}
-.tile:focus-visible {
-  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
-  outline-offset: 1px;
-}
-@media (hover: hover) {
-  .tile[aria-selected='false']:hover {
-    color: var(--dsw-alias-label-primary);
-  }
 }
 .count {
   color: var(--dsw-alias-label-tertiary);
@@ -130,13 +72,6 @@
   min-width: 0;
   padding: 10px 14px;
   cursor: pointer;
-}
-/* Copy address beside the toggle (never inside it), on the address line */
-.copySlot {
-  grid-area: copy;
-  align-self: end;
-  display: inline-flex;
-  margin-inline-start: -8px;
 }
 /* an open row is set apart */
 .row:has(> .head[data-open]) {
@@ -229,12 +164,6 @@
   min-width: 10ch;
   text-align: end;
 }
-.divider {
-  flex: none;
-  width: 0.5px;
-  height: 12px;
-  background: var(--dsw-alias-border-l3);
-}
 .num {
   font-variant-numeric: tabular-nums;
 }
@@ -306,9 +235,6 @@
     grid-template-areas: 'main copy chevron' 'summary summary summary';
     row-gap: 6px;
   }
-  .copySlot {
-    justify-self: start;
-  }
   .summary {
     flex-wrap: wrap;
     justify-content: flex-start;
@@ -323,9 +249,6 @@
   }
   .machine {
     min-width: 0;
-  }
-  .divider {
-    display: none;
   }
 }
 
@@ -578,4 +501,368 @@
 }
 .end {
   margin-inline-start: auto;
+}
+
+/* ---------- Home › Stores: a section per kind, each a table ---------- */
+
+.kindBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.kindAside {
+  display: inline-flex;
+  margin-inline-start: auto;
+}
+.kindAside .link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.tiles {
+  display: inline-flex;
+  gap: 2px;
+  max-width: 100%;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-module-platform);
+}
+.tile {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tile[aria-selected='true'] {
+  background: var(--dsw-alias-settings-card-fill);
+  color: var(--dsw-alias-label-primary);
+  box-shadow: var(--dsw-elevation-soft);
+}
+.tile:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
+  outline-offset: 1px;
+}
+@media (hover: hover) {
+  .tile[aria-selected='false']:hover {
+    color: var(--dsw-alias-label-primary);
+  }
+}
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* the column headings and every head share one grid per kind */
+.cols,
+.head[data-kind] {
+  display: grid;
+  align-items: center;
+  column-gap: 16px;
+  min-width: 0;
+  padding: 0 10px;
+}
+/* chevron · name · the kind's cells · ⋯ */
+.cols[data-kind='sqlite'],
+.head[data-kind='sqlite'] {
+  grid-template-columns: 20px minmax(160px, 1fr) 64px minmax(110px, 170px) 72px minmax(150px, 220px) 28px;
+}
+.cols[data-kind='postgresql'],
+.head[data-kind='postgresql'] {
+  grid-template-columns: 20px minmax(160px, 1fr) 64px minmax(110px, 200px) minmax(200px, 380px) 28px;
+}
+.cols {
+  height: 28px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+/* the Name heading starts where the names do, after the Store icon */
+.col[data-col='0'] {
+  padding-inline-start: 26px;
+}
+.col[data-col='1'] {
+  text-align: end;
+}
+.cols[data-kind='sqlite'] .col[data-col='3'] {
+  text-align: end;
+}
+.head[data-kind] {
+  grid-template-areas: none;
+  height: 44px;
+  padding-block: 0;
+}
+/* the old head's named areas place the toggle and the chevron; a table head places by column */
+.head[data-kind] > .main {
+  grid-area: auto;
+}
+.head[data-kind] .main {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  cursor: inherit;
+}
+/* an open table row is not shaded: its panel's border sets it apart, as on the Machines board */
+.rows > .row:has(> .head[data-open]) {
+  background: none;
+}
+/* the chevron folds the row; it turns down when open */
+.toggle {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--dsw-radius-xs);
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+.toggle > svg {
+  transition: transform 120ms ease;
+}
+.head[data-open] .toggle > svg {
+  transform: rotate(90deg);
+}
+.toggle:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
+  outline-offset: 1px;
+}
+.menuCell {
+  display: inline-flex;
+  justify-content: flex-end;
+}
+/* the cells take the head's grid columns; at a narrow width they go under the name */
+.cells {
+  display: contents;
+}
+.cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.cellNum {
+  justify-content: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+.narrow {
+  display: none;
+}
+.cell[data-cell='job'] {
+  grid-column: 4 / span 3;
+}
+/* a Store's icon: its kind's glyph in the text colour, its status dot on the corner */
+.storeIcon {
+  position: relative;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  color: var(--dsw-alias-label-secondary);
+}
+.storeDot {
+  position: absolute;
+  inset-inline-end: -3px;
+  bottom: -3px;
+  display: inline-grid;
+  place-items: center;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  corner-shape: round;
+  background: var(--dsw-alias-settings-card-fill);
+}
+/* machines and buckets as icons, one per provider, with a count */
+.groups {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.group {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.groupCount {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+.backups {
+  gap: 8px;
+  min-width: 0;
+}
+.when {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.address {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.address > .mono {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  text-overflow: ellipsis;
+}
+.hostFailed {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.cell .machine {
+  min-width: 0;
+  max-width: 100%;
+}
+@container (max-width: 879px) {
+  .cols {
+    display: none;
+  }
+  .head[data-kind] {
+    grid-template-columns: 20px minmax(0, 1fr) 28px;
+    grid-template-areas: 'toggle main menu' '. cells cells';
+    row-gap: 4px;
+    height: auto;
+    padding-block: 9px;
+  }
+  .head[data-kind] > .toggle {
+    grid-area: toggle;
+  }
+  .head[data-kind] > .main {
+    grid-area: main;
+  }
+  .head[data-kind] > .menuCell {
+    grid-area: menu;
+  }
+  .cells {
+    grid-area: cells;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 14px;
+    row-gap: 4px;
+    min-width: 0;
+    padding-inline-start: 26px;
+  }
+  .wide {
+    display: none;
+  }
+  .narrow {
+    display: inline;
+  }
+  .cell[data-cell='job'] {
+    flex-basis: 100%;
+  }
+}
+
+/* ---------- an unfolded table row: the Machines board's bordered panel ---------- */
+
+/* two equal columns, inset as much on the left as on the right */
+.panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  margin: 0 10px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md, 8px);
+}
+.pane {
+  min-width: 0;
+  padding: 10px 16px 12px;
+}
+.pane + .pane {
+  border-inline-start: 0.5px solid var(--dsw-alias-border-l2);
+}
+.paneNext {
+  margin-top: 10px;
+}
+.pane[data-stale] .projectLines {
+  opacity: 0.6;
+}
+/* a line with its own links: the line's look without its press */
+.staticLine {
+  box-sizing: border-box;
+  cursor: default;
+}
+li > .staticLine:hover,
+li > .staticLine:active {
+  background: none;
+}
+/* glyph · name · words · end */
+.thingLine {
+  grid-template-columns: 14px minmax(0, max-content) minmax(0, 1fr) auto;
+}
+/* glyph · name · words · end · × */
+.attachedLine {
+  grid-template-columns: 14px minmax(0, max-content) minmax(0, 1fr) auto 20px;
+}
+/* glyph · name · Sandboxes · size */
+.projectLine {
+  grid-template-columns: 14px minmax(0, 1fr) auto auto;
+}
+.lineGlyph {
+  position: relative;
+}
+.lineGlyph > .iconDot {
+  position: absolute;
+  inset-inline-end: -3px;
+  bottom: -3px;
+}
+.lineGlyph > .iconDot[data-state] {
+  --halo: 0 0 0 1.5px var(--dsw-alias-settings-card-fill);
+}
+.lineWords {
+  gap: 6px;
+  color: var(--dsw-alias-label-tertiary);
+}
+.lineEnd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.lineState {
+  color: var(--dsw-alias-label-secondary);
+}
+.lineState[data-tone='danger'] {
+  color: var(--lf-tone-danger-fg);
+}
+.lineState[data-tone='warning'] {
+  color: var(--lf-tone-warning-fg);
+}
+.moreLink {
+  margin-top: 6px;
+  font-size: 12px;
+}
+/* narrow: the panel's columns stack */
+@container (max-width: 640px) {
+  .panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .pane + .pane {
+    border-inline-start: 0;
+    border-top: 0.5px solid var(--dsw-alias-border-l2);
+  }
 }

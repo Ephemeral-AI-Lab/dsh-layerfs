@@ -23,8 +23,6 @@ import type { StorageKey } from './locale.ts'
 import { storeBackups } from './store-backups.ts'
 import type { BucketRow, PgAttached, PgReach, StorageJob, StorageView, StoreRow } from './types.ts'
 
-/** Machines drawn in a folded summary before `+N`. */
-export const SUMMARY_ICONS = 3
 /** Rows drawn in an unfolded list before `+N →`. */
 export const LIST_ROWS = 5
 
@@ -179,9 +177,6 @@ export interface PgSummary {
   host: ReachStatus
   /** Every attached machine with its status, by LayerFS's order. */
   machines: PgMachine[]
-  /** The ones a folded row draws, and how many more. */
-  shown: PgMachine[]
-  more: number
   /** Machines whose last check failed. */
   failed: number
   /** Attached machines that are stopped. */
@@ -194,22 +189,39 @@ export function pgSummary(s: StoreRow, view: Pick<StorageView, 'machines'>, chec
     const record = view.machines.find((m) => m.name === a.machine)
     return { machine: a.machine, platform: record?.platform ?? null, status: reachStatus(a.reach, { checking: checking.has(a.machine), machine: record ? { state: record.state, reason: record.reason ?? null } : null }) }
   })
-  const { shown, more } = capped(machines, SUMMARY_ICONS)
   return {
     projects: s.projectsCount ?? s.projects.length,
     host: hostStatus(s, checking.has('host')),
-    machines, shown, more,
+    machines,
     failed: machines.filter((m) => m.status.tone === 'danger').length,
     stopped: machines.filter((m) => m.status.key === 'machineStopped').length,
   }
 }
 
-/** The one status word on a folded PostgreSQL row: `N failed`, else `N stopped`, else none; none with no machine attached. */
-export function pgStatusWord(sum: Pick<PgSummary, 'failed' | 'stopped' | 'machines'>): { key: 'pgRowFailed' | 'pgRowStopped', n: number, tone: 'danger' | 'warning' } | null {
-  if (!sum.machines.length) return null
-  if (sum.failed > 0) return { key: 'pgRowFailed', n: sum.failed, tone: 'danger' }
-  if (sum.stopped > 0) return { key: 'pgRowStopped', n: sum.stopped, tone: 'warning' }
-  return null
+// ---------- provider groups (a row's machines and buckets as icons) ----------
+
+/** How bad a tone is: a group's dot shows its worst member. */
+const TONE_RANK: Readonly<Record<ReachStatus['tone'], number>> = { danger: 4, warning: 3, ongoing: 2, idle: 1, ok: 0 }
+
+export const worstTone = (tones: readonly ReachStatus['tone'][]): ReachStatus['tone'] =>
+  tones.reduce<ReachStatus['tone']>((worst, tone) => (TONE_RANK[tone] > TONE_RANK[worst] ? tone : worst), 'ok')
+
+/** One member of a provider group: its name, its tone and its words for the tooltip. */
+export interface GroupMember { name: string, provider: string, tone: ReachStatus['tone'], words: string }
+export interface ProviderGroupOf { provider: string, members: GroupMember[], tone: ReachStatus['tone'] }
+
+/**
+ * Members grouped by provider, one icon each with a count: several machines
+ * (or buckets) of one kind share one icon, whose dot is the worst member's.
+ * Providers in the order they first appear; members by name.
+ */
+export function providerGroups(members: readonly GroupMember[]): ProviderGroupOf[] {
+  const groups = new Map<string, GroupMember[]>()
+  for (const m of members) groups.set(m.provider, [...(groups.get(m.provider) ?? []), m])
+  return [...groups.entries()].map(([provider, list]) => {
+    const sorted = [...list].sort((a, b) => a.name.localeCompare(b.name))
+    return { provider, members: sorted, tone: worstTone(sorted.map((m) => m.tone)) }
+  })
 }
 
 // ---------- SQLite row ----------

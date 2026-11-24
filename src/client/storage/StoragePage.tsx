@@ -48,7 +48,7 @@ import type { ProjectMapShare } from './ProjectSandboxes.tsx'
 import type { StoreActions } from './StoreCard.tsx'
 import { PageReading } from './PaneBar.tsx'
 import { StorePage } from './StorePage.tsx'
-import { isTabId, underPage, openHomeStores, type OverviewTab, type TabId } from './tabs.ts'
+import { isTabId, underPage, type OverviewTab, type TabId } from './tabs.ts'
 import type { PgCheck, ProjectSummary, StorageJob, StorageView, StoreRow } from './types.ts'
 import { useDoctorCount } from '../doctor/use-doctor-count.ts'
 import css from './Storage.module.css'
@@ -374,8 +374,8 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
 
   const root: Crumb = { key: 'root', label: t('title'), go: () => open('overview') }
   const sectionCrumb = (key: OverviewTab, label: string): Crumb => ({ key: `section:${key}`, label, go: () => { setSection(key); history.open('overview') } })
-  // a bucket's way back: Home › Stores on SQLite's Buckets view (once the Backups tab)
-  const bucketsCrumb: Crumb = { key: 'section:buckets', label: t('hsViewBuckets'), go: () => { openHomeStores('sqlite', true); setSection('stores'); history.open('overview') } }
+  // a bucket's way back: Home › Buckets
+  const bucketsCrumb = sectionCrumb('buckets', t('ovBuckets'))
   const machineSiblings: Sibling[] = places.map((p) => ({ id: `machine:${p.name}`, label: machineWord(p.name), meta: mc.kind(p.platform) }))
   const storeSiblings: Sibling[] = stores.map((s) => ({ id: `store:${s.name}`, label: s.name, meta: `${kindWord(s)} · ${storeWhere(s)}`, group: s.kind }))
   const bucketSiblings: Sibling[] = (view?.buckets ?? []).map((b) => ({ id: `bucket:${b.name}`, label: b.name, meta: providerWords(b.provider, t) }))
