@@ -17,6 +17,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { LOGS_EVENT, shellCommand, type LabeledLine, type LogsListAnswer, type LogsOutputAnswer } from '../../shared/logs.ts'
 import { MachineGlyph, SandboxGlyph } from '../machines/icons.tsx'
+import { openStorage } from '../projects/navigation.ts'
 import type { MachinesView } from '../machines/model.ts'
 import { Gate, useNoComposer, type ViewProps } from './FileViews.tsx'
 import { useRootState } from './hooks.ts'
@@ -939,6 +940,8 @@ export function SandboxMap({ api, t, project, agents, calls, loaded, binding, li
             const stateLive = !ghost && (creating || (known ? known.live : bound && binding.state === 'bound'))
             const use = win.find((e) => !e.branch && e.sandbox === box.name && arrived(e) && now < e.end)
             const machine = box.machine ?? (bound ? binding.machine : undefined)
+            // The live terminals are on the Sandbox page; only offer them while the Sandbox is open and its machine is known.
+            const openLive = machine && !box.closed ? () => openStorage(api, `sandbox:${machine}/${box.name}`) : undefined
             const shownWs = liveWs.get(box.name) ?? []
             const mounted = shownWs.filter((ws) => mountedAt(mountsOf(ws.id), ws.id, now))
             const used = mounted.length + (box.reserved ?? 0)   // dsh's own Workspace holds a slot though it is not drawn
@@ -980,7 +983,8 @@ export function SandboxMap({ api, t, project, agents, calls, loaded, binding, li
                       <span className={css.wsName}><IconChevronRightOutlineRegular size={11} className={clsx(css.foldIcon, css.wsChevron, open && css.foldOpen)} /><span className={css.rowName}>{ws.name}</span></span>
                       {state ? <span className={css.status}>{run ? <i className={clsx(css.dot, css.dotLane)} /> : null}{state}{run ? <span className={css.elapsed}>{t('dur_s', { n: (now - run.start).toFixed(1) })}</span> : null}</span> : null}
                     </button>
-                    {open ? <WorkspaceTerminal api={api} t={t} events={(index.byWs.get(ws.id) ?? []).slice(0, startedBy(index.byWs.get(ws.id) ?? [], now))} wsName={ws.name} now={now} agentName={agentName} laneOf={laneOf} reduced={reduced} /> : null}
+                    {open ? <WorkspaceTerminal api={api} t={t} events={(index.byWs.get(ws.id) ?? []).slice(0, startedBy(index.byWs.get(ws.id) ?? [], now))} wsName={ws.name} now={now} agentName={agentName} laneOf={laneOf} reduced={reduced}
+                      onOpenLive={openLive} liveUnavailable={openLive ? undefined : t('wsLiveUnavailable')} /> : null}
                     </Fragment>
                   )
                 })}
