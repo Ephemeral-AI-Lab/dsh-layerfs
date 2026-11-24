@@ -118,10 +118,13 @@ into the one 3080 server. That is expected; coordinate instead of competing for 
     durable jobs in `<root>/presets/`), `driver.ts`, and LayerFS Connect's runner/recipe
     kept as JavaScript (`runner.js`, `build.js`, `environment-reset.js`, `recipe/` copied
     from Connect `tools/demo/`, typed through `js.ts`) so they stay diffable against Connect
+  - `routes/project-exports.ts` project exports to a local folder (`project.export`, pinned Commit,
+    progress, stop), docs/specs/project-exports.md
   - `sandbox-policy.ts` the `layerfs-sandbox-policy` row (`lib/sandbox-policy.js`)
 - `src/client/` browser half (React 18, CSS Modules, bundled to `lib/client.js` in
   DSH's `__ModuleLoader__` factory format)
   - `api.ts` `LayerfsApi` (`call(method,path,body)`, `op(name,args)`, `onEvent`)
+  - `exports/` project export views (Home dialog and row cell, History inspector and dock chip)
   - `machines/`, `storage/`, `presets/`, `logs/`, `session/`, `picker/`, `hero/`, `views/` areas, each
     `register<Area>(ctx, api)`; `picker/` owns the shared `NewProjectForm` + locale,
     `hero/` puts the project choice on the New Session row (`conversation.hero.options`

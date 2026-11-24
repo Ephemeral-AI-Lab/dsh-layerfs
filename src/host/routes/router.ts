@@ -8,6 +8,7 @@ import { SandboxCommands, sandboxOfWs } from './commands.ts'
 import { DoctorChecks } from './doctor.ts'
 import { Machines } from './machines.ts'
 import { Projects } from './projects.ts'
+import { ProjectExports } from './project-exports.ts'
 import { Storage } from './storage.ts'
 import { Answer, fixOf, invalidateSandbox, wire, type RouteHost } from './util.ts'
 import type { SandboxCreates } from './sandbox-creates.ts'
@@ -111,6 +112,8 @@ export interface Groups {
   readonly commands: SandboxCommands
   /** Sandbox creations run in the background, with their progress (sandbox-creates.ts). */
   readonly sandboxCreates: SandboxCreates
+  /** Project exports to a folder on this computer, with their progress (project-exports.ts). */
+  readonly exports: ProjectExports
   /** Runtime facts for `GET /api/status` (`ctx.layerfs.status()`). */
   readonly runtime: () => Promise<unknown>
   /** `/api/demo-presets…` (presets/manager.ts), once attached. */
@@ -146,7 +149,8 @@ export function createGroups(host: RouteHost, runtime: () => Promise<unknown>): 
   projects.spaceFor = (machine, image) => machines.spaceFor(machine, image)
   // a background create that ends changes the machines view: later GETs read anew
   projects.sandboxCreates.settled = () => machines.changed()
-  return { host, machines, storage, projects, checks, commands, sandboxCreates: projects.sandboxCreates, runtime }
+  const exports = new ProjectExports(host)
+  return { host, machines, storage, projects, checks, commands, sandboxCreates: projects.sandboxCreates, exports, runtime }
 }
 
 /** method + path segments -> the answer, or undefined when no route matches. */
@@ -323,6 +327,15 @@ export async function route(g: Groups, method: string, parts: string[], query: U
   if (group === 'project-sources' && id === 'check' && !sub && method === 'POST') return projects.checkSource(body ?? {})
   if (group === 'project-inits' && !id && method === 'GET') return projects.initJobs()
   if (group === 'project-inits' && id && !sub && method === 'GET') return projects.init(id)
+  // exports to a folder on this computer (project-exports.ts): { project, branch?, commit?, folder, name? } -> the queued job
+  if (group === 'project-exports') {
+    if (!id && method === 'GET') return g.exports.list(query.get('project'))
+    if (!id && method === 'POST') return g.exports.start(body ?? {})
+    if (id && !sub && method === 'GET') return g.exports.get(id)
+    if (id && sub === 'stop' && method === 'POST') return g.exports.stop(id)
+    if (id && sub === 'reveal' && method === 'POST') return g.exports.reveal(id)
+    if (id && !sub && method === 'DELETE') return g.exports.dismiss(id)
+  }
   return undefined
 }
 

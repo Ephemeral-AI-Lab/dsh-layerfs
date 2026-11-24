@@ -528,11 +528,13 @@ const GETS = [
   ['workspaces/:id/status', '/api/workspaces/box1:w/status'],
   ['project-inits', '/api/project-inits'],
   ['project-inits/:id', '/api/project-inits/init-x'],
+  ['project-exports', '/api/project-exports'],
+  ['project-exports/:id', '/api/project-exports/x-none'],
 ]
 /** The presets manager's GET routes (manager.ts `route`), dispatched by router.ts under /api/demo-presets. */
 const PRESET_GETS = ['', '/requests/r1', '/jobs/j1', '/studio', '/studio/environment-plan', '/studio/build-plan', '/studio/build-plan-no-sandboxes', '/studio/script', '/studio/script-no-sandboxes']
 /** Routes whose 2xx needs more than the fake has: they may answer 4xx/5xx, but still must not write. */
-const MAY_FAIL = new Set(['/api/storage-jobs/job-x', '/api/project-inits/init-x', '/api/stores/s1/check?machine=native'])
+const MAY_FAIL = new Set(['/api/storage-jobs/job-x', '/api/project-inits/init-x', '/api/project-exports/x-none', '/api/stores/s1/check?machine=native'])
 
 // Guards the GETS table: it names every GET route router.ts has.
 test('the no-writes table covers every GET route in router.ts', () => {

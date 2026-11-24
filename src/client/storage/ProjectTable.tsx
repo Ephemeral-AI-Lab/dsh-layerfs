@@ -22,8 +22,10 @@
 import { useContext, useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
 import {
-  IconChevronRightOutlineRegular, IconPlusOutlineRegular, IconTrashOutlineRegular, MenuItemButton,
+  IconChevronRightOutlineRegular, IconDownloadOutlineRegular, IconPlusOutlineRegular, IconTrashOutlineRegular, MenuItemButton,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { ExportCell, ExportDialog } from '../exports/Export.tsx'
+import { showProjectTab } from './project-tab.ts'
 import { ago, bytes, when } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { MachineGlyph, SandboxGlyph } from '../machines/icons.tsx'
@@ -320,6 +322,7 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
   const tt = t as Translate
   const routed = useProjectSize(api, key, r.sizeRoute?.alone ?? false, tick, !!r.sizeRoute)
   const [sessionError, setSessionError] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
   const blockedSession = sessionsUnavailable(store) ? t('ovSessionBlocked') : undefined
   const local = r.sessions
   const lastSession = lastSessionOf(local)
@@ -410,7 +413,9 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
         <span role="cell" className={clsx(css.num, css.colBranches, !totals && css.muted)}>{totals ? totals.branches.toLocaleString() : '—'}</span>
         <span role="cell" className={clsx(css.num, css.colSize)}
           title={share != null ? t('spShareOfStore', { n: share < 0.01 && share > 0 ? '<1' : String(Math.round(share * 100)) }) : r.sizeRoute ? (r.sizeRoute.alone ? t('ovSizeTitleAlone') : t('ovSizeTitle')) : undefined}>
-          <span className={clsx(size === null && css.muted)}>{size !== null ? bytes(size) : sizeWaiting && !unread ? t('ovSizeCounting') : '—'}</span>
+          <ExportCell api={api} t={tt} project={key}>
+            <span className={clsx(size === null && css.muted)}>{size !== null ? bytes(size) : sizeWaiting && !unread ? t('ovSizeCounting') : '—'}</span>
+          </ExportCell>
           {share != null ? <span className={css.share} aria-hidden="true"><span style={{ width: `${Math.max(share * 100, share > 0 ? 2 : 0).toFixed(1)}%` }} /></span> : null}
         </span>
         <span role="cell" className={css.actions}>
@@ -422,6 +427,7 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
                   close(); setSessionError(null)
                   void api.openProjectSession(key).catch((e: unknown) => setSessionError(String((e as Error)?.message ?? e)))
                 }}>{t('ptNewSession')}</MenuItemButton>
+                <MenuItemButton disabled={unread} icon={<IconDownloadOutlineRegular size={14} />} onSelect={() => { close(); setExporting(true) }}>{t('export_menuMain')}</MenuItemButton>
                 {onRemove ? (
                   <MenuItemButton separatorBefore danger icon={<IconTrashOutlineRegular size={14} />} onSelect={() => { close(); onRemove(store.name, p.name) }}>
                     {t('removeProject')}
@@ -433,6 +439,10 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
         </span>
       </div>
       {sessionError && <p role="alert" className={css.error}>{sessionError}</p>}
+      {exporting ? (
+        <ExportDialog api={api} t={tt} project={key} onClose={() => setExporting(false)}
+          onOpenHistory={() => { setExporting(false); showProjectTab(key, 'history'); openProject() }} />
+      ) : null}
       {job ? <div className={css.job}><JobLine job={job} t={t} label={`${store.name} · ${doingWords(job, t)}`} /></div> : null}
       {open && (
         <div className={css.detail} id={detailId}>

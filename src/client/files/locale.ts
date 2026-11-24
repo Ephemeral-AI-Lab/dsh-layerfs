@@ -3,7 +3,10 @@
  * dictionaries into its own namespace, so the views translate through the
  * `t` that area's slot registration receives.
  */
+import { exportEn, exportZh } from '../exports/locale.ts'
+
 export const filesEn = {
+  ...exportEn,
   files_loading: 'Loading…',
   files_retry: 'Retry',
   files_readingFiles: 'Reading project files…',
@@ -205,6 +208,7 @@ export const filesEn = {
 }
 
 export const filesZh: typeof filesEn = {
+  ...exportZh,
   files_loading: '加载中…',
   files_retry: '重试',
   files_readingFiles: '正在读取项目文件…',

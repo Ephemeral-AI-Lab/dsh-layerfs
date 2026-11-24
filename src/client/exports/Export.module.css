@@ -1,0 +1,323 @@
+/* Project exports: the shared progress block, form cards, the Home row cell and History's dock chip. */
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+}
+
+.cardIcon {
+  flex: none;
+  display: flex;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.cardBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cardTitle {
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardTitle[data-empty] {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.sub {
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: var(--dsw-font-mono);
+  font-size: 12px;
+}
+
+.label {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--lf-tone-danger-fg);
+}
+
+.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--dsw-alias-link);
+  font: inherit;
+  cursor: pointer;
+}
+
+.folderRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---------- progress ---------- */
+
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.progressHead,
+.progressFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.progressHead {
+  color: var(--dsw-alias-label-primary);
+}
+
+.progressFoot {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.bar {
+  position: relative;
+  display: block;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--dsw-alias-border-l2);
+}
+
+.bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--dsw-alias-state-business-primary);
+  transition: width 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.bar[data-muted] > span {
+  background: var(--dsw-alias-label-tertiary);
+}
+
+/* nothing measurable yet (queued, preparing): a segment slides along the track */
+.bar[data-indeterminate] > span {
+  position: absolute;
+  width: 30%;
+  animation: slide 1.2s ease-in-out infinite;
+}
+
+@keyframes slide {
+  from { left: -30%; }
+  to { left: 100%; }
+}
+
+.outcome {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.outcome > svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.ok { color: var(--lf-tone-success-dot); }
+.bad { color: var(--lf-tone-danger-fg); }
+.quiet { color: var(--dsw-alias-label-tertiary); }
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.modal {
+  width: min(480px, calc(100vw - 32px));
+}
+
+/* ---------- inspector ---------- */
+
+.inline {
+  flex-basis: 100%;
+  min-width: 0;
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+/* ---------- Home row cell ---------- */
+
+.cell {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cellBar {
+  flex: 1;
+  min-width: 40px;
+  max-width: 90px;
+}
+
+.iconButton {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--dsw-radius-xs);
+  background: none;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.iconButton:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: -2px;
+}
+
+.iconButton[data-placeholder] {
+  visibility: hidden;
+}
+
+@media (hover: hover) {
+  .iconButton:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+    color: var(--dsw-alias-label-primary);
+  }
+}
+
+/* ---------- History dock chip ---------- */
+
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 4px 0 8px;
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: var(--dsw-elevation-panel);
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+}
+
+.chip[data-tone='danger'] {
+  color: var(--lf-tone-danger-fg);
+}
+
+.chipName {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--dsw-alias-label-primary);
+}
+
+.chipLink {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--dsw-alias-link);
+  font: inherit;
+  cursor: pointer;
+}
+
+.ring {
+  flex: none;
+}
+
+.ring[data-spin] {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.ring circle:first-child {
+  stroke: var(--dsw-alias-border-l3);
+}
+
+.ring circle + circle {
+  stroke: var(--dsw-alias-state-business-primary);
+  transition: stroke-dasharray 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ring[data-muted] circle + circle {
+  stroke: var(--dsw-alias-label-tertiary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bar[data-indeterminate] > span,
+  .ring[data-spin] {
+    animation: none;
+  }
+
+  .bar[data-indeterminate] > span {
+    left: 0;
+    width: 100%;
+    opacity: 0.4;
+  }
+}

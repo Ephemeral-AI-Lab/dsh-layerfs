@@ -20,6 +20,7 @@ import { HistoryGraph } from './HistoryGraph.tsx'
 import { branchLabel } from './labels.ts'
 import { EmptyState, Loading } from './States.tsx'
 import { CopyId, toneScope } from '../ui/index.tsx'
+import { ExportChip, ExportInline } from '../exports/Export.tsx'
 import type { CommitInfo, HistoryBranch, HistoryPage, Translate } from './types.ts'
 import css from './History.module.css'
 
@@ -453,6 +454,9 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
     : selected?.kind === 'merge' ? t('files_merge')
     : t('files_checkpoint')
   const selectedLive = layout.byName.get(selectedBranch)?.live ?? true
+  // a Branch head (or an empty Branch, shown at its fork point) exports as "latest"; LayerFS exports it on that Branch
+  const selectedHead = !!selected && (selectedEmpty || branches.find((b) => b.name === selectedBranch)?.head === selected.id)
+  const exportAction = selected ? <ExportInline api={api} t={t} project={project} branch={selectedBranch} commit={selected.id} head={selectedHead} /> : null
   const inspector = selected ? (
     <aside className={css.detail} aria-label={t('files_commitDetails')}>
       <button type="button" className={css.inspectorClose} aria-label={t('files_closeDetails')} onClick={() => writeView({ selected: null, branch: '' })}><IconCloseOutlineRegular size={14} /></button>
@@ -503,10 +507,11 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
             <div className={css.detailActions}>
               <Button variant="outline" size="sm" onClick={() => setDiffOpen(true)}>{t('files_viewDiff')}</Button>
               <Button variant="outline" size="sm" onClick={() => setPicking({ branch: selectedCommit.branch, pin: selectedCommit.id })}>{t('files_comparePick')}</Button>
+              {exportAction}
             </div>
-          ) : null}
+          ) : <div className={css.detailActions}>{exportAction}</div>}
         </>
-      ) : null}
+      ) : <div className={css.detailActions}>{exportAction}</div>}
     </aside>
   ) : undefined
   const more = total != null ? total > loaded : sideBranches.some((b) => pages[b.name]?.next != null)
@@ -545,6 +550,7 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
             )}
         {!ready && Object.keys(pages).length ? <Loading label={total != null ? t('files_loadingAllOf', { count: loaded.toLocaleString(), total: total.toLocaleString() }) : t('files_loadingAll', { count: loaded.toLocaleString() })} className={css.waiting} /> : null}
         <div className={css.dock}>
+          <ExportChip api={api} t={t} project={project} />
           <span ref={setZoomSlot} className={css.zoomSlot} />
           <div className={css.mapControls} role="group" aria-label={t('files_history')}>
             {loadingAll === ALL

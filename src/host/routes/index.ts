@@ -102,6 +102,7 @@ export function apply(ctx: Context): void {
     busy: () => [
       ...(groups.storage.busy() ? ['a storage job'] : []),
       ...(groups.projects.busy() ? ['a project import'] : []),
+      ...(groups.exports.busy() ? ['a project export'] : []),
       ...(groups.checks.busy() ? ['a doctor run'] : []),
       ...(groups.commands.busy() ? ['a Sandbox command'] : []),
     ],
@@ -130,6 +131,7 @@ export function apply(ctx: Context): void {
     ctx.layerfs.exclusive = undefined
     groups.storage.close()
     groups.checks.close()
+    groups.exports.close()
     void groups.projects.close()
   }, 'dsh-layerfs: routes state')
   ctx.layerfsRemote.operate(ctx, {

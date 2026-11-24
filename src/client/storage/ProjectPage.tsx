@@ -2,7 +2,7 @@
  * One project: Files (Branch, tree, saved file), History (Commits and their
  * diffs), Sandboxes (the live Sandbox map), Sessions (the DSH sessions bound to it) and Stats.
  */
-import { useId, useState, type ReactNode } from 'react'
+import { useEffect, useId, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { Button, IconPlusOutlineRegular, IconRefreshOutlineRegular, MenuItemButton, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { StatusDot } from '../ui/StatusDot.tsx'
@@ -21,11 +21,12 @@ import { refusalLabels } from './parts.tsx'
 import type { ProjectState, SessionRow, StoreRow } from './types.ts'
 import { brokenWords, sessionsUnavailable, storeTip } from './model.ts'
 import { StoreFixAction } from './StoreCard.tsx'
+import { onProjectTab, takeProjectTab, type ProjectTab } from './project-tab.ts'
 import css from './Storage.module.css'
 import { ProjectStorage } from './ProjectStorage.tsx'
 import { ProjectSandboxes, type ProjectMapShare } from './ProjectSandboxes.tsx'
 
-type Tab = 'files' | 'history' | 'sandboxes' | 'sessions' | 'stats'
+type Tab = ProjectTab
 
 export interface ProjectPageProps {
   refreshKey?: number
@@ -61,7 +62,9 @@ function StoreBroken({ s, t }: { s: StoreRow, t: StorageT }): ReactNode {
 
 export function ProjectPage({ refreshKey = 0, api, t, project, onDialog, onRemoved, onOpenStore, map, store }: ProjectPageProps): ReactNode {
   const name = project.slice(project.indexOf('/') + 1)
-  const [tab, setTab] = useState<Tab>('files')
+  const [tab, setTab] = useState<Tab>(() => takeProjectTab(project) ?? 'files')
+  // another page asked for a tab (Home's export dialog opens History)
+  useEffect(() => onProjectTab(() => { const want = takeProjectTab(project); if (want) setTab(want) }), [project])
   // One prefix per page: several projects can be open at once.
   const ids = useId()
   const [localTick, setTick] = useState(0)
