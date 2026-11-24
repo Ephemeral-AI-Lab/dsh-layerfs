@@ -245,14 +245,10 @@ try {
   // New project… opens the project dialog in create mode (docs/specs/layerfs-workspaces.md §2-3).
   await page.getByRole('menuitem', { name: 'New project…' }).click()
   const draft = page.getByRole('dialog', { name: 'New project', exact: true })
-  // One page: Project, Store, Machine; the rail says which are ready and jumps to them.
+  // One page: Name and the Save to list (docs/specs/layerfs-workspaces.md §3); the chosen row opens in place.
   await draft.getByLabel('Name', { exact: true }).fill('blank')
-  await draft.getByRole('navigation').getByRole('button', { name: /^Store/ }).click()
-  await draft.getByRole('tab', { name: /^Existing/ }).click()
-  await draft.getByRole('radio', { name: new RegExp(`^${store.replace(/[.]/g, '\\.')}\\b`) }).click()
-  await draft.getByRole('navigation').locator('button[data-ready]').filter({ hasText: /^Store/ }).waitFor()
-  // The fixture Store is on native: keep it there instead of the docker default.
-  await draft.getByRole('radio', { name: /^native/ }).click()
+  await draft.getByRole('radio', { name: new RegExp(`^\\s*${store.replace(/[.]/g, '\\.')}\\b`) }).click()
+  // The fixture Store is on native: it stays there (no Move).
   await draft.getByRole('button', { name: 'Create and open' }).click()
   await draft.waitFor({ state: 'detached', timeout: 60000 })
   await until('hero on the new project', async () => (await page.locator('[data-layerfs-hero] button[aria-label^="LayerFS project:"]').first().innerText().catch(() => '')).trim() === 'blank', 60000)

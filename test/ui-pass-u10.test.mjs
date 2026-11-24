@@ -323,7 +323,7 @@ test('machine.start: no Create, Move, New Store or Home hero starts a machine; e
   const view = { machines: [{ name: 'native', state: 'ready' }, { name: 'docker', state: 'stopped' }, { name: 'old', state: 'broken' }] }
   assert.deepEqual(M.setup.needsStart({ kind: 'sqlite', store: { machine: 'docker' }, machines: ['docker'] }, view), ['docker'])
   assert.deepEqual(M.setup.stoppedOf(['old', 'native'], view), [], 'a broken machine is not offered Start')
-  for (const lang of ['en', 'zh']) for (const k of ['stoppedFirst', 'startNamed', 'needsStart']) assert.ok(M.setupLocales[lang][k], `${lang}.${k}`)
+  for (const lang of ['en', 'zh']) for (const k of ['stoppedFirst', 'startNamed']) assert.ok(M.setupLocales[lang][k], `${lang}.${k}`)
   assert.equal(M.setupLocales.en.startsOnCreate, undefined)
 })
 
