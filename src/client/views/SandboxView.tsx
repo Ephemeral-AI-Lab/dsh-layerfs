@@ -23,7 +23,8 @@ import { Gate, useNoComposer, type ViewProps } from './FileViews.tsx'
 import { useRootState } from './hooks.ts'
 import type { Translate } from './locale.ts'
 import { useLocaleRevision } from '../ui/locale-sync.ts'
-import { LayerfsMark, Whale } from './marks.tsx'
+import { LayerfsGlyph } from '../overview/glyph.tsx'
+import { Whale } from './marks.tsx'
 import { WorkspaceTerminal } from './WorkspaceTerminal.tsx'
 import {
   RESULT_S, RIPPLE_S, TAIL_S, activeAt, agentTree, buildSandboxMap, stateWords, recentBranches, onlyBranches, wallAt, countEnded, easeOut, indexEvents, isQuietCall, lastEnded, mergeCalls, mountedAt, phaseOf, requestS, rippleAt, stamp, startedBy, windowAt,
@@ -901,7 +902,7 @@ export function SandboxMap({ api, t, project, agents, calls, loaded, binding, li
         <button type="button" className={clsx(css.hub, hubBusy && css.hubBusy, dim(node('project', '')) && css.dim, isSelected({ kind: 'project', id: '' }) && css.selected)}
           data-flow-node={node('project', '')} aria-label={`${t('layerfs')} ${projectName}`} title={project} {...hoverProps({ kind: 'project', id: '' })}
           style={L ? { left: L.hx - L.rh, top: L.hy - L.rh, width: 2 * L.rh, height: 2 * L.rh } : { width: 2 * frame.rh, height: 2 * frame.rh }}>
-          <LayerfsMark size="56%" />
+          <LayerfsGlyph size="56%" />
         </button>
 
         {arc.map((branch) => {

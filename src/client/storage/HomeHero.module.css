@@ -77,8 +77,8 @@
 
 /* The LayerFS × DSH lockup that heads Home (the h1's visible face). */
 .lockup {
-  /* Brand inks: LayerFS's rail blue (as its mark draws it) and DeepSeek's blue. */
-  --lfs-ink: color-mix(in oklab, #2F5BB5 82%, var(--dsw-alias-label-primary));
+  /* Brand inks: LayerFS's rail from the mark's one definition, and DeepSeek's blue. */
+  --lfs-ink: var(--lfs-dark);
   --dsh-ink: #4D6BFE;
   display: inline-flex;
   align-items: center;

@@ -160,10 +160,8 @@ const CHROMATIC_NAMED_COLOR_RE = /\b(?:red|green|blue|orange|yellow|amber|crimso
 const NON_STATUS_CHROMATIC_ALLOWLIST = new Set([
   'src/client/doctor/DoctorPage.module.css',
   'src/client/machines/icons.tsx',
-  'src/client/overview/glyph.tsx',
   'src/client/storage/HomeHero.module.css',
-  'src/client/storage/HomeOverview.module.css',
-  'src/client/views/marks.tsx',
+  'src/client/ui/brand.module.css',
 ])
 
 const NON_STATUS_VAR_ALLOWLIST = /^--(doc-(run|link|tip-run)|ov-(accent|ink-\w+)|lfs-(light|dark|ink)|dsh-ink)$/
