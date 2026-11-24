@@ -91,21 +91,37 @@ export function registerViews(ctx: any, api: LayerfsApi): void {
   // off, the stock resumes first, then ours goes. Transitions run one at a time
   // and settle on the latest wanted mode.
   const stock = stockTrajectory(ctx)
-  let registered: (() => void)[] | null = null
+  let registered: { id: string, dispose: () => void }[] | null = null
   let wanted = false
   let applied = false
   let running = false
   let timer: ReturnType<typeof setTimeout> | undefined
   const transition = async (on: boolean) => {
     if (on) {
-      registered = views.map((view) => ctx.slots.inject('conversation.view', () => ctx.slots.register({
-        name: 'conversation.view', id: view.id, order: view.order, locale: NS, label: () => t(view.label), inject,
-        ...(view.priority === undefined ? {} : { priority: view.priority }),
-      }, view.component)))
-      await stock.suspend().catch((error: unknown) => ctx.logger?.warn?.('dsh-layerfs: stock Trajectory not suspended: %s', error))
+      registered = views.map((view) => ({
+        id: view.id,
+        dispose: ctx.slots.inject('conversation.view', () => ctx.slots.register({
+          name: 'conversation.view', id: view.id, order: view.order, locale: NS, label: () => t(view.label), inject,
+          ...(view.priority === undefined ? {} : { priority: view.priority }),
+        }, view.component)),
+      }))
+      try {
+        await stock.suspend()
+      } catch (error: unknown) {
+        ctx.logger?.warn?.('dsh-layerfs: stock Trajectory not suspended: %s', error)
+        // DSH renders every `conversation.view` entry of an id, shadowed ones
+        // included: the stock tab is still there, so take our own Trajectory
+        // entry back (and nothing else) to keep exactly one. The other tabs
+        // and LayerFS mode stay; a later transition off resumes nothing.
+        const own = registered.find((entry) => entry.id === TRAJECTORY_VIEW)
+        if (own) {
+          own.dispose()
+          registered = registered.filter((entry) => entry !== own)
+        }
+      }
     } else {
       await stock.resume().catch((error: unknown) => ctx.logger?.warn?.('dsh-layerfs: stock Trajectory not resumed: %s', error))
-      for (const dispose of registered ?? []) dispose()
+      for (const entry of registered ?? []) entry.dispose()
       registered = null
     }
     applied = on
@@ -175,7 +191,7 @@ export function registerViews(ctx: any, api: LayerfsApi): void {
       timer = undefined
       wanted = false
       void stock.resume()
-      for (const dispose of registered ?? []) dispose()
+      for (const entry of registered ?? []) entry.dispose()
       registered = null
       applied = false
     }
