@@ -139,8 +139,12 @@ export function registerViews(ctx: any, api: LayerfsApi): void {
     for (const id of ids) {
       if (projectOf.has(id)) continue
       const known = (value: boolean) => { projectOf.set(id, value); lastKnown.set(id, value) }
+      // A failed read is not an answer: it must not write `lastKnown` (that would
+      // pin the session as non-project), so the tabs stay and the next
+      // `layerfs-session`/`connection` event can read again. `projectOf` gets the
+      // last answer as a plain boolean, so `refresh` does not immediately reread.
       projectOf.set(id, api.op<{ place: { project: string | null } | null }>('session.place', { sessionId: id })
-        .then((r) => known(!!r.place?.project), () => known(false))
+        .then((r) => known(!!r.place?.project), () => { projectOf.set(id, lastKnown.get(id) ?? false) })
         .finally(refresh))
     }
     setEnabled(ids.some(isProject))
