@@ -1,4 +1,4 @@
-<!-- source: ac2dc2bf1d13 -->
+<!-- source: 1ce81ea99c4d -->
 # DSH 中的 LayerFS：界面指南
 
 > 标有「隔离测试数据」的截图来自当前版本的实际组件，使用独立浏览器和示例数据。其余截图来自早期演示环境。
@@ -127,7 +127,7 @@ flowchart TD
 | 逐条跟进 agent 做了什么 | [对话 › 轨迹](conversation.md#trajectory) | —（会话自己的日志） |
 | 备份或恢复 Store | [Store › 备份](store.md#backups-sqlite)、[存储桶](bucket.md) | `backup create`、`backup restore` |
 | 把 Store 移到另一台机器 | [Store 菜单](components.md#store-menu) | `store move`（两次，经由 native） |
-| 连接 PostgreSQL 数据库 | [Store › 连接](store.md#connection-postgresql) | `store save-auth`、`store connect`、`store doctor` |
+| 连接 PostgreSQL 数据库 | [Store › PostgreSQL Store 页面](store.md#postgresql-store-page) | `store connect`、`store attach`、`store doctor` |
 | 启动、停止或修复机器 | [机器](machine.md)、[机器菜单](components.md#machine-menu) | `machine start`、`machine stop` |
 | 创建 Sandbox 并在里面运行命令 | [机器 › Sandbox](machine.md#sandboxes)、[Sandbox › Workspace](sandbox.md#workspaces) | `sandbox create`、`workspace mount`、`workspace exec`、`workspace commit` |
 | 释放机器上的磁盘空间 | [机器 › 概览 › 磁盘空间](machine.md#disk-space-dialog)、[镜像](machine.md#images) | `machine stats --with space`、`machine prune` |

@@ -1,4 +1,4 @@
-<!-- source: ed2f3efae272 -->
+<!-- source: b49d74226b3d -->
 # 主页
 
 > 标有「隔离测试数据」的截图来自当前版本的实际组件，使用独立浏览器和示例数据。其余截图来自早期演示环境。
@@ -28,8 +28,8 @@
 **连接数据库**，Connect a database；**新建机器**，New machine；**诊断这台主机**，Diagnose this host）
 放在标签栏的右端。主页在两次访问之间什么都不记，只记住 Store 标签页选中的种类和视图，以及哪些行是展开的。
 
-主页打开时会读取存储视图（`GET /api/storage`：`home get`、`project list`、`store auths`、
-`store list`）和项目目录（`GET /api/projects`：`project list`）；页面可见时每 15 秒再读一次，
+主页打开时会读取存储视图（`GET /api/storage`：`home get`、`project list`、`store list`、
+每个 PostgreSQL Store 的 `store get`）和项目目录（`GET /api/projects`：`project list`）；页面可见时每 15 秒再读一次，
 数据变更后也会重新读取。500 毫秒内的存储和项目通知会合并处理。项目有变更时，项目目录和存储视图都会刷新。操作失败时，
 概览头部下方会出现一条红色提示条，带 **关闭**（Dismiss）。
 
@@ -49,7 +49,7 @@
 | 2 运行时 | `LayerFS 2.0.0 · 12345678`，固定使用的构建和它的提交号 | 按下 → 打开[设置 LayerFS](entry-points.md#set-up-layerfs) | `--version --json` (读取，运行时发现) | **LayerFS 不可用**（LayerFS unavailable）、**正在读取 LayerFS…**（Reading LayerFS…） |
 | 3 状态行 | 最紧急的那件事和它的修复，或者 **没有需要处理的事项**（Nothing needs your attention） | 每件事各自的按钮（见[待处理提示](components.md#needs-you-notices)） | 按钮自己的调用 | 事项前有圆点（故障红、警告琥珀）；按 **还有 {n} 个**（+{n} more）可展开或收起其余待处理事项及其操作按钮 |
 | 4 试用预设 | 智能体预设图标 | 按下 → 预设对话框（[预设](presets.md)） | —（打开对话框） | — |
-| 5 刷新 | 一个环形箭头；它的提示写着上次检查的时间 | 按下 → 重新读取 Store、项目和机器，并重新运行主目录检查 | `home get`、`project list`、`store auths`、`store list`、`project list` (读取)，然后 `home doctor` | 检查运行期间显示进行中圆点 |
+| 5 刷新 | 一个环形箭头；它的提示写着上次检查的时间 | 按下 → 重新读取 Store、项目和机器，并重新运行主目录检查 | `home get`、`project list`、`store list`、`project list` (读取)，然后 `home doctor` | 检查运行期间显示进行中圆点 |
 
 Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker unavailable）胶囊；按它可以查看原因和它
 点名的 docker 机器。诊断发现的问题只计在导航栏的诊断按钮上，从未备份过的 Store 也不算待处理事项。
@@ -137,10 +137,10 @@ Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker una
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
-| 1 种类 | 两个磁贴：**SQLite** *{n} 个 Store · 大小* 和 **PostgreSQL** *{n} 个数据库* | 按下 → 该种类的 Store；会被记住 | —（本地视图状态） | — |
+| 1 种类 | 两个磁贴：**SQLite** *{n}* 和 **PostgreSQL** *{n}* | 按下 → 该种类的行；会被记住 | —（本地视图状态） | — |
 | 2 显示 | **Store {n}**（Stores {n}） / **存储桶 {n}**（Buckets {n}）（仅 SQLite） | 按下 → Store 卡片或存储桶卡片；会被记住 | —（本地视图状态） | — |
-| 3 新建 Store | **新建 Store**（New Store，SQLite）或 **连接数据库**（Connect a database，PostgreSQL），在标签栏右端 | 按下 → 新建 Store / 连接数据库对话框 | `store create` / `store save-auth`、`store connect`、`store get` | — |
-| 4 Store 卡片 | 名称、大小、最近写入、**存放于**（Stored on）哪台机器、最多三个项目、状态、备份 | 见[组件 › Store 卡片](components.md#store-card)和 [Store 菜单](components.md#store-menu)；**推送到…**（Push to…，在本机上时） / **拉回**（Pull，在机器上时） | `GET /api/storage` (读取)；**推送到…**/**拉回** 用 `store move` | 迁移或备份进行时显示两行紧凑[任务卡片](components.md#job-card)（含百分比、步骤与字节数） |
+| 3 新建 Store | **新建 Store**（New Store，SQLite），或 **全部检查**（Check all）和 **连接数据库**（Connect a database，PostgreSQL），在标签栏右端 | 按下 → 新建 Store / 连接数据库对话框；**全部检查** 会检查每个 PostgreSQL Store 并展开检查失败的行 | `store create` / `store connect` / `store doctor` | — |
+| 4 Store 行 | 折叠时：名称、所在机器、大小、项目数、上次备份、状态圆点。展开后：**项目**（5 个，之后为 **另有 n 个项目 →**）、**位于** 附 **迁移…**、**备份** 附 **备份** / **恢复…** | 按下该行 → 展开（按查看者记住）；名称 → Store 页面；⋯ 里是 [Store 菜单](components.md#store-menu) | `GET /api/storage` (读取)；项目 `GET /api/stores/:id/projects` (读取，展开时)；**迁移…** 用 `store move` | 迁移或备份进行时显示任务行；**机器已停止** 附 **启动** |
 
 没有 Store 时：**还没有 SQLite Store。**（No SQLite Store yet.） / **还没有连接 PostgreSQL 数据库。**（No PostgreSQL database connected yet.）整个主页既没有 Store 也没有存储桶时，标签页显示 **还没有 Store**（No Stores yet）——“在 Home 中新建 Store、从备份恢复，或连接 PostgreSQL 数据库。”——并给出 **新建 Store**（New Store）和 **连接数据库**（Connect a database）。
 
@@ -159,8 +159,8 @@ Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker una
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
 | 1 PostgreSQL | 被选中的磁贴 | — | — | — |
-| 2 连接数据库 | 该种类的添加按钮 | 按下 → 连接数据库 | `store save-auth`、`store connect`、`store get` | — |
-| 3 卡片 | 每个数据库一张卡片，按登录分组；每组都有 **更换密码…**（Rotate password…）和 ⋯ **移除登录**（Remove login）；**连接自**（Connected from）标签列出能连到它的机器 | 按一张卡片 → Store 页 | `GET /api/store-auths` (读取，仅主机)；大小 `store get` (读取)；项目 `GET /api/stores/:id/projects` (读取)；**更换密码…** 用 `store save-auth`、`store doctor`；**移除登录** 用 `store remove-auth` | **还没有连接 PostgreSQL 数据库。**（No PostgreSQL database connected yet.，截图中如此：示例数据里没有） |
+| 2 连接数据库 | 该种类的添加按钮，在标签栏右端，**全部检查** 旁边 | 按下 → 连接数据库 | `store connect`（密码经标准输入） | — |
+| 3 行 | 每个数据库一行。折叠时：名称、`user@host:port/database`、项目数、这台电脑的状态、前 3 台挂接机器及其状态和 **+n**，以及 **n 个失败** 或 **仅限这台电脑**。展开后：**项目**、**运行于**（每台机器的状态及其操作、**解除挂接**、**+ 挂接机器**） | 按下该行 → 展开；名称 → Store 页面 | `GET /api/storage` (读取：每个 Store 的 `store get`)；项目 `GET /api/stores/:id/projects` (读取)；**解除挂接** 用 `store detach`；**+ 挂接机器** 用 `store attach` | **还没有连接 PostgreSQL 数据库。**（示例数据里没有）；挂接后尚未检查的机器显示 **未检查** |
 
 ## 机器
 
@@ -187,7 +187,7 @@ Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker una
 
 - **SQLite 与 PostgreSQL。** Store 标签页的种类磁贴在两者之间切换。存储桶属于
   SQLite（备份就是一份 Store 文件的拷贝），所以 **显示** 切换和存储桶卡片只在
-  SQLite 下出现。PostgreSQL 卡片按保存的登录分组。
+  SQLite 下出现。PostgreSQL 行列出挂接到它的机器。
 - **还没设置。** LayerFS 设置好之前，主页显示[设置卡片](entry-points.md#set-up-card)，
   而不是这些标签页。
 - **还没有存储视图。** 加载时显示 **正在读取 Store…**（Reading the Stores…）；读取失败时显示 **无法读取存储**（Could not read the storage），
@@ -203,7 +203,7 @@ Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker una
 | 导入文件夹 | 添加 › **导入文件夹**（Import a folder） | 打开项目对话框并带入源文件夹 | 确认后调用 `project init` | 创建前可取消 |
 | 新建 Sandbox | 添加 › **新建 Sandbox**（New Sandbox） | 选择符合条件的机器，再配置 Sandbox | 确认后调用 `sandbox create` | 创建前可取消 |
 | 新建 Store | **新建 Store**（New Store）、添加 › **新建 Store** | 在一台机器上新建一个 SQLite Store | `store create` | Store 上的 **移除…**（Remove…） |
-| 连接数据库 | **连接数据库**（Connect a database） | 保存一个登录并连接一个 PostgreSQL 数据库 | `store save-auth`、`store connect`、`store get` | **断开连接…**（Disconnect…） |
+| 连接数据库 | **连接数据库**（Connect a database） | 用地址、用户和密码连接一个 PostgreSQL 数据库，并从这台电脑检查 | `store connect` | **断开连接…** |
 | 新建机器 | **新建机器**（New machine） | 创建一台 Docker、Lima 或 Apple Container 机器 | `machine create` | 机器菜单里的 **移除**（Remove） |
 | 添加存储桶 | **添加存储桶**（Add bucket） | 连接一个用于备份的 S3 存储桶 | `backup connect` | 存储桶上的 **断开连接**（Disconnect） |
 | 预设 | **试用预设**（Try a preset）、添加 › **试用预设** | [预设](presets.md) | 预设自己的脚本 | — |

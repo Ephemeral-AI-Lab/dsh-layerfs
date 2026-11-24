@@ -207,8 +207,8 @@ imported belongs to the Store, not to a save.
 ## Variants
 
 - **Files and History on a broken Store.** When the project's Store is broken (a
-  PostgreSQL Store with no saved login, a Store blocked by a broken machine), those two
-  tabs show the Store's word (for example **Broken · no saved login** or **Blocked ·
+  PostgreSQL Store with no saved password, a Store blocked by a broken machine), those two
+  tabs show the Store's word (for example **Broken · no password saved** or **Blocked ·
   `<machine>` broken**), LayerFS's sentence as its tip, and its one fix (see [Fix
   buttons](components.md#fix-buttons)) instead of failed reads. Sessions shows the same
   word and hides **New session** and **Open** until it is fixed.

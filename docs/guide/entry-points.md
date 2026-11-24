@@ -150,9 +150,9 @@ in which part (**Project: Not named yet**, **Store: Needs a name**).
 
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
-| Store | **New connection** · **Existing · {n}** | — | `GET /api/store-auths` (read, host only) | — |
+| Store | **New connection** · **Existing · {n}** | — | `GET /api/storage` (read) | — |
 | Database URL | "Without a user, password or passfile, for example postgresql://db.lan:5432/app." | Type; a URL naming a login is refused with **LayerFS’s fix** and **Copy**; on Linux a `localhost` URL warns and offers **Use 127.0.0.1** | — | **Store: Needs a database URL** beside the buttons |
-| Login | **Type** · **Saved login** (auto-picks a healthy saved login for the typed server); Login name, User, Password ("Saved as a LayerFS login (store save-auth): the password goes to LayerFS on stdin and is never shown again.") | Type or pick | `store save-auth`, `store connect`, `store get` on create | — |
+| Login | User, Password ("Saved by this computer for this Store: the password goes to LayerFS on stdin and is never shown again.") | Type | `store connect` (password on stdin) and `store get` on create, then `store attach --machine` when the session's machine is not attached yet | — |
 | Runs on | The machine its sessions run on (this part is titled **Runs on** for PostgreSQL) | Choose | — | — |
 
 ### Import a folder
@@ -186,7 +186,7 @@ one.
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
 | 1 Projects | Back link (when opened from the list) | → the list | — | — |
-| Store | **guide-notes** · **SQLite Store · Only this project** (or **Shared with {n} other projects**) | — | `GET /api/storage` (read) | PostgreSQL: **Connected from …** instead of machines |
+| Store | **guide-notes** · **SQLite Store · Only this project** (or **Shared with {n} other projects**) | — | `GET /api/storage` (read) | PostgreSQL: **Runs on …** (the attached machines) instead of machines |
 | Machine | Tiles; **Here now** on the current one | Choose another → **Move to {machine}** | `store move` (a job) | a stopped machine offers **Start {machine}** first |
 | 2 Hide from sidebar | — | The project leaves the sidebar's LayerFS view until its next session | — (remembered in this browser) | **Hidden until its next session** |
 | 3 Done | — | Closes | — | — |

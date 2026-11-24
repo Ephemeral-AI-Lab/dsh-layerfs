@@ -28,8 +28,8 @@ Store**, **Connect a database**, **New machine**, **Diagnose this host**) sits a
 end of the tab bar. Home remembers nothing between visits except the Stores tab's kind and
 view and which rows are open.
 
-Home reads the Storage view (`GET /api/storage`: `home get`, `project list`, `store auths`,
-`store list`) and the project catalog (`GET /api/projects`: `project list`) when it opens,
+Home reads the Storage view (`GET /api/storage`: `home get`, `project list`, `store list`,
+`store get` per PostgreSQL Store) and the project catalog (`GET /api/projects`: `project list`) when it opens,
 again every 15 s while it is visible, and after changes. Storage and project notifications are coalesced over 500 ms. Project changes refresh the catalog as well as storage. A failed action shows a red bar under the Overview head with **Dismiss**.
 
 ## Overview head and notices
@@ -48,7 +48,7 @@ The Overview head is a shared component; its full table is in
 | 2 Runtime | `LayerFS 2.0.0 · 12345678`, the pinned build and its commit | Press → opens [Set up LayerFS](entry-points.md#set-up-layerfs) | `--version --json` (read, runtime discovery) | **LayerFS unavailable**, **Reading LayerFS…** |
 | 3 Status line | The most urgent need with its fix, or **Nothing needs your attention** | Each need's own button (see [Needs-you notices](components.md#needs-you-notices)) | the button's own call | a dot before a need (red problem, amber warning); **+{n} more** expands or collapses the remaining needs and their actions |
 | 4 Try a preset | The agent-preset icon | Press → the Presets dialog ([Presets](presets.md)) | — (opens a dialog) | — |
-| 5 Refresh | A circular arrow; its tip says when the checks last ran | Press → reads Stores, projects and machines again and re-runs the home checks | `home get`, `project list`, `store auths`, `store list`, `project list` (read), then `home doctor` | a dot while the checks run |
+| 5 Refresh | A circular arrow; its tip says when the checks last ran | Press → reads Stores, projects and machines again and re-runs the home checks | `home get`, `project list`, `store list`, `project list` (read), then `home doctor` | a dot while the checks run |
 
 A **Docker unavailable** chip sits beside the title while Docker cannot run here; press it
 for the reason and for the docker machines it names. Doctor findings are counted on the
@@ -137,10 +137,10 @@ backed up".
 
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
-| 1 Kind | Two tiles: **SQLite** *{n} Stores · size* and **PostgreSQL** *{n} databases* | Press → that kind's Stores; remembered | — (local view state) | — |
+| 1 Kind | Two tiles: **SQLite** *{n}* and **PostgreSQL** *{n}* | Press → that kind's rows; remembered | — (local view state) | — |
 | 2 Show | **Stores {n}** / **Buckets {n}** (SQLite only) | Press → Store cards or bucket cards; remembered | — (local view state) | — |
-| 3 New Store | **New Store** (SQLite) or **Connect a database** (PostgreSQL), at the right end of the tab bar | Press → the New Store / Connect a database dialog | `store create` / `store save-auth`, `store connect`, `store get` | — |
-| 4 Store card | Name, size, last write, **Stored on** machine, up to three projects, status, backups | See [Components › Store card](components.md#store-card) and [Store menu](components.md#store-menu); **Push to…** (on native) / **Pull** (on a machine) | `GET /api/storage` (read); **Push to…**/**Pull** `store move` | a compact two-row [job card](components.md#job-card) with percentage, step and bytes while a move or backup runs |
+| 3 New Store | **New Store** (SQLite) or **Check all** and **Connect a database** (PostgreSQL), at the right end of the tab bar | Press → the New Store / Connect a database dialog; **Check all** checks every PostgreSQL Store and opens the rows whose check failed | `store create` / `store connect` / `store doctor` | — |
+| 4 Store row | Folded: name, the machine it lives on, size, projects, last backup, a status dot. Unfolded: **Projects** (5, then **+n projects →**), **Lives on** with **Move…**, **Backups** with **Back up** / **Restore…** | Press the row → unfold (remembered per viewer); the name → the Store page; [Store menu](components.md#store-menu) in ⋯ | `GET /api/storage` (read); projects `GET /api/stores/:id/projects` (read, on unfold); **Move…** `store move` | a job line while a move or backup runs; **machine stopped** with **Start** |
 
 Empty: **No SQLite Store yet.** / **No PostgreSQL database connected yet.** With neither a
 Store nor a bucket in the home, the tab reads **No Stores yet** — "Create a Store in the home,
@@ -162,8 +162,8 @@ restore one from a backup, or connect a PostgreSQL database." — with **New Sto
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
 | 1 PostgreSQL | The tile, selected | — | — | — |
-| 2 Connect a database | The kind's add button, at the right end of the tab bar | Press → Connect a database | `store save-auth`, `store connect`, `store get` | — |
-| 3 Cards | One card per database, grouped by login; each group has **Rotate password…** and ⋯ **Remove login**; **Connected from** chips name the machines that reach it | Press a card → the Store page | `GET /api/store-auths` (read, host only); sizes `store get` (read); projects `GET /api/stores/:id/projects` (read); **Rotate password…** `store save-auth`, `store doctor`; **Remove login** `store remove-auth` | **No PostgreSQL database connected yet.** (shown: the fixture has none) |
+| 2 Connect a database | The kind's add button, at the right end of the tab bar, beside **Check all** | Press → Connect a database | `store connect` (password on stdin) | — |
+| 3 Rows | One row per database. Folded: name, `user@host:port/database`, projects, this computer's status, the first 3 attached machines with their status and **+n**, and **n failed** or **this computer only**. Unfolded: **Projects**, **Runs on** (each machine's status and its one action, **Detach**, **+ Attach machine**) | Press the row → unfold; the name → the Store page | `GET /api/storage` (read: `store get` per Store); projects `GET /api/stores/:id/projects` (read); **Detach** `store detach`; **+ Attach machine** `store attach` | **No PostgreSQL database connected yet.** (shown: the fixture has none); a machine attached but not checked reads **not checked** |
 
 ## Machines
 
@@ -190,7 +190,7 @@ hold".
 
 - **SQLite vs PostgreSQL.** The Stores tab's kind tiles switch between them. Buckets belong to
   SQLite (a backup is a copy of a Store file), so the **Show** switch and bucket cards appear
-  only under SQLite. PostgreSQL cards are grouped by their saved login.
+  only under SQLite. A PostgreSQL row lists the machines attached to it.
 - **No setup yet.** Before LayerFS is set up, Home shows the [Set up card](entry-points.md#set-up-card)
   in place of the tabs.
 - **No storage view yet.** **Reading the Stores…** while loading; **Could not read the storage**
@@ -207,7 +207,7 @@ hold".
 | Import a folder | Add › **Import a folder** | Open the project dialog with a source folder | `project init` on confirmation | Cancel before creation |
 | New Sandbox | Add › **New Sandbox** | Choose an eligible machine, then configure the Sandbox | `sandbox create` on confirmation | Cancel before creation |
 | New Store | **New Store**, Add › **New Store** | Makes a SQLite Store on a machine | `store create` | **Remove…** on the Store |
-| Connect a database | **Connect a database** | Saves a login and connects a PostgreSQL database | `store save-auth`, `store connect`, `store get` | **Disconnect…** |
+| Connect a database | **Connect a database** | Connects a PostgreSQL database with its address, user and password, checked from this computer | `store connect` | **Disconnect…** |
 | New machine | **New machine** | Creates a Docker, Lima or Apple Container machine | `machine create` | **Remove** in the machine menu |
 | Add bucket | **Add bucket** | Connects an S3 bucket for backups | `backup connect` | **Disconnect** on the bucket |
 | Presets | **Try a preset**, Add › **Try a preset** | [Presets](presets.md) | the preset's script | — |

@@ -143,7 +143,7 @@ this browser.
 | Follow what an agent did, call by call | [Conversation › Trajectory](conversation.md#trajectory) | — (the session's own log) |
 | Back up a Store, or restore one | [Store › Backups](store.md#backups-sqlite), [Bucket](bucket.md) | `backup create`, `backup restore` |
 | Move a Store to another machine | [Store menu](components.md#store-menu) | `store move` (twice, through native) |
-| Connect a PostgreSQL database | [Store › Connection](store.md#connection-postgresql) | `store save-auth`, `store connect`, `store doctor` |
+| Connect a PostgreSQL database | [Store › PostgreSQL Store page](store.md#postgresql-store-page) | `store connect`, `store attach`, `store doctor` |
 | Start, stop or fix a machine | [Machine](machine.md), [Machine menu](components.md#machine-menu) | `machine start`, `machine stop` |
 | Make a Sandbox and run commands in it | [Machine › Sandboxes](machine.md#sandboxes), [Sandbox › Workspaces](sandbox.md#workspaces) | `sandbox create`, `workspace mount`, `workspace exec`, `workspace commit` |
 | Free disk space on a machine | [Machine › Overview › Disk space](machine.md#disk-space-dialog), [Images](machine.md#images) | `machine stats --with space`, `machine prune` |

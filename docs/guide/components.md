@@ -28,7 +28,7 @@ The earlier multi-Store example below shows the breadcrumb switcher.
 | | Transfers | **{n} transfers**, with a percentage and a progress track, while moves, backups or restores run | Press → that Store's page (one job), or a menu of them (several) | — (the jobs Center already tracks) | Hidden when nothing is running |
 | 5 | **Jump to…** | A field with **⌘K** (**Ctrl+K**) | Press it or use the shortcut → **Jump to a session, project, Store, machine, Sandbox or bucket**, grouped as Projects, Stores, Machines, Sandboxes, Buckets, Pages and Sessions. Session hits show the title and ID and open the conversation. **↑ ↓ to move · Enter to open · Esc to close** | — (searches what Center already read) | **Nothing matches “{q}”**. At most 60 hits. The shortcut is off while a dialog is open |
 | 6 | Refresh | A circular arrow, on every page except Home, Doctor and Logs (each has its own) | Press → the page reads its data again | The page's own reads | A dot while reading |
-| 7 | **+ Add** | **New session**, **New project**, **Import a folder**, **New Sandbox**, **New Store** (set to the machine when opened from a machine page), **Connect a database**, **New machine**, **Add bucket**, **Try a preset** | Opens that dialog | `store create` · `store save-auth`, `store connect`, `store get` · `machine create` · `backup connect` · the preset's script. New project: `store create`, `project init`, `store move` | New machine and New Sandbox stay visible with the reason when unavailable |
+| 7 | **+ Add** | **New session**, **New project**, **Import a folder**, **New Sandbox**, **New Store** (set to the machine when opened from a machine page), **Connect a database**, **New machine**, **Add bucket**, **Try a preset** | Opens that dialog | `store create` · `store connect`, `store get` · `machine create` · `backup connect` · the preset's script. New project: `store create`, `project init`, `store move` | New machine and New Sandbox stay visible with the reason when unavailable |
 | | Doctor | A shield with a count badge. Title: **Doctor: {n} findings** | Press → `LayerFS › Doctor` ([Doctor](health.md)) | The results the host holds. When none are held, the home checks run once as Home opens: `home doctor` | Red badge for an error, amber for a warning |
 | | Logs | A list icon | Press → `LayerFS › Logs` ([Logs](logs.md)) | — | |
 | | Settings | A gear | Press → Set up LayerFS | `home get` (read) | |
@@ -62,7 +62,7 @@ you. It is one row of text, not a card: no wordmark, no box.
 | 2 | Runtime | `LayerFS 2.0.0 · 12345678`, the pinned build and its commit (**Show the pinned runtime**, and the LayerFS folder as the tip) | Press → opens [Set up LayerFS](entry-points.md#set-up-layerfs) on the runtime | `--version --json` (read) | **LayerFS unavailable**, **Reading LayerFS…**; a spinner while it is read, a red dot when the runtime is unusable |
 | 3 | Status line | The most urgent need, or **Nothing needs your attention** | The need's buttons (see [Needs-you notices](#needs-you-notices)) | The button's call | A dot before a need: red for a problem, amber for a warning; no dot when nothing needs you. **+{n} more** when there are several |
 | 4 | Try a preset | The preset icon | Press → [Presets](presets.md) | — | |
-| 5 | Refresh | A circular arrow. Tip: **Read the Stores, machines and buckets again, and re-run the home checks · Checked {ago}** | Press → reads Stores, machines and buckets again and re-runs the home checks | `home get`, `project list`, `store auths`, `store list` (read), then `home doctor` | A dot while the checks run |
+| 5 | Refresh | A circular arrow. Tip: **Read the Stores, machines and buckets again, and re-run the home checks · Checked {ago}** | Press → reads Stores, machines and buckets again and re-runs the home checks | `home get`, `project list`, `store list` (read), then `home doctor` | A dot while the checks run |
 
 When Docker cannot run, a **Docker unavailable** chip sits beside the title; press it to
 see why and which docker machines it names. Use **+{n} more** to show or hide the remaining
@@ -85,7 +85,7 @@ status line.
 | **{machine}’s VM is gone[, so {stores} cannot open]** | Danger | The fix, or **Open** | The fix's calls | |
 | **{machine}’s record is out of date…** | Danger | **Open** | — | Clears when the record is updated |
 | **{machine} needs you** | Danger | **Open** | — | |
-| **{store} is down** / **is unreachable** / **needs its update** / **needs its login** | Danger | The fix, or **Open** → the Store | The fix's calls (`store update`, `store save-auth`, …) | Clears when the Store is ready |
+| **{store} is down** / **is unreachable** / **needs its update** / **needs its user and password** | Danger | The fix, or **Open** → the Store | The fix's calls (`store connect`, `store attach`, …) | Clears when the Store is ready |
 | **{machine} is stopped and holds {stores}**: its projects can't open until it runs | Warning | **Open** | — | Clears when the machine runs |
 
 Hovering a notice's dot shows **Problem**, **Warning** or **Note**. Doctor findings only
@@ -167,7 +167,7 @@ doesn't show here.
 
 When LayerFS refuses a read, the view shows the refusal's word with LayerFS's sentence
 as a tip, plus **Retry** or a fix (see [Fix buttons](#fix-buttons)): for example
-**Broken · no saved login** or **Blocked · `<machine>` broken**. A refresh reads the open
+**Broken · no password saved** or **Blocked · `<machine>` broken**. A refresh reads the open
 folders again in place and keeps what is on screen. Switching to another Branch or
 saved id starts the tree over.
 
@@ -220,18 +220,15 @@ Stores on that machine. Both use the same card.
 | 2 | ⋯ | The [Store menu](#store-menu) | See the Store menu | per row | |
 | | Figure | SQLite: file size and **last write** *when*. PostgreSQL: packed bytes (or **n projects**) and the database name. Hover for the server and **Database id** | — | `store list`; for PostgreSQL also `store get --with stats` (read) | **Size unknown**. A size that may be out of date reads **size seen** *when*, with the tip **…its machine is stopped** or **…does not answer now**. Refused stats show `—` |
 | 3 | **Stored on** chip (SQLite, on Home only) | The machine (or **LayerFS Home**) and its glyph | Click → the machine page | `home get` (read) | A red dot when the machine is broken; otherwise none (a stopped machine is a word on the chip's tip, not a dot) |
-| | **Connected from** chips (PostgreSQL) | One chip per side that connects, **This computer** first: whether it reaches the Store, and the running Sandbox count with a box icon. Tip: its own or the default address, **checked** *when*, the PostgreSQL version, latency | Click → the check screen from that machine. A broken machine's chip opens the machine instead. The last chip, **+ Connect a machine**, opens the check from the first running machine that isn't connected yet | `store doctor --machine` | Red: the check failed, or the machine is broken. Grey: **not checked** |
 | 4 | Project rows | Up to three projects (one while a status shows), each with packed bytes and a share bar | Click → the project page | `project list`, `project stats`, `branch get` (read; polled every 2 s while counting) | **Reading…**, `—` with **Not counted here**, **No commits since Init**, **No projects · Add project** (`project init`) |
 | | Status row | Shows only when something is happening: a running or just-ended [job card](#job-card), **Another client runs …**, or a word saying what needs you (**Waiting on docker**, **Broken · …**) with its one action (**Start** *m*, a [fix](#fix-buttons), or **Repair** *m*). Only a failure keeps a dot ([Status words and dots](#status-words-and-dots)) | That action | `machine start`, or the fix's call | |
 | 5 | Backups badge (SQLite) | Provider marks, **n backup(s)**, and a dot for the worst state. Tip: **x need attention, y out of date, z current, w not listed** | Click → the Backups of *store* dialog. With no backup it reads **No backup** and opens Back up | `backup list` per linked bucket (read), when the dialog opens | |
 | | **+n projects** | The Store has more projects than the card shows | Click → the Store page | — | |
 | 6 | Foot action (SQLite) | **Push to…** for a Store in the LayerFS Home, **Pull** for a Store on a machine | **Push to…** → the Push dialog. **Pull** → a pull job | `store move <s> <m>`, or `store get` then `store move <s> native` | Off unless the Store is Ready. Hidden while a job runs |
 
-PostgreSQL cards are grouped under one header per saved login. The header shows the
-login, its user, how many Stores use it, the worst state (**Not reached** after a failed
-check), and **Rotate password…**, which runs `store save-auth` and then `store doctor` for
-each Store. The header's ⋯ holds **Remove login** (`store remove-auth`). It is off, with
-the tip **Used by …**, while any Store uses the login.
+PostgreSQL Stores have no cards: a machine page lists the ones attached to it as rows
+(address, that machine's last check and **Detach**), and Home › Stores lists them all
+(see [Store › Home › Stores rows](store.md)).
 
 ## Store menu
 
@@ -248,9 +245,9 @@ The ⋯ in a Store page's head and on every Store card.
 | **Back up now · *bucket*/*file*** | SQLite, one row per linked bucket | A job starts at once | `backup create`, then `backup list` | Off unless Ready |
 | **Compact…** | Both kinds, when the runtime has `store compact` | Plain confirm → a job | `store get`, `store compact` | Off unless Ready. Tips: **Start machine** *m* **first**, **Repair machine** *m* **first**, **The Store is not ready**. Also offered on a Broken Store whose fix is a compaction |
 | **Remove…** (red) | SQLite | Confirm by typing the name | `store remove` | |
-| **Check** | PostgreSQL | The check screen from this computer (from that machine, on a machine page). Nothing runs until you press **Check** *store* **from** *machine* | `store doctor --machine`, `store get` | |
-| **Edit connection…** / **Save a login…** | PostgreSQL | Edit connection, or Save a login when the Store names none | `store connect` / `store save-auth` / `store update` | |
-| **Remove *machine*’s own address…** | PostgreSQL, one row per machine with its own address | Confirm → that machine goes back to the Store's default address | `store disconnect --machine` | |
+| **Check** | PostgreSQL | Checks from this computer, then every attached machine; the labels update in place | `store doctor`, `store get` | **checking…** while it runs |
+| **Edit connection…** | PostgreSQL | The Edit connection dialog: only what changed is sent, then everything is checked again | `store connect` (password on stdin), then `store doctor` | |
+| **Attach a machine…** | PostgreSQL | The attach picker | `store attach --machine` per machine | |
 | **Disconnect…** (red) | PostgreSQL | Confirm (no typed name). The database itself stays | `store disconnect` | |
 
 ## Job card
@@ -289,8 +286,6 @@ Used by:
 
 - Remove a Store (typed name, `store remove`).
 - PostgreSQL **Disconnect…** (`store disconnect`).
-- **Remove *machine*’s own address…** / **Forget** (`store disconnect --machine`; plain confirm when forgetting only a recorded check).
-- **Remove login** (typed name, `store remove-auth`).
 - **Compact…** (plain, `store compact`).
 - Bucket **Disconnect** (`backup disconnect`).
 - Project **Delete** (typed name, `project delete`).
@@ -319,8 +314,8 @@ reads **Done**.
 | **Delete** *p* | `project delete S/P` | `DELETE /api/projects/:p` | `project delete` | Press twice |
 | **Back up to** *b* | `backup create S B` | `POST /api/stores/:s/backup` | `backup create`, then `backup list` | No confirm |
 | **Set up the folder** | `home init` | op `setup.init` | `home init` | No confirm |
-| **Save a login…** | `store save-auth … && store update S --auth` | Opens the Save a login dialog | `store save-auth`, `store update` | The dialog |
-| **Update** | `store update S --auth A` | `POST /api/stores/:s/connection` | `store update` | No confirm |
+| **Edit connection…** | `store connect S …` | Opens Edit *store*'s connection | `store connect`, then `store doctor` | The dialog |
+| **Attach** *m* | `store attach S --machine M` | `POST /api/stores/:s/attach` | `store attach` | No confirm |
 | **Connect again…** | `backup connect …` | Opens Connect *bucket* again | `backup connect`, `backup list` | The dialog |
 | **Run the n-step fix…** | Several lines joined by `&&` | Runs each step's route in order. The first refusal stops the rest | Each step's call | Press twice. A chain that removes data opens the typed-name confirm, listing every step |
 

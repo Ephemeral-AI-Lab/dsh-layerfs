@@ -1,4 +1,4 @@
-<!-- source: def4913d3f30 -->
+<!-- source: a10dd72677d9 -->
 # 每个操作及其 LayerFS 调用
 
 每一行是你能做的一件事（或者一个视图为了绘制自己所做的一次读取），它调用的主机路由或操作，以及背后的
@@ -7,7 +7,7 @@ LayerFS CLI 调用。各页面指南的表格里也写着同样的调用；这�
 - **路由**（Routes）是 dsh-layerfs 的主机路由（`GET /api/…`），通过 `http` 操作提供。**op** 是有名字的主机操作
   （`session.place`、`sessions.choose`、…）。
 - **LayerFS 调用**即 `layerfs <family> <call>`。“(读取)”标记视图为了绘制自己所做的读取。↻ 表示之后会重新读取
-  存储视图（`home get`、`project list`、`store auths`、`store list`）。`—` 表示没有 LayerFS 调用：结果来自主机内存、
+  存储视图（`home get`、`project list`、每个 PostgreSQL Store 的 `store get`、`store list`）。`—` 表示没有 LayerFS 调用：结果来自主机内存、
   主机自己的日志，或当前这个浏览器。
 - 一格里的多个调用按顺序运行。第一个被拒绝时，后面的都不会运行。
 - 想看某次点击实际运行了哪些调用，打开[日志](logs.md)：那里每一行是一次调用，并标注了发起它的会话。
@@ -19,13 +19,13 @@ LayerFS CLI 调用。各页面指南的表格里也写着同样的调用；这�
 
 | 操作 | 位置 | 主机路由或 op | LayerFS 调用 |
 |---|---|---|---|
-| 主页绘制 | `LayerFS › 主页` | `GET /api/storage`, `GET /api/projects` | `home get`, `project list`, `store auths`, `store list` (读取) |
+| 主页绘制 | `LayerFS › 主页` | `GET /api/storage`, `GET /api/projects` | `home get`, `project list`, `store list`, 每个 PostgreSQL Store 的 `store get` (读取) |
 | 诊断计数、主目录检查 | Center 导航栏 › 诊断（计数）、主页 › 概览头部 › 刷新（重新检查） | `GET /api/doctor/results`, `POST /api/doctor/runs` `{kind: home}` | 主机内存；`home doctor` |
 | 概览头部 **刷新**（Refresh） | 主页 › 概览头部 | 存储视图、项目和一次诊断运行 | 上面那些读取，然后 `home doctor` |
 | 运行时、设置 | 主页 › 概览头部 › 运行时、Center 导航栏 › 设置 | op `setup.status`, `runtime.status` | `home get`（缺失时再 `home init`）；`--version --json` |
 | 跳转到、面包屑切换、后退、前进 | 导航栏 | — | — |
 | **添加 › 新建 Store**（Add › New Store） | 导航栏 | `POST /api/stores` | `store create` |
-| **添加 › 连接数据库**（Add › Connect a database） | 导航栏 | `POST /api/stores/postgresql` | `store save-auth`, `store connect`, `store get` |
+| **添加 › 连接数据库**（Add › Connect a database） | 导航栏 | `POST /api/stores/postgresql` | `store connect`（密码经标准输入） |
 | **添加 › 新建机器**（Add › New machine） | 导航栏 | `POST /api/machines` | `home get`, `machine create` |
 | **添加 › 添加存储桶**（Add › Add bucket） | 导航栏 | `POST /api/buckets` | `backup connect` |
 | 项目行（提交行、计数、大小） | `主页 › 项目` | `GET /api/stores/:id/projects`, `GET /api/projects/:key/size` | `branch get`, `project list`, `project stats`；`project get`, `store get` (读取) |
@@ -33,7 +33,7 @@ LayerFS CLI 调用。各页面指南的表格里也写着同样的调用；这�
 | 打开一条会话 | `主页 › 项目`；侧边栏的 LayerFS 视图 | op `sessions.open` | 在本地则没有；否则 `branch list`, `project export` |
 | **⋯ › 新建会话**（⋯ › New session）/ **+ 新建会话**（+ New session） | `主页 › 项目` | op `sessions.choose` | `project get`（首次使用时再加 `branch list`, `branch fork`） |
 | **⋯ › 删除项目…**（⋯ › Delete project…） | `主页 › 项目` | `DELETE /api/projects/:key` | `project delete` |
-| PostgreSQL 大小和登录 | `主页 › Store › PostgreSQL` | `GET /api/stores/:id/stats`, `GET /api/store-auths` | `store get`；`store auths` |
+| PostgreSQL 行：大小、连接与连通情况 | `主页 › Store › PostgreSQL` | `GET /api/stores/:id/stats`, `GET /api/storage` | `store get` |
 | 机器表 | `主页 › 机器` | `GET /api/machines`, `GET /api/metrics`, `GET /api/machines/:id/space` | `home get`, `machine get`, `machine list`, `sandbox list`, `store list`；采样器内存；`machine stats` |
 | 行内电源 **启动**（Start）、**停止**（Stop）→ **确认：停止**（Confirm: Stop） | `主页 › 机器` | `POST /api/machines/:id/stop` / `start` | `machine stop` / `machine start` |
 | 行内 **添加 Store**（Add Store） | `主页 › 机器` | `POST /api/machines/:id/stores` | `store move`（一个任务） |
@@ -50,8 +50,8 @@ LayerFS CLI 调用。各页面指南的表格里也写着同样的调用；这�
 | 项目控件标签 | 新建会话行 | op `session.place` | — |
 | 草稿目录选择器 | 新建会话行、项目会话 | op `sessions.scratchOptions`, `sessions.scratch` | — |
 | 项目对话框：**创建并打开**（Create and open） | 项目对话框 | `POST /api/project-sources/check`, `POST /api/stores`, `POST /api/projects`, `POST /api/machines/:id/stores`, op `sessions.choose` | `store create`, `project init`, `store move`, `project get` |
-| 项目对话框：PostgreSQL **连接**（Connect） | 项目对话框 | `POST /api/stores/postgresql` | `store save-auth`, `store connect`, `store get` |
-| 项目对话框的读取 | 项目对话框 | `GET /api/storage`, `GET /api/platforms`, `GET /api/store-auths` | 存储视图；`home get`；`store auths` |
+| 项目对话框：PostgreSQL **连接**（Connect） | 项目对话框 | `POST /api/stores/postgresql`，然后 `POST /api/stores/:id/attach` | `store connect`，所选机器未挂接时再 `store attach --machine` |
+| 项目对话框的读取 | 项目对话框 | `GET /api/storage`, `GET /api/platforms` | 存储视图；`home get` |
 | 项目设置：**移到 {machine}**（Move to {machine}） | 项目对话框 › 设置 | `POST /api/machines/:id/stores` | `store move` |
 | 项目设置：**从侧边栏隐藏**（Hide from sidebar） | 项目对话框 › 设置 | — （当前浏览器） | — |
 | 设置 LayerFS：**检查**（Check）/ **重新检查**（Check again） | 设置 LayerFS | op `setup.status`, `GET /api/machines?fresh=1` | `home get`；`machine get`, `machine list` (读取) |
@@ -64,7 +64,7 @@ LayerFS CLI 调用。各页面指南的表格里也写着同样的调用；这�
 
 | 操作 | 位置 | 主机路由或 op | LayerFS 调用 |
 |---|---|---|---|
-| 打开 Store 页面 | `LayerFS › 主页 › Store › <store>` | `GET /api/storage` | `home get`, `project list`, `store auths`, `store list` (读取) |
+| 打开 Store 页面 | `LayerFS › 主页 › Store › <store>` | `GET /api/storage` | `home get`, `project list`, `store list`, 每个 PostgreSQL Store 的 `store get` (读取) |
 | 概览的文件卡片和磁贴 | `… › <store> › 概览` | `GET /api/stores/:id/stats` | `store get --with stats` (读取) |
 | Store 的增长（How the Store grew） | `… › <store> › 概览` | `GET /api/stores/:id/observations` | — （主机记录的历次读取） |
 | 项目磁贴、项目标签页、卡片行 | `… › <store> › 项目` | `GET /api/stores/:id/projects` | `project list`, `project stats`, `branch get` (读取) |
@@ -78,14 +78,14 @@ LayerFS CLI 调用。各页面指南的表格里也写着同样的调用；这�
 | **⋯ › 压缩…**（⋯ › Compact…）→ **压缩**（Compact） | `… › <store> ⋯` | `POST /api/stores/:id/compact` | `store get`, `store compact` |
 | **⋯ › 移除…**（⋯ › Remove…）→ **移除**（Remove） | `… › <store> ⋯`、Store 详情 | `DELETE /api/stores/:id?confirm=` | `store remove` ↻ |
 | **⋯ › 断开连接…**（⋯ › Disconnect…）（PostgreSQL） | `… › <store> ⋯` | `POST /api/stores/:id/disconnect` | `store disconnect` ↻ |
-| **⋯ › 断开 <machine>**（⋯ › Disconnect <machine>）/ 连接 › **忘记**（Connection › Forget） | `… › <store>` | `POST /api/stores/:id/connection` `{machine, clear}` | `store disconnect --machine` ↻ |
-| **⋯ › 检查**（⋯ › Check）、连接 › **检查**（Connection › Check）、一个“连接自”标签、**连接一台机器**（Connect a machine） | `… › <store>` | `GET /api/stores/:id/check?machine=` | `store doctor --machine`, `store get` |
-| **更换登录…**（Change login…）→ 编辑连接 | `… › <store> › 连接` | `POST /api/stores/:id/connection` | `store connect`, `store save-auth`, `store update`, `store get` ↻ |
-| **为 <m> 设置专属地址**（Give <m> its own address）→ **保存并检查**（Save and check） | `… › 连接`、检查界面 | `POST /api/stores/:id/connection` `{machine, url}` | `store connect --machine`，然后 `store doctor --machine` |
-| **保存登录…**（Save a login…）→ **保存**（Save） | `… › <store>` | `POST /api/stores/:id/connection` | `store save-auth`, `store update --auth` ↻ |
-| **更换密码…**（Rotate password…）→ **保存并检查**（Save and check） | `主页 › Store` 的 PostgreSQL 登录标题 | `POST /api/store-auths/:id/rotate` | `store save-auth`，每个 Store 一次 `store doctor`, `store get` ↻ |
-| **移除登录**（Remove login） | `主页 › Store` 的 PostgreSQL 登录 ⋯ | `DELETE /api/store-auths/:id` | `store remove-auth` ↻ |
-| 已保存的登录列表 | PostgreSQL 对话框 | `GET /api/store-auths` | `store auths` (读取) |
+| **解除挂接**（Detach）（运行于的行；机器的 Store） | `… › <store>`、机器 › Store | `POST /api/stores/:id/detach` `{machine}` | `store detach --machine` ↻ |
+| **⋯ › 检查**（⋯ › Check）、**检查**（Check）、**全部检查**（Check all） | `… › <store>`、`主页 › Store` | `GET /api/stores/:id/check` | `store doctor`, `store get` |
+| **编辑连接…**（Edit connection…）→ **保存并检查**（Save and check） | `… › <store>`、行上的失败 | `POST /api/stores/:id/connection` | `store connect`，然后 `store doctor` ↻ |
+| **+ 挂接机器**（+ Attach machine）→ **挂接并检查**（Attach and check） | `… › <store> › 运行于`、行 | `POST /api/stores/:id/attach` `{machines}` | 每台机器 `store attach --machine` |
+| **+ 挂接 Store**（+ Attach Store）→ **挂接并检查**（Attach and check） | 机器 › Store › PostgreSQL | 每个 Store `POST /api/stores/:id/attach` `{machines: [m]}` | `store attach --machine` |
+| 修复行的 **挂接** *机器*（Attach *machine*） | `… › <store>`、项目或会话的拒绝 | `POST /api/stores/:id/attach` `{machines: [m]}` | `store attach --machine` |
+| 修复行的 **编辑连接…**（Edit connection…） | `… › <store>`、项目或会话的拒绝 | —（打开编辑连接） | — |
+| 失败时的 **启动** / **更新…**（Start / Update…） | 运行于的行、挂接选择器 | `POST /api/machines/:id/start`；机器页 | `machine start` |
 | **添加项目**（Add project）→ **创建项目**（Create project） | `… › <store> › 项目` | `POST /api/projects`, `GET /api/project-inits/:id` | `project init` |
 | 备份标签页 › **恢复…**（Restore…）→ **恢复 Store**（Restore Store） | `… › <store> › 备份` | `POST /api/buckets/:id/restore` | `backup restore`，然后 `backup list` |
 | 备份徽标 → <store> 的备份 | Store 卡片 | `GET /api/buckets/:id/files`（每个关联的存储桶） | `backup list` (读取) |
@@ -94,7 +94,7 @@ LayerFS CLI 调用。各页面指南的表格里也写着同样的调用；这�
 | 新建 Store › 从备份恢复 → **恢复 Store**（Restore Store） | 新建 Store 对话框 | `POST /api/buckets/:id/restore`（再加 `POST /api/machines/:m/stores`） | `backup restore`, `backup list`（然后 `store move`） |
 | 新建 Store › **列出存储桶**（List the bucket） | 新建 Store 对话框 | `GET /api/buckets/:id/files` | `backup list` (读取) |
 | 新建 Store 或推送对话框里的 **启动 <machine>**（Start <machine>） | 对话框 | `POST /api/machines/:id/start` | `machine start` |
-| **添加 › 连接数据库**（Add › Connect a database）→ **连接**（Connect） | 导航栏“添加”、主页 › Store › PostgreSQL、某台机器的 Store | `POST /api/stores/postgresql` | `store save-auth`（新登录）, `store connect`, `store get` ↻，然后 `store doctor --machine` |
+| **添加 › 连接数据库**（Add › Connect a database）→ **连接**（Connect） | 导航栏“添加”、主页 › Store › PostgreSQL | `POST /api/stores/postgresql` | `store connect` ↻（从这台电脑的检查就是连接本身） |
 | 把 Store 推送到这里 / **添加 Store**（Add Store）→ **移动到这里**（Move here） | `机器 › <m> › Store` | `POST /api/machines/:id/stores` | `store get`, `store move`（推送、拉取，或先拉取再推送） |
 | 任务 **重试**（Retry） | 任务卡片 | 再次调用该任务的路由 | 该任务自己的调用 |
 | 任务 **关闭**（Dismiss） | 任务卡片 | — | — （当前浏览器） |

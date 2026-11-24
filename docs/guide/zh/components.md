@@ -1,4 +1,4 @@
-<!-- source: 84cfca46c1b9 -->
+<!-- source: 80d1ce173f97 -->
 # 组件
 
 > 标有「隔离测试数据」的截图来自当前版本的实际组件，使用独立浏览器和示例数据。其余截图来自早期演示环境。
@@ -29,7 +29,7 @@
 | | 传输 | **{n} 个传输**（{n} transfers），带百分比和进度条，在迁移、备份或恢复进行时出现 | 按下 → 那个 Store 的页面（只有一个任务时），或一个列出它们的菜单（有多个时） | —（Center 已在跟踪的任务） | 没有任务运行时隐藏 |
 | 5 | **跳转到…**（Jump to…） | 一个带 **⌘K**（**Ctrl+K**）的输入框 | 点它或按快捷键 → **跳转到会话、项目、Store、机器、Sandbox 或存储桶**（Jump to a session, project, Store, machine, Sandbox or bucket），按项目、Store、机器、Sandbox、存储桶、页面和会话分组。会话结果显示标题与 ID，选中后打开对话。**↑ ↓ 移动 · Enter 打开 · Esc 关闭**（↑ ↓ to move · Enter to open · Esc to close） | —（在 Center 已读到的内容中搜索） | **没有与“{q}”匹配的项**（Nothing matches “{q}”）。最多 60 条结果。有对话框打开时快捷键不可用 |
 | 6 | 刷新 | 一个环形箭头，除主页、诊断和日志外每个页面都有（这三页各自有刷新） | 按下 → 页面重新读取它的数据 | 页面自己的读取 | 读取时显示一个圆点 |
-| 7 | **+ 添加**（+ Add） | **新建会话**（New session）、**新建项目**（New project）、**导入文件夹**（Import a folder）、**新建 Sandbox**（New Sandbox）、**新建 Store**（New Store，从机器页打开时预选那台机器）、**连接数据库**（Connect a database）、**新建机器**（New machine）、**添加存储桶**（Add bucket）、**试用预设**（Try a preset） | 打开对应的对话框 | `store create` · `store save-auth`、`store connect`、`store get` · `machine create` · `backup connect` · 预设自己的脚本。新建项目：`store create`、`project init`、`store move` | 新建机器和新建 Sandbox 不可用时仍显示，并说明原因 |
+| 7 | **+ 添加**（+ Add） | **新建会话**（New session）、**新建项目**（New project）、**导入文件夹**（Import a folder）、**新建 Sandbox**（New Sandbox）、**新建 Store**（New Store，从机器页打开时预选那台机器）、**连接数据库**（Connect a database）、**新建机器**（New machine）、**添加存储桶**（Add bucket）、**试用预设**（Try a preset） | 打开对应的对话框 | `store create` · `store connect`、`store get` · `machine create` · `backup connect` · 预设自己的脚本。新建项目：`store create`、`project init`、`store move` | 新建机器和新建 Sandbox 不可用时仍显示，并说明原因 |
 | | 诊断 | 带计数的盾牌图标，提示为 **诊断：{n} 项发现**（Doctor: {n} findings） | 按下 → `LayerFS › 诊断`（[诊断](health.md)） | 读取主机保存的结果。如果还没有结果，打开主页时会运行一次 `home doctor` | 有错误时计数为红色，有警告时为琥珀色 |
 | | 日志 | 列表图标 | 按下 → `LayerFS › 日志`（[日志](logs.md)） | — | |
 | | 设置 | 齿轮图标 | 按下 → 设置 LayerFS | `home get`（读取） | |
@@ -65,7 +65,7 @@
 | 2 | 运行时 | `LayerFS 2.0.0 · 12345678`，固定的构建和它的提交号（**显示固定的运行时**，Show the pinned runtime；提示里是 LayerFS 目录） | 按下 → 在运行时这一步打开[设置 LayerFS](entry-points.md#set-up-layerfs) | `--version --json` (读取) | **LayerFS 不可用**（LayerFS unavailable）、**正在读取 LayerFS…**（Reading LayerFS…）；读取时显示进行中圆点，运行时不可用时有红点 |
 | 3 | 状态行 | 最紧急的那件事，或者 **没有需要处理的事项**（Nothing needs your attention） | 那件事的按钮（见[待处理提示](#needs-you-notices)） | 按钮的调用 | 事项前有圆点：故障为红点、警告为琥珀点；无需处理时没有圆点。有多项时显示 **还有 {n} 个**（+{n} more） |
 | 4 | 试用预设 | 预设图标 | 按下 → [预设](presets.md) | — | |
-| 5 | 刷新 | 一个环形箭头。提示：**重新读取 Store、机器和存储桶，并重新运行 Home 检查 · Checked {ago}**（Read the Stores, machines and buckets again, and re-run the home checks · Checked {ago}） | 按下 → 重新读取 Store、机器和存储桶，并重新运行主目录检查 | `home get`、`project list`、`store auths`、`store list` (读取)，然后 `home doctor` | 检查运行期间显示进行中圆点 |
+| 5 | 刷新 | 一个环形箭头。提示：**重新读取 Store、机器和存储桶，并重新运行 Home 检查 · Checked {ago}**（Read the Stores, machines and buckets again, and re-run the home checks · Checked {ago}） | 按下 → 重新读取 Store、机器和存储桶，并重新运行主目录检查 | `home get`、`project list`、`store list` (读取)，然后 `home doctor` | 检查运行期间显示进行中圆点 |
 
 Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker unavailable）胶囊；按它可以查看原因和它点名的 docker 机器。
 按 **还有 {n} 个**（+{n} more）可在状态行下方展开或收起其余待处理事项及对应的修复按钮。被拒绝的操作显示在那里，可按 **关闭**（Dismiss）收起。
@@ -85,7 +85,7 @@ Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker una
 | **{machine} 的虚拟机已不存在[，{stores} 无法打开]**（{machine}’s VM is gone[, so {stores} cannot open]） | 危险 | 修复，或 **打开**（Open） | 修复的调用 | |
 | **{machine} 的记录已过时…**（{machine}’s record is out of date…） | 危险 | **打开**（Open） | — | 记录更新后消失 |
 | **{machine} 需要处理**（{machine} needs you） | 危险 | **打开**（Open） | — | |
-| **{store} 不可用**（{store} is down） / **无法连接**（is unreachable） / **需要更新**（needs its update） / **需要登录信息**（needs its login） | 危险 | 修复，或 **打开**（Open） → 这个 Store | 修复的调用（`store update`、`store save-auth` 等） | Store 就绪后消失 |
+| **{store} 不可用**（{store} is down） / **无法连接**（is unreachable） / **需要更新**（needs its update） / **需要用户和密码**（needs its user and password） | 危险 | 修复，或 **打开**（Open） → 这个 Store | 修复的调用（`store connect`、`store attach` 等） | Store 就绪后消失 |
 | **{machine} 已停止，存放着 {stores}**（{machine} is stopped and holds {stores}）：机器运行之前，它的项目都打不开 | 警告 | **打开**（Open） | — | 机器运行后消失 |
 
 悬停在提示的圆点上会显示 **故障**（Problem）、**警告**（Warning）或 **提示**（Note）。诊断发现的问题只计在
@@ -158,7 +158,7 @@ Store、机器和平台信息（`home get`、`machine get`、`machine list`、`s
 
 LayerFS 拒绝读取时，视图会显示拒绝的关键词，并把 LayerFS 的原话放在提示里，
 再加上 **重试**（Retry）或一个修复（见[修复按钮](#fix-buttons)）：例如
-**Broken · no saved login** 或 **Blocked · `<machine>` broken**。刷新会原地重新读取已展开的
+**已损坏 · 未保存密码**（Broken · no password saved）或 **Blocked · `<machine>` broken**。刷新会原地重新读取已展开的
 文件夹，屏幕上的内容保持不动。切换到另一个分支或已保存的 ID 会让文件树从头开始。
 
 ## 历史视图
@@ -208,18 +208,14 @@ LayerFS 拒绝读取时，视图会显示拒绝的关键词，并把 LayerFS 的
 | 2 | ⋯ | [Store 菜单](#store-menu) | 见 Store 菜单 | 每项各不相同 | |
 | | 数字 | SQLite：文件大小和 **最近写入**（last write）*时间*。PostgreSQL：打包后的字节数（或 **n 个项目**）和数据库名。悬停可看服务器和 **数据库 ID**（Database id） | — | `store list`；PostgreSQL 还有 `store get --with stats` (读取) | **大小未知**（Size unknown）。可能过时的大小显示为 **大小读取于**（size seen）*时间*，提示为 **……它的机器已停止**（…its machine is stopped）或 **……现在没有响应**（…does not answer now）。统计被拒绝时显示 `—` |
 | 3 | **存放于**（Stored on）标签（SQLite，仅在主页上） | 所在机器（或 **LayerFS Home**）及其图标 | 点击 → 机器页 | `home get` (读取) | 机器损坏时有红点，其余情况没有圆点（停机的状态写在标签的提示里，不用圆点） |
-| | **连接自**（Connected from）标签（PostgreSQL） | 每个连接方一个标签，**这台电脑**（This computer）排第一：能否连到这个 Store，以及带线框图标的 Sandbox 数量。提示：它自己的地址或默认地址、**检查**（checked）*时间*、PostgreSQL 版本、延迟 | 点击 → 从那台机器发起的检查界面。出故障的机器的标签会改为打开那台机器。最后一个标签 **+ 连接一台机器**（+ Connect a machine）会从第一台还没连接的运行中机器打开检查 | `store doctor --machine` | 红色：检查失败，或机器出了故障。灰色：**未检查**（not checked） |
 | 4 | 项目行 | 最多三个项目（有状态显示时只有一个），各带打包后的字节数和占比条 | 点击 → 项目页 | `project list`、`project stats`、`branch get` (读取；统计期间每 2 秒轮询一次) | **读取中…**（Reading…）、`—` 加 **此处未统计**（Not counted here）、**初始化后尚无提交**（No commits since Init）、**没有项目 · 添加项目**（No projects · Add project，`project init`） |
 | | 状态行 | 只在有事发生时出现：一张正在运行或刚结束的[任务卡片](#job-card)、**另一个客户端正在运行 …**（Another client runs …），或者一个说明需要你处理什么的词（**Waiting on docker**、**Broken · …**），加上它唯一的操作（**启动**（Start）*m*、一个[修复](#fix-buttons)，或 **修复**（Repair）*m*） | 那个操作 | `machine start`，或修复的调用 | |
 | 5 | 备份徽标（SQLite） | 服务商标志、**n 个备份**（n backup(s)），以及一个表示最糟状态的圆点。提示：**x 个需要处理，y 个已过期，z 个最新，w 个未列出**（x need attention, y out of date, z current, w not listed） | 点击 → *store* 的备份（Backups of *store*）对话框。没有备份时显示 **无备份**（No backup），点击打开备份对话框 | 打开对话框时，对每个关联的存储桶运行 `backup list` (读取) | |
 | | **另有 n 个项目**（+n projects） | 这个 Store 的项目比卡片上显示的多 | 点击 → Store 页 | — | |
 | 6 | 底部操作（SQLite） | LayerFS Home 里的 Store 显示 **推送到…**（Push to…），机器上的 Store 显示 **拉取**（Pull） | **推送到…** → 推送对话框。**拉取** → 一个拉取任务 | `store move <s> <m>`，或先 `store get` 再 `store move <s> native` | Store 不是就绪状态时不可用。任务运行时隐藏 |
 
-PostgreSQL 卡片按保存的登录分组，每个登录一个组头。组头显示登录名、它的用户、
-有几个 Store 在用它、最糟的状态（检查失败后显示 **未连上**，Not reached），以及
-**更换密码…**（Rotate password…）：它会运行 `store save-auth`，然后对每个 Store 运行 `store doctor`。
-组头的 ⋯ 里有 **移除登录**（Remove login，`store remove-auth`）。只要还有 Store 在用这个登录，
-它就不可用，提示为 **使用者：…**（Used by …）。
+PostgreSQL Store 没有卡片：机器页把挂接到它的 Store 列成行（地址、那台机器上次的检查和
+**解除挂接**，Detach），主页 › Store 列出全部（见 [Store › 主页 › Store 行](store.md)）。
 
 ## Store 菜单
 
@@ -236,9 +232,9 @@ Store 页面头部和每张 Store 卡片上的 ⋯。
 | **立即备份 · *bucket*/*file***（Back up now · *bucket*/*file*） | SQLite，每个关联的存储桶一行 | 立即开始一个任务 | `backup create`，然后 `backup list` | 未就绪时不可用 |
 | **压缩…**（Compact…） | 两种都有，前提是运行时支持 `store compact` | 普通确认 → 一个任务 | `store get`、`store compact` | 未就绪时不可用。提示：**请先启动机器** *m*（Start machine *m* first）、**请先修复机器** *m*（Repair machine *m* first）、**Store 当前未就绪**（The Store is not ready）。如果某个故障 Store 的修复就是压缩，也会在它上面提供 |
 | **移除…**（Remove…，红色） | SQLite | 输入名称确认 | `store remove` | |
-| **检查**（Check） | PostgreSQL | 从这台电脑发起的检查界面（在机器页上则从那台机器发起）。在你按下 **从** *machine* **检查** *store*（Check *store* from *machine*）之前什么都不会运行 | `store doctor --machine`、`store get` | |
-| **编辑连接…**（Edit connection…） / **保存登录…**（Save a login…） | PostgreSQL | 编辑连接；如果 Store 没有指定登录，则是保存登录 | `store connect` / `store save-auth` / `store update` | |
-| **移除 *machine* 的专属地址…**（Remove *machine*’s own address…） | PostgreSQL，每台有自己地址的机器一行 | 确认 → 那台机器改回使用 Store 的默认地址 | `store disconnect --machine` | |
+| **检查**（Check） | PostgreSQL | 先从这台电脑检查，再从每台挂接的机器检查；标签原地更新 | `store doctor`、`store get` | 运行时显示 **检查中…**（checking…） |
+| **编辑连接…**（Edit connection…） | PostgreSQL | 编辑连接对话框：只发送改动的部分，然后全部重新检查 | `store connect`（密码经标准输入），然后 `store doctor` | |
+| **挂接机器…**（Attach a machine…） | PostgreSQL | 挂接选择器 | 每台机器 `store attach --machine` | |
 | **断开连接…**（Disconnect…，红色） | PostgreSQL | 确认（不用输入名称）。数据库本身保留 | `store disconnect` | |
 
 ## 任务卡片
@@ -276,8 +272,6 @@ Store 页面头部下方、Store 卡片的状态行里，以及在[诊断](healt
 
 - 移除 Store（输入名称，`store remove`）。
 - PostgreSQL 的 **断开连接…**（Disconnect…，`store disconnect`）。
-- **移除 *machine* 的专属地址…**（Remove *machine*’s own address…） / **忘记**（Forget）（`store disconnect --machine`；仅忘记检查记录时为普通确认）。
-- **移除登录**（Remove login，输入名称，`store remove-auth`）。
 - **压缩…**（Compact…，普通确认，`store compact`）。
 - 存储桶的 **断开连接**（Disconnect，`backup disconnect`）。
 - 项目的 **删除**（Delete，输入名称，`project delete`）。
@@ -305,8 +299,8 @@ Center 把这条命令变成一个按钮。按钮的文字说明它要做什么�
 | **删除** *p*（Delete） | `project delete S/P` | `DELETE /api/projects/:p` | `project delete` | 需按两次 |
 | **备份到** *b*（Back up to） | `backup create S B` | `POST /api/stores/:s/backup` | `backup create`，然后 `backup list` | 无需确认 |
 | **设置文件夹**（Set up the folder） | `home init` | op `setup.init` | `home init` | 无需确认 |
-| **保存登录…**（Save a login…） | `store save-auth … && store update S --auth` | 打开保存登录对话框 | `store save-auth`、`store update` | 对话框 |
-| **更新**（Update） | `store update S --auth A` | `POST /api/stores/:s/connection` | `store update` | 无需确认 |
+| **编辑连接…**（Edit connection…） | `store connect S …` | 打开编辑 *store* 的连接 | `store connect`，然后 `store doctor` | 对话框 |
+| **挂接**（Attach） *m* | `store attach S --machine M` | `POST /api/stores/:s/attach` | `store attach` | 无需确认 |
 | **重新连接…**（Connect again…） | `backup connect …` | 重新打开连接 *bucket* 对话框 | `backup connect`、`backup list` | 对话框 |
 | **运行 n 步修复…**（Run the n-step fix…） | 用 `&&` 连接的多条命令 | 按顺序运行每一步的路由。第一次被拒绝就停止后面的步骤 | 每一步的调用 | 需按两次。会删除数据的修复链会打开输入名称的确认框，并列出每一步 |
 
