@@ -2,8 +2,8 @@
  * Project export views (docs/specs/project-exports.md):
  * - {@link ExportProgress}: one export's progress, stop and outcome, the same
  *   in the Home dialog and History's inspector;
- * - ExportBrowser.tsx: Home's "Export…", History and Files in one modal with
- *   a bottom bar (it uses {@link ExportProgress} `row` and {@link FolderInput});
+ * - ExportDialog.tsx: Home's "Export…", a small dialog whose "Choose version…"
+ *   grows it into a History map and Files preview (it uses {@link FolderCard});
  * - {@link ExportInline}: History's inspector action for the selected Commit
  *   or Branch head, its form and progress inside the inspector;
  * - {@link ExportCell}: the Home row's Size cell while an export runs (bar,
@@ -85,15 +85,11 @@ function StopButton({ api, job, t }: { api: LayerfsApi, job: ProjectExport, t: T
  * One export's progress, stop and outcome. `onAgain` (stopped, failed) and
  * `onClose` (an ended export) add their buttons; `onChangeFolder` (failed).
  */
-export function ExportProgress({ api, job, t, onAgain, onChangeFolder, onClose, onBackground, row = false }: {
+export function ExportProgress({ api, job, t, onAgain, onChangeFolder, onClose }: {
   api: LayerfsApi, job: ProjectExport, t: Translate
   onAgain?: (() => void) | undefined
   onChangeFolder?: (() => void) | undefined
   onClose?: (() => void) | undefined
-  /** While it runs: "Run in background" (closes the view; the export goes on). */
-  onBackground?: (() => void) | undefined
-  /** One line (the export browser's bottom bar) instead of a block. */
-  row?: boolean
 }): ReactNode {
   const percent = percentOf(job)
   const left = useSecondsLeft(job)
@@ -104,33 +100,6 @@ export function ExportProgress({ api, job, t, onAgain, onChangeFolder, onClose, 
       {isMac() ? t('export_reveal') : t('export_revealOther')}
     </Button>
   )
-  if (row) {
-    const copied = job.done !== null && job.total !== null && (job.phase === 'export' || job.phase === 'finalize')
-    if (running(job)) {
-      return (
-        <div className={css.progressRow} data-export-phase={job.phase}>
-          <span className={css.rowLabel}>{phaseText(job, t)}</span>
-          <span className={css.rowBar}><Bar job={job} /></span>
-          <span className={css.num} title={job.destination}>
-            {copied ? `${t('export_bytes', { done: bytes(job.done), total: bytes(job.total) })}${job.phase === 'export' && percent !== null ? ` · ${percent}%` : ''}${left !== null ? ` · ${t('export_left', { n: left })}` : ''}` : ''}
-          </span>
-          <StopButton api={api} job={job} t={t} />
-          {onBackground ? <Button variant="outline" size="sm" onClick={onBackground}>{t('export_background')}</Button> : null}
-        </div>
-      )
-    }
-    const done = job.phase === 'done'
-    return (
-      <div className={css.progressRow} data-export-phase={job.phase}>
-        {done ? <IconCheckCircleFillRegular size={16} className={css.ok} /> : job.phase === 'stopped' ? <IconCloseOutlineRegular size={16} className={css.quiet} /> : <IconWarningOutlineRegular size={16} className={css.bad} />}
-        <span className={css.rowLabel}>{done ? t('export_done', { files: (job.files ?? 0).toLocaleString(), size: bytes(job.total) }) : job.phase === 'stopped' ? t('export_stopped') : t('export_failed')}</span>
-        <span className={`${css.rowPath} ${done ? css.mono : css.bad}`} title={done ? job.destination : job.error?.message}>{done ? job.destination : job.phase === 'failed' ? job.error?.message ?? '' : ''}</span>
-        {revealError ? <span className={css.error} role="alert">{revealError}</span> : null}
-        {done ? reveal : null}
-        {onAgain ? <Button variant="outline" size="sm" onClick={onAgain}>{done ? t('export_another') : job.phase === 'failed' ? t('export_retry') : t('export_again')}</Button> : null}
-      </div>
-    )
-  }
   if (running(job)) {
     const copied = job.done !== null && job.total !== null && job.phase !== 'prepare' && job.phase !== 'queued'
     return (
@@ -222,7 +191,7 @@ export function FolderInput({ api, t, folder, onFolder, invalid, onPickError }: 
 }
 
 /** The folder field with its label and the folder the export makes in it. */
-function FolderCard({ api, t, folder, onFolder, name, error }: {
+export function FolderCard({ api, t, folder, onFolder, name, error }: {
   api: LayerfsApi, t: Translate, folder: string, onFolder: (folder: string) => void, name: string, error: string | null
 }): ReactNode {
   const [pickError, setPickError] = useState<string | null>(null)

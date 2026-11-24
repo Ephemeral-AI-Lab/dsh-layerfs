@@ -25,7 +25,7 @@ import {
   IconChevronRightOutlineRegular, IconDownloadOutlineRegular, IconPlusOutlineRegular, IconTrashOutlineRegular, MenuItemButton,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ExportCell } from '../exports/Export.tsx'
-import { ExportBrowser } from '../exports/ExportBrowser.tsx'
+import { ExportDialog } from '../exports/ExportDialog.tsx'
 import { ago, bytes, when } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { MachineGlyph, SandboxGlyph } from '../machines/icons.tsx'
@@ -440,7 +440,7 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
       </div>
       {sessionError && <p role="alert" className={css.error}>{sessionError}</p>}
       {exporting ? (
-        <ExportBrowser api={api} t={tt} project={key} onClose={() => setExporting(false)} />
+        <ExportDialog api={api} t={tt} project={key} onClose={() => setExporting(false)} />
       ) : null}
       {job ? <div className={css.job}><JobLine job={job} t={t} label={`${store.name} · ${doingWords(job, t)}`} /></div> : null}
       {open && (

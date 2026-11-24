@@ -1,0 +1,177 @@
+/* Home's export dialog: small with the version and folder; grown a bit to pick a version. */
+
+.dialog.dialog {
+  width: min(480px, 100%);
+  max-height: 100%;
+  gap: 0;
+  padding: 0;
+  transition: width 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* the picker: the same dialog, wider and with room for the map */
+.dialog.dialog:has([data-export-size='large']) {
+  width: min(920px, 100%);
+  height: min(660px, 100%);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 20px 8px;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.close {
+  flex: none;
+}
+
+.headAction {
+  flex: none;
+}
+
+.formBody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 8px 20px 4px;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+}
+
+.cardIcon {
+  flex: none;
+  display: flex;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.cardBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cardTitle {
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.muted {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.sub {
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: var(--dsw-font-mono);
+  font-size: 12px;
+}
+
+.error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--lf-tone-danger-fg);
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px 20px 18px;
+}
+
+.footer:empty {
+  padding: 0 0 14px;
+}
+
+/* ---------- picker ---------- */
+
+.pane {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 20px;
+}
+
+.fill {
+  flex: 1;
+  min-height: 0;
+}
+
+.center {
+  margin: auto;
+}
+
+.pickBar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px 14px;
+}
+
+.picked {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.pickedBranch {
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.latest {
+  color: var(--dsw-alias-state-business-primary);
+}
