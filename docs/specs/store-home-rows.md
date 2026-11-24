@@ -64,8 +64,8 @@ A row's head is one line, built as on the Machines board: the **chevron**
 (folds the row; the whole head folds too), the Store's **glyph with its state
 dot** and its **name** (opens the Store page), the kind's cells, then the
 Store's **⋯ menu** (Open <name> first, then the Store page's own actions).
-Glyphs are drawn in the text colour (`mono`); colour is kept for state: the dot
-on a glyph's corner, danger/warning words, and links.
+Glyphs keep their brand colours (project lines use the LayerFS mark); the dot
+on a glyph's corner shows state.
 
 Unfolded, the row shows the Machines board's **bordered two-column panel**
 (inset 10 px from the row's edges, not aligned to the table's columns). Each
@@ -74,7 +74,7 @@ the end (`+ Add project`, `Move…`, `+ Add bucket`, `Check`, `+ Attach
 machine`). Lines are the Machines board's lines: glyph (with its state dot),
 name, quiet words, then the line's own state and action at the end.
 
-- **Projects** (both kinds, left): one line per project: folder glyph, name
+- **Projects** (both kinds, left): one line per project: LayerFS glyph, name
   (opens it), a box icon + count when Sandboxes run, its size or "no commits
   yet" / "No commits since Init". Largest first; max 5, then `+N projects →`
   (the Store page). `+ Add project` opens "Add project to <Store>" (import a

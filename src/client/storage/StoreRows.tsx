@@ -5,7 +5,7 @@
  * remembered per viewer. A row's head is one line, as on the Machines board:
  * the chevron, the Store's icon and name (opens the Store page), the kind's
  * cells, the Store's ⋯ menu; at a narrow width the cells go under the name.
- * Glyphs are drawn in the text colour; colour is kept for state (the dots).
+ * Glyphs keep their brand colours; a state dot sits on a glyph's corner.
  *
  *   SQLite row      projects · its one machine (or the running operation) ·
  *                   size · backups (one icon per bucket provider, with a
@@ -24,7 +24,7 @@
  */
 import { createPortal } from 'react-dom'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Button, IconChevronRightOutlineRegular, IconCloseOutlineRegular, IconCopyOutlineRegular, IconFolderCloseRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChevronRightOutlineRegular, IconCloseOutlineRegular, IconCopyOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import clsx from 'clsx'
 import { StatusDot } from '../ui/StatusDot.tsx'
 import { enc, type LayerfsApi } from '../api.ts'
@@ -33,6 +33,7 @@ import type { Translate } from '../files/types.ts'
 import { useMachinesMaybe } from '../machines/context.tsx'
 import { MachineGlyph, SandboxGlyph } from '../machines/icons.tsx'
 import mcss from '../machines/machines.module.css'
+import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { useQuery } from '../ui/use-query.ts'
 import { BucketMark, providerWords } from './BucketPage.tsx'
 import { JobLine } from './HomeCards.tsx'
@@ -194,17 +195,17 @@ function Head({ s, open, onToggle, icon, cells, menu, onOpen, t }: {
   )
 }
 
-/** A Store's icon: its kind's glyph in the text colour, its status dot on the corner (a spinner while it is checked or busy). */
+/** A Store's icon: its kind's glyph, its status dot on the corner (a spinner while it is checked or busy). */
 function StoreIcon({ kind, tone, label }: { kind: Kind, tone: ReachStatus['tone'], label: string }): ReactNode {
   return (
     <span className={css.storeIcon} role="img" aria-label={label} title={label}>
-      <StoreGlyph kind={kind} size={16} mono />
+      <StoreGlyph kind={kind} size={16} />
       <span className={css.storeDot}>{tone === 'ongoing' ? <StatusDot state="ongoing" size={9} /> : <StatusDot state={dotState(tone)} size={7} />}</span>
     </span>
   )
 }
 
-/** A line's glyph in the text colour, with its state's dot on the corner (none when `quiet` and fine). */
+/** A line's glyph, with its state's dot on the corner (none when `quiet` and fine). */
 function LineGlyph({ glyph, tone, quiet }: { glyph: ReactNode, tone: ReachStatus['tone'], quiet?: boolean }): ReactNode {
   return (
     <span className={clsx(mcss.lineIcon, css.lineGlyph)} aria-hidden="true">
@@ -333,11 +334,11 @@ function PgRow(props: RowProps & { checking: boolean, onCheck: () => void }): Re
   ) : only ? (
     // one machine: its icon with its reach's dot, and its name (as a SQLite Store's machine)
     <span className={css.machine} role="img" aria-label={`${only.name} (${kind(only.provider)}): ${only.words}`} title={`${only.name} · ${kind(only.provider)} · ${only.words}`}>
-      <span className={css.icon}><MachineGlyph platform={only.provider} size={14} mono /><StatusDot className={css.iconDot} state={dotState(only.tone)} size={6} /></span>
+      <span className={css.icon}><MachineGlyph platform={only.provider} size={14} /><StatusDot className={css.iconDot} state={dotState(only.tone)} size={6} /></span>
       <span className={css.machineName}>{only.name}</span>
     </span>
   ) : (
-    <ProviderIcons groups={providerGroups(members)} glyph={(p) => <MachineGlyph platform={p} size={14} mono />}
+    <ProviderIcons groups={providerGroups(members)} glyph={(p) => <MachineGlyph platform={p} size={14} />}
       label={members.map((m) => `${m.name} (${kind(m.provider)}): ${m.words}`).join(', ')} />
   )
   const cells = (
@@ -452,7 +453,7 @@ function AttachedLines({ s, view, t, on, checking, sandboxes, onMore }: {
           return (
             <li key={a.machine}>
               <div className={clsx(mcss.line, css.staticLine, css.attachedLine)} data-machine={a.machine}>
-                <LineGlyph glyph={<MachineGlyph platform={record?.platform ?? ''} size={14} mono />} tone={status.tone} />
+                <LineGlyph glyph={<MachineGlyph platform={record?.platform ?? ''} size={14} />} tone={status.tone} />
                 <button type="button" className={clsx(css.linkPlain, mcss.lineName)} title={provider ? `${a.machine} · ${provider}` : a.machine} onClick={() => on.openMachine(a.machine)}>{a.machine}</button>
                 <span className={clsx(mcss.lineMeta, css.lineWords)}>{providerBeside(a.machine, provider)}</span>
                 <span className={css.lineEnd}>
@@ -507,7 +508,7 @@ export function ProjectsList({ api, s, t, now, sandboxes, onOpenProject, onOpenS
           {shown.map((r) => (
             <li key={r.name}>
               <button type="button" className={clsx(mcss.line, css.projectLine)} title={r.name} onClick={() => onOpenProject(`${s.name}/${r.name}`)}>
-                <span className={mcss.lineIcon} aria-hidden="true"><IconFolderCloseRegular size={14} /></span>
+                <span className={mcss.lineIcon} aria-hidden="true"><LayerfsGlyph size={14} /></span>
                 <span className={mcss.lineName}>{r.name}</span>
                 {r.boxes ? <span className={css.boxes} title={t(r.boxes === 1 ? 'pgSandboxOne' : 'pgSandboxes', { n: r.boxes })}><SandboxGlyph size={12} />{r.boxes}</span> : <span />}
                 <span className={mcss.lineSize}>{r.bytes === null ? (q.loading || !q.data ? '…' : '—') : r.empty ? t('rowNoCommits') : r.initOnly ? t('spNoCommits') : bytes(r.bytes)}</span>
@@ -540,7 +541,7 @@ function SqliteRow(props: RowProps): ReactNode {
   const stateWord = t(state === 'ready' ? 'rowSqliteReady' : state === 'busy' ? 'rowSqliteBusy' : state === 'stopped' ? 'stMachineStopped' : 'rowSqliteAttention')
   const machineCell = (
     <span className={css.machine} title={provider ? `${place} · ${provider}${state === 'stopped' ? ` · ${stateWord}` : ''}` : place}>
-      <MachineGlyph platform={machine?.platform ?? ''} size={14} mono />
+      <MachineGlyph platform={machine?.platform ?? ''} size={14} />
       <span className={clsx(css.machineName, state === 'stopped' && css.muted)}>{place}</span>
       {state === 'stopped' ? <button type="button" className={css.link} aria-label={t('startMachine', { machine: place })} onClick={(e) => { stop(e); on.start() }}>{t('rowStart')}</button> : null}
     </span>
@@ -556,7 +557,7 @@ function SqliteRow(props: RowProps): ReactNode {
   })
   const backupCell = backups.buckets ? (
     <span className={css.backups}>
-      <ProviderIcons groups={providerGroups(members)} glyph={(p) => <BucketMark provider={p || null} size={13} mono />}
+      <ProviderIcons groups={providerGroups(members)} glyph={(p) => <BucketMark provider={p || null} size={13} />}
         label={members.map((m) => `${m.name} (${providerWords(m.provider || null, t)}): ${m.words}`).join(', ')} />
       {backups.failed ? <span className={css.word} data-tone="danger">{t('rowBackupsFailed', { n: backups.failed })}</span>
         : <span className={css.when} title={backups.last ? t('rowLastBackup', { when: ago(backups.last, now, tt) }) : undefined}>{backups.last ? ago(backups.last, now, tt) : t('rowNeverBackedUp')}</span>}
@@ -596,7 +597,7 @@ function SqliteRow(props: RowProps): ReactNode {
               <ul className={mcss.lines}>
                 <li>
                   <div className={clsx(mcss.line, css.staticLine, css.thingLine)}>
-                    <LineGlyph glyph={<MachineGlyph platform={machine?.platform ?? ''} size={14} mono />} tone={tone} />
+                    <LineGlyph glyph={<MachineGlyph platform={machine?.platform ?? ''} size={14} />} tone={tone} />
                     <button type="button" className={clsx(css.linkPlain, mcss.lineName)} title={provider ? `${place} · ${provider}` : place} onClick={() => s.machine && on.openMachine(s.machine)}>{place}</button>
                     <span className={clsx(mcss.lineMeta, css.lineWords)}>{providerBeside(place, provider)}</span>
                     <span className={css.lineEnd}>
@@ -624,7 +625,7 @@ function SqliteRow(props: RowProps): ReactNode {
                     return (
                       <li key={`${l.bucket}/${l.file}`}>
                         <div className={clsx(mcss.line, css.staticLine, css.thingLine)}>
-                          <LineGlyph glyph={<BucketMark provider={bucket?.provider ?? null} size={14} mono />} tone={failed ? 'danger' : l.last?.at ? 'ok' : 'idle'} quiet />
+                          <LineGlyph glyph={<BucketMark provider={bucket?.provider ?? null} size={14} />} tone={failed ? 'danger' : l.last?.at ? 'ok' : 'idle'} quiet />
                           <span className={mcss.lineName} title={`${l.bucket}/${l.file}`}>{l.bucket}</span>
                           <span className={clsx(mcss.lineMeta, css.lineWords)} title={failed && l.last?.at ? t('rowLastBackup', { when: ago(l.last.at, now, tt) }) : undefined}>
                             {providerWords(bucket?.provider ?? null, t)}
