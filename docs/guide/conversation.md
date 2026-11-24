@@ -104,7 +104,7 @@ Branch (the Branch picker reads **Session ef98eca**). Only what differs here:
 
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
-| Branch chip (1) | **This session’s branch** with a dot (green while the session's Workspace is mounted); **This session’s branch · restore *n*** after a restore; **Session branch *name*** for another Branch | — | `session.state` (read): `workspace status --detail` while mounted, plus `project get`, `machine get`, `store get` to see that the project can run | |
+| Branch chip (1) | **This session’s branch** with a dot (green while the session's Workspace is mounted); **This session’s branch · restore *n*** after a restore; **This session’s branch · resumed** when an archived conversation continues on its saved branch; **Session branch *name*** for another Branch | — | `session.state` (read): `workspace status --detail` while mounted, plus `project get`, `machine get`, `store get` to see that the project can run | |
 | Unsaved line (2) | **Workspace saved**, or ***n* unsaved in the workspace**: changes in the Workspace that no checkpoint has saved yet | — | same read (the Workspace's overlay count); reread on session events and every 10 s while visible | Hidden while the Workspace is not mounted |
 | File views | Files as saved on the Branch: unsaved Workspace changes do not show until the next checkpoint | See [File views](components.md#file-views) | `file list`, `file read`, … (read) | |
 

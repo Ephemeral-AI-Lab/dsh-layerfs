@@ -17,6 +17,7 @@ const en = {
   liveBranch: 'Session branch {branch}',
   liveBranchOwn: 'This session’s branch',
   liveBranchRestore: 'This session’s branch · restore {n}',
+  liveBranchResume: 'This session’s branch · resumed',
   unsaved: '{n} unsaved in the workspace',
   unsavedNone: 'Workspace saved',
   // Sandbox map
@@ -252,6 +253,7 @@ const zh: Dict = {
   liveBranch: '会话分支 {branch}',
   liveBranchOwn: '本会话的分支',
   liveBranchRestore: '本会话的分支 · 第 {n} 次恢复',
+  liveBranchResume: '本会话的分支 · 已恢复',
   unsaved: '工作区有 {n} 项未保存',
   unsavedNone: '工作区已保存',
   agents: '智能体',

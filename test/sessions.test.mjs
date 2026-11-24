@@ -18,7 +18,7 @@ const out = mkdtempSync(join(root, 'lib', '.test-sessions-'))
 await build({
   absWorkingDir: root,
   stdin: {
-    contents: "export * from './src/host/sessions/service.ts'\nexport * from './src/host/placement.ts'\nexport * as persistence from './src/host/session-persistence.ts'\nexport { initialState } from './src/host/sessions/state.ts'\nexport * from './src/host/sessions/availability.ts'\nexport * as tracing from './src/host/layerfs/tracing.ts'\n",
+    contents: "export * from './src/host/sessions/service.ts'\nexport * from './src/host/placement.ts'\nexport * as persistence from './src/host/session-persistence.ts'\nexport { initialState } from './src/host/sessions/state.ts'\nexport * from './src/host/sessions/availability.ts'\nexport * as tracing from './src/host/layerfs/tracing.ts'\nexport { apply as applySessionsIndex } from './src/host/sessions/index.ts'\n",
     resolveDir: root,
     loader: 'ts',
   },
@@ -1162,4 +1162,59 @@ test('re-activating an interrupted binding over a still-mounted Workspace restor
   assert.equal(mount, undefined, 'a docker Workspace has no host path')
   assert.equal(binding.ws, 'dsh-owner:main', 'the Workspace handle is restored')
   assert.deepEqual(mounts, [], 'nothing is remounted')
+})
+
+test('session.state names the branch kind the host returned, without touching the saved binding', async () => {
+  const cases = [
+    ['own', S.branchOf('abc'), 'own', undefined],
+    ['restore', S.branchOf('abc', 2), 'restore', 2],
+    ['resume', `${S.branchOf('abc')}.resume.0123456789ab`, 'resume', undefined],
+    ['other', 'feature/x', 'other', undefined],
+  ]
+  for (const [name, branch, kind, restore] of cases) {
+    const state = S.initialState()
+    state.sessions.abc = { sessionId: 'abc', kind: 'project', project: 'store/app', anchor: '/anchor', scratch: '/scratch', state: 'closed', branch }
+    const f = sessions({ state })
+    const before = structuredClone(state.sessions.abc)
+    const view = await f.s.view('abc')
+    assert.equal(view.binding.branch, branch, name)
+    assert.equal(view.binding.branchKind, kind, name)
+    assert.equal(view.binding.restore, restore, name)
+    assert.deepEqual(f.state().sessions.abc, before, `${name}: the persisted binding is untouched`)
+    assert.equal(f.state().sessions.abc.branchKind, undefined, name)
+  }
+})
+
+test('sessions.list rows carry the branch kind too, from the row\'s branch and its own session id', async () => {
+  const state = S.initialState()
+  const row = (sessionId, branch, updatedAt) => ({ sessionId, kind: 'project', project: 'st/app', anchor: '/a', scratch: '/s', state: 'closed', branch, createdAt: 0, updatedAt })
+  state.sessions.own = row('own', S.branchOf('own'), 1)
+  state.sessions.restored = row('restored', S.branchOf('restored', 2), 2)
+  state.sessions.resumed = row('resumed', `${S.branchOf('resumed')}.resume.0123456789ab`, 3)
+  state.sessions.plain = row('plain', 'feature/x', 4)
+  const ops = {}
+  const ctx = {
+    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
+    layerfsSessions: { state: { read: () => state } },
+    layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
+    plugin() {},
+    // The one scoped injection `apply` needs to register its operations.
+    inject: (deps, callback) => { if (deps.includes('layerfsSessions')) callback(ctx) },
+    on() {},
+    effect() {},
+    get: (name) => name === 'sessionPersistence' ? { stat: async () => undefined, ownedSessionIds: () => [] } : undefined,
+    logger: () => ({ warn() {}, info() {} }),
+    workspaceRegistry: { archivedSessionIds: [] },
+  }
+  S.applySessionsIndex(ctx)
+  const { sessions: listed } = await ops['sessions.list']({ project: 'st/app', localOnly: true })
+  const byId = Object.fromEntries(listed.map((r) => [r.sessionId, r]))
+  assert.deepEqual(Object.keys(byId).sort(), ['own', 'plain', 'restored', 'resumed'])
+  assert.equal(byId.own.branchKind, 'own')
+  assert.equal(byId.restored.branchKind, 'restore')
+  assert.equal(byId.restored.restore, 2)
+  assert.equal(byId.resumed.branchKind, 'resume')
+  assert.equal(byId.plain.branchKind, 'other')
+  assert.equal('restore' in byId.own, false)
+  for (const id of Object.keys(byId)) assert.equal(state.sessions[id].branchKind, undefined, id)
 })

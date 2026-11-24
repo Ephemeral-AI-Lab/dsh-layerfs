@@ -45,6 +45,7 @@ import { outputsDir, readOutput } from '../layerfs/call-output.ts'
 import { exitOfOutput, fastForwardOfOutput, receiptFromLine, toolScope, traceEnvironment, withTraceContext, type Invocation, type TraceIdentity } from '../layerfs/tracing.ts'
 import { callsSince } from '../logs/source.ts'
 import { parseTag, TAG_PREFIX } from '../../shared/logs.ts'
+import { branchFields } from '../../shared/session-branch.ts'
 import { UNCLAIMED } from './catalog.ts'
 import { LayerfsSessions } from './service.ts'
 import { localPersistence, SessionStore } from './store.ts'
@@ -478,7 +479,9 @@ export function apply(ctx: Context): void {
         }
         // a conversation archived in DSH (its row's Archive, or DSH's own) leaves the project's list until it is unarchived
         const archived = new Set<string>(ctx.workspaceRegistry?.archivedSessionIds ?? [])
-        return { project, discoveryError, sessions: [...rows.values()].filter((r) => !archived.has(r.sessionId)).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)) }
+        const listed = [...rows.values()].filter((r) => !archived.has(r.sessionId)).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+        // The same annotation `session.state` gives: the host says which branch each row is on.
+        return { project, discoveryError, sessions: listed.map((row) => ({ ...row, ...branchFields(row.sessionId, row.branch) })) }
       },
       'sessions.open': async (args: any) => {
         const sessionId = need(args, 'sessionId')

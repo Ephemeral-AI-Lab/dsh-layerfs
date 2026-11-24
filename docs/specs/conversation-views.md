@@ -117,7 +117,9 @@ restart:
 A focus from History (`{branch, commit, path}`) opens that saved version. The
 header line says which branch is live for the session and how many files are
 unsaved in its workspace (`status.overlay.entries`); unsaved edits live in the
-workspace, not in LayerFS, until the next save.
+workspace, not in LayerFS, until the next save. The branch chip reads the
+host's `branchKind`/`restore` (own, restore *n*, resume, or another Branch by
+name), falling back to the shared `describeBranch` when the host has none.
 
 ## 4. History
 

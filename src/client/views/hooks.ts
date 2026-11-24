@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { LayerfsApi } from '../api.ts'
 import { useQuery } from '../files/use-query.ts'
 import { rootOf, SESSION_POLL_MS, type MapBinding, type SessionRow } from './model.ts'
+import type { BranchKind } from '../../shared/session-branch.ts'
 
 /** DSH's session list as an observable (`ctx.sessions.list`). */
 export interface SessionsSource {
@@ -28,7 +29,7 @@ export function useSessionRows(source: SessionsSource | undefined): { byId: Reco
 /** What `session.state` answers, as far as the views read it. */
 export interface SessionStateView {
   sessionId: string
-  binding: (MapBinding & { sessionId: string, kind: 'project' | 'shared', mount?: string }) | null
+  binding: (MapBinding & { sessionId: string, kind: 'project' | 'shared', mount?: string, branchKind?: BranchKind, restore?: number }) | null
   project: string | null
   scratchProject?: boolean
   status: { overlay?: { inode_count?: number, entry_count?: number }, error?: { message: string } } | null

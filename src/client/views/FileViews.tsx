@@ -12,6 +12,7 @@ import { unsavedCount } from './model.ts'
 import { ProjectFiles } from '../files/ProjectFiles.tsx'
 import { ProjectHistory } from '../files/ProjectHistory.tsx'
 import { parseFocus, useRootState, type SessionsSource, type SessionStateView, type ViewFocus } from './hooks.ts'
+import { branchLabel } from './branch-label.ts'
 import type { Translate } from './locale.ts'
 import type { StorageT } from '../storage/locale.ts'
 import css from './views.module.css'
@@ -86,18 +87,10 @@ function SessionLine({ view, sessionId, t }: { view: SessionStateView, sessionId
   const active = view.binding?.state === 'bound'
   return (
     <div className={css.sessionLine}>
-      {branch ? <span className={css.branchChip} title={branch}><StatusDot state={active ? 'done' : 'idle'} size={8} />{branchWords(branch, sessionId, t)}</span> : null}
+      {branch ? <span className={css.branchChip} title={branch}><StatusDot state={active ? 'done' : 'idle'} size={8} />{branchLabel(sessionId, view.binding, t)}</span> : null}
       {active ? <span className={clsx(css.muted, pending > 0 && css.warn)}>{pending > 0 ? t('unsaved', { n: pending }) : t('unsavedNone')}</span> : null}
     </div>
   )
-}
-
-/** The session's own branch in words (`dsh.<this session>[.rN]`); any other branch by name. */
-function branchWords(branch: string, sessionId: string, t: Translate): string {
-  const m = /^dsh\.([0-9a-f]+)(?:\.r(\d+))?$/.exec(branch)
-  // The host names it `dsh.<id without its session- prefix and dashes>` (sessions/service.ts branchOf).
-  if (!m || sessionId.replace(/^session-/, '').replace(/-/g, '') !== m[1]) return t('liveBranch', { branch })
-  return m[2] ? t('liveBranchRestore', { n: m[2] }) : t('liveBranchOwn')
 }
 
 export function FilesView(props: ViewProps): ReactNode {

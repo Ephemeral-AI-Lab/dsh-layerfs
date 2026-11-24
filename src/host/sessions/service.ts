@@ -27,6 +27,7 @@ import type { SessionStore } from './store.ts'
 import { withTraceContext, type Invocation } from '../layerfs/tracing.ts'
 import { classifyStore, storeOf, type StoreHealth } from './availability.ts'
 import type { SessionFailure } from '../../shared/pg-failure.ts'
+import { branchFields, type BranchFields } from '../../shared/session-branch.ts'
 import { lastUsed, pgPlacement, reachedFrom } from '../placement.ts'
 import { machineRows } from '../layerfs/machine-records.ts'
 
@@ -58,10 +59,13 @@ export type Place =
   | { readonly kind: 'shared', readonly parent: string, readonly anchor: string }
   | { readonly kind: 'folder', readonly cwd: string }
 
+/** A binding as the views read it: the host also names the branch kind. */
+export type ViewBinding = Binding & BranchFields
+
 /** The state a session panel shows. */
 export interface SessionView {
   readonly sessionId: string
-  readonly binding: Binding | null
+  readonly binding: ViewBinding | null
   readonly checkpoints: readonly Checkpoint[]
   readonly project: string | null
   /** The session works in the Scratch project (it has no project of its own). */
@@ -1372,7 +1376,8 @@ export class LayerfsSessions extends Service {
     const mirror = effective ? this.state.read().mirror[effective.sessionId] ?? null : null
     return {
       sessionId,
-      binding: effective,
+      // A new object: the persisted binding never gains these fields.
+      binding: effective ? { ...effective, ...branchFields(effective.sessionId, effective.branch) } : null,
       checkpoints: effective ? this.checkpoints(effective.sessionId).length ? this.checkpoints(effective.sessionId) : archivedCheckpoints : [],
       project,
       execution: project ? { state: effective?.executionState ?? (effective?.state === 'bound' ? 'active' : effective?.state === 'failed' ? 'interrupted' : 'inactive'), available, reason, projectId: persistence?.projectIdOf?.(sessionId) } : undefined,

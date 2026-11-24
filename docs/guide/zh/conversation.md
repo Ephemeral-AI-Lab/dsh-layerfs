@@ -95,7 +95,7 @@ DSH 关闭 **显示代码工作视图**（Show coding view，即 Developer tools
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
-| 分支块（1） | **本会话的分支**（This session’s branch），带一个圆点（会话的 Workspace 挂载时为绿色）；恢复过之后显示 **本会话的分支 · 第 *n* 次恢复**（This session’s branch · restore *n*）；其他分支显示 **会话分支 *名称***（Session branch *name*） | — | `session.state` (读取)：挂载期间 `workspace status --detail`，另有 `project get`、`machine get`、`store get`，用来确认项目能运行 | |
+| 分支块（1） | **本会话的分支**（This session’s branch），带一个圆点（会话的 Workspace 挂载时为绿色）；恢复过之后显示 **本会话的分支 · 第 *n* 次恢复**（This session’s branch · restore *n*）；从存档恢复并继续时显示 **本会话的分支 · 已恢复**（This session’s branch · resumed）；其他分支显示 **会话分支 *名称***（Session branch *name*） | — | `session.state` (读取)：挂载期间 `workspace status --detail`，另有 `project get`、`machine get`、`store get`，用来确认项目能运行 | |
 | 未保存行（2） | **工作区已保存**（Workspace saved），或 **工作区有 *n* 项未保存**（*n* unsaved in the workspace）：Workspace 里还没被任何检查点保存的改动 | — | 同一次读取（Workspace 覆盖层的计数）；有会话事件时重新读取，可见时每 10 秒读一次 | Workspace 未挂载时隐藏 |
 | 文件视图 | 分支上已保存的文件：Workspace 里未保存的改动要等下一个检查点之后才会显示 | 见[文件视图](components.md#file-views) | `file list`、`file read`、… (读取) | |
 
