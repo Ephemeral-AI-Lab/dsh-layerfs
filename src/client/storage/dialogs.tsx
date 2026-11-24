@@ -78,8 +78,7 @@ function OpenDialog({ api, t, dialog, view, onClose, done, onDialog }: DialogsPr
     case 'connect': return <ConnectDialog api={api} t={t} view={view} onClose={onClose} done={done} />
     case 'pg-edit': return <EditConnectionDialog api={api} t={t} view={view} store={dialog.store} onClose={onClose} done={done} />
     case 'attach': return (
-      <AttachPicker api={api} t={t} view={view} store={dialog.store} machine={dialog.machine} onClose={onClose} done={done}
-        onEditConnection={onDialog ? (store) => onDialog({ kind: 'pg-edit', store }) : undefined} />
+      <AttachPicker api={api} t={t} view={view} store={dialog.store} machine={dialog.machine} onClose={onClose} done={done} />
     )
     case 'add-project': return <NewProjectDialog api={api} t={t} store={dialog.store} onClose={onClose} done={done} />
     case 'push':

@@ -80,8 +80,6 @@ export function machineOf(m: any) {
     observedAt: text(m.observed_at),
     // `sqlite`, `postgresql_sandbox`, `log` (the machine has a worker log to read)
     supports: list(m.supports).map(String),
-    // whether the machine shares this computer's network (`shared`) or not (`apart`): a loopback database address works only when shared; null when LayerFS gives none
-    loopback: m.loopback === 'shared' || m.loopback === 'apart' ? m.loopback as 'shared' | 'apart' : null,
     cpus: num(m.cpus),
     memory: num(m.memory_bytes),
     disk: num(m.disk_bytes),

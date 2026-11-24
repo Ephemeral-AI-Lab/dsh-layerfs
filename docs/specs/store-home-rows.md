@@ -19,9 +19,18 @@
   that machine. There is no per-machine address. A Sandbox of a PostgreSQL
   Store's project can only be created on an attached machine (refusal fix:
   `layerfs store attach <store> --machine <machine>`).
-- **A loopback address (`127.0.0.1`, `localhost`) can only be used by machines
-  that share the host's loopback** (the platform's reach rule); others refuse it.
-  LayerFS never rewrites the URL.
+- **Reach is tested, never predicted** (owner, 2026-11-24). The server may be on
+  this computer or anywhere else, so the UI never greys a machine because of
+  the address. `store.attach(store, { machine, dry_run: true })` runs attach's
+  own check from that machine and records nothing; every reach refusal names
+  its connection `step` (`configuration`, `transport`, `tls`, `authentication`,
+  `database`, `schema`, `identity`). LayerFS still refuses a loopback address
+  from a machine that does not share this computer's network (step
+  `configuration`), and never rewrites the URL.
+- **A changed connection never cuts off a machine silently.** `store.connect`
+  with a new address or login checks from this computer and every attached
+  machine before saving and refuses `Conflict` (with `machines`) when one would
+  fail; `dry_run: true` answers `{ here, machines }` and saves nothing.
 - **Checks:** `store.doctor(store)` checks from the host, then every attached
   machine (machines are skipped when the host fails); with `{ machine }` the host
   plus that machine. `store.get` answers the saved connection (url, user,
@@ -57,7 +66,7 @@ Folded:
 |---|---|
 | Left, line 1 | Health dot (host check: ok / failed / unchecked) and Store name |
 | Left, line 2 | `user@host:port/database` in mono |
-| Right | `N projects` · divider · up to 3 machine provider icons, each with a reach dot, then `+N` · `N machines` · one status word: `N failed` (danger), or `this computer only` (muted, loopback address) |
+| Right | `N projects` · divider · up to 3 machine provider icons, each with a reach dot, then `+N` · `N machines` · one status word: `N failed` (danger), or `N stopped` (warning) |
 | Right, host failed | `N projects` · the failure label (danger) · `Edit connection…` link; machine icons are not shown |
 | End | Chevron, rotates when open |
 
@@ -102,19 +111,27 @@ Header action of the view: `New Store`.
   (`postgres://host:port/database`, mono), User, Password; buttons Cancel and
   Connect. Pressing Connect is the test: the Store is saved only if the host
   check passes. Errors show as one line under the form with the fix; a
-  password inside the address is refused client-side with a hint. A loopback
-  address connects but shows a muted note that only this computer can reach it.
-  No server list, no saved logins, no steps.
-- **Edit connection:** the same form filled in, Name read-only, Password empty
-  with placeholder "leave empty to keep"; Save and check. The line above the
-  buttons names the machines that will be re-checked.
+  password inside the address is refused client-side with a hint. No server
+  list, no saved logins, no steps. A refusal's line comes from its `step`.
+- **Edit connection:** the same form filled in, the Store's name under the title,
+  Password empty with placeholder "leave empty to keep"; Save and check. Below
+  the fields, **Who can reach it** with a **Test** button: it tests the values as
+  typed from this computer and every attached machine (`store connect
+  --dry-run`), each row `Reachable · N ms` or `Failed at <step>` (click for the
+  steps). A result answers only for the values it ran with; after an edit it
+  says to test again. Save is off while a tested machine would lose the Store,
+  and LayerFS refuses such a save anyway (`Conflict`, `machines`).
 - **Attach picker** (from a row, the Store page, or the machine page reversed):
   a search field, machines grouped by provider (group heading = provider name),
-  checkboxes, multi-select, footer `N selected` + `Attach and check`. Machines
-  that cannot attach are listed greyed with the reason and one action (stopped →
-  Start; cannot reach this address → Edit connection…; platform cannot run
-  PostgreSQL Sandboxes → reason only). Already attached machines are not listed.
-  New providers add groups, never layout.
+  checkboxes, multi-select, footer `N selected` + `Attach and check`. Each row
+  has its own **Test**, run from that machine only when pressed (`store attach
+  --dry-run`): `Not tested` → `Testing…` → `Reachable · N ms` or `Failed at
+  <step>`, which opens the six steps (address, connection, TLS, login, database,
+  this Store) with LayerFS's words; ↻ tests again. Testing is optional: Attach
+  checks each machine again before saving it, and a refused attach shows on its
+  row the same way and stays selected. Only a stopped machine (Start) or one
+  that cannot run PostgreSQL Sandboxes (reason only) is greyed. Already attached
+  machines are not listed. New providers add groups, never layout.
 
 ## Store page (PostgreSQL)
 
@@ -130,8 +147,8 @@ stays") and stays refused while Sandboxes run.
 ## Machine page, Stores tab (reverse)
 
 PostgreSQL Stores attached to this machine, one row each with reach dot and
-`Detach`; `+ Attach Store` opens the same picker listing Stores (Stores whose
-address this machine cannot reach are greyed with the reason).
+`Detach`; `+ Attach Store` opens the same picker listing Stores, each with its
+own Test from this machine.
 
 ## Status labels (one shared set)
 

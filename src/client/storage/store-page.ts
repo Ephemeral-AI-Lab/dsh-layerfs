@@ -8,11 +8,11 @@
  * - Each project's share of the Store's packed bytes, from the project ledgers.
  * - The project cards: order, search and the Sandboxes running per project.
  */
-export type StoreTab = 'overview' | 'projects' | 'backups'
+export type StoreTab = 'overview' | 'projects' | 'backups' | 'machines'
 
-/** A SQLite Store page's tabs (a PostgreSQL Store has its own page: PgStorePage.tsx). */
+/** A Store page's tabs: a SQLite Store's backups, or the machines a PostgreSQL Store's Sandboxes run on. */
 export function storeTabs(kind: string): StoreTab[] {
-  return kind === 'postgresql' ? ['overview', 'projects'] : ['overview', 'projects', 'backups']
+  return kind === 'postgresql' ? ['overview', 'projects', 'machines'] : ['overview', 'projects', 'backups']
 }
 
 /** `GET /api/stores/<name>/stats`: the Store's engine and its `store get --with stats` section (LayerFS 2.0). */

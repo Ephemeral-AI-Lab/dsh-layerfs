@@ -89,6 +89,25 @@ function reachOf(r: any): { at: number | null, ok: boolean, latencyMs: number | 
 
 const word = (v: unknown): string | null => (typeof v === 'string' && v ? v : null)
 
+/** A refused reach as the page reads it: LayerFS's code, words and fix, and the connection `step` it stopped at (its detail). */
+function reachError(error: any): { code: string, message: string, fix?: string, step: string | null } {
+  const step = word(error?.detail?.step) ?? word(error?.step)
+  return { code: String(error?.code ?? 'Failed'), message: String(error?.message ?? error), ...(error?.fix ? { fix: String(error.fix) } : {}), step }
+}
+
+/**
+ * One place a connection test ran from (`store connect --dry-run`'s `here` or
+ * a `machines` row): passed, failed, or (a machine, when this computer's own
+ * check failed first) not checked, `ok: null`.
+ */
+function tested(r: any): { ok: boolean | null, latencyMs: number | null, version: string | null, error: { code: string, message: string, step: string | null } | null } {
+  const ok = r?.ok === true ? true : r?.ok === false ? false : null
+  return {
+    ok, latencyMs: typeof r?.latency_ms === 'number' ? r.latency_ms : null, version: word(r?.server_version),
+    error: ok === false ? { code: word(r?.code) ?? 'Unavailable', message: word(r?.message) ?? '', step: word(r?.step) } : null,
+  }
+}
+
 /** A synchronous_commit value LayerFS takes, or undefined (keep the saved one). */
 const SYNC = new Set(['off', 'local', 'remote_write', 'on', 'remote_apply'])
 const syncOf = (v: unknown): string | undefined => {
@@ -339,7 +358,7 @@ export class Storage {
       return { name, provider: record?.provider ?? null, ...(record?.url ? { url: record.url } : {}), ...own, listed: listing?.at ?? null, files: listing?.items ?? null, error: listing?.error ?? null, stores: stores.filter((s) => s.links.some((l: { bucket: string }) => l.bucket === name)).map((s) => s.name) }
     })
     const view = {
-      machines: machines.map((m) => ({ name: m.name, platform: m.platform, state: m.state, supports: m.supports, reason: m.reason ?? null, loopback: m.loopback })),
+      machines: machines.map((m) => ({ name: m.name, platform: m.platform, state: m.state, supports: m.supports, reason: m.reason ?? null })),
       // this computer (the native machine): its OS names it
       computer: computer(),
       stores,
@@ -443,11 +462,50 @@ export class Storage {
         const answer: any = await this.lfs.store.attach(name, { machine, detail: true, timeout_ms: CHECK_TIMEOUT_MS })
         results.push({ machine, ok: true, outcome: word(answer?.outcome), latencyMs: typeof answer?.latency_ms === 'number' ? answer.latency_ms : null, version: word(answer?.server_version) })
       } catch (error: any) {
-        results.push({ machine, ok: false, error: { code: String(error?.code ?? 'Failed'), message: String(error?.message ?? error), ...(error?.fix ? { fix: error.fix } : {}) } })
+        results.push({ machine, ok: false, error: reachError(error) })
       }
     }
     this.changed()
     return { store: name, results }
+  }
+
+  /**
+   * Tests one machine's connection to a PostgreSQL Store without attaching it:
+   * `store attach --machine M --dry-run` runs attach's own check from that
+   * machine and records nothing. Answers `{ machine, ok, latencyMs, version }`,
+   * or `{ machine, ok: false, error: { code, message, fix?, step } }`, where
+   * `step` is the connection step LayerFS says it stopped at.
+   */
+  async testAttach(name: string, input: any = {}) {
+    checkName(name, 'A PostgreSQL Store')
+    const machine = input.machine
+    checkName(machine, 'A machine')
+    try {
+      const answer: any = await this.lfs.store.attach(name, { machine, dry_run: true, detail: true, timeout_ms: CHECK_TIMEOUT_MS })
+      return { machine, ok: true, latencyMs: typeof answer?.latency_ms === 'number' ? answer.latency_ms : null, version: word(answer?.server_version), error: null }
+    } catch (error: any) {
+      return { machine, ok: false, latencyMs: null, version: null, error: reachError(error) }
+    }
+  }
+
+  /**
+   * Tests a PostgreSQL Store's connection as it would be saved, without
+   * saving: `{ url?, user?, passwordValue? }`, only what changed, through
+   * `store connect --dry-run`, from this computer and then every attached
+   * machine. Answers `{ store, here, machines }`, each `{ ok, latencyMs,
+   * version, error }` (machines also name their `machine`).
+   */
+  async testConnection(name: string, input: any = {}) {
+    checkName(name, 'A PostgreSQL Store')
+    const given = typeof input.url === 'string' && input.url.trim() ? input.url.trim() : null
+    if (given) checkUrl(given, 'The database address')
+    const user = typeof input.user === 'string' && input.user.trim() ? input.user.trim() : undefined
+    const password = typeof input.passwordValue === 'string' && input.passwordValue !== '' ? input.passwordValue : undefined
+    const url = given ?? pgOf(await this.lfs.store.get(name, { detail: true })).url
+    if (!url) throw refuse(400, 'InvalidInput', `Store ${name} has no saved address: give one`)
+    const answer: any = await this.lfs.store.connect(name, url, { ...(user ? { user } : {}), ...(password ? { password } : {}), dry_run: true, detail: true, timeout_ms: CHECK_TIMEOUT_MS })
+    const rows: any[] = Array.isArray(answer?.machines) ? answer.machines : []
+    return { store: name, here: tested(answer?.here), machines: rows.map((m) => ({ machine: String(m?.machine ?? ''), ...tested(m) })) }
   }
 
   /** Detaches a machine (`store detach --machine`): LayerFS refuses `InUse` while a Sandbox of the Store is there, `NotFound` when it is not attached. */

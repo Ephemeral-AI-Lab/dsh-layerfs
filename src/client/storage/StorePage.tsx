@@ -1,13 +1,13 @@
 /**
- * One Store. A PostgreSQL Store has its own page (PgStorePage.tsx). A SQLite
- * Store's is laid out like a machine page: its head (glyph, name, state,
- * family and place, checks and the Store menu), alerts and a job in flight,
- * then three tabs. Overview: tiles, what fills the database file, how the
- * Store grew, which projects wrote it, its health and details. Projects: one
- * card per project. Backups.
+ * One Store, SQLite or PostgreSQL, laid out like a machine page: its head
+ * (glyph, name, state, family and place, checks and the Store menu), alerts
+ * and a job in flight, then three tabs. Overview: tiles, a PostgreSQL Store's
+ * connection, what fills the database, how the Store grew, which projects
+ * wrote it, its health and details. Projects: one card per project. Backups
+ * (SQLite) or Machines (PostgreSQL: where its Sandboxes run).
  */
 import { useEffect, useId, useState, type ReactNode } from 'react'
-import { SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import { DoctorAction } from '../doctor/Doctor.tsx'
 import type { DoctorT } from '../doctor/locale.ts'
@@ -15,6 +15,7 @@ import { useDetailTab } from '../machines/detail-tabs.ts'
 import { useProjectMachines } from '../projects/hooks.ts'
 import { useQuery } from '../ui/use-query.ts'
 import { Empty, Notice, PageHead, StateChip } from '../ui/index.tsx'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import { useHostEvents } from './hooks.ts'
 import { JobPanel, OpPanel } from './JobProgress.tsx'
 import type { StorageT } from './locale.ts'
@@ -22,7 +23,7 @@ import { brokenBlock, canAddProject, stoppedBlock, storeNoticeTone, storeStateWo
 import { StoreGlyph } from './parts.tsx'
 import { Location, MachineStartAction, StoreAction, StoreMenu, storePageNotice, useStoreTip, type StoreActions } from './StoreCard.tsx'
 import { StoreBackups } from './StoreLinks.tsx'
-import { PgStorePage } from './PgStorePage.tsx'
+import { PgMachinesPanel } from './PgPanels.tsx'
 import { StoreOverview } from './StoreOverview.tsx'
 import { StoreProjects } from './StoreProjects.tsx'
 import type { TabId } from './tabs.ts'
@@ -59,13 +60,7 @@ function StoreNoticeWords({ s, t, notice }: { s: StoreRow, t: StorageT, notice: 
   return <span title={useStoreTip(s, t)}>{notice}</span>
 }
 
-export function StorePage(props: StorePageProps): ReactNode {
-  const s = props.view.stores.find((x) => x.name === props.name)
-  if (s?.kind === 'postgresql' && props.on) return <PgStorePage s={s} view={props.view} t={props.t} api={props.api} now={props.now} on={props.on} onOpenProject={props.onOpenProject} onOpen={props.onOpen} />
-  return <SqliteStorePage {...props} />
-}
-
-function SqliteStorePage({ refreshKey = 0, name, view, t, api, doctorT, now, job, on, onOpenProject, onOpen, onListBucket, listingBucket, onReconnect }: StorePageProps): ReactNode {
+export function StorePage({ refreshKey = 0, name, view, t, api, doctorT, now, job, on, onOpenProject, onOpen, onListBucket, listingBucket, onReconnect }: StorePageProps): ReactNode {
   const ids = useId()
   const s = view.stores.find((x) => x.name === name)
   const kind = s?.kind ?? 'sqlite'
@@ -83,6 +78,8 @@ function SqliteStorePage({ refreshKey = 0, name, view, t, api, doctorT, now, job
   }, [counting, projects.data, projects.reload])
   const machines = useProjectMachines(api)
   const stats = useQuery(() => api.call<StoreStats>('GET', `/api/stores/${enc(name)}/stats`), [api, name], { refresh: [tick], cache: `store-stats:${name}` })
+  // a PostgreSQL Store's Check: this computer, then every attached machine
+  const [checking, setChecking] = useState(false)
   if (!s || !on) return <><PageHead title={name} /><Empty title={t('storeMissing', { name })}>{t('storeMissingBody')}</Empty></>
   const pg = s.kind === 'postgresql'
   const machineState = view.machines.find((m) => m.name === s.machine)?.state
@@ -97,7 +94,9 @@ function SqliteStorePage({ refreshKey = 0, name, view, t, api, doctorT, now, job
     overview: t('tabOverview'),
     projects: `${t('tabProjects')} ${s.projects.length}`,
     backups: `${t('backupsSection')} ${s.links.length}`,
+    machines: `${t('spTabMachines')} ${(s.attached ?? []).length}`,
   }
+  const check = () => { if (checking) return; setChecking(true); void Promise.resolve(on.check()).finally(() => setChecking(false)) }
   return (
     <>
       <PageHead title={s.name} icon={<StoreGlyph kind={s.kind} size={22} />}
@@ -111,8 +110,10 @@ function SqliteStorePage({ refreshKey = 0, name, view, t, api, doctorT, now, job
         )}
         actions={(
           <>
+            {pg ? (
+              <Button variant="outline" size="sm" disabled={checking} onClick={check} icon={checking ? <StatusDot state="ongoing" size={13} /> : undefined}>{checking ? t('stChecking') : t('pgCheck')}</Button>
+            ) : null}
             <DoctorAction api={api} t={doctorT} target="store.integrity" name={s.name} label={doctorT('checkIntegrity')} />
-            {pg ? <DoctorAction api={api} t={doctorT} target="store.connection" name={s.name} label={doctorT('testConnection')} /> : null}
             <StoreMenu store={s} on={on} t={t} runningJob={runningJob} />
           </>
         )} />
@@ -135,12 +136,14 @@ function SqliteStorePage({ refreshKey = 0, name, view, t, api, doctorT, now, job
           <StoreProjects api={api} store={{ name: s.name, kind: s.kind, state: s.state }} names={s.projects} projects={projects.data?.projects} stored={typeof stats.data?.stored_bytes === 'number' ? stats.data.stored_bytes : null}
             stores={view.stores} fleet={machines.data?.available ? machines.data : null} t={t} now={now} tick={tick}
             canAdd={canAddProject(s) && !runningJob} addDisabledReason={addDisabledReason} onAdd={on.addProject} onOpen={(id) => (onOpen ? onOpen(id) : id.startsWith('project:') ? onOpenProject(id.slice('project:'.length)) : undefined)} />
+        ) : tab === 'machines' ? (
+          <PgMachinesPanel s={s} view={view} t={t} on={on} checking={checking} sandboxes={machines.data?.available ? machines.data.sandboxes : undefined} />
         ) : tab === 'backups' ? (
           <StoreBackups store={s} view={view} t={t} now={now} on={on} runningJob={runningJob}
             onOpen={onOpen} onListBucket={onListBucket} listingBucket={listingBucket} onReconnect={onReconnect} />
         ) : (
           <StoreOverview store={s} view={view} t={t} api={api} now={now} stats={stats.data} statsError={stats.error} projects={projects.data?.projects} running={running}
-            machineState={machineState} onTab={setTab} onRemove={pg ? on.disconnect : on.remove} />
+            machineState={machineState} onTab={setTab} onRemove={pg ? on.disconnect : on.remove} checking={checking} onEditConnection={on.editConnection} />
         )}
       </div>
     </>

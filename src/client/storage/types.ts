@@ -96,10 +96,19 @@ export interface PgCheck {
 }
 
 /** POST /api/stores/:s/attach: each machine's own answer. */
+/** A refused reach: LayerFS's code, words and fix, and the connection step it stopped at (null when it never dialled). */
+export interface PgReachError { code: string, message: string, fix?: string, step: string | null }
+
 export interface PgAttachResult {
   store: string
-  results: ({ machine: string, ok: true, outcome: string, latencyMs: number | null, version: string | null } | { machine: string, ok: false, error: SdkRefusal })[]
+  results: ({ machine: string, ok: true, outcome: string, latencyMs: number | null, version: string | null } | { machine: string, ok: false, error: PgReachError })[]
 }
+
+/** One place a connection test ran from: `/attach-test` (one machine) or a row of `/connection-test`; `ok: null` is a machine not checked because this computer's check failed first. */
+export interface PgReachTest { ok: boolean | null, latencyMs: number | null, version: string | null, error: PgReachError | null }
+
+/** `/connection-test`: the connection as it would be saved, tested from this computer, then every attached machine. */
+export interface PgConnectionTest { store: string, here: PgReachTest, machines: (PgReachTest & { machine: string })[] }
 
 /**
  * One file in a bucket (2.0 `backup list --detail`): its Store link, whether
@@ -166,8 +175,7 @@ export type MachineSupports = readonly string[]
 
 /** GET /api/storage. */
 export interface StorageView {
-  /** `loopback`: whether the machine shares this computer's network (LayerFS's `shared` / `apart`), null when unknown. */
-  machines: { name: string, platform: string, state: string | null, supports: MachineSupports | null, reason?: string | null, loopback?: 'shared' | 'apart' | null }[]
+  machines: { name: string, platform: string, state: string | null, supports: MachineSupports | null, reason?: string | null }[]
   /** This computer (the native machine); absent from an older host. */
   computer?: { os: 'macos' | 'linux' | 'windows' | 'other', name: string | null, arch: string }
   stores: StoreRow[]

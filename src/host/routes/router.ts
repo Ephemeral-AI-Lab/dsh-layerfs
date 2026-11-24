@@ -180,6 +180,10 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     if (id && sub === 'connection' && method === 'POST') return storage.updateConnection(id, body ?? {})
     // machines a PostgreSQL Store's Sandboxes may run on: { machines: [...] }, each attached (and checked from there) in turn
     if (id && sub === 'attach' && method === 'POST') return storage.attach(id, body ?? {})
+    // one machine's connection tested without attaching it (store attach --dry-run): { machine }
+    if (id && sub === 'attach-test' && method === 'POST') return storage.testAttach(id, body ?? {})
+    // the connection as it would be saved, tested from this computer and every attached machine (store connect --dry-run): { url?, user?, passwordValue? }
+    if (id && sub === 'connection-test' && method === 'POST') return storage.testConnection(id, body ?? {})
     // one machine detached from a PostgreSQL Store: { machine }; refused InUse while its Sandboxes run there
     if (id && sub === 'detach' && method === 'POST') return storage.detach(id, body ?? {})
     // the connection check (store doctor): this computer, then attached machines; ?machine=<name>: that attached machine alone

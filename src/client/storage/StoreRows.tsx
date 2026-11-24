@@ -36,7 +36,7 @@ import { StoreGlyph } from './parts.tsx'
 import type { StoreActions } from './StoreCard.tsx'
 import { runningByProject, type StoreProjectsView } from './store-page.ts'
 import {
-  backupSummary, capped, dotState, isLoopbackUrl, LIST_ROWS, linkFailed, listWords, loopbackShared, openFailed, pgAddress, pgStatusWord, pgSummary, providerBeside, reachStatus, readOpenRows,
+  backupSummary, capped, dotState, LIST_ROWS, linkFailed, listWords, openFailed, pgAddress, pgStatusWord, pgSummary, providerBeside, reachStatus, readOpenRows,
   REACH_LABEL, sqliteState, sqliteTone, writeOpenRows, type ReachStatus,
 } from './store-rows.ts'
 import { HOME_SCOPE, readStoreKind, readStoresAlt, watchHomeStores, writeStoreKind, writeStoresAlt } from './tabs.ts'
@@ -44,7 +44,7 @@ import type { PgCheck, StorageJob, StorageView, StoreRow } from './types.ts'
 import css from './StoreRows.module.css'
 
 type Kind = 'sqlite' | 'postgresql'
-type Sandboxes = readonly { machine?: string | null, project?: string | null, state?: string, live?: boolean | null }[]
+export type Sandboxes = readonly { machine?: string | null, project?: string | null, state?: string, live?: boolean | null }[]
 
 /** SQLite's second view (the backup buckets), with the switch's labels and its own actions. */
 export interface AltView {
@@ -241,13 +241,6 @@ export function CopyAddress({ text, t }: { text: string, t: StorageT }): ReactNo
   )
 }
 
-/** The loopback note for a Store at `url`: which machines share this computer's network (LayerFS's `loopback`), or null for an address that is not local. */
-export function loopbackNote(url: string | null | undefined, machines: StorageView['machines'], t: StorageT): string | null {
-  if (!isLoopbackUrl(url)) return null
-  const names = loopbackShared(machines)
-  return names.length ? t('pgLoopbackNote', { names: listWords(names) }) : t('pgLoopbackNoteNone')
-}
-
 // ---------- PostgreSQL ----------
 
 function PgRow(props: RowProps & { checking: boolean, onCheck: () => void }): ReactNode {
@@ -262,7 +255,6 @@ function PgRow(props: RowProps & { checking: boolean, onCheck: () => void }): Re
   const projects = t(sum.projects === 1 ? 'msProjectOne' : 'msProjectCount', { n: sum.projects })
   const at = s.postgresql?.host?.at
   const hostTip = at ? t('rowHostDot', { status: t(REACH_LABEL[sum.host.key]), when: ago(at, now, t as Translate) }) : t('rowHostDotNever', { status: t(REACH_LABEL[sum.host.key]) })
-  const loopTip = word?.key === 'pgRowLoopback' ? loopbackNote(s.postgresql?.url, view.machines, t) : null
   const one = sum.machines.length === 1 ? sum.machines[0]! : null
   const kind = (platform: string | null) => mc?.kind(platform ?? '') ?? platform ?? ''
   const machines = !sum.machines.length ? (
@@ -301,7 +293,7 @@ function PgRow(props: RowProps & { checking: boolean, onCheck: () => void }): Re
       <span className={css.num}>{projects}</span>
       <Divider />
       {machines}
-      {word ? <><Divider /><span className={css.word} data-tone={word.tone} title={loopTip ?? undefined}>{t(word.key, { n: word.n })}</span></> : null}
+      {word ? <><Divider /><span className={css.word} data-tone={word.tone}>{t(word.key, { n: word.n })}</span></> : null}
     </>
   )
   return (

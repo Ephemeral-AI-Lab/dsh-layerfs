@@ -28,11 +28,11 @@ const pg = (name, more = {}) => ({
   attached: [], ...more,
 })
 const machines = [
-  { name: 'native', platform: 'native', state: 'ready', supports: ['sqlite', 'postgresql_sandbox'], loopback: 'shared' },
-  { name: 'docker', platform: 'docker', state: 'ready', supports: ['sqlite', 'postgresql_sandbox'], loopback: 'apart' },
-  { name: 'vm1', platform: 'lima', state: 'stopped', supports: ['sqlite', 'postgresql_sandbox'], loopback: 'apart' },
-  { name: 'vm2', platform: 'lima', state: 'broken', reason: 'outdated', supports: ['sqlite', 'postgresql_sandbox'], loopback: 'apart' },
-  { name: 'win', platform: 'wsl', state: 'ready', supports: ['sqlite'], loopback: 'apart' },
+  { name: 'native', platform: 'native', state: 'ready', supports: ['sqlite', 'postgresql_sandbox'] },
+  { name: 'docker', platform: 'docker', state: 'ready', supports: ['sqlite', 'postgresql_sandbox'] },
+  { name: 'vm1', platform: 'lima', state: 'stopped', supports: ['sqlite', 'postgresql_sandbox'] },
+  { name: 'vm2', platform: 'lima', state: 'broken', reason: 'outdated', supports: ['sqlite', 'postgresql_sandbox'] },
+  { name: 'win', platform: 'wsl', state: 'ready', supports: ['sqlite'] },
 ]
 
 test('caps: 3 machine icons in a summary, 5 rows in a list, and how many more', () => {
@@ -82,28 +82,25 @@ test('a PostgreSQL row\'s summary: projects, the host, the first 3 machines and 
   assert.equal(sum.stopped, 1)
   assert.deepEqual(R.pgStatusWord(sum), { key: 'pgRowFailed', n: 1, tone: 'danger' })
   const stoppedOnly = R.pgSummary(pg('s', { attached: [{ machine: 'vm1', reached: null, reach: null }] }), { machines })
-  assert.deepEqual(R.pgStatusWord(stoppedOnly), { key: 'pgRowStopped', n: 1, tone: 'warning' }, 'stopped before local address')
+  assert.deepEqual(R.pgStatusWord(stoppedOnly), { key: 'pgRowStopped', n: 1, tone: 'warning' })
   const nativeOnly = [{ machine: 'native', reached: 'ok', reach: reach(true) }]
   const local = R.pgSummary(pg('l', { postgresql: { ...pg('l').postgresql, url: 'postgresql://127.0.0.1:5432/x' }, attached: nativeOnly }), { machines })
-  assert.deepEqual(R.pgStatusWord(local), { key: 'pgRowLoopback', n: 0, tone: 'muted' })
+  assert.equal(R.pgStatusWord(local), null, 'a local address says nothing by itself: reach is tested, never predicted')
   const none = R.pgSummary(pg('n', { postgresql: { ...pg('n').postgresql, url: 'postgresql://127.0.0.1:5432/x' } }), { machines })
   assert.equal(R.pgStatusWord(none), null, 'no machine attached: no word (the row says no machines · Attach…)')
   assert.equal(R.pgStatusWord(R.pgSummary(pg('ok', { attached: nativeOnly }), { machines })), null, 'all well: no word')
-  for (const lang of ['en', 'zh']) for (const key of ['pgRowFailed', 'pgRowStopped', 'pgRowLoopback', 'rowBackupsFailed']) assert.ok(R.locales[lang][key], `${lang} ${key}`)
-  assert.deepEqual([R.locales.en.pgRowLoopback, R.locales.zh.pgRowLoopback, R.locales.zh.pgRowFailed, R.locales.zh.rowBackupsFailed], ['local address', '本地地址', '{n} 台未通过', '{n} 个失败'])
+  for (const lang of ['en', 'zh']) for (const key of ['pgRowFailed', 'pgRowStopped', 'rowBackupsFailed']) assert.ok(R.locales[lang][key], `${lang} ${key}`)
+  assert.deepEqual([R.locales.zh.pgRowFailed, R.locales.zh.rowBackupsFailed], ['{n} 台未通过', '{n} 个失败'])
   assert.equal(R.pgSummary(pg('c', { attached }), { machines }, new Set(['docker'])).shown[1].status.key, 'checking')
   assert.equal(R.pgAddress(pg('a')), 'app@db.lan:5432/team', 'never a password')
 })
 
-test('loopback and a login in the address: detected with or without the scheme', () => {
-  for (const url of ['postgresql://localhost:5432/x', 'postgres://127.0.0.1/x', '127.0.0.2:15432/x', 'postgresql://[::1]:5432/x']) assert.equal(R.isLoopbackUrl(url), true, url)
-  for (const url of ['postgresql://db.lan:5432/x', 'postgresql://10.0.0.5/x', '', null, 'postgresql://']) assert.equal(R.isLoopbackUrl(url), false, String(url))
+test('a login in the address: detected with or without the scheme', () => {
   for (const url of ['postgresql://app@db/x', 'postgresql://app:pw@db/x', 'app:pw@db/x', 'postgresql://db/x?password=p', 'postgresql://db/x?user=u', 'postgresql://db/x?passfile=/p', 'postgresql://db/x?sslpassword=s']) assert.equal(R.urlHasLogin(url), true, url)
   for (const url of ['postgresql://db:5432/x', 'postgresql://db/x?sslmode=require', 'postgresql://db/x?sslkey=/k.pem', '', null]) assert.equal(R.urlHasLogin(url), false, String(url))
-  // which machines share this computer's network is LayerFS's `loopback`, never a platform rule
-  assert.deepEqual(R.loopbackShared(machines), ['native'])
-  assert.deepEqual(R.loopbackShared([{ name: 'b', loopback: 'shared' }, { name: 'a', loopback: 'shared' }, { name: 'c', loopback: null }]), ['a', 'b'])
-  assert.equal(R.sharesLoopback, undefined, 'no platform rule left')
+  // reach is tested from each machine, never predicted from the address
+  assert.equal(R.isLoopbackUrl, undefined)
+  assert.equal(R.loopbackShared, undefined)
 })
 
 test('a SQLite row\'s state: busy, its machine stopped (neutral), needs attention, else ready', () => {
@@ -131,35 +128,34 @@ test('the attach picker: machines not attached, by provider; one that cannot att
   assert.deepEqual(R.attachMachines(pg('none'), machines).map((g) => g.platform), ['docker', 'lima', 'native', 'wsl'], 'native is listed like any machine, in its own group')
   const local = pg('l', { postgresql: { ...pg('l').postgresql, url: 'postgresql://localhost:5432/x', target: 'localhost:5432/x', server: 'localhost:5432', database: 'x' } })
   const blocks = (list) => Object.fromEntries(R.attachMachines(local, list).flatMap((g) => g.items.map((m) => [m.name, m.block])))
-  assert.equal(blocks(machines).docker, 'address', 'apart from this computer\'s network: a loopback address does not reach')
-  assert.equal(blocks(machines.map((m) => (m.name === 'docker' ? { ...m, loopback: 'shared' } : m))).docker, null, 'LayerFS says shared: it does')
-  assert.equal(blocks(machines.map((m) => (m.name === 'docker' ? { ...m, loopback: null } : m))).docker, 'address', 'unknown is not shared')
-  assert.equal(blocks(machines).native, null)
-  assert.equal(blocks(machines).vm1, 'address', 'the address before stopped: starting it would not help')
+  assert.deepEqual(blocks(machines), { docker: null, vm1: 'stopped', vm2: null, native: null, win: 'platform' }, 'a local address greys nothing: each machine is tested')
   assert.deepEqual(R.attachMachines(store, machines, { query: 'vm' }).flatMap((g) => g.items.map((m) => m.name)), ['vm1', 'vm2'])
   // from a machine page: the Stores not attached to it, the ones it can attach first
   const stores = [pg('z'), local, pg('b', { attached: [{ machine: 'docker', reached: null, reach: null }] }), { ...pg('s'), kind: 'sqlite', postgresql: null }]
-  assert.deepEqual(R.attachStores(machines[1], stores).map((s) => [s.name, s.block]), [['z', null], ['l', 'address']])
+  assert.deepEqual(R.attachStores(machines[1], stores).map((s) => [s.name, s.block]), [['l', null], ['z', null]])
   assert.deepEqual(R.attachStores(machines[1], stores, { query: 'db.lan' }).map((s) => s.name), ['z'])
 })
 
-test('an attach LayerFS refused: a failed check keeps its label, a loopback address its Edit connection…, anything else attached nothing', () => {
-  assert.deepEqual(R.attachFailure('Unavailable', 'password authentication failed for user "app" (SQLSTATE 28P01)'), { words: 'stPassword', edit: true })
-  assert.deepEqual(R.attachFailure('Unsupported', "the docker machine docker cannot reach the PostgreSQL Store's server: its URL names this host's loopback (127.0.0.1)"), { words: 'pickNoAddress', edit: true })
-  assert.deepEqual(R.attachFailure('Unsupported', 'machine win runs no PostgreSQL Sandboxes'), { words: 'pickNoPlatform', edit: false })
-  for (const code of ['InvalidInput', 'NotFound', 'Conflict']) assert.deepEqual(R.attachFailure(code, 'x'), { words: 'pickRefused', edit: false }, code)
-  for (const lang of ['en', 'zh']) assert.ok(R.locales[lang].pickRefused, lang)
+test('a refused test or attach: the connection step LayerFS names, else why it never dialled', () => {
+  const steps = { configuration: 'address', transport: 'connection', tls: 'tls', authentication: 'login', database: 'database', schema: 'store', identity: 'store' }
+  for (const [step, shown] of Object.entries(steps)) assert.deepEqual(R.attachFailure({ code: 'Unavailable', message: 'x', step }), { step: shown, words: 'pickFailedAt' }, step)
+  assert.deepEqual(R.attachFailure({ code: 'Unsupported', message: 'its URL names this host\'s loopback', step: 'configuration' }), { step: 'address', words: 'pickFailedAt' }, 'the step, not the words')
+  assert.deepEqual(R.attachFailure({ code: 'Unsupported', message: 'machine win runs no PostgreSQL Sandboxes', step: null }), { step: null, words: 'pickNoPlatform' })
+  for (const code of ['InvalidInput', 'NotFound', 'Conflict']) assert.deepEqual(R.attachFailure({ code, message: 'x', step: null }), { step: null, words: 'pickRefused' }, code)
+  assert.deepEqual(R.TEST_STEPS, ['address', 'connection', 'tls', 'login', 'database', 'store'])
+  for (const lang of ['en', 'zh']) for (const k of ['pickRefused', 'pickFailedAt', 'pickTest', 'pickNotTested', 'pickReachable', ...Object.values(R.STEP_LABEL)]) assert.ok(R.locales[lang][k], `${lang} ${k}`)
 })
 
-test('a refused connect is one mapped line about one field, never LayerFS\'s raw words', () => {
-  assert.deepEqual(R.connectFailure('Unavailable', 'the server refused the session: the database does not exist, or the user or password is wrong (SQLSTATE 28P01)'), { key: 'pgErrPassword', field: 'password' })
-  assert.deepEqual(R.connectFailure('Unavailable', 'the server refused the session: the database does not exist, or the user or password is wrong'), { key: 'pgErrPassword', field: 'password' })
-  assert.deepEqual(R.connectFailure('Unavailable', 'no connection to the server was made (it refused the connection, did not answer, or closed it)'), { key: 'pgErrAddress', field: 'address' })
-  assert.deepEqual(R.connectFailure('Unavailable', 'connection refused (os error 61)'), { key: 'pgErrAddress', field: 'address' })
-  assert.deepEqual(R.connectFailure('Unavailable', 'database "nope" does not exist (SQLSTATE 3D000)'), { key: 'pgErrDatabase', field: 'address' })
-  assert.deepEqual(R.connectFailure('Conflict', 'this database holds another Store than pg'), { key: 'pgErrNotThisStore', field: 'address' })
-  assert.deepEqual(R.connectFailure('Exists', 'a sqlite Store named pg exists'), { key: 'cdNameTaken', field: 'name' })
-  assert.deepEqual(R.connectFailure('Failed', 'something else'), { key: 'pgErrFailed', field: null })
+test('a refused connect is one mapped line about one field, from its step, never LayerFS\'s raw words', () => {
+  assert.deepEqual(R.connectFailure('Unavailable', 'authentication'), { key: 'pgErrPassword', field: 'password' })
+  assert.deepEqual(R.connectFailure('Unavailable', 'transport'), { key: 'pgErrAddress', field: 'address' })
+  assert.deepEqual(R.connectFailure('Unsupported', 'configuration'), { key: 'pgErrAddress', field: 'address' })
+  assert.deepEqual(R.connectFailure('Unavailable', 'tls'), { key: 'pgErrTls', field: 'address' })
+  assert.deepEqual(R.connectFailure('Unavailable', 'database'), { key: 'pgErrDatabase', field: 'address' })
+  assert.deepEqual(R.connectFailure('Conflict', 'identity'), { key: 'pgErrNotThisStore', field: 'address' }, 'another Store is its step, though its code is Conflict')
+  assert.deepEqual(R.connectFailure('Conflict', null), { key: 'pgTestLoses', field: null }, 'a changed connection an attached machine would lose')
+  assert.deepEqual(R.connectFailure('Exists', null), { key: 'cdNameTaken', field: 'name' })
+  assert.deepEqual(R.connectFailure('Failed', null), { key: 'pgErrFailed', field: null })
   assert.deepEqual(['pgErrPassword', 'pgErrAddress', 'pgErrDatabase', 'pgErrNotThisStore'].map((k) => R.locales.en[k]), [
     'The server refused the login. Check the user, password and database name.', 'Nothing answered at this address.', 'The database doesn\'t exist on this server.', 'This database holds another Store.',
   ])
@@ -173,8 +169,8 @@ test('three terms: "this computer" is the host\'s own check; machine native is n
   assert.equal(en.rowHostDot, 'Checked from this computer: {status} · {when}')
   assert.equal(en.pgRecheckMachines, 'Checks from this computer, then from {machines}.')
   assert.equal(en.pgThisComputer, undefined, 'no "This computer" label for machine native')
-  assert.match(en.pgLoopbackNote, /\{names\}/)
-  assert.doesNotMatch(en.pgLoopbackNote + zh.pgLoopbackNote, /Docker|Linux|native/, 'no platform names in the copy')
+  assert.equal(en.pgLoopbackNote, undefined, 'no local-address copy: reach is tested')
+  assert.match(en.pgTestLoses + zh.pgTestLoses, /\{machines\}.*\{machines\}/s)
   assert.equal(R.providerBeside('native', 'Native'), null, 'no "native Native"')
   assert.equal(R.providerBeside('docker', 'Docker'), null)
   assert.equal(R.providerBeside('vm1', 'Lima'), 'Lima')

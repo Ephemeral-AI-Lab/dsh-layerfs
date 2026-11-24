@@ -1,9 +1,9 @@
 /**
- * A Store's Overview tab: four tiles (size or server, projects and Commits,
- * Sandboxes running, last backup or connecting machines), then what fills the
- * database file, how the Store grew, which projects wrote it, its health, and
- * its details with removal folded at the bottom. No activity feed: a job in
- * flight is the page's own panel.
+ * A Store's Overview tab: four tiles (database size, projects and Commits,
+ * Sandboxes running, last backup or the machines it runs on), a PostgreSQL
+ * Store's connection, then what fills the database, how the Store grew, which
+ * projects wrote it, its health, and its details with removal folded at the
+ * bottom. No activity feed: a job in flight is the page's own panel.
  */
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { IconChevronRightOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -13,10 +13,11 @@ import type { Translate } from '../files/types.ts'
 import { useQuery } from '../ui/use-query.ts'
 import { Card, DangerButton, Fact, Facts, refusalOf } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { backupChip, overviewMachineHealth, storeStateWords } from './model.ts'
+import { backupChip, overviewMachineHealth, pgStoreBytes } from './model.ts'
+import { PgConnectionCard } from './PgPanels.tsx'
 import { latestBackupCopy, overviewBackupHealth, storeBackups } from './store-backups.ts'
 import { commitTotal, commitTotalWords, compressionOf, fileParts, growthRuns, projectShares, type ObservationJournal, type StoreProject, type StoreStats } from './store-page.ts'
-import { listWords } from './store-rows.ts'
+import { hostStatus, listWords, pgSummary, REACH_LABEL, type ReachStatus } from './store-rows.ts'
 import type { StorageView, StoreRow } from './types.ts'
 import css from './StorePage.module.css'
 import storageCss from './Storage.module.css'
@@ -34,11 +35,14 @@ export interface StoreOverviewProps {
   projects: readonly StoreProject[] | undefined
   running: ReadonlyMap<string, number>
   machineState: string | null | undefined
-  onTab: (tab: 'projects' | 'backups') => void
+  onTab: (tab: 'projects' | 'backups' | 'machines') => void
   onRemove: () => void
+  /** A PostgreSQL Store's Check is running (this computer, then its machines). */
+  checking?: boolean
+  onEditConnection?: () => void
 }
 
-export function StoreOverview({ store: s, view, t, api, now, stats, statsError, projects, running, machineState, onTab, onRemove }: StoreOverviewProps): ReactNode {
+export function StoreOverview({ store: s, view, t, api, now, stats, statsError, projects, running, machineState, onTab, onRemove, checking = false, onEditConnection }: StoreOverviewProps): ReactNode {
   const pg = s.kind === 'postgresql'
   const tt = t as Translate
   // Each stats read is journaled by the host, so the journal is read again after one.
@@ -63,8 +67,7 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
     <div className={css.stack}>
       <div className={css.tiles} role="group" aria-label={t('storeFacts')}>
         {pg ? (
-          <Tile label={t('spServer')} value={s.state === 'ready' ? t('spReachable') : s.state === 'broken' ? t('spUnreachable') : t('unknown')}
-            tone={s.state === 'broken' ? 'danger' : undefined} sub={s.state === 'broken' ? storeStateWords(s.state, t, s.reason) : undefined} title={s.fix ?? undefined} />
+          <Tile label={t('spDatabasePg')} value={stats?.file_bytes != null ? bytes(stats.file_bytes) : pgStoreBytes(stats) !== null ? bytes(pgStoreBytes(stats)!) : stats || statsError ? t('sizeUnavailable') : t('spReading')} />
         ) : (
           <Tile label={t('spDatabaseFile')} value={s.size ? bytes(s.size.bytes) : t('sizeUnavailable')} sub={s.size?.stale && s.size.seen ? t('msSizeSeen', { when: ago(s.size.seen, now, tt) }) : undefined} />
         )}
@@ -72,7 +75,7 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
           sub={commits ? t(commitTotalWords(commits).key, { n: commitTotalWords(commits).n }) : undefined} />
         <Tile label={t('spRunning')} value={t(sandboxes === 1 ? 'spSandboxOne' : 'spSandboxes', { n: String(sandboxes) })} />
         {pg ? (
-          <Tile label={t('rowRunsOn')} value={String((s.attached ?? []).length)}
+          <Tile label={t('rowRunsOn')} value={t((s.attached ?? []).length === 1 ? 'spMachineOne' : 'spMachines', { n: String((s.attached ?? []).length) })} onOpen={() => onTab('machines')}
             sub={listWords((s.attached ?? []).map((a) => a.machine)) || undefined} />
         ) : (
           <Tile label={t('factLastBackup')} value={backupTileValue} title={latestCopy?.at != null ? when(latestCopy.at) : undefined}
@@ -80,12 +83,13 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
         )}
       </div>
 
+      {pg && onEditConnection ? <PgConnectionCard s={s} t={t} now={now} checking={checking} onEdit={onEditConnection} /> : null}
       <FileCard stats={stats} error={stats ? undefined : statsError} pg={pg} t={t} />
       {/* The host journals a read only when store.stats names the Store's identity
           (store_id, store_generation); a build without it records nothing, so no card. */}
       {growthRuns(journal.data).length ? <GrowthCard journal={journal.data} t={t} now={now} /> : null}
       <WhoWroteCard projects={projects} stats={stats} t={t} />
-      <HealthCard store={s} view={view} t={t} now={now} stats={stats} machineState={machineState} />
+      <HealthCard store={s} view={view} t={t} now={now} stats={stats} machineState={machineState} checking={checking} />
 
       <details className={storageCss.storeDetails}>
         <summary className={storageCss.storeDetailsSummary}>
@@ -306,12 +310,21 @@ function WhoWroteCard({ projects, stats, t }: { projects: readonly StoreProject[
 
 type HealthTone = 'ok' | 'warning' | 'danger' | 'info'
 
-function HealthCard({ store: s, view, t, now, stats, machineState }: { store: StoreRow, view: StorageView, t: StorageT, now: number, stats: StoreStats | undefined, machineState: string | null | undefined }): ReactNode {
+const healthTone = (tone: ReachStatus['tone']): HealthTone => (tone === 'ok' ? 'ok' : tone === 'danger' ? 'danger' : tone === 'warning' ? 'warning' : 'info')
+
+function HealthCard({ store: s, view, t, now, stats, machineState, checking }: { store: StoreRow, view: StorageView, t: StorageT, now: number, stats: StoreStats | undefined, machineState: string | null | undefined, checking: boolean }): ReactNode {
   const tt = t as Translate
   const rows: { key: string, tone: HealthTone, label: string, text: string }[] = []
   if (s.kind === 'postgresql') {
-    const r = s.state === 'ready' ? true : s.state === 'broken' ? false : null
-    rows.push({ key: 'server', tone: r === false ? 'danger' : r ? 'ok' : 'info', label: t('spServer'), text: r === false ? storeStateWords(s.state, t, s.reason) : r ? storeStateWords(s.state, t) : t('unknown') })
+    // the connection as this computer last saw it, then the attached machines' last checks
+    const host = hostStatus(s, checking)
+    rows.push({ key: 'host', tone: healthTone(host.tone), label: t('spConnection'), text: t(REACH_LABEL[host.key]) })
+    const sum = pgSummary(s, view)
+    const label = t('spTabMachines')
+    rows.push(!sum.machines.length ? { key: 'machines', tone: 'warning', label, text: t('rowNoMachinesBody') }
+      : sum.failed ? { key: 'machines', tone: 'danger', label, text: t('pgRowFailed', { n: sum.failed }) }
+        : sum.stopped ? { key: 'machines', tone: 'warning', label, text: t('pgRowStopped', { n: sum.stopped }) }
+          : { key: 'machines', tone: 'ok', label, text: t('spMachinesOk', { n: String(sum.machines.length) }) })
     rows.push({ key: 'backups', tone: 'info', label: t('backupsSection'), text: t('spPgBackups') })
   } else {
     const place = s.machine ?? '?'

@@ -9,9 +9,9 @@
  * - a SQLite row's state and its backups in a few numbers;
  * - the caps (3 icons in a summary, 5 rows in a list) and `+N`;
  * - the attach picker's choices, grouped by provider, with why a machine (or
- *   a Store, from a machine page) cannot attach;
- * - loopback and login-in-URL detection for the Connect dialog, and the
- *   machines that share this computer's network (LayerFS's `loopback`);
+ *   a Store, from a machine page) cannot attach, and the connection step a
+ *   test stopped at;
+ * - login-in-URL detection for the Connect dialog;
  * - one tone → dot state rule for every status dot;
  * - the open rows, remembered per viewer.
  *
@@ -117,19 +117,20 @@ export function hostStatus(s: Pick<StoreRow, 'state' | 'reason' | 'message' | 'p
 
 /**
  * A refused connect (Connect a database, Edit connection) as one line and the
- * field it is about: the label LayerFS's words map to, never the words
- * themselves (they stay the line's title). `Exists` is the name.
+ * field it is about, from the connection step LayerFS says it stopped at,
+ * never from its words (they stay the line's title). `Exists` is the name; a
+ * `Conflict` with no step is a changed connection an attached machine would
+ * lose (`machines` in its detail).
  */
-export function connectFailure(code: string, message: string): { key: StorageKey, field: 'address' | 'password' | 'name' | null } {
+export function connectFailure(code: string, step: string | null | undefined): { key: StorageKey, field: 'address' | 'password' | 'name' | null } {
   if (code === 'Exists') return { key: 'cdNameTaken', field: 'name' }
-  // LayerFS's own refusal leaves user, password and database open; the password line names all three.
-  if (/the server refused the session/i.test(message) && failureKey(message, code) === 'failed') return { key: 'pgErrPassword', field: 'password' }
-  switch (failureKey(message, code)) {
-    case 'password': return { key: 'pgErrPassword', field: 'password' }
-    case 'address': return { key: 'pgErrAddress', field: 'address' }
+  switch (testStep(step)) {
+    case 'address': case 'connection': return { key: 'pgErrAddress', field: 'address' }
+    case 'tls': return { key: 'pgErrTls', field: 'address' }
+    case 'login': return { key: 'pgErrPassword', field: 'password' }
     case 'database': return { key: 'pgErrDatabase', field: 'address' }
-    case 'notThisStore': return { key: 'pgErrNotThisStore', field: 'address' }
-    default: return { key: 'pgErrFailed', field: null }
+    case 'store': return { key: 'pgErrNotThisStore', field: 'address' }
+    default: return code === 'Conflict' ? { key: 'pgTestLoses', field: null } : { key: 'pgErrFailed', field: null }
   }
 }
 
@@ -148,26 +149,6 @@ export const dotState = (tone: ReachStatus['tone']): DotState =>
 
 // ---------- addresses ----------
 
-const LOOPBACK = /^(localhost|127(?:\.\d{1,3}){3}|\[?::1\]?)$/i
-
-/** Whether a host name is this computer's loopback (`localhost`, `127.x.x.x`, `::1`). */
-export const isLoopbackHost = (host: string | null | undefined): boolean => !!host && LOOPBACK.test(host.trim())
-
-/** The host of a PostgreSQL address (with or without its scheme), or null. */
-export function pgHost(url: string | null | undefined): string | null {
-  const value = (url ?? '').trim()
-  if (!value) return null
-  try {
-    const u = new URL(/^postgres(?:ql)?:\/\//i.test(value) ? value : `postgresql://${value}`)
-    return u.hostname || null
-  } catch {
-    return null
-  }
-}
-
-/** Whether an address points at this computer's loopback: only machines that share the host's loopback can use it. */
-export const isLoopbackUrl = (url: string | null | undefined): boolean => isLoopbackHost(pgHost(url))
-
 /** Whether an address carries a user or password (in its authority or a parameter): LayerFS refuses one; they are given apart. */
 export function urlHasLogin(url: string | null | undefined): boolean {
   const value = (url ?? '').trim()
@@ -179,11 +160,6 @@ export function urlHasLogin(url: string | null | undefined): boolean {
   } catch {
     return /^[^/]*:\/\/[^/@?]*@/.test(value)
   }
-}
-
-/** The machines that share this computer's network (LayerFS's `loopback: shared`), by name: the ones a loopback address works from. */
-export function loopbackShared(machines: readonly { name: string, loopback?: 'shared' | 'apart' | null }[]): string[] {
-  return machines.filter((m) => m.loopback === 'shared').map((m) => m.name).sort((a, b) => a.localeCompare(b))
 }
 
 /** A PostgreSQL Store's address line: `user@host:port/database` (never a password), or null. */
@@ -210,8 +186,6 @@ export interface PgSummary {
   failed: number
   /** Attached machines that are stopped. */
   stopped: number
-  /** The address is this computer's loopback: only this computer (and machines sharing its loopback) can reach it. */
-  loopbackOnly: boolean
 }
 
 /** A PostgreSQL row's folded summary; `checking`: the sides being checked now (`host` and machine names). */
@@ -227,16 +201,14 @@ export function pgSummary(s: StoreRow, view: Pick<StorageView, 'machines'>, chec
     machines, shown, more,
     failed: machines.filter((m) => m.status.tone === 'danger').length,
     stopped: machines.filter((m) => m.status.key === 'machineStopped').length,
-    loopbackOnly: isLoopbackUrl(s.postgresql?.url),
   }
 }
 
-/** The one status word on a folded PostgreSQL row: `N failed`, else `N stopped`, else `local address`, else none; none with no machine attached. */
-export function pgStatusWord(sum: Pick<PgSummary, 'failed' | 'stopped' | 'loopbackOnly' | 'machines'>): { key: 'pgRowFailed' | 'pgRowStopped' | 'pgRowLoopback', n: number, tone: 'danger' | 'warning' | 'muted' } | null {
+/** The one status word on a folded PostgreSQL row: `N failed`, else `N stopped`, else none; none with no machine attached. */
+export function pgStatusWord(sum: Pick<PgSummary, 'failed' | 'stopped' | 'machines'>): { key: 'pgRowFailed' | 'pgRowStopped', n: number, tone: 'danger' | 'warning' } | null {
   if (!sum.machines.length) return null
   if (sum.failed > 0) return { key: 'pgRowFailed', n: sum.failed, tone: 'danger' }
   if (sum.stopped > 0) return { key: 'pgRowStopped', n: sum.stopped, tone: 'warning' }
-  if (sum.loopbackOnly) return { key: 'pgRowLoopback', n: 0, tone: 'muted' }
   return null
 }
 
@@ -282,19 +254,22 @@ export const linkFailed = (l: StoreRow['links'][number]): boolean =>
 
 // ---------- attach picker ----------
 
-/** Why a machine cannot attach (each with its one action, or none). */
-export type AttachBlock = 'stopped' | 'address' | 'platform'
+/**
+ * Why a machine cannot attach before any test (each with its one action, or
+ * none). Whether it reaches the Store's address is never predicted: the
+ * picker's Test (and Attach's own check) runs from the machine.
+ */
+export type AttachBlock = 'stopped' | 'platform'
 
 export interface AttachMachine { name: string, platform: string, block: AttachBlock | null }
 export interface ProviderGroup<T> { platform: string, items: T[] }
 
-/** A machine record as the picker reads it; `loopback` is LayerFS's (`shared` / `apart`). */
-export interface PickerMachine { name: string, platform: string, state?: string | null, supports?: readonly string[] | null, loopback?: 'shared' | 'apart' | null }
+/** A machine record as the picker reads it. */
+export interface PickerMachine { name: string, platform: string, state?: string | null, supports?: readonly string[] | null }
 
-/** Why `m` cannot attach to a Store at `url`: it cannot run PostgreSQL Sandboxes, it does not share this computer's network for a loopback address, or it is stopped. */
-export function attachBlock(m: PickerMachine, url: string | null | undefined): AttachBlock | null {
+/** Why `m` cannot attach: it cannot run PostgreSQL Sandboxes, or it is stopped. */
+export function attachBlock(m: PickerMachine): AttachBlock | null {
   if (m.supports && !m.supports.includes('postgresql_sandbox')) return 'platform'
-  if (isLoopbackUrl(url) && m.loopback !== 'shared') return 'address'
   if (m.state === 'stopped') return 'stopped'
   return null
 }
@@ -312,39 +287,52 @@ export function byProvider<T>(items: readonly T[], platformOf: (item: T) => stri
  * grouped by provider, those that cannot attach greyed with why. A search
  * keeps the machines whose name or provider matches.
  */
-export function attachMachines(s: Pick<StoreRow, 'attached' | 'postgresql'>, machines: readonly PickerMachine[], opts: { query?: string, provider?: (platform: string) => string } = {}): ProviderGroup<AttachMachine>[] {
+export function attachMachines(s: Pick<StoreRow, 'attached'>, machines: readonly PickerMachine[], opts: { query?: string, provider?: (platform: string) => string } = {}): ProviderGroup<AttachMachine>[] {
   const attached = new Set((s.attached ?? []).map((a) => a.machine))
   const q = (opts.query ?? '').trim().toLowerCase()
   const rows = machines.filter((m) => !attached.has(m.name))
     .filter((m) => !q || m.name.toLowerCase().includes(q) || (opts.provider?.(m.platform) ?? m.platform).toLowerCase().includes(q))
-    .map((m): AttachMachine => ({ name: m.name, platform: m.platform, block: attachBlock(m, s.postgresql?.url) }))
+    .map((m): AttachMachine => ({ name: m.name, platform: m.platform, block: attachBlock(m) }))
   return byProvider(rows, (m) => m.platform, (m) => m.name)
 }
 
+/** The connection steps a test shows, in order. */
+export const TEST_STEPS = ['address', 'connection', 'tls', 'login', 'database', 'store'] as const
+export type TestStep = typeof TEST_STEPS[number]
+
+/** LayerFS's connection step ids (`store.connection.<step>`) as the steps a test shows. */
+const STEP_OF: Readonly<Record<string, TestStep>> = {
+  configuration: 'address', transport: 'connection', tls: 'tls', authentication: 'login', database: 'database', schema: 'store', identity: 'store',
+}
+export const STEP_LABEL: Readonly<Record<TestStep, StorageKey>> = {
+  address: 'stepAddress', connection: 'stepConnection', tls: 'stepTls', login: 'stepLogin', database: 'stepDatabase', store: 'stepStore',
+}
+
+/** The step a refused reach stopped at, from LayerFS's `step`; null when it names none (the check never dialled). */
+export const testStep = (step: string | null | undefined): TestStep | null => (step ? STEP_OF[step] ?? null : null)
+
 /**
- * An attach LayerFS refused, as the picker lists it: `Unavailable` / `Denied`
- * (the check from the machine failed: its label, Edit connection… when the
- * connection can fix it), `Unsupported` (a loopback address the machine does
- * not share, fixed by editing the connection, or no PostgreSQL Sandboxes),
- * anything else attached nothing. LayerFS's words stay the tooltip.
+ * A refused test or attach, as a picker row shows it: the step it stopped at
+ * (`Failed at login`), or, for a refusal before any connection, a machine
+ * that is stopped or needs its update, cannot run PostgreSQL Sandboxes, or
+ * another refusal. LayerFS's words stay the tooltip.
  */
-export function attachFailure(code: string, message: string): { words: StorageKey, edit: boolean } {
-  if (code === 'Unavailable' || code === 'Denied') {
-    const key = failureKey(message, code)
-    return { words: REACH_LABEL[key], edit: key !== 'machineStopped' }
-  }
-  if (code === 'Unsupported') return /loopback/i.test(message) ? { words: 'pickNoAddress', edit: true } : { words: 'pickNoPlatform', edit: false }
-  return { words: 'pickRefused', edit: false }
+export function attachFailure(error: { code: string, message: string, step?: string | null }): { step: TestStep | null, words: StorageKey } {
+  const step = testStep(error.step)
+  if (step) return { step, words: 'pickFailedAt' }
+  if (error.code === 'Unsupported') return { step: null, words: 'pickNoPlatform' }
+  if (error.code === 'Unavailable' || error.code === 'Denied') return { step: null, words: REACH_LABEL[failureKey(error.message, error.code)] }
+  return { step: null, words: 'pickRefused' }
 }
 
 export interface AttachStore { name: string, address: string | null, block: AttachBlock | null }
 
-/** The PostgreSQL Stores a machine's picker lists: those not attached to it, greyed when it cannot reach their address or run their Sandboxes. */
+/** The PostgreSQL Stores a machine's picker lists: those not attached to it, greyed when it cannot run their Sandboxes. */
 export function attachStores(machine: PickerMachine, stores: readonly StoreRow[], opts: { query?: string } = {}): AttachStore[] {
   const q = (opts.query ?? '').trim().toLowerCase()
   return stores.filter((s) => s.kind === 'postgresql' && !(s.attached ?? []).some((a) => a.machine === machine.name))
     .filter((s) => !q || s.name.toLowerCase().includes(q) || (pgAddress(s) ?? '').toLowerCase().includes(q))
-    .map((s) => ({ name: s.name, address: pgAddress(s), block: attachBlock(machine, s.postgresql?.url) }))
+    .map((s) => ({ name: s.name, address: pgAddress(s), block: attachBlock(machine) }))
     .sort((a, b) => Number(!!a.block) - Number(!!b.block) || a.name.localeCompare(b.name))
 }
 

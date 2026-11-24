@@ -21,7 +21,7 @@ const totals = (saves, stored) => ({ saves, merges: 0, branches: 1, stored, meta
 
 test('the third tab follows the Store family', () => {
   assert.deepEqual(P.storeTabs('sqlite'), ['overview', 'projects', 'backups'])
-  assert.deepEqual(P.storeTabs('postgresql'), ['overview', 'projects'])
+  assert.deepEqual(P.storeTabs('postgresql'), ['overview', 'projects', 'machines'], 'Machines, where its Sandboxes run, in place of Backups')
 })
 
 test('file parts are shares of what LayerFS reported (2.0 `stats` bytes); unknown parts are left out', () => {
