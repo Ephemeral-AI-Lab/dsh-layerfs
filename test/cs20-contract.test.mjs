@@ -420,9 +420,7 @@ test('the table\'s required options are the pairs the call sites send; the seam 
   const { help } = table()
   const required = {}
   for (const c of help.calls) for (const o of c.options ?? []) if (o.optional === false || o.required === true) (required[`${c.family}.${c.call}`] ??= []).push(o.name)
-  // store.save_auth is retired by the connect/attach contract: the plugin never sends it
-  delete required['store.save_auth']
-  assert.deepEqual(required, { 'backup.connect': ['access_key', 'secret_key'], 'file.edit': ['old_string', 'new_string'] },
+  assert.deepEqual(required, { 'backup.connect': ['access_key', 'secret_key'], 'file.edit': ['old_string', 'new_string'], 'store.attach': ['machine'], 'store.detach': ['machine'] },
     'a new required option needs its call sites checked (the test above)')
   const dir = mkdtempSync(join(tmpdir(), 'dsh-cs20-required-'))
   try {

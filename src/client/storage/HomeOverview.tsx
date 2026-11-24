@@ -232,7 +232,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
     // a broken Store (2.0): its word, its fix line as the detail; a machine already listed above is not repeated
     if (s.state === 'broken' && !(s.kind === 'sqlite' && unreachable.has(s.machine ?? ''))) {
       const pgDown = s.kind === 'postgresql' && s.reason === 'unreachable'
-      // a PostgreSQL Store that is only outdated or lost its saved login is reachable: it needs its update, not "down" (R1 F1);
+      // a PostgreSQL Store that is only outdated or missing its password is reachable: it needs its update, not "down" (R1 F1);
       // its state word with LayerFS's fix as the tip, and that fix as the one action where the page runs it
       const needsKey = s.kind !== 'postgresql' ? null : needsLogin(s) || s.reason === 'missing' ? 'ovStoreNeedsLogin' : s.reason === 'outdated' ? 'ovStoreNeedsUpdate' : null
       const fix = needsKey && fixes ? resolveFix(fixes, s.fix)?.fix ?? null : null

@@ -586,7 +586,7 @@ const en = {
   pgPasswordHow: 'Password',
   pgPasswordValue: 'Password',
   pgUser: 'User',
-  pgPasswordInUrl: 'The URL names a login (a user, password or passfile). LayerFS keeps the login apart: give it below, or pick a saved login.',
+  pgPasswordInUrl: 'The URL names a login (a user, password or passfile). LayerFS keeps the login apart: give the user and password below.',
   machinesSection: 'Machines',
   colMachine: 'Machine',
   colConnection: 'Connection',
@@ -994,7 +994,7 @@ const en = {
   save: 'Save',
   msRunsHere: 'attached here',
   pgPasswordSaved: 'saved',
-  /** A PostgreSQL Store naming no saved login (LayerFS 2.0: broken outdated, every call refused until one is saved and named). */
+  /** A PostgreSQL Store whose password this home does not hold: every call refused until it is connected again with the password. */
   reasonNoLogin: 'no password saved',
   reasonCorrupt: 'corrupt',
   reasonOutdated: 'outdated',
@@ -1684,7 +1684,7 @@ const zh: typeof en = {
   pgPasswordHow: '密码',
   pgPasswordValue: '密码',
   pgUser: '用户',
-  pgPasswordInUrl: 'URL 中包含登录信息（user、password 或 passfile）。LayerFS 将登录信息分开保存：请在下方填写，或选择已保存的登录。',
+  pgPasswordInUrl: 'URL 中包含登录信息（user、password 或 passfile）。LayerFS 将登录信息分开保存：请在下方填写用户和密码。',
   machinesSection: '机器',
   colMachine: '机器',
   colConnection: '连接',
