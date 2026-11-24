@@ -281,22 +281,59 @@ export class LayerfsSessions extends Service {
       await this.lfs.project.get(project); this.ensureAnchor(project)
     }
     await persistence?.migrateProject?.(live ?? sessionId, project)
+    const written = project ? { project, ...(machine ? { machine } : {}) } : undefined
     this.state.update((s) => {
-      if (project) s.pending[sessionId] = { project, ...(machine ? { machine } : {}) }
+      if (written) s.pending[sessionId] = written
       else delete s.pending[sessionId]
     })
-    // The New Session row's preset chip follows the choice before the first
-    // turn: a project session runs the `layerfs` preset, a plain one the default.
-    const agent = live ? (this.ctx.get?.('agents' as never) as any)?.get?.(sessionId) : undefined
-    if (agent && previous !== project) await this.selectPreset(agent, !project)
-    // DSH reuses a blank session only while it remains a candidate of the
-    // selected workspace. Remove membership at pre-step, after materialization.
-    if (project && bound) await this.detach(sessionId)
-    else if (!project && live?.header?.cwd) {
-      const workspace = this.ctx.workspaceRegistry?.list?.().find((w) => real(w.path) === real(live.header.cwd))
-      if (workspace) await workspace.attachSession(sessionId as never)
+    try {
+      // The New Session row's preset chip follows the choice before the first
+      // turn: a project session runs the `layerfs` preset, a plain one the default.
+      const agent = live ? (this.ctx.get?.('agents' as never) as any)?.get?.(sessionId) : undefined
+      if (agent && previous !== project) await this.selectPreset(agent, !project)
+      // DSH reuses a blank session only while it remains a candidate of the
+      // selected workspace. Remove membership at pre-step, after materialization.
+      if (project && bound) await this.detach(sessionId)
+      else if (!project && live?.header?.cwd) {
+        const workspace = this.ctx.workspaceRegistry?.list?.().find((w) => real(w.path) === real(live.header.cwd))
+        if (workspace) await workspace.attachSession(sessionId as never)
+      }
+      this.ctx.layerfs.emit('layerfs-session', { sessionId })
+    } catch (error) {
+      // A choice that fails after writing its pending placement leaves no half
+      // placement behind, so a retry starts clean. A claimed project identity
+      // stays: it is intentional and shared by every conversation of the project.
+      if (written) this.state.update((s) => {
+        const pending = s.pending[sessionId]
+        if (pending && pending.project === written.project && (pending.machine ?? undefined) === (written.machine ?? undefined)) delete s.pending[sessionId]
+      })
+      throw error
     }
-    this.ctx.layerfs.emit('layerfs-session', { sessionId })
+  }
+
+  /**
+   * Read-only check of what placing a new conversation in `project` needs: the
+   * identity the client listed (`projectId`, when it has one), the project
+   * itself, and the machine and Store its Sandbox would use. Nothing is
+   * claimed or written and no session is touched. Throws the same refusal the
+   * placement would, so the client can stop before creating a session.
+   */
+  async checkPlacement(project: string, projectId?: string, machine?: string): Promise<{ ok: true }> {
+    const persistence = this.ctx.get?.('sessionPersistence' as never) as any
+    // The same two checks `chooseNow` makes before it writes anything: the
+    // listed identity still names this project, and the project is readable.
+    const row = projectId ? await persistence?.catalog?.assert(project, projectId, { claim: false }) : undefined
+    const info: any = await this.lfs.project.get(project, { detail: true })
+    const kind = row?.kind ?? info?.engine ?? null
+    // A PostgreSQL project's machine is chosen per session when it is bound
+    // (`machineFor`, as `mount` does): the picked one, else its last Sandbox's.
+    const effective = kind === 'postgresql' ? await this.machineFor(project, machine) : undefined
+    await this.assertReady({
+      kind,
+      machine: row?.machine ?? info?.machine ?? null,
+      store: row?.store ?? info?.store ?? storeOf(project)!,
+    }, effective)
+    return { ok: true }
   }
 
   /**

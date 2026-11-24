@@ -88,6 +88,7 @@ DSH 的侧边栏里有 **LayerFS** 行（和 Plugins、Automation tasks、More �
 所有 **新建会话**（New session）按钮（这里、主页的项目行、侧边栏的 +、项目对话框）做的事都一样：
 如果没选文件夹，就建一个 **Scratch** DSH 工作区，把它接为会话的文件夹，然后把会话放进项目
 （`sessions.choose`：`project get`，项目第一次被认领时还有 `branch list` 和 `branch fork`）。
+放置被拒绝时不会留下会话：空白会话会被归档，拒绝信息会在按下按钮的地方显示。
 对话打开时带 **LayerFS** 智能体预设。
 
 ## 草稿目录选择器

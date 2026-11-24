@@ -432,6 +432,19 @@ empty branch `dsh.project.<uuid>`, forked from `main`.
 - Hidden. File and history views hide `dsh.project.*` (and `dsh.session.*`)
   branches. Machine and app-home paths are not part of identity.
 
+### Refused placements
+
+A refused placement creates no conversation. `openProjectSession` first runs
+`sessions.checkPlacement`, a read-only check of the listed project identity
+(`projectId`, when known), the project itself, and its machine and Store; it
+claims nothing, writes no pending placement and opens no session. If
+`sessions.choose` still refuses after the blank session was created (a race, or
+a failure only the write path can find), the client archives that blank session
+and clears its pending placement with `sessions.forget`, then shows the original
+refusal where the button was pressed. `choose` also removes a pending placement
+it wrote when it fails later, so a retry never starts half placed. A project
+identity claimed by the attempt stays: it is intentional and shared.
+
 A durable catalog under the project-session home combines live discovery with
 previously observed projects and locally owned conversations. A failed read is
 unavailable, not proof of deletion. Confirmed missing records and identity

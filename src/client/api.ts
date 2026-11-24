@@ -249,12 +249,28 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
     },
     selectedSessionId: () => nav.currentSessionId?.(),
     async openProjectSession(project: string, workspaceId?: string, projectId?: string, machine?: string) {
+      // Refuse before anything is made: identity, project, machine and Store are
+      // checked read-only, so a refusal leaves no blank session behind.
+      await op('sessions.checkPlacement', { project, projectId, ...(machine ? { machine } : {}) })
       const target = workspaceId ?? selectedWorkspaceId()
         ?? (await op<{ workspaceId: string }>('sessions.prepareScratch', { navigate: false })).workspaceId
       if (!target) throw new HostError('no-workspace', 'Select a local folder to use as scratch for the project session', 0)
       // A workspace blank may already belong to another project. Request a fresh identity before binding it.
       const sessionId = await nav.createSession(target)
-      await op('sessions.choose', { sessionId, project, projectId, ...(machine ? { machine } : {}) })
+      try {
+        await op('sessions.choose', { sessionId, project, projectId, ...(machine ? { machine } : {}) })
+      } catch (error) {
+        // A choice that refuses after the session exists (a race, or a check only
+        // the write path makes) must not leave the blank session as an orphan:
+        // hide it, drop any pending placement it recorded, and show the refusal.
+        await op('sessions.archive', { sessionId }).catch((cleanup: unknown) => {
+          console.warn('[dsh-layerfs] could not archive the unplaced session', cleanup)
+        })
+        await op('sessions.forget', { sessionId }).catch((cleanup: unknown) => {
+          console.warn('[dsh-layerfs] could not forget the unplaced session', cleanup)
+        })
+        throw error
+      }
       nav.openSession(sessionId)
       return { sessionId, workspaceId: target }
     },

@@ -90,8 +90,9 @@ A default project that has been removed drops back to **No project**.
 Every **New session** button (here, Home's project rows, the sidebar's +, the project dialog)
 does the same: if no folder is selected it makes the **Scratch** DSH workspace, connects it
 as the session's folder, then places the session in the project (`sessions.choose`: `project get`,
-plus `branch list` and `branch fork` the first time a project is claimed). The conversation opens
-with the **LayerFS** agent preset.
+plus `branch list` and `branch fork` the first time a project is claimed). A refused placement
+creates no conversation: the blank session is archived and the refusal is shown where the button
+was pressed. The conversation opens with the **LayerFS** agent preset.
 
 ## Scratch folder picker
 

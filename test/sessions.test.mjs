@@ -140,6 +140,94 @@ test('choose: a blank session takes the layerfs preset with its project and the 
   rmSync(root, { recursive: true, force: true })
 })
 
+test('checkPlacement passes for a ready project, and reads the machine a PostgreSQL project would use, without writing anything', async () => {
+  // A plain project on a ready machine and Store.
+  const ready = sessions({ lfs: {
+    project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'native', state: 'ready' }) },
+    machine: { get: async (name) => ({ machine: name, state: 'ready' }) },
+    store: { get: async () => ({ store: 'st', engine: 'sqlite', state: 'ready' }) },
+    branch: { fork: async () => { throw new Error('checkPlacement must never claim an identity branch') } },
+  } })
+  assert.deepEqual(await ready.s.checkPlacement('st/app'), { ok: true })
+  assert.deepEqual(ready.state().pending, {})
+  assert.deepEqual(ready.state().sessions, {})
+
+  // A PostgreSQL project with no pick uses its last Sandbox's ready machine
+  // (the choice `mount` makes), never a stopped native one.
+  const got = []
+  const pg = sessions({ lfs: {
+    project: { get: async () => ({ store: 'st', engine: 'postgresql', state: 'ready' }) },
+    machine: {
+      list: async () => ({ items: [
+        { machine: 'native', state: 'ready', supports: ['sqlite'] },
+        { machine: 'docker', state: 'ready', supports: ['sqlite', 'postgresql_sandbox'] },
+      ] }),
+      get: async (name) => { got.push(name); return { machine: name, state: 'ready' } },
+    },
+    store: { get: async () => ({ store: 'st', engine: 'postgresql', state: 'ready', connections: [{ machine: 'docker', reached: 'ok' }] }) },
+    sandbox: { list: async () => ({ items: [{ sandbox: 'old', machine: 'docker', created_at: '2026-11-19T00:00:00Z' }] }) },
+  } })
+  assert.deepEqual(await pg.s.checkPlacement('st/app'), { ok: true })
+  assert.deepEqual(got, ['docker'], 'the project\'s last Sandbox machine was checked')
+  assert.deepEqual(pg.state().pending, {})
+  assert.deepEqual(pg.state().sessions, {})
+})
+
+test('checkPlacement refuses an identity mismatch, missing project, stopped machine and unavailable Store without a placement', async () => {
+  const refused = async ({ lfs, persistence, projectId, machine, code }) => {
+    const { s, state } = sessions({ lfs })
+    if (persistence) s.ctx.get = (name) => (name === 'sessionPersistence' ? persistence : undefined)
+    await assert.rejects(s.checkPlacement('st/app', projectId, machine), (e) => e.code === code)
+    assert.deepEqual(state().pending, {}, 'no pending placement')
+    assert.deepEqual(state().sessions, {}, 'no binding')
+  }
+  const branch = { fork: async () => { throw new Error('checkPlacement must never claim a branch') } }
+  // A listed identity that no longer matches the project (read, never claimed).
+  await refused({
+    persistence: { catalog: { assert: async (project, expected, options) => {
+      assert.deepEqual([project, expected, options], ['st/app', 'old-id', { claim: false }])
+      throw new Refusal('ProjectIdentityChanged', 'This name now refers to another project.')
+    } } },
+    projectId: 'old-id', code: 'ProjectIdentityChanged',
+  })
+  // A project the client listed but that cannot be read.
+  await refused({ lfs: { project: { get: async () => { throw new Refusal('NotFound', 'no project st/app') } }, branch }, code: 'NotFound' })
+  // A SQLite project whose machine is stopped.
+  await refused({ lfs: {
+    project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'vm', state: 'ready' }) },
+    machine: { get: async (name) => ({ machine: name, state: 'stopped', reason: 'stopped' }) },
+    store: { get: async () => ({ store: 'st', engine: 'sqlite', state: 'ready' }) },
+    branch,
+  }, code: 'Unavailable' })
+  // A PostgreSQL project on its picked machine, when that machine is stopped.
+  await refused({ lfs: {
+    project: { get: async () => ({ store: 'st', engine: 'postgresql', state: 'ready' }) },
+    machine: { get: async (name) => ({ machine: name, state: 'stopped' }) },
+    store: { get: async () => ({ store: 'st', engine: 'postgresql', state: 'ready' }) },
+    branch,
+  }, machine: 'vm2', code: 'Unavailable' })
+  // A Store that is blocked by its machine.
+  await refused({ lfs: {
+    project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'native', state: 'ready' }) },
+    machine: { get: async (name) => ({ machine: name, state: 'ready' }) },
+    store: { get: async () => ({ store: 'st', engine: 'sqlite', state: 'blocked', blocked_by: { machine: 'native', reason: 'stopped' } }) },
+    branch,
+  }, code: 'Unavailable' })
+})
+
+test('a failed choose removes the pending placement it wrote, so a retry is not half placed', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-root-'))
+  try {
+    const state = S.initialState()
+    state.sessions.a = { sessionId: 'a', kind: 'project', project: 'st/app', anchor: join(root, 'projects', 'st', 'app'), scratch: '/x', state: 'bound' }
+    const { s, state: readState } = sessions({ state, layerfsRoot: root, lfs: { project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'native' }) } } })
+    s.detach = async () => { throw new Refusal('Busy', 'the Workspace is busy') }
+    await assert.rejects(s.choose('a', 'st/app'), (e) => e.code === 'Busy')
+    assert.equal(readState().pending.a, undefined, 'the pending placement was removed')
+    assert.equal(readState().sessions.a.project, 'st/app', 'the binding stays')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
 test('the layerfs preset is refused without a project: a blank folder session moves off it', async () => {
   const { s, state } = sessions()
   const selected = []

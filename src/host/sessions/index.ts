@@ -16,6 +16,7 @@
  *   agent/disposed       mirror now; close the Sandbox after `idleMinutes`
  *
  * Operations (the `layerfs` Remote):
+ *   sessions.checkPlacement {project, projectId?, machine?}  read-only: would placing a new session there pass?
  *   sessions.choose {sessionId, project|null, machine?}  place the session in a LayerFS project (or clear it);
  *                    `machine`: where a PostgreSQL project's Sandbox runs (else placement.ts's default);
  *                                              it stays in whichever workspace it was selected in
@@ -383,6 +384,12 @@ export function apply(ctx: Context): void {
           add(id, provider.ownerOf?.(id)?.project, snap.header.createdAt)
         }
         return { projects: [...rows.values()].sort((a, b) => b.lastActivity - a.lastActivity) }
+      },
+      // A new conversation's placement, checked before the client creates its blank session.
+      'sessions.checkPlacement': async (args: any) => {
+        const projectId = typeof args?.projectId === 'string' && args.projectId ? args.projectId : undefined
+        const machine = typeof args?.machine === 'string' && args.machine ? args.machine : undefined
+        return await sessions.checkPlacement(need(args, 'project'), projectId, machine)
       },
       'sessions.choose': async (args: any) => {
         const sessionId = need(args, 'sessionId')
