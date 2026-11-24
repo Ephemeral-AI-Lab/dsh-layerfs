@@ -36,11 +36,12 @@ Each entry receives the owner props `openView(view, focus)`, `viewRequest` and
 acknowledges it.
 
 The LayerFS tabs have no chat composer. While one is mounted it registers a
-`conversation.composer` chain entry (priority -100, selected only for its
-session) that renders nothing; DSH then hides the stock composer but keeps it
-mounted, so a draft survives. Approvals, questions and the subagent read-only
-composer outrank it and still show. Switching back to Chat unmounts the view
-and releases the entry.
+`conversation.composer` chain entry (priority 100, selected only for its
+session) that renders nothing. A chain elects in ascending priority, so the
+takeovers it must yield to are tried first — approval (1), user questions (0),
+the subagent read-only composer (-10) — and still show; DSH's stock composer
+stays the fallback and is kept mounted, so a draft survives. Switching back to
+Chat unmounts the view and releases the entry.
 
 Constraints of the seam (reported, not worked around):
 
