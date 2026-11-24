@@ -153,7 +153,7 @@ in which part (**Project: Not named yet**, **Store: Needs a name**).
 | Store | **New connection** · **Existing · {n}** | — | `GET /api/storage` (read) | — |
 | Database URL | "Without a user, password or passfile, for example postgresql://db.lan:5432/app." | Type; a URL naming a login is refused with **LayerFS’s fix** and **Copy**; on Linux a `localhost` URL warns and offers **Use 127.0.0.1** | — | **Store: Needs a database URL** beside the buttons |
 | Login | User, Password ("Saved by this computer for this Store: the password goes to LayerFS on stdin and is never shown again.") | Type | `store connect` (password on stdin) and `store get` on create, then `store attach --machine` when the session's machine is not attached yet | — |
-| Runs on | The machine its sessions run on (this part is titled **Runs on** for PostgreSQL) | Choose | — | — |
+| Runs on | The machine its sessions run on (this part is titled **Runs on** for PostgreSQL). For an existing Store it starts on the machine last used while still attached, else the only attached machine; with several attached and none chosen, nothing is picked. A machine not attached yet says **Will attach {machine} to the Store.** | Choose | — | — |
 
 ### Import a folder
 

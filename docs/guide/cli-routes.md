@@ -21,7 +21,7 @@ Storage writes marked ↻ then read the Storage view again (`home get`, `project
 | `POST /api/stores/:id/connection` | `storage.updateConnection` | `store connect`, `store doctor` ↻ | a PostgreSQL Store's connection, only what changed: { url?, user?, passwordValue?, synchronousCommit? }; then checked again |
 | `POST /api/stores/:id/attach` | `storage.attach` | `store attach` | machines a PostgreSQL Store's Sandboxes may run on: { machines: [...] }, each attached (and checked from there) in turn |
 | `POST /api/stores/:id/detach` | `storage.detach` | `store detach` ↻ | one machine detached from a PostgreSQL Store: { machine }; refused InUse while its Sandboxes run there |
-| `GET /api/stores/:id/check` | `storage.checkStore` | `store doctor` ↻ | the connection check (store doctor): the host, then attached machines; ?machine=<name>: the host and that one |
+| `GET /api/stores/:id/check` | `storage.checkStore` | `store doctor` ↻ | the connection check (store doctor): this computer, then attached machines; ?machine=<name>: that attached machine alone |
 | `POST /api/stores/:id/push` | `storage.push` | `backup list`, `store move` | a sqlite Store on native to a machine (store move): { machine } |
 | `POST /api/stores/:id/pull` | `storage.pull` | `backup list`, `store move` ↻ | a sqlite Store on a machine back to native (store move <s> native) |
 | `POST /api/stores/:id/move` | `storage.move` | `backup list`, `store move` ↻ | between two machines, two moves through native in one job: { machine } |

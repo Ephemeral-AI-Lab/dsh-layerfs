@@ -1,4 +1,4 @@
-<!-- source: 2a061b3e8568 -->
+<!-- source: 2b47f5b355df -->
 # Store
 
 > **位置：** `LayerFS › 主页 › Store › <store>` · **打开方式：** 主页 › Store 或某台机器的 Store 标签页上 Store 卡片的名称、导航栏的层级切换器、跳转到、项目页上的 Store 链接、存储桶的关联 Store · **源码：** 见文末
@@ -108,15 +108,21 @@ Store 里的所有项目，和主页 › 项目里的表格一样，只是少了
 |---|---|---|---|---|
 | **检查**（Check） | | 按下 → 先从这台电脑检查，再检查每台挂接的机器；各状态原地更新 | `store doctor`，然后 `store get` | 运行时显示 **检查中** |
 | 项目 | 每个项目的大小、会话、Sandbox 和最近一次提交 | 名称 → 项目页 | `project list` (读取) | **无法读取项目** 时保留上次的列表，并标出 **读取于** *时间* |
-| **连接**（Connection） | **地址**（`host:port`，**复制**）、**数据库**（悬停显示 Store ID）、**用户**、**密码**（**已保存** / **未保存**，悬停显示修改时间）、**上次检查**（这台电脑的状态与时间） | **编辑…**（Edit…）→ [编辑连接](#modals-opened-here) | `store get` (读取：`url`、`user`、`password_saved`、`reach`) | 状态使用[统一的标签](#status-labels) |
-| **运行于**（Runs on） | 每台挂接的机器一行：图标、名称、服务商、状态、**n 个 Sandbox**、**解除挂接**（Detach） | **+ 挂接机器**（+ Attach machine）→ [挂接选择器](#modals-opened-here)；**解除挂接** → 立即执行（可撤销）；失败时的那一个操作（**编辑连接…**、**启动**、**更新…**） | `store get` (读取：`machines`)、`store attach`、`store detach` | 有 Sandbox 在那台机器上运行时 **解除挂接** 不可用并说明原因；挂接后尚未检查的机器显示 **未检查** |
+| **连接**（Connection） | **地址**（`host:port`，**复制**）、**数据库**（悬停显示数据库名与 Store ID）、**用户**、**密码**（**已保存** / **未保存**，悬停显示修改时间）、**从这台电脑检查**（Checked from this computer）（这台电脑的状态；悬停显示时间与 LayerFS 的原话） | **编辑…**（Edit…）→ [编辑连接](#modals-opened-here) | `store get` (读取：`url`、`user`、`password_saved`、`reach`) | 状态使用[统一的标签](#status-labels) |
+| **运行于**（Runs on） | 每台挂接的机器一行：图标、名称（`native` 也和其他机器一样显示名称）、服务商（与名称相同时省略）、**n 个 Sandbox**、状态、**×** | **+ 挂接机器**（+ Attach machine）→ [挂接选择器](#modals-opened-here)；**×** 立即解除挂接（可撤销）；失败时的那一个操作（**编辑连接…**、**启动**、**更新…**） | `store get` (读取：`machines`)、`store attach`、`store detach` | 有 Sandbox 在那台机器上运行时 **×** 留在原位但不可用，悬停显示 **此 Store 有 n 个 Sandbox 在 … 上运行：关闭后才能解除挂接**；挂接后尚未检查的机器显示 **未检查**；一台都没有时显示 **还没有机器，挂接一台即可运行 Sandbox。** |
 
 ### 状态标签
 
 无论从这台电脑还是从某台机器检查，都用同一套标签：**可访问**、**检查中**、**未检查**、**无法访问地址**、
 **密码错误**、**找不到数据库**、**不是此 Store**、**机器已停止**、**机器需要更新**、**检查失败**（其他情况）。
 LayerFS 的原话只作为悬停提示，不出现在行上。每种失败只有一个操作：**编辑连接…**（地址、密码、数据库）、
-**启动**（机器已停止）或 **更新…**（机器需要更新）。
+**启动**（机器已停止）或 **更新…**（机器需要更新）。被拒的 **password authentication**（SQLSTATE 28P01/28000）显示为
+**密码错误**。
+
+三个说法互不混用。**从这台电脑检查**（Checked from this computer）是主机自己的检查（行名称前的圆点，以及
+Store 页面上同名的那一项）。机器 `native` 和其他机器一样显示为 `native`。**本地地址**（local address；
+`localhost`、`127.0.0.1`、`::1`）只有 LayerFS 报告为与这台电脑共享网络（`loopback: shared`）的机器才能访问，
+其提示会列出这些机器。
 
 ## Store 菜单
 
@@ -154,7 +160,7 @@ LayerFS 的原话只作为悬停提示，不出现在行上。每种失败只有
 | 2 | **推送 Store 到这里**（Push a Store here）（SQLite；在 LayerFS Home 上为 **添加 Store**（Add Store）） | | 按下 → [向 *机器* 添加 Store](#modals-opened-here) | `store move`（推送、拉回，或先拉回再推送） | 机器不能存放 SQLite Store 时通过 `ExplainedButton` 禁用并说明原因（**此机器无法存放 SQLite Store。**，This machine cannot hold SQLite Stores.） |
 | 2 | **+ 挂接 Store**（+ Attach Store）（PostgreSQL） | | 按下 → [挂接选择器](#modals-opened-here)，列出尚未挂接到这台机器的 PostgreSQL Store | `store attach` | |
 | 3 | Store 卡片 | [组件 › Store 卡片](components.md#store-card) | 名称 → Store 页；⋯ → Store 菜单；**拉回**（Pull）/ **推送到…**（Push to…） | `store move` | |
-| | 空状态行 | **docker 上没有 SQLite Store。推送一个到这里，即可在此运行其 Sandbox。**（No SQLite Store is on docker. Push one here to run its Sandboxes on it.；LayerFS Home 上为 **LayerFS Home 中没有 SQLite Store。可新建一个，或从其他机器拉回。**，No SQLite Store is in LayerFS Home. Create one or pull one back from a machine.）/ **没有 PostgreSQL Store 运行于 docker。连接一个数据库，即可在此运行其会话。**（No PostgreSQL Store runs on docker. Connect a database to run its sessions here.） | — | — | |
+| | 空状态行 | **docker 上没有 SQLite Store。推送一个到这里，即可在此运行其 Sandbox。**（No SQLite Store is on docker. Push one here to run its Sandboxes on it.；LayerFS Home 上为 **LayerFS Home 中没有 SQLite Store。可新建一个，或从其他机器拉回。**，No SQLite Store is in LayerFS Home. Create one or pull one back from a machine.）/ **docker 未挂接任何 PostgreSQL Store。**（No PostgreSQL Store is attached to docker.） | — | — | |
 
 主页 › Store 上的 Store 卡片（和机器标签页上的卡片相同，多了 **存放于**（Stored on））：
 
@@ -174,15 +180,15 @@ LayerFS 的原话只作为悬停提示，不出现在行上。每种失败只有
 
 | 行 | 折叠时 | 展开后 |
 |---|---|---|
-| SQLite | 名称、所在机器（及其服务商）、大小、项目数、上次备份、状态圆点（**就绪**、**操作进行中**、**机器已停止** 附 **启动**、**需要处理**） | **项目**（从大到小，5 个之后为 **另有 n 个项目 →**，**打开 Store 页面 →**）、**位于**（那台机器，**迁移…**，悬停显示“只位于一台机器”的规则）、**备份**（每个存储桶及其上次备份，**备份**、**恢复…**；**从未备份** / **上次尝试失败** 为红色） |
-| PostgreSQL | 名称、`user@host:port/database`、项目数、这台电脑的状态、前 3 台挂接机器及其状态圆点和 **+n**，以及一个词：**n 个失败**，地址为回环时为 **仅限这台电脑** | **项目**、**运行于**（每台机器的状态与操作、**解除挂接**、**+ 挂接机器**）、地址（**复制**） |
+| SQLite | 名称、大小、项目数、所在机器（显示机器名，`native` 也一样）、上次备份（**n 个失败** 为红色）、状态圆点（**就绪**、**操作进行中**、琥珀色的 **机器已停止** 附 **启动**、**需要处理**） | **项目**（从大到小，5 个之后为 **另有 n 个项目 →**；只有初始化的项目显示 **初始化后尚无提交**）、**位于**（那台机器，**迁移…**，悬停显示“只位于一台机器”的规则）、**备份**（每个存储桶及其上次备份，**备份**，有副本时 **恢复…**；一个都没有时显示 **尚未备份到任何存储桶**） |
+| PostgreSQL | **从这台电脑检查** 的圆点（悬停显示状态与时间）、名称、`user@host:port/database` 及旁边的 **复制**、项目数，然后是机器：一台时显示图标、状态圆点与名称；多台时显示图标、**+n** 与 **n 台机器**；没有时显示 **没有机器** 与 **挂接…**。最后一个词：**n 台未通过**（红色），否则 **n 台已停止**（琥珀色），否则 **本地地址**（灰色；悬停列出与这台电脑共享网络的机器），否则不显示。这台电脑检查失败时，用 **检查失败** 与 **编辑连接…** 代替机器 | **项目**（列表过时时显示 **读取于** *时间*）、**运行于**（每台机器的状态与操作、**×**、**+ 挂接机器**） |
 
 标题栏的 **全部检查**（Check all）会检查每个 PostgreSQL Store，并展开这台电脑检查失败的行。**连接数据库**
 （Connect a database）和 **新建 Store**（New Store）用于新建。
 
 ## 变体
 
-- **LayerFS Home 中的 SQLite 与机器上的 SQLite。** 位置显示为 **LayerFS Home**（无链接）或机器名
+- **LayerFS Home 中的 SQLite 与机器上的 SQLite。** 位置显示为机器名，`native` 也一样
   （链接）。菜单在 LayerFS Home 上提供 **推送到…**（Push to…），在机器上提供 **拉回 Home**（Pull to home）和
   **迁移到其他机器…**（Move to another machine…）；健康状况里的机器一行跟随机器的状态。机器已停止时，
   存放在机器上的 Store 会显示 **docker 已停止。**（docker is stopped.）和 **启动 docker**（Start docker），
@@ -205,10 +211,10 @@ LayerFS 的原话只作为悬停提示，不出现在行上。每种失败只有
 | [移除 *store*？](../img/store-remove.png)（Remove *store*?） | ⋯ › **移除…**（Remove…）、Store 详情里的 **移除…**（Remove…） | [输入名称确认](components.md#confirm-dialog)：**输入** *名称* **以确认**（Type *name* to confirm） | `store remove` ↻ | 无（备份仍留在存储桶里） |
 | 断开 PostgreSQL Store *store*？（Disconnect the PostgreSQL Store *store*?） | ⋯ › **断开连接…**（Disconnect…）（PostgreSQL） | 确认；数据库及其数据保留 | `store disconnect` ↻ | 重新连接数据库 |
 | [新建 Store](../img/store-new.png)（New Store） | 导航栏 **添加 › 新建 Store**（Add › New Store）；主页 › Store 的 **新建 Store**（New Store）；native 的 **添加 Store › 新建 Store**（Add Store › New Store） | **SQLite** 或 **PostgreSQL**（后者转到连接数据库）；**空 Store**（Empty Store）或 [**从备份恢复**](../img/store-new-restore.png)（Restore from a backup）（对未列出桶自动列出一次、过滤已丢失文件、展示桶列出错误并支持 **重新连接…**、无存储桶时直接提供 **添加存储桶…**，以及 **重新列出**、文件列表与 **新 Store 的名称**（New Store's name））；**位置**（Location）磁贴，已停止的机器旁有 **启动** *m*（Start *m*）。先在 LayerFS Home 创建，再迁移过去 | `store create` ↻（或 `backup restore`），然后用 `store move` 迁移到其他机器 | 移除 |
-| [连接数据库](../img/store-connect-new.png)（Connect a database） | 导航栏 **添加 › 连接数据库**（Add › Connect a database）；主页 › Store 的 PostgreSQL 一侧 **连接数据库** | **名称**、**地址**（只填地址，`postgres://host:5432/database`；地址里含用户或密码时在字段下方拒绝；回环地址会提示只有这台电脑及共享其回环的机器能访问）、**用户**、**密码**。**连接**（Connect）就是测试：只有从这台电脑检查通过才保存 Store；被拒时留在对话框里 | `store connect`（密码经标准输入） | **断开连接…** |
-| 编辑 *store* 的连接（Edit *store*'s connection） | **编辑连接…**、**编辑…**、失败时的 **编辑连接…** | 同一个表单，名称固定，密码留空则保持不变；只发送改动过的部分。**保存并检查**（Save and check）先检查这台电脑，再检查每台挂接的机器（提示里会列出） | `store connect`，然后 `store doctor` ↻ | 再编辑一次 |
-| 为 *store* 挂接机器（Attach machines to *store*） | **+ 挂接机器**、⋯ › **挂接机器…**、修复行 | 尚未挂接的机器，按服务商分组，可搜索，可多选。不能挂接的机器变灰并说明原因及其操作：**已停止**（**启动**）、**无法访问此地址**（**编辑连接…**）、**不能运行 PostgreSQL Sandbox**。**挂接并检查**（Attach and check）逐台挂接；被拒时列出机器及其标签（从该机器检查失败时沿用状态标签，连接可修复时附 **编辑连接…**；LayerFS 的回环拒绝显示 **无法访问此地址** 并附 **编辑连接…**；其他拒绝显示 **未挂接**；悬停显示 LayerFS 的原话），其余继续 | 每台机器 `store attach --machine` | **解除挂接** |
-| 为 *机器* 挂接 Store（Attach Stores to *machine*） | 机器 › Store › PostgreSQL 的 **+ 挂接 Store** | 反方向的同一个选择器：尚未挂接到这台机器的 PostgreSQL Store | 每个 Store `store attach --machine` | **解除挂接** |
+| [连接数据库](../img/store-connect-new.png)（Connect a database） | 导航栏 **添加 › 连接数据库**（Add › Connect a database）；主页 › Store 的 PostgreSQL 一侧 **连接数据库** | **名称**、**地址**（只填地址，`postgres://host:5432/database`；地址里含用户或密码时在字段下方拒绝；本地地址的一行提示会列出与这台电脑共享网络的机器，**本地地址：只有与这台电脑共享网络的机器可以挂接（native）。**）、**用户**、**密码**。四项都填好前 **连接**（Connect）不可用；它就是测试：只有从这台电脑检查通过才保存 Store。被拒时在底部显示一行（**服务器拒绝了登录，请检查用户、密码和数据库名。**、**此地址没有响应。**、**此服务器上没有这个数据库。**、**此数据库属于另一个 Store。**，其他情况为 **LayerFS 无法连接，悬停可查看原话。**），悬停显示 LayerFS 的原话，相关字段标红 | `store connect`（密码经标准输入） | **断开连接…** |
+| 编辑 *store* 的连接（Edit *store*'s connection） | **编辑连接…**、**编辑…**、失败时的 **编辑连接…** | 标题为 **编辑连接**，下方是 Store 名称：地址、用户与密码（**已保存 · 留空则不变**）；只发送改动过的部分。**保存并检查**（Save and check）先检查这台电脑，再检查每台挂接的机器；提示写着 **先从这台电脑检查，再从** *机器* **检查。** 被拒时与连接数据库相同 | `store connect`，然后 `store doctor` ↻ | 再编辑一次 |
+| 为 *store* 挂接机器（Attach machines to *store*） | **+ 挂接机器**、⋯ › **挂接机器…**、修复行 | 标题为 **挂接机器**，下方是 Store 名称。尚未挂接的机器，按服务商字母顺序分组（只有一台且名称与服务商相同时不显示组标题），选项达到 6 个时可搜索，可多选。不能挂接的机器变灰并说明原因及其操作，顺序为：**不能运行 PostgreSQL Sandbox**、**无法访问此地址**（**编辑连接…**；本地地址，且 LayerFS 报告该机器不与这台电脑共享网络）、**已停止**（**启动**）。**挂接并检查**（Attach and check）逐台挂接；被拒时列出机器及其标签（从该机器检查失败时沿用状态标签，连接可修复时附 **编辑连接…**；LayerFS 的回环拒绝显示 **无法访问此地址** 并附 **编辑连接…**；其他拒绝显示 **未挂接**；悬停显示 LayerFS 的原话），其余继续 | 每台机器 `store attach --machine` | **解除挂接** |
+| 为 *机器* 挂接 Store（Attach Stores to *machine*） | 机器 › Store › PostgreSQL 的 **+ 挂接 Store** | 反方向的同一个选择器，标题为 **挂接 Store**：尚未挂接到这台机器的 PostgreSQL Store。机器已停止时，变灰的列表上方显示 **{machine} 已停止，启动后才能挂接 Store。** 与 **启动** | 每个 Store `store attach --machine` | **解除挂接** |
 | [向 *机器* 添加 Store](../img/store-to-machine.png)（Add a Store to *machine*） | 机器 › Store 的 **推送 Store 到这里**（Push a Store here）/ **添加 Store**（Add Store） | **SQLite**（**移动一个到这里**（Move one here））或 **PostgreSQL**（**连接一个，或让已有的在此运行**（Connect one, or run one here））；列出其他机器上的 SQLite Store（含大小与来源，不可移动项显示真实原因如 **请先启动机器** *m*（Start machine *m* first））；检查目标剩余磁盘（小于 Store 红框拒绝、不足 1.15× 黄框警告）、带按键保护的 **启动** *m*、**当前被占用** 阻止，跨非 Home 机器迁移附两步操作说明；**移动到这里**（Move here）；在 LayerFS Home 上附 **或者直接在此新建：新建 Store**（Or create an empty Store here: New Store） | `store get`，然后 `store move`（推送、拉回，或先拉回再推送） | 移回去 |
 | [添加存储桶](../img/store-bucket-add.png)（Add bucket） | 导航栏 **添加 › 添加存储桶**（Add › Add bucket）；备份对话框里的 **添加存储桶**（Add a bucket）；备份标签页的 **添加存储桶…**（Add bucket…） | **MinIO** 或 **Cloudflare R2**、**名称**（Name）、**存储桶**（Bucket）、**端点**（Endpoint）或 **账户 ID**（Account ID）+ **辖区**（Jurisdiction）、**前缀**（Prefix）、**访问密钥**（Access key）、**私密密钥**（Secret key）；从备份对话框打开时，完成后回到备份对话框 | `backup connect`（密钥经 stdin 传入）↻ | 断开存储桶 |
 | 重新连接 *bucket*（Connect *bucket* again） | 密钥被拒绝的存储桶上的 **重新连接…**（Connect again…） | 同一个表单，名称锁定、URL 已填好；同一个 URL 会替换密钥（**密钥已替换；Store 关联保留**（Key replaced; links kept））并仅重列该存储桶 | `backup connect`，然后 `backup list` | — |

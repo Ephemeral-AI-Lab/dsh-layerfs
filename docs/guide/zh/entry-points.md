@@ -1,4 +1,4 @@
-<!-- source: 1d7df9af24e5 -->
+<!-- source: 9404b746429b -->
 # 入口
 
 > 截图来自独立的指南环境，使用固定版本的 LayerFS 运行时和预置的 `handbook` 项目。
@@ -150,7 +150,7 @@ DSH 的侧边栏里有 **LayerFS** 行（和 Plugins、Automation tasks、More �
 | 存储 | **新建连接**（New connection）· **已有 · {n}**（Existing · {n}） | — | `GET /api/storage` (读取) | — |
 | 数据库 URL | “不含用户、密码或 passfile，例如 postgresql://db.lan:5432/app。”（Without a user, password or passfile, for example postgresql://db.lan:5432/app.） | 输入；含登录信息的 URL 会被拒绝并附 **LayerFS 的修复**（LayerFS’s fix）和 **复制**（Copy）；Linux 上填 `localhost` 会给出警告并提供 **改用 127.0.0.1**（Use 127.0.0.1） | — | 按钮旁显示 **存储：需要数据库 URL**（Store: Needs a database URL） |
 | 登录 | 用户（User）、密码（Password）（“由这台电脑为此 Store 保存：密码经标准输入交给 LayerFS，之后不再显示。”（Saved by this computer for this Store: the password goes to LayerFS on stdin and is never shown again.）） | 输入 | 创建时 `store connect`（密码经标准输入）和 `store get`，会话的机器尚未挂接时再 `store attach --machine` | — |
-| 运行于 | 会话运行的机器（PostgreSQL 下这一部分就叫 **运行于**（Runs on）） | 选择 | — | — |
+| 运行于 | 会话运行的机器（PostgreSQL 下这一部分就叫 **运行于**（Runs on））。已有的 Store 默认选中上次用过且仍挂接的机器，否则选唯一挂接的那台；挂接了多台又没有选过时不预选。尚未挂接的机器会提示 **将把 {machine} 挂接到此 Store。**（Will attach {machine} to the Store.） | 选择 | — | — |
 
 ### 导入文件夹
 
