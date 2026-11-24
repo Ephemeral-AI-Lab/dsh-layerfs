@@ -165,18 +165,21 @@ export async function route(g: Groups, method: string, parts: string[], query: U
   if (group === 'storage' && id === 'check' && !sub && method === 'POST') return storage.check(body ?? {})
   if (group === 'stores') {
     if (!id && method === 'POST') return storage.createStore(body ?? {})
-    // a PostgreSQL database: { name, url, auth | passwordFrom | user + passwordValue + authName? (a new login), synchronousCommit? }
+    // a PostgreSQL database: { name, url (an address alone), user, passwordValue, synchronousCommit? }
     if (id === 'postgresql' && !sub && method === 'POST') return storage.connectPostgresql(body ?? {})
     if (id && sub === 'stats' && method === 'GET') return projects.storeStats(id)
     if (id && sub === 'observations' && method === 'GET') return projects.storeObservations(id)
     if (id && sub === 'projects' && method === 'GET') return projects.storeProjects(id)
     if (id && !sub && method === 'DELETE') return storage.removeStore(id, { confirm: query.get('confirm') })
     if (id && sub === 'disconnect' && method === 'POST') return storage.disconnectStore(id)
-    // a PostgreSQL Store's connection, or one machine's own address: { machine?, url?, clear?, auth? | passwordFrom? | passwordValue?, synchronousCommit? }
-    if (id && sub === 'connection' && method === 'POST') return storage.updateStore(id, body ?? {})
-    // the connection check from a machine (store doctor --machine): ?machine=<name>
+    // a PostgreSQL Store's connection, only what changed: { url?, user?, passwordValue?, synchronousCommit? }; then checked again
+    if (id && sub === 'connection' && method === 'POST') return storage.updateConnection(id, body ?? {})
+    // machines a PostgreSQL Store's Sandboxes may run on: { machines: [...] }, each attached (and checked from there) in turn
+    if (id && sub === 'attach' && method === 'POST') return storage.attach(id, body ?? {})
+    // one machine detached from a PostgreSQL Store: { machine }; refused InUse while its Sandboxes run there
+    if (id && sub === 'detach' && method === 'POST') return storage.detach(id, body ?? {})
+    // the connection check (store doctor): this computer, then attached machines; ?machine=<name>: that attached machine alone
     if (id && sub === 'check' && method === 'GET') return storage.checkStore(id, query.get('machine'))
-    // the machine a PostgreSQL Store's sessions run on by default: { machine }
     // a sqlite Store on native to a machine (store move): { machine }
     if (id && sub === 'push' && method === 'POST') return storage.push(id, body?.machine)
     // a sqlite Store on a machine back to native (store move <s> native)
@@ -198,11 +201,6 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     if (id && sub === 'restore' && method === 'POST') return storage.restore({ ...(body ?? {}), bucket: id })
     return undefined
   }
-  // the home's saved PostgreSQL logins (store auths): never a password
-  if (group === 'store-auths' && !id && method === 'GET') return storage.auths()
-  // a login's new password (store save-auth under its own name), then every Store naming it checked; a login no Store names removed
-  if (group === 'store-auths' && id && sub === 'rotate' && method === 'POST') return storage.rotateLogin(id, body ?? {})
-  if (group === 'store-auths' && id && !sub && method === 'DELETE') return storage.removeLogin(id)
   if (group === 'storage-jobs' && id && !sub && method === 'GET') return storage.job(id)
   if (group === 'storage-jobs' && id && sub === 'inspect' && method === 'POST') return storage.inspect(id)
   if (group === 'storage-jobs' && id && sub === 'retry' && method === 'POST') return storage.retry(id)

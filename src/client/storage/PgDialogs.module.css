@@ -1,0 +1,130 @@
+/* PostgreSQL's Connect, Edit connection and attach picker dialogs (PgDialogs.tsx). */
+
+.mono {
+  font-family: var(--ds-font-family-code, ui-monospace, monospace);
+}
+.note {
+  margin: -4px 0 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 17px;
+}
+.search {
+  width: 100%;
+}
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.groupTitle {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+.choices {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md, 8px);
+}
+/* one line: mark, the checkbox with its name (truncates), then the reason or address; the trailing part never gets pushed out */
+.choice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+.choice + .choice {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+.choice[data-blocked] .check {
+  color: var(--dsw-alias-label-tertiary);
+}
+.mark {
+  display: inline-flex;
+  color: var(--dsw-alias-label-secondary);
+}
+.check {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.choiceName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.choiceMeta {
+  max-width: 220px;
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font-family: var(--ds-font-family-code, ui-monospace, monospace);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.block {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.blockText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.link {
+  all: unset;
+  color: var(--dsw-alias-link);
+  font-size: 12px;
+  cursor: pointer;
+}
+.link:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
+  outline-offset: 2px;
+}
+@media (hover: hover) {
+  .link:hover {
+    text-decoration: underline;
+  }
+}
+.empty {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12.5px;
+}
+.failures {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+}
+@media (max-width: 480px) {
+  .choice {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .choice > :last-child:not(.check) {
+    grid-column: 2;
+  }
+}

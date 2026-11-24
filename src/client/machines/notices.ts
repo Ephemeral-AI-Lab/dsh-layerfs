@@ -83,13 +83,13 @@ export function sandboxesEmptyKey(m: MachineInfo, view: Pick<AvailableView, 'rea
 }
 
 /**
- * The PostgreSQL Stores connected from this machine (spec v23), and those
+ * The PostgreSQL Stores attached to this machine, and those
  * with a Sandbox on it now (the Stores tab lists the same).
  */
 export function pgStoresHere(view: Pick<AvailableView, 'postgresql' | 'sandboxes'> & Partial<Pick<AvailableView, 'machines'>>, m: MachineInfo): string[] {
   const boxes = sandboxesOn({ sandboxes: view.sandboxes } as AvailableView, m)
   const busy = new Set(boxes.map((b) => b.project?.split('/')[0]).filter((x): x is string => !!x))
-  return (view.postgresql ?? []).filter((s) => (s.connectedFrom ?? []).some((c) => c.machine === m.name) || busy.has(s.name)).map((s) => s.name).sort()
+  return (view.postgresql ?? []).filter((s) => (s.attached ?? []).some((c) => c.machine === m.name) || busy.has(s.name)).map((s) => s.name).sort()
 }
 
 /** The Details line of a machine's PostgreSQL Sandboxes, counted as its Stores tab counts them. */

@@ -166,7 +166,7 @@ export class DemoRunner extends CliInventory {
     const pending = Object.entries(this.manifest.steps).find(([, s]) => ['running', 'uncertain'].includes(s.status))
     if (pending) fail(`Setup cannot replay ${pending[0]} after an interrupted/uncertain outcome. Run status, inspect the named resource, then use reset or teardown for owned cleanup.`)
   }
-  async ensureResource(family, name, argv, { before } = {}) {
+  async ensureResource(family, name, argv, { before, input } = {}) {
     const current = await this.maybe([family, 'get', name])
     const owned = this.manifest.resources[family][name]
     if (current) {
@@ -180,7 +180,7 @@ export class DemoRunner extends CliInventory {
     if (owned?.owned) fail(`Owned ${family} ${name} is missing. Run reset to rebuild the fixture.`)
     this.manifest.resources[family][name] = { owned: false, status: 'creating' }; this.save()
     await before?.()
-    try { await this.once(`${family}.create:${name}`, argv) } catch (error) {
+    try { await this.once(`${family}.create:${name}`, argv, input === undefined ? undefined : { input }) } catch (error) {
       if (family === 'machine' && error.detail?.vm_exists === true && !uncertain(error)) {
         this.manifest.resources[family][name] = { owned: true, created: null, status: 'failed' }; this.save()
       }
@@ -231,18 +231,28 @@ export class DemoRunner extends CliInventory {
     if (!isPostgresql(store)) return this.ensureResource('store', store.name, ['store', 'create', store.name])
     if (!this.manifest.resources.store[store.name]?.owned) {
       const { port } = await this.postgres.ensure()
-      // the preset's login, saved once per build (the password on stdin; saving it again rotates nothing: it is the same)
-      await this.once(`store.save-auth:${this.postgres.authName}:${this.commandId}`, ['store', 'save-auth', this.postgres.authName, '--user', 'postgres', '--password-stdin'], { input: this.postgres.password() })
-      const argv = ['store', 'connect', store.name, this.postgres.url(port, store.database), '--auth', this.postgres.authName]
-      return this.ensureResource('store', store.name, argv, { before: () => this.postgres.freshDatabase(store.database) })
+      // the address, then the login: the user on argv, the password on stdin (the host keeps both for this Store)
+      const argv = ['store', 'connect', store.name, this.postgres.url(port, store.database), '--user', 'postgres', '--password-stdin']
+      return this.ensureResource('store', store.name, argv, { before: () => this.postgres.freshDatabase(store.database), input: this.postgres.password() })
     }
     return this.ensureResource('store', store.name, null)
   }
-  /** A SQLite Store pushed to its machine; a PostgreSQL Store is on none (its Sandboxes name their machine when they are made). */
+  /**
+   * A SQLite Store pushed to its machine; a PostgreSQL Store is on none: the
+   * machine its sessions run on is attached (`store attach`, checked from that
+   * machine), since a Sandbox of its projects runs only on an attached machine.
+   */
   async placeStore(store, reportProgress = () => {}) {
     const placed = await this.query(['store', 'get', store.name, '--detail'])
     if (placed.op || placed.state === 'busy' || placed.state === 'broken') fail(`Store ${store.name} has an operation that needs inspection.`)
-    if (isPostgresql(store)) return
+    if (isPostgresql(store)) {
+      const attached = (Array.isArray(placed.machines) ? placed.machines : []).some(m => (typeof m === 'string' ? m : m?.machine) === store.machine)
+      if (!attached) {
+        reportProgress(`Attaching ${store.machine} to ${store.name}`)
+        await this.once(`store.attach:${store.name}:${store.machine}`, ['store', 'attach', store.name, '--machine', store.machine])
+      }
+      return
+    }
     if (placed.machine !== store.machine) {
       if (placed.machine !== 'native') fail(`Store ${store.name} moved outside the fixture plan. Inspect it or reset.`)
       reportProgress(`Moving ${store.name} to ${store.machine}`)

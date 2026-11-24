@@ -98,7 +98,6 @@ await build({
       export { wordsOf as doctorWords } from './src/client/doctor/words.ts'
       export * as dm from './src/client/doctor/model.ts'
       export { OpPanel, JobPanel } from './src/client/storage/JobProgress.tsx'
-      export { HomeStores } from './src/client/storage/MachineStores.tsx'
       export { BucketPage } from './src/client/storage/BucketPage.tsx'
       export { StoreOverview } from './src/client/storage/StoreOverview.tsx'
       export { ProjectGrid } from './src/client/storage/ProjectTable.tsx'
@@ -247,74 +246,13 @@ test('#7: ProjectGrid wraps row expand button inside role=cell and unifies branc
   assert.match(html, /role="row"><span role="cell"[^>]*><button type="button"[^>]*aria-expanded=/)
 })
 
-test('#8: PgCard omits empty footer when all projects fit under status and replaces Unicode ▣ with SVG SandboxGlyph', () => {
-  localStorage.setItem('dsh-layerfs:store-kind:(home)', 'postgresql')
-  const view = {
-    stores: [
-      {
-        name: 'pg-one', kind: 'postgresql', machine: null, state: 'broken', reason: 'outdated',
-        postgresql: { target: 'db:5432/a', server: 'db:5432', database: 'a', auth: 'primary' },
-        connectedFrom: [{ machine: null, own: false, reached: 'failed' }],
-        projects: ['p1'], projectsCount: 1, links: [], ownConnections: [],
-      },
-      {
-        name: 'pg-two', kind: 'postgresql', machine: null, state: 'broken', reason: 'outdated',
-        postgresql: { target: 'db:5432/b', server: 'db:5432', database: 'b', auth: 'primary' },
-        connectedFrom: [{ machine: 'vm-ready', own: false, reached: 'ok' }],
-        projects: ['p1', 'p2'], projectsCount: 2, links: [], ownConnections: [],
-      },
-    ],
-    machines: [
-      { name: 'native', platform: 'native', state: 'ready', stores: [], sandboxes: [] },
-      { name: 'vm-ready', platform: 'lima', state: 'ready', stores: [], sandboxes: ['sb-1'] },
-    ],
-    buckets: [],
-    jobs: [],
-    auths: [{ auth: 'primary', user: 'app', stores: ['pg-one', 'pg-two'], state: 'ready' }],
-    at: 1000,
-  }
-  const noopAct = () => ({
-    push: () => {}, pull: () => {}, move: () => {}, backup: () => {}, compact: () => {},
-    addProject: () => {}, remove: () => {}, disconnect: () => {}, editConnection: () => {},
-    check: () => {}, connectMachine: () => {}, openMachine: () => {}, retry: () => {}, dismiss: () => {},
-  })
-  const html = renderToStaticMarkup(createElement(M.HomeStores, {
-    api: noopApi,
-    stores: view.stores,
-    view,
-    t: makeStorageT('zh'),
-    now: 2000,
-    jobs: [],
-    dismissed: new Set(),
-    actionsFor: noopAct,
-    sandboxes: [{ machine: 'vm-ready', project: 'pg-two/p1' }],
-    onOpenStore: () => {},
-    onOpenProject: () => {},
-    onBackups: () => {},
-    onNewStore: () => {},
-    onConnect: () => {},
-  }))
-
-  const pgOneStart = html.indexOf('data-store="pg-one"')
-  const pgTwoStart = html.indexOf('data-store="pg-two"')
-  assert.ok(pgOneStart > 0 && pgTwoStart > pgOneStart)
-  const pgOneHtml = html.slice(pgOneStart, pgTwoStart)
-  const pgTwoHtml = html.slice(pgTwoStart)
-
-  assert.ok(!pgOneHtml.includes('foot_'), 'pg-one (1 project under status) must not render an empty footer')
-  assert.ok(!/class="[^"]*foot[^"]*"/.test(pgOneHtml), 'pg-one must not render empty foot divider')
-  assert.ok(/class="[^"]*foot[^"]*"/.test(pgTwoHtml), 'pg-two (2 projects under status, 1 folded) must render footer with +1')
-  assert.ok(!html.includes('▣'), 'connected chip must not use raw Unicode ▣')
-  assert.match(pgTwoHtml, /class="[^"]*chipCount[^"]*"[^>]*>1<svg/)
-})
-
 test('#9: toolbar diagnose button and all three segmented switchers share unified heights', () => {
   const homeTsx = readSrc('src/client/storage/HomeOverview.tsx')
-  const msCss = readSrc('src/client/storage/MachineStores.module.css')
+  const rowsCss = readSrc('src/client/storage/StoreRows.module.css')
   const bcCss = readSrc('src/client/storage/BucketCards.module.css')
 
   assert.match(homeTsx, /<Button variant="outline" size="sm" className=\{heroCss\.actionButton\}[\s\S]*?\{mc\.doctorT\('diagnoseHost'\)\}<\/Button>/)
-  assert.match(msCss, /\.view\s*\{[^}]*height:\s*28px;/)
+  assert.match(rowsCss, /\.tile\s*\{[^}]*height:\s*28px;/)
   assert.match(bcCss, /\.seg button\s*\{[^}]*height:\s*28px;/)
 })
 
@@ -393,11 +331,7 @@ test('#11: StoreOverview avoids nested <dl> in tiles and follows DSH hairline/fo
   assert.match(spCss, /\.ratioLine strong\s*\{[^}]*color:\s*var\(--dsw-alias-label-primary\)/)
 })
 
-test('#12: PG check failure wraps errors in semantic callout and Inventory/ProjectGrid use h2 (no skipped h3)', () => {
-  const cdTsx = readSrc('src/client/storage/ConnectDatabase.tsx')
-  const msCss = readSrc('src/client/storage/MachineStores.module.css')
-  assert.match(cdTsx, /<div className=\{css\.checkFailure\}>/)
-  assert.match(msCss, /\.checkFailure\s*\{[^}]*background:\s*var\(--lf-tone-danger-bg\)/)
+test('#12: Inventory/ProjectGrid use h2 (no skipped h3)', () => {
 
   const invHtml = renderToStaticMarkup(createElement(M.Inventory, {
     m: { name: 'native', platform: 'native', state: 'ready', stores: [], sandboxes: [] },
@@ -443,67 +377,6 @@ test('fix1 #1: prototype property names (constructor/toString/valueOf) fall back
   assert.equal(dwEn.checkText({ r: 'nc', check: 'store.record', reason: 'constructor' }), 'not checked: constructor')
   assert.equal(dwZh.checkText({ r: 'nc', check: 'store.record', reason: 'constructor' }), '未检查：constructor')
   assert.equal(dwZh.stepWord('constructor'), '')
-})
-
-test('fix1 #2: compact running JobPanel on SQLite and PostgreSQL Store cards shows full title tooltip while keeping failed refusal tips', () => {
-  const noopAct = () => ({
-    push: () => {}, pull: () => {}, move: () => {}, backup: () => {}, compact: () => {},
-    addProject: () => {}, remove: () => {}, disconnect: () => {}, editConnection: () => {},
-    check: () => {}, connectMachine: () => {}, openMachine: () => {}, retry: () => {}, dismiss: () => {},
-  })
-  const sqliteStore = {
-    name: 'sqlite-busy', kind: 'sqlite', machine: 'native', state: 'ready',
-    projects: ['api'], projectsCount: 1, size: { bytes: 1024 }, links: [], ownConnections: [],
-  }
-  const pgStore = {
-    name: 'pg-very-long-database-name', kind: 'postgresql', machine: null, state: 'ready',
-    postgresql: { target: 'db:5432/app', server: 'db:5432', database: 'app', auth: 'primary' },
-    connectedFrom: [{ machine: null, own: false, reached: 'ok' }],
-    projects: ['api'], projectsCount: 1, links: [], ownConnections: [],
-  }
-  const baseView = {
-    stores: [sqliteStore, pgStore],
-    machines: [{ name: 'native', platform: 'native', state: 'ready', stores: ['sqlite-busy'], sandboxes: [] }],
-    buckets: [],
-    jobs: [],
-    auths: [{ auth: 'primary', user: 'app', stores: ['pg-very-long-database-name'], state: 'ready' }],
-    at: 2000,
-  }
-  const baseProps = {
-    api: noopApi, stores: baseView.stores, view: baseView, t: makeStorageT('zh'), now: 3000,
-    dismissed: new Set(), actionsFor: noopAct, sandboxes: [],
-    onOpenStore: () => {}, onOpenProject: () => {}, onBackups: () => {}, onNewStore: () => {}, onConnect: () => {},
-  }
-
-  // SQLite Store card with running backup to long bucket name
-  localStorage.setItem('dsh-layerfs:store-kind:(home)', 'sqlite')
-  const sqliteHtml = renderToStaticMarkup(createElement(M.HomeStores, {
-    ...baseProps,
-    jobs: [{ id: 'j-sql', kind: 'backup', store: 'sqlite-busy', target: 'a-very-long-bucket-name', phase: 'upload', started: 1000, ended: null, error: null, outcome: null }],
-  }))
-  assert.match(sqliteHtml, /data-store="sqlite-busy"[\s\S]*?data-compact="true"[\s\S]*?title="正在备份到 a-very-long-bucket-name">正在备份到 a-very-long-bucket-name</)
-
-  // PostgreSQL Store card with running compact job
-  const pgView = { ...baseView, stores: [pgStore] }
-  const pgHtml = renderToStaticMarkup(createElement(M.HomeStores, {
-    ...baseProps,
-    stores: pgView.stores,
-    view: pgView,
-    jobs: [{ id: 'j-pg', kind: 'compact', store: 'pg-very-long-database-name', target: 'pg-very-long-database-name', phase: 'build', started: 1000, ended: null, error: null, outcome: null }],
-  }))
-  assert.match(pgHtml, /data-store="pg-very-long-database-name"[\s\S]*?data-compact="true"[\s\S]*?title="正在压缩 pg-very-long-database-name">正在压缩 pg-very-long-database-name</)
-
-  // Failed job keeps refusal details as title tooltip (not overwritten by short label)
-  localStorage.setItem('dsh-layerfs:store-kind:(home)', 'sqlite')
-  const failedHtml = renderToStaticMarkup(createElement(M.HomeStores, {
-    ...baseProps,
-    jobs: [{
-      id: 'j-fail', kind: 'backup', store: 'sqlite-busy', target: 'a-very-long-bucket-name',
-      phase: 'upload', started: 1000, ended: 2500, outcome: 'failed',
-      error: { code: 'Denied', message: 'Access denied for bucket', phase: 'upload' },
-    }],
-  }))
-  assert.match(failedHtml, /data-compact="true"[\s\S]*?title="Denied: Access denied for bucket"/)
 })
 
 test('fix1 #3: NavBar jump button exposes localized aria-label and title for 760px icon-only state', () => {

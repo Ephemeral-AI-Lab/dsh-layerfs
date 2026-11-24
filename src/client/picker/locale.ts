@@ -34,7 +34,7 @@ const en = {
   location: 'Location',
   home: 'LayerFS Home',
   locationNew: 'Creates the SQLite Store {store} in the LayerFS Home.',
-  connectedFrom: 'Connected from {machines}. Each session picks where it runs.',
+  connectedFrom: 'Runs on {machines}. Each session picks one of them.',
   savedAs: 'Saved as {slug}',
   folder: 'Folder',
 }
@@ -72,7 +72,7 @@ const zh: typeof en = {
   location: '位置',
   home: 'LayerFS Home',
   locationNew: '将在 LayerFS Home 中创建 SQLite 存储 {store}。',
-  connectedFrom: '连接自 {machines}。每个会话各自选择运行位置。',
+  connectedFrom: '运行于 {machines}。每个会话从中选择一台。',
   savedAs: '保存为 {slug}',
   folder: '文件夹',
 }

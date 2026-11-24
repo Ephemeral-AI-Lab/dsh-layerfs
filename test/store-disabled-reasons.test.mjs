@@ -55,7 +55,7 @@ const testPlugin = {
 
     const stubHooks = {
       'machines/context.tsx': `export const useMachinesContext = () => ({ api: { call: async () => ({}) }, useMachines: (s) => s({ data: null, loading: false, error: null }), t: (k) => k }); export const useMachinesMaybe = () => null`,
-      'ui/use-query.ts': `export const useQuery = () => ({ data: undefined, loading: false, error: null, reload: () => {} })`,
+      'ui/use-query.ts': `export const useQuery = () => ({ data: undefined, loading: false, error: null, reload: () => {} }); export const cachedAnswer = () => undefined`,
       'storage/hooks.ts': `export const useHostEvents = () => {}`,
       'projects/hooks.ts': `export const useProjectSessions = () => ({ data: null })`,
     }
@@ -78,7 +78,6 @@ await build({
       export { StoreMenu } from './src/client/storage/StoreCard.tsx'
       export { StoreProjects } from './src/client/storage/StoreProjects.tsx'
       export { StoreBackups } from './src/client/storage/StoreLinks.tsx'
-      export { HomeStores } from './src/client/storage/MachineStores.tsx'
       export { locales as storageLocales } from './src/client/storage/locale.ts'
     `,
     resolveDir: root,
@@ -200,7 +199,7 @@ test('ui/204 ExplainedButton: uses aria-disabled + Tooltip + aria-describedby + 
   assert.match(uiCss, /\.disabledButton\[aria-disabled='true'\]\[data-variant='outline'\]:hover/)
 })
 
-test('ui/204 StoreMenu, StoreProjects, StoreBackups, and Store card foot wire disabledReason in EN and ZH', () => {
+test('ui/204 StoreMenu, StoreProjects and StoreBackups wire disabledReason in EN and ZH', () => {
   const view = {
     stores: [],
     machines: [
@@ -311,42 +310,5 @@ test('ui/204 StoreMenu, StoreProjects, StoreBackups, and Store card foot wire di
       assert.ok(btn && (btn.tabIndex === undefined || btn.tabIndex >= 0), `${label} must remain Tab-focusable when busy (${lang})`)
     }
     assert.equal(globalThis.__u204Captured.tooltips.filter((tp) => !tp.disabled && tp.label === busyReason).length, 3)
-
-    // 5. HomeStores card foot: Pull disabled with stoppedReason on stoppedStore; Push to… disabled with busyReason on busyStore; Push to… enabled on readyStore
-    resetCaptured()
-    const cardCalls = {}
-    renderToStaticMarkup(createElement(M.HomeStores, {
-      api: { call: async () => ({}) },
-      stores: [stoppedStore, busyStore, readyStore],
-      view: { ...view, stores: [stoppedStore, busyStore, readyStore] },
-      t,
-      now: 61000,
-      jobs: [],
-      dismissed: new Set(),
-      actionsFor: () => noopActions(cardCalls),
-      loginActions: () => ({}),
-      sandboxes: [],
-      actionHost: null,
-      onNewStore: () => {},
-      onConnect: () => {},
-      onOpenStore: () => {},
-      onOpenProject: () => {},
-      onBackups: () => {},
-    }))
-    const pullFoot = globalThis.__u204Captured.buttons.find((b) => b.label === t('msPull'))
-    assert.equal(pullFoot?.ariaDisabled, true, `stopped card foot Pull must be aria-disabled (${lang})`)
-    assert.ok(pullFoot && (pullFoot.tabIndex === undefined || pullFoot.tabIndex >= 0), `stopped card foot Pull must remain Tab-focusable (${lang})`)
-    assert.equal(pullFoot?.onClick, undefined)
-    assert.ok(globalThis.__u204Captured.tooltips.some((tp) => !tp.disabled && tp.label === stoppedReason))
-
-    const pushButtons = globalThis.__u204Captured.buttons.filter((b) => b.label === t('pushTo'))
-    assert.equal(pushButtons.length, 2)
-    assert.equal(pushButtons[0].ariaDisabled, true, `busy card foot Push to… must be aria-disabled (${lang})`)
-    assert.ok(pushButtons[0].tabIndex === undefined || pushButtons[0].tabIndex >= 0, `busy card foot Push to… must remain Tab-focusable (${lang})`)
-    assert.equal(pushButtons[0].onClick, undefined)
-    assert.ok(globalThis.__u204Captured.tooltips.some((tp) => !tp.disabled && tp.label === busyReason))
-    assert.equal(pushButtons[1].ariaDisabled, false, `ready card foot Push to… must be enabled (${lang})`)
-    pushButtons[1].onClick()
-    assert.equal(cardCalls.push, 1)
   }
 })

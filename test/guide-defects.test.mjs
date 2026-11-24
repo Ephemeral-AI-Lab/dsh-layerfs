@@ -115,9 +115,8 @@ test('7: a Store on the native machine is in the LayerFS Home, on every page', (
   assert.match(src('src/client/projects/setup/ProjectDialog.tsx'), /placeName\(s\.machine \?\? 'native', wordsOf\(t\)\)/)
 })
 
-test('8, 9: the Move dialog\'s notice names the move; the new-database screen has Cancel', () => {
+test('8: the Move dialog\'s notice names the move', () => {
   assert.doesNotMatch(M.storageLocales.en.heldNow, /push/)
-  assert.match(src('src/client/storage/ConnectDatabase.tsx'), /check\?\.state === 'ready' \|\| screen\.kind === 'new' \? <Button variant="outline" onClick=\{onClose\}>\{t\('cancel'\)\}/)
 })
 
 test('10: a session tag reads without DSH\'s session- prefix', () => {

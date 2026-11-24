@@ -112,7 +112,6 @@ export function wordsOf(t: DoctorT) {
       if (boxes) bits.push(n('dpFactSandboxes', boxes))
     } else if (x.kind === 'store') {
       bits.push(x.engine ?? '')
-      if (x.connections != null) bits.push(n('dpFactConnections', x.connections))
       bits.push(n('dpFactProjects', kids.length), on)
     } else if (x.kind === 'sandbox') {
       // a 64-hex image id cut to its first twelve digits (the row's tip has it whole)

@@ -31,6 +31,9 @@ export interface ProjectFinder {
   frozen: readonly string[] | null
 }
 
+/** Sets the Projects tab's search to a Store's name, so it opens filtered by it (the PostgreSQL Store page's link). */
+export function filterProjectsBy(store: string): void { keep(QUERY_KEY, store) }
+
 /** Search and sort state for the Projects tab. `refreshKey` is the page's Refresh: Size is ordered again then. */
 export function useProjectFinder(stores: readonly StoreRow[], refreshKey: number): ProjectFinder {
   const [query, setQueryState] = useState(() => recall(QUERY_KEY) ?? '')

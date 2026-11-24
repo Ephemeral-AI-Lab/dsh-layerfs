@@ -229,8 +229,8 @@ test('F4: a refusal with a runnable fix on the project panel: the word, the mess
   assert.match(branch, /fixWord\?\.\(resolved\.fix\) \?\? title/)
   assert.match(branch, /<FixAction line=\{resolved\.line\}/)
   assert.doesNotMatch(branch, /retryLabel|onRetry|<code/, 'no Retry, no code chip on that path')
-  assert.match(src('src/client/files/ProjectFiles.tsx'), /fix\.kind === 'saveAuth' \? t\('files_noSavedLogin'\)/)
-  assert.equal(M.filesEn.files_noSavedLogin, 'Broken · no saved login')
+  assert.match(src('src/client/files/ProjectFiles.tsx'), /fix\.kind === 'connection' \? t\('files_noSavedLogin'\)/)
+  assert.equal(M.filesEn.files_noSavedLogin, 'Broken · connection needs changing')
   assert.ok(M.filesZh.files_noSavedLogin && M.filesZh.files_inTheWay && M.filesZh.files_branchesAll)
   // the project page of a broken Store shows the same word and fix on its files and history tabs
   assert.match(src('src/client/storage/ProjectPage.tsx'), /function StoreBroken/)
@@ -272,14 +272,6 @@ test('M3: tab buttons and the fix button are named by their words', () => {
   assert.match(src('src/client/ui/index.tsx'), /aria-label=\{runner\.named\?\.\(fix, words\) \?\? words\}/)
 })
 
-test('M4: the Save-login labels sit over their inputs; the saved-login line only with saved logins', () => {
-  const pg = src('src/client/storage/pg-fields.tsx')
-  assert.match(pg, /passwordLabel/)
-  assert.match(pg, /pgLoginField/)
-  assert.match(src('src/client/storage/dialogs.tsx'), /pgLoginBodyNew/)
-  for (const lang of ['en', 'zh']) assert.ok(M.storageLocales[lang].pgLoginBodyNew && M.storageLocales[lang].pgLoginField, lang)
-})
-
 test('M5, M6: a lost Sandbox reads Lost (danger) everywhere, a word and Close on its card, no prose', () => {
   assert.equal(M.sm.sandboxStateWords({ state: 'broken', reason: 'lost' }, st), 'Lost')
   assert.equal(M.sm.sandboxStateWords({ state: 'broken', reason: 'missing' }, st), 'Lost')
@@ -298,7 +290,8 @@ test('M9, M10, M12, M13, M14: state words capitalised, short digests, loading be
   assert.equal(M.doc.shortDigest('ubuntu:24.04'), 'ubuntu:24.04')
   assert.match(src('src/client/doctor/Row.tsx'), /title=/)
   assert.match(src('src/client/storage/StoragePage.tsx'), /!view \? <Loading label=\{t\('readingStores'\)\} \/>/)
-  assert.match(src('src/client/storage/MachineStores.module.css'), /\.pgServer \{\s*flex-wrap: wrap;/)
+  // a Store row's summary wraps under its name on a narrow pane (StoreRows.module.css)
+  assert.match(src('src/client/storage/StoreRows.module.css'), /@container \(max-width: 719px\) \{\s*\.head \{[^}]*grid-template-areas: 'main chevron' 'summary summary';/)
   const api = {}
   assert.equal(M.keptState(api), undefined)
   M.keepState(api, { world: null })
@@ -505,7 +498,6 @@ test('B2 #5: the zh gaps: Doctor check words, Logs saved kind, uptime units, tim
   for (const dict of [M.storageLocales.zh, M.viewsLocales.zh]) for (const [k, v] of Object.entries(dict)) assert.ok(!v.includes('沙箱') || v.includes('沙箱隔离'), k)
   assert.equal(M.vm.stateWords('active', zhOf(M.viewsLocales)), '运行中')
   assert.equal(M.vm.stateWords('ready', zhOf(M.viewsLocales)), '就绪')
-  assert.match(src('src/client/storage/MachineStores.tsx'), /state \? storeStateWords\(state, t\) : null/)
   // no browser-locale clock is left in the client
   for (const file of ['src/client/machines/Board.tsx', 'src/client/logs/LogsPage.tsx', 'src/client/machines/SandboxOverview.tsx', 'src/client/files/HistoryGraph.tsx']) {
     assert.doesNotMatch(src(file), /new Date\([^)]*\)\.toLocale(Date|Time)?String\(/, file)

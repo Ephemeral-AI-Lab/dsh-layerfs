@@ -33,7 +33,7 @@ export interface StoreOverviewProps {
   projects: readonly StoreProject[] | undefined
   running: ReadonlyMap<string, number>
   machineState: string | null | undefined
-  onTab: (tab: 'projects' | 'backups' | 'connections') => void
+  onTab: (tab: 'projects' | 'backups') => void
   onRemove: () => void
 }
 
@@ -71,8 +71,8 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
           sub={commits ? t(commitTotalWords(commits).key, { n: commitTotalWords(commits).n }) : undefined} />
         <Tile label={t('spRunning')} value={t(sandboxes === 1 ? 'spSandboxOne' : 'spSandboxes', { n: String(sandboxes) })} />
         {pg ? (
-          <Tile label={t('pgConnectedFromLabel')} value={String((s.connectedFrom ?? []).length)} onOpen={() => onTab('connections')}
-            sub={(s.connectedFrom ?? []).map((c) => (c.machine === null ? t('pgThisComputer') : c.machine)).join(', ') || undefined} />
+          <Tile label={t('rowRunsOn')} value={String((s.attached ?? []).length)}
+            sub={(s.attached ?? []).map((a) => (a.machine === 'native' ? t('pgThisComputer') : a.machine)).join(', ') || undefined} />
         ) : (
           <Tile label={t('factLastBackup')} value={backupTileValue} title={latestCopy?.at != null ? when(latestCopy.at) : undefined}
             onOpen={() => onTab('backups')} tone={backupTileTone} sub={backupTileSub} />

@@ -27,7 +27,7 @@ import type { SessionStore } from './store.ts'
 import { withTraceContext, type Invocation } from '../layerfs/tracing.ts'
 import { classifyStore, storeOf, type StoreHealth } from './availability.ts'
 import type { SessionFailure } from '../../shared/pg-failure.ts'
-import { lastUsed, pgPlacement, reachedFrom } from '../placement.ts'
+import { attachedFrom, lastUsed, pgPlacement } from '../placement.ts'
 import { machineRows } from '../layerfs/machine-records.ts'
 
 /** How long a passed identity and readiness check stands for pre-step checks. */
@@ -454,10 +454,11 @@ export class LayerfsSessions extends Service {
   /**
    * The machine a project's Sandboxes run on: a sqlite Store's machine; for a
    * PostgreSQL Store `preferred` (the session's own machine) when it has one,
-   * else placement.ts's order: the project's last machine, a machine its
-   * database was reached from, native; never a broken or stopped one.
+   * else placement.ts's order: the project's last machine while attached, the
+   * only machine attached to its Store, else null (the session's machine is
+   * the person's pick: none attached, or several).
    */
-  private async machineFor(project: string, preferred?: string | null): Promise<string> {
+  private async machineFor(project: string, preferred?: string | null): Promise<string | null> {
     const info: any = await this.lfs.project.get(project, { detail: true })
     if (info?.engine !== 'postgresql') return info?.machine ?? 'native'
     if (preferred) return preferred
@@ -466,7 +467,7 @@ export class LayerfsSessions extends Service {
       this.lfs.store.get(storeOf(project)!, { detail: true }).catch(() => null),
       this.lfs.sandbox.list({ project, detail: true }).then((r: any) => r?.items ?? [], () => []),
     ])
-    return pgPlacement(machines, { last: lastUsed(sandboxes), reached: reachedFrom(store) })
+    return pgPlacement(machines, { last: lastUsed(sandboxes), attached: attachedFrom(store) })
   }
 
   /**
@@ -779,7 +780,7 @@ export class LayerfsSessions extends Service {
       if (metadata?.codeBranch) {
         existing = {
           sessionId, kind: 'project', project, anchor, scratch: '', branch: metadata.codeBranch,
-          machine: await this.machineFor(project), sandbox: metadata.simulation ? this.simulationSandbox(sessionId) : sandboxOf(sessionId), ws: `${metadata.simulation ? this.simulationSandbox(sessionId) : sandboxOf(sessionId)}:${WS_NAME}`,
+          machine: (await this.machineFor(project)) ?? undefined, sandbox: metadata.simulation ? this.simulationSandbox(sessionId) : sandboxOf(sessionId), ws: `${metadata.simulation ? this.simulationSandbox(sessionId) : sandboxOf(sessionId)}:${WS_NAME}`,
           state: 'closed', createdAt: Date.now(), updatedAt: Date.now(),
           simulation: metadata.simulation,
         }
@@ -799,6 +800,8 @@ export class LayerfsSessions extends Service {
       binding = { ...existing, ...selected, machine: resolved ? (resolved.kind === 'postgresql' ? existing.machine ?? 'native' : resolved.machine ?? 'native') : existing.machine, state: existing.state }
     } else {
       const machine = await this.machineFor(project, existing?.machine ?? this.state.read().pending[sessionId]?.machine)
+      // no machine named and none (or several) attached: the person picks one; nothing is guessed
+      if (!machine) throw new CliError('InvalidInput', `Choose the machine this session runs on: Store ${storeOf(project)} has no single attached machine`, null, 'refusal', null)
       const sandbox = this.simulationOf(sessionId) ? this.simulationSandbox(sessionId) : sandboxOf(sessionId)
       const branch = existing?.resumeFromArchive ? `${branchOf(sessionId)}.resume.${randomUUID().replaceAll('-', '').slice(0, 12)}` : branchOf(sessionId)
       const start = this.forkSource(sessionId, header, project)

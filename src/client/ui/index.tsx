@@ -354,8 +354,8 @@ export function FixAction({ line, fix, runner, labels }: { line: string, fix: Ru
   const [armedFor, setArmedFor] = useState(line)
   if (armedFor !== line) { setArmedFor(line); setStep('idle'); setFailed(null); setAt(null) }
   const removes = removesSomething(fix)
-  // a fix that opens something (the save-login dialog, the Doctor page) is not done when it opens
-  const opens = fix.kind === 'saveAuth' || fix.kind === 'doctor' || fix.kind === 'connectBucket'
+  // a fix that opens something (the Edit connection dialog, the Doctor page) is not done when it opens
+  const opens = fix.kind === 'connection' || fix.kind === 'doctor' || fix.kind === 'connectBucket'
   const steps: RunnableFix[] = fix.kind === 'chain' ? fix.steps : [fix]
   // a chain that removes data asks the typed-name confirm (every step listed) instead of the second press
   const typed = typedNameOf(fix)

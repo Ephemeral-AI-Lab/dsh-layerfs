@@ -1,12 +1,13 @@
 /**
- * One Store, laid out like a machine page: its head (glyph, name, state,
+ * One Store. A PostgreSQL Store has its own page (PgStorePage.tsx). A SQLite
+ * Store's is laid out like a machine page: its head (glyph, name, state,
  * family and place, checks and the Store menu), alerts and a job in flight,
  * then three tabs. Overview: tiles, what fills the database file, how the
  * Store grew, which projects wrote it, its health and details. Projects: one
- * card per project. Backups (SQLite) or Connection (PostgreSQL).
+ * card per project. Backups.
  */
 import { useEffect, useId, useState, type ReactNode } from 'react'
-import { Button, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
+import { SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import { DoctorAction } from '../doctor/Doctor.tsx'
 import type { DoctorT } from '../doctor/locale.ts'
@@ -17,10 +18,11 @@ import { Empty, Notice, PageHead, StateChip } from '../ui/index.tsx'
 import { useHostEvents } from './hooks.ts'
 import { JobPanel, OpPanel } from './JobProgress.tsx'
 import type { StorageT } from './locale.ts'
-import { brokenBlock, canAddProject, stoppedBlock, storeNoticeTone, storeStateWords, storeTip, storeTone, storeWaitsFor, type Reconnect } from './model.ts'
+import { brokenBlock, canAddProject, stoppedBlock, storeNoticeTone, storeStateWords, storeTone, storeWaitsFor, type Reconnect } from './model.ts'
 import { StoreGlyph } from './parts.tsx'
 import { Location, MachineStartAction, StoreAction, StoreMenu, storePageNotice, useStoreTip, type StoreActions } from './StoreCard.tsx'
-import { StoreBackups, StoreConnection } from './StoreLinks.tsx'
+import { StoreBackups } from './StoreLinks.tsx'
+import { PgStorePage } from './PgStorePage.tsx'
 import { StoreOverview } from './StoreOverview.tsx'
 import { StoreProjects } from './StoreProjects.tsx'
 import type { TabId } from './tabs.ts'
@@ -57,7 +59,13 @@ function StoreNoticeWords({ s, t, notice }: { s: StoreRow, t: StorageT, notice: 
   return <span title={useStoreTip(s, t)}>{notice}</span>
 }
 
-export function StorePage({ refreshKey = 0, name, view, t, api, doctorT, now, job, on, onOpenProject, onOpen, onListBucket, listingBucket, onReconnect }: StorePageProps): ReactNode {
+export function StorePage(props: StorePageProps): ReactNode {
+  const s = props.view.stores.find((x) => x.name === props.name)
+  if (s?.kind === 'postgresql' && props.on) return <PgStorePage s={s} view={props.view} t={props.t} api={props.api} now={props.now} on={props.on} onOpenProject={props.onOpenProject} onOpen={props.onOpen} />
+  return <SqliteStorePage {...props} />
+}
+
+function SqliteStorePage({ refreshKey = 0, name, view, t, api, doctorT, now, job, on, onOpenProject, onOpen, onListBucket, listingBucket, onReconnect }: StorePageProps): ReactNode {
   const ids = useId()
   const s = view.stores.find((x) => x.name === name)
   const kind = s?.kind ?? 'sqlite'
@@ -89,7 +97,6 @@ export function StorePage({ refreshKey = 0, name, view, t, api, doctorT, now, jo
     overview: t('tabOverview'),
     projects: `${t('tabProjects')} ${s.projects.length}`,
     backups: `${t('backupsSection')} ${s.links.length}`,
-    connections: t('connection'),
   }
   return (
     <>
@@ -131,8 +138,6 @@ export function StorePage({ refreshKey = 0, name, view, t, api, doctorT, now, jo
         ) : tab === 'backups' ? (
           <StoreBackups store={s} view={view} t={t} now={now} on={on} runningJob={runningJob}
             onOpen={onOpen} onListBucket={onListBucket} listingBucket={listingBucket} onReconnect={onReconnect} />
-        ) : tab === 'connections' ? (
-          <StoreConnection store={s} view={view} t={t} on={on} now={now} sandboxes={machines.data?.available ? machines.data.sandboxes : undefined} />
         ) : (
           <StoreOverview store={s} view={view} t={t} api={api} now={now} stats={stats.data} statsError={stats.error} projects={projects.data?.projects} running={running}
             machineState={machineState} onTab={setTab} onRemove={pg ? on.disconnect : on.remove} />

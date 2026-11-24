@@ -5,7 +5,7 @@
  */
 import type { MachinePlatformInfo } from '../../machines/model.ts'
 import { engineStart, machineBlock, type HostOs } from '../../machines/needs.ts'
-import { connectedMachines, pgDefaultMachine } from '../../storage/model.ts'
+import { attachedMachines, pgDefaultMachine } from '../../storage/model.ts'
 import type { StorageView, StoreRow } from '../../storage/types.ts'
 
 export type StoreKind = 'sqlite' | 'postgresql'
@@ -67,12 +67,11 @@ export const pickable = (name: string, blocks: ReadonlyMap<string, TileBlock>): 
 
 /**
  * Where a project runs: its SQLite Store's machine; for a PostgreSQL Store
- * the machines its database is connected from (spec v23: each session picks
- * its own, nothing is Store-wide).
+ * the machines attached to it (each session picks one of them).
  */
-export function runsOn(store: Pick<StoreRow, 'kind' | 'machine' | 'connectedFrom'> | undefined): string[] {
+export function runsOn(store: Pick<StoreRow, 'kind' | 'machine' | 'attached'> | undefined): string[] {
   if (!store) return []
-  return store.kind === 'postgresql' ? connectedMachines(store) : [store.machine ?? 'native']
+  return store.kind === 'postgresql' ? attachedMachines(store) : [store.machine ?? 'native']
 }
 
 /**
@@ -81,7 +80,7 @@ export function runsOn(store: Pick<StoreRow, 'kind' | 'machine' | 'connectedFrom
  * (`pgDefaultMachine`: never a broken or stopped one, native at worst), so
  * it reads available while its Store is ready and some machine can run it.
  */
-export function primaryMachine(store: Pick<StoreRow, 'kind' | 'machine' | 'connectedFrom'> | undefined, machines: Pick<StorageView, 'machines'>['machines'] = []): string | null {
+export function primaryMachine(store: Pick<StoreRow, 'kind' | 'machine' | 'attached'> | undefined, machines: Pick<StorageView, 'machines'>['machines'] = []): string | null {
   if (!store) return null
   return store.kind === 'postgresql' ? pgDefaultMachine(store, machines) : store.machine ?? 'native'
 }
@@ -123,33 +122,20 @@ export function resolveNewStoreName(
   return { slugTaken, autoName, chosenName, showField, conflictNotice: slugTaken && typedStoreName === null }
 }
 
-/**
- * A new PostgreSQL Store's login (LayerFS 2.0 saved logins): one saved before,
- * by name (`store auths`), or a new one the host saves now under `authName`
- * (`store save-auth <authName> --user <user> --password-stdin`), then names
- * on `store connect --auth`.
- */
-export type PgLogin = { auth: string } | { authName: string, user: string, password: string }
+/** A new PostgreSQL Store's login: its user and password, saved by the host for this Store (`store connect --user … --password-stdin`). */
+export interface PgLogin { user: string, password: string }
 
-/** A saved login's name, as LayerFS names things. */
-const LOGIN_NAME = /^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/
-
-/** Why a login cannot be used yet, or null. `saved`: the home's saved logins by name; a new login never takes one of them. */
-export type PgLoginProblem = 'pick' | 'name' | 'nameInvalid' | 'nameTaken' | 'user' | 'password'
-export function pgLoginProblem(login: PgLogin, saved: readonly string[]): PgLoginProblem | null {
-  if ('auth' in login) return login.auth && saved.includes(login.auth) ? null : 'pick'
-  const name = login.authName.trim()
-  if (!name) return 'name'
-  if (!LOGIN_NAME.test(name)) return 'nameInvalid'
-  if (saved.includes(name)) return 'nameTaken'
+/** Why a login cannot be used yet, or null. */
+export type PgLoginProblem = 'user' | 'password'
+export function pgLoginProblem(login: PgLogin): PgLoginProblem | null {
   if (!login.user.trim()) return 'user'
   if (!login.password) return 'password'
   return null
 }
 
-/** The connect route's login fields: a saved login's name, or a new login (the password goes to LayerFS on stdin). */
-export function pgLoginBody(login: PgLogin): { auth: string } | { authName: string, user: string, passwordValue: string } {
-  return 'auth' in login ? { auth: login.auth } : { authName: login.authName.trim(), user: login.user.trim(), passwordValue: login.password }
+/** The connect route's login fields (the password goes to LayerFS on stdin). */
+export function pgLoginBody(login: PgLogin): { user: string, passwordValue: string } {
+  return { user: login.user.trim(), passwordValue: login.password }
 }
 
 /** What a Create asks for. */
@@ -166,14 +152,14 @@ export interface CreatePlan {
   source?: string
 }
 
-export type StepId = 'check' | 'store' | 'connect' | 'init' | `place:${string}` | 'open'
+export type StepId = 'check' | 'store' | 'connect' | 'init' | `place:${string}` | `attach:${string}` | 'open'
 export interface Step { id: StepId, machine?: string }
 
 /**
- * The steps a Create runs, in order (§3). A PostgreSQL Store is on no machine
- * and has no Store-wide machine (spec v23): a new one is connected, and the
- * machine picked is the first session's own (`open` carries it). Nothing is
- * attached. Create starts no machine: a machine it needs that is
+ * The steps a Create runs, in order (§3). A PostgreSQL Store is on no machine:
+ * a new one is connected, and the machine picked is the first session's own
+ * (`open` carries it); it is attached first when it is not yet (a Sandbox
+ * runs only on an attached machine). Create starts no machine: a machine it needs that is
  * not running ({@link needsStart}) is started by the person's own press on
  * that machine's Start first (UI pass 2: no start without that press).
  */
@@ -189,6 +175,8 @@ export function createSteps(plan: CreatePlan, _view?: Pick<StorageView, 'machine
   } else {
     if (!plan.store) steps.push({ id: 'connect' })
     steps.push({ id: 'init' })
+    const first = plan.machines[0]
+    if (first && !(plan.store?.attached ?? []).some((a) => a.machine === first)) steps.push({ id: `attach:${first}`, machine: first })
   }
   const first = plan.kind === 'postgresql' ? plan.machines[0] : undefined
   steps.push({ id: 'open', ...(first ? { machine: first } : {}) })

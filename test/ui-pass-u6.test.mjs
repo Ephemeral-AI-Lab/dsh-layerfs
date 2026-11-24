@@ -23,7 +23,6 @@ await build({
       "export { locales as machineLocales } from './src/client/machines/locale.ts'",
       "export { locales as storageLocales } from './src/client/storage/locale.ts'",
       "export { commitTotalWords } from './src/client/storage/store-page.ts'",
-      "export { serverCheckWords } from './src/client/storage/machine-stores.ts'",
       "export { wordsOf } from './src/client/doctor/words.ts'",
       "export { locales as doctorLocales } from './src/client/doctor/locale.ts'",
       "export { ProjectStorageLedgers } from './src/host/routes/project-storage.ts'",
@@ -212,20 +211,14 @@ test('minor: the Doctor page re-reads the tree on Refresh; a Not checked row sho
 test('minor: the machine Stores tab and Overview count the same PostgreSQL Stores', () => {
   const m = { ...unreadable, name: 'vm', platform: 'lima', state: 'ready', reason: undefined, sandboxes: [] }
   const view = {
-    postgresql: [{ name: 'a', connectedFrom: [{ machine: 'native', reached: 'ok' }, { machine: 'vm', reached: 'ok' }], projects: 1 }, { name: 'b', connectedFrom: [{ machine: 'native', reached: null }], projects: 1 }, { name: 'c', connectedFrom: [], projects: 0 }],
+    postgresql: [{ name: 'a', attached: [{ machine: 'native', reached: 'ok' }, { machine: 'vm', reached: 'ok' }], projects: 1 }, { name: 'b', attached: [{ machine: 'native', reached: null }], projects: 1 }, { name: 'c', attached: [], projects: 0 }],
     sandboxes: [{ name: 'sb', machine: 'vm', project: 'b/web', workspaces: 0 }],
   }
-  assert.deepEqual(N.pgStoresHere(view, m), ['a', 'b'], 'connected from here (spec v23), or has a Sandbox here now')
+  assert.deepEqual(N.pgStoresHere(view, m), ['a', 'b'], 'attached here, or has a Sandbox here now')
   const en = M.machineLocales.en
-  assert.equal(en[N.pgSupportKey(0)], 'Supported · none connected from here')
-  assert.equal(fill(en[N.pgSupportKey(2)], { n: 2 }), 'Supported · 2 Stores connected from here')
+  assert.equal(en[N.pgSupportKey(0)], 'Supported · no Store attached here')
+  assert.equal(fill(en[N.pgSupportKey(2)], { n: 2 }), 'Supported · 2 Stores attached here')
   assert.match(src('src/client/machines/Spec.tsx'), /pgStoresHere\(view, m\)\.length/)
-})
-
-test('minor: a reachable server without a measured latency says "Reachable", never "— ms"', () => {
-  assert.equal(M.serverCheckWords({ state: 'ok', latencyMs: null }, storageT), 'Reachable')
-  assert.equal(M.serverCheckWords({ state: 'ok', latencyMs: 12 }, storageT), 'Reachable · 12 ms')
-  assert.equal(M.serverCheckWords({ state: 'failed', latencyMs: null }, storageT), storageT('hsUnreachable'))
 })
 
 test('minor: New workspace is not offered on a Sandbox whose daemon is gone; off with its reason otherwise', () => {
@@ -256,7 +249,7 @@ test('minor: a long image digest in the prune dialog is cut and the text wraps',
 test('every new label has English and Chinese words', () => {
   const keys = {
     machine: ['inUseCloseOne', 'inUseClose', 'inUseOpenSandboxes', 'pgSupportedNone', 'sandboxesRecordUnreadable', 'termAddOffline'],
-    storage: ['spHistoryUnread', 'spCommitsTotalOne', 'msReachable'],
+    storage: ['spHistoryUnread', 'spCommitsTotalOne'],
   }
   for (const k of keys.machine) { assert.ok(M.machineLocales.en[k], k); assert.ok(M.machineLocales.zh[k], k); assert.notEqual(M.machineLocales.zh[k], M.machineLocales.en[k], k) }
   for (const k of keys.storage) { assert.ok(M.storageLocales.en[k], k); assert.ok(M.storageLocales.zh[k], k) }
