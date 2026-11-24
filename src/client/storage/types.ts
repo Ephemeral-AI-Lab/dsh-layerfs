@@ -166,7 +166,8 @@ export type MachineSupports = readonly string[]
 
 /** GET /api/storage. */
 export interface StorageView {
-  machines: { name: string, platform: string, state: string | null, supports: MachineSupports | null, reason?: string | null }[]
+  /** `loopback`: whether the machine shares this computer's network (LayerFS's `shared` / `apart`), null when unknown. */
+  machines: { name: string, platform: string, state: string | null, supports: MachineSupports | null, reason?: string | null, loopback?: 'shared' | 'apart' | null }[]
   /** This computer (the native machine); absent from an older host. */
   computer?: { os: 'macos' | 'linux' | 'windows' | 'other', name: string | null, arch: string }
   stores: StoreRow[]

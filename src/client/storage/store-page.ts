@@ -88,7 +88,7 @@ export function growthRuns(journal: ObservationJournal | null | undefined): Grow
 export interface StoreProject {
   name: string
   created: number | null
-  totals: { saves: number, merges: number, branches: number, stored: number, metadata: number, commitLogical: number, canonical: number } | null
+  totals: { saves: number, merges: number, branches: number, stored: number, metadata: number, commitLogical: number, canonical: number, publications?: number } | null
   last: { id: string, time: number | null, branch: string, message: string } | null
   files: { files: number | null, complete: boolean } | null
   partial: boolean

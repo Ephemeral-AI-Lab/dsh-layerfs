@@ -339,7 +339,7 @@ export class Storage {
       return { name, provider: record?.provider ?? null, ...(record?.url ? { url: record.url } : {}), ...own, listed: listing?.at ?? null, files: listing?.items ?? null, error: listing?.error ?? null, stores: stores.filter((s) => s.links.some((l: { bucket: string }) => l.bucket === name)).map((s) => s.name) }
     })
     const view = {
-      machines: machines.map((m) => ({ name: m.name, platform: m.platform, state: m.state, supports: m.supports, reason: m.reason ?? null })),
+      machines: machines.map((m) => ({ name: m.name, platform: m.platform, state: m.state, supports: m.supports, reason: m.reason ?? null, loopback: m.loopback })),
       // this computer (the native machine): its OS names it
       computer: computer(),
       stores,

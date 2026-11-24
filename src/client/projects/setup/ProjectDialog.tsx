@@ -289,8 +289,11 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const chosenSqlite = sqliteMachine ?? (existing?.machine ?? fallback)
   // PostgreSQL: the first session's own machine (spec v23: nothing Store-wide), by default where the database was reached from
   const pgPicked = pgChoice && offered.some((m) => m.name === pgChoice) ? pgChoice : null
-  const chosenPg = pgPicked ?? (existing ? pgDefaultMachine(existing, (data?.machines ?? []).filter((m) => !blocks.has(m.name))) : fallback)
-  const chosen = [kind === 'sqlite' ? chosenSqlite : chosenPg]
+  // the project's last attached machine, else the only attached one, else none: the person picks (never a guessed default)
+  const chosenPg = pgPicked ?? (existing ? pgDefaultMachine(existing, (data?.machines ?? []).filter((m) => !blocks.has(m.name))) : null)
+  const chosen = kind === 'sqlite' ? [chosenSqlite] : chosenPg ? [chosenPg] : []
+  // a pick not attached yet is attached by Create (createSteps); the dialog says so
+  const willAttach = kind === 'postgresql' && chosenPg && !(existing?.attached ?? []).some((a) => a.machine === chosenPg) ? chosenPg : null
   const running = steps !== null && !error && !failure
   useEffect(() => { onBusy(running) }, [running])
   const words = wordsOf(t, data?.computer?.os)
@@ -517,11 +520,12 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
               </LocationPicker>
             </Group>
             : <Group label={t('machines')} hint={t('runsOnPg')}>
-              <LocationPicker machines={offered} value={chosenPg} onChange={setPgChoice} words={words} label={t('runsOn')}
-                current={null} fallback={fallback} blocks={blocks}>
+              <LocationPicker machines={offered} value={chosenPg ?? ''} onChange={setPgChoice} words={words} label={t('runsOn')}
+                current={null} blocks={blocks}>
                 <NewMachineTile api={api} t={t} />
               </LocationPicker>
             </Group>}
+          {willAttach ? <p className={css.notice}>{t('pgWillAttach', { machine: willAttach })}</p> : null}
           {offered.length === 0 ? <p className={css.notice}>{t('noMachines')}</p> : null}
           {/* Create starts no machine: each stopped one it needs has its own Start here */}
           <StartFirst names={stopped} words={startWords} start={(m) => startMachine(api, m)} onStarted={view.reload} />

@@ -77,8 +77,9 @@ export function runsOn(store: Pick<StoreRow, 'kind' | 'machine' | 'attached'> | 
 /**
  * The machine a project's readiness follows (§8): a SQLite Store's machine;
  * for a PostgreSQL Store the machine a new session would run on
- * (`pgDefaultMachine`: never a broken or stopped one, native at worst), so
- * it reads available while its Store is ready and some machine can run it.
+ * (`pgDefaultMachine`: never a broken or stopped one, none when the person
+ * must pick), so it reads available while its Store is ready and some
+ * machine can run it.
  */
 export function primaryMachine(store: Pick<StoreRow, 'kind' | 'machine' | 'attached'> | undefined, machines: Pick<StorageView, 'machines'>['machines'] = []): string | null {
   if (!store) return null

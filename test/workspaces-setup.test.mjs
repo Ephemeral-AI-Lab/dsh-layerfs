@@ -68,8 +68,9 @@ test('where a project runs: SQLite its Store machine; PostgreSQL the machines at
   assert.deepEqual(runsOn({ kind: 'postgresql', machine: null }), [], 'nothing attached yet')
   const machines = [{ name: 'native', state: 'ready' }, { name: 'docker', state: 'stopped' }, { name: 'vm', state: 'ready' }]
   // docker reached but stopped, vm running though its check failed: an attached running machine all the same
-  assert.equal(primaryMachine({ kind: 'postgresql', machine: null, attached: rows.slice(1) }, machines), 'vm')
-  assert.equal(primaryMachine({ kind: 'postgresql', machine: null, attached: [] }, machines), 'native', 'none attached: native')
+  assert.equal(primaryMachine({ kind: 'postgresql', machine: null, attached: rows.slice(2) }, machines), 'vm', 'the only attached machine')
+  assert.equal(primaryMachine({ kind: 'postgresql', machine: null, attached: rows.slice(1) }, machines), null, 'several attached: the person picks')
+  assert.equal(primaryMachine({ kind: 'postgresql', machine: null, attached: [] }, machines), null, 'none attached: no machine, never native by default')
   assert.equal(primaryMachine({ kind: 'sqlite', machine: null }), 'native')
 })
 

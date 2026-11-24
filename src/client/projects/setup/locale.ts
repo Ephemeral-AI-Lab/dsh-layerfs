@@ -5,7 +5,7 @@ export const NS = 'layerfsSetup'
 
 const en = {
   ...SESSION_FAILURE_EN,
-  backToProjects: 'Projects', steps: 'Steps', stepProject: 'Project', notNamed: 'Not named yet', newWord: 'new', noneChosen: 'Pick a machine',
+  backToProjects: 'Projects', steps: 'Steps', stepProject: 'Project', notNamed: 'Not named yet', newWord: 'new', noneChosen: 'Pick a machine', pgWillAttach: 'Will attach {machine} to the Store.',
   nameHint: 'Also the name of its folder in the Store.', storeKind: 'Kind', newStore: 'New Store', existingCount: 'Existing · {n}',
   noSqlite: 'No SQLite Stores yet. Make a new one.', noPg: 'No PostgreSQL connections yet. Add a new one.',
   searchStores: 'Search {n} Stores', oneProject: '1 project', projects: '{n} projects', noStoreMatch: 'No Store matches.',
@@ -59,7 +59,7 @@ const en = {
 
 const zh: typeof en = {
   ...SESSION_FAILURE_ZH,
-  backToProjects: '项目', steps: '步骤', stepProject: '项目', notNamed: '尚未命名', newWord: '新建', noneChosen: '请选择机器',
+  backToProjects: '项目', steps: '步骤', stepProject: '项目', notNamed: '尚未命名', newWord: '新建', noneChosen: '请选择机器', pgWillAttach: '将把 {machine} 挂接到此 Store。',
   nameHint: '也是它在存储中的文件夹名。', storeKind: '类型', newStore: '新建存储', existingCount: '已有 · {n}',
   noSqlite: '还没有 SQLite 存储，请新建一个。', noPg: '还没有 PostgreSQL 连接，请新建一个。',
   searchStores: '搜索 {n} 个存储', oneProject: '1 个项目', projects: '{n} 个项目', noStoreMatch: '没有匹配的存储。',

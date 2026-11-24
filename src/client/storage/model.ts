@@ -637,13 +637,13 @@ export const pgPlaceable = (m: { state?: string | null, supports?: readonly stri
 /**
  * The machine a new session of PostgreSQL Store `s` runs on when the person
  * names none (the host's placement.ts order, without its Sandbox read): the
- * project's last machine while it is attached, an attached machine (one whose
- * last check reached the database first), else native. Never a broken or
- * stopped machine.
+ * project's last machine while it is attached, else the only attached
+ * machine, else none (null: the person picks one). Never a broken or stopped
+ * machine, and never a machine guessed.
  */
-export function pgDefaultMachine(s: Pick<StoreRow, 'attached'> | undefined, machines: readonly { name: string, state?: string | null, supports?: readonly string[] | null }[], last?: string | null): string {
+export function pgDefaultMachine(s: Pick<StoreRow, 'attached'> | undefined, machines: readonly { name: string, state?: string | null, supports?: readonly string[] | null }[], last?: string | null): string | null {
   const ok = (name: string | null | undefined): name is string => !!name && pgPlaceable(machines.find((m) => m.name === name))
   const rows = s?.attached ?? []
   if (ok(last) && rows.some((a) => a.machine === last)) return last
-  return [...rows.filter((a) => a.reached === 'ok'), ...rows.filter((a) => a.reached !== 'ok')].map((a) => a.machine).find(ok) ?? 'native'
+  return rows.length === 1 && ok(rows[0]!.machine) ? rows[0]!.machine : null
 }
