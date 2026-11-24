@@ -1,6 +1,9 @@
 # LayerFS project sessions and conversation handling
 
 Status: implementation specification, based on the session-design discussion.
+
+The Sandbox ownership decision (session-owned today vs project-owned) is open:
+see `docs/specs/refinement-decisions.md`.
 The implementation retains stock DSH formats and public plugin seams; practical
 integration details are recorded below.
 
