@@ -1,14 +1,14 @@
 /**
  * The project dialog (docs/specs/layerfs-workspaces.md §2-§4): one modal that
- * creates or imports a project in three steps (Project, Store, Runs on, on a
- * left rail), configures where one runs, and picks a project to start a
- * session in. Both kinds run on one machine: a SQLite Store's file is placed
+ * creates or imports a project (a name and one Saved in line, the last-used
+ * Store by default), configures where one runs, and picks a project to start
+ * a session in. Both kinds run on one machine: a SQLite Store's file is placed
  * there (push / pull / move); a PostgreSQL Store is on no machine, so its
- * machine is only where its sessions run. Docker is the default.
+ * machine is only where its sessions run.
  */
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { Button, IconCheckOutlineRegular, IconChevronLeftOutlineRegular, IconCloseOutlineRegular, IconFolderOpenOutlineRegular, IconPlusOutlineRegular, IconSearchOutlineRegular, IconSettingsOutlineRegular, Input, Modal, SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconCheckOutlineRegular, IconChevronLeftOutlineRegular, IconCloseOutlineRegular, IconFolderOpenOutlineRegular, IconPlusOutlineRegular, IconSearchOutlineRegular, IconSettingsOutlineRegular, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { StatusDot } from '../../ui/StatusDot.tsx'
 import type { LayerfsApi } from '../../api.ts'
 import { useQuery } from '../../files/use-query.ts'
@@ -30,7 +30,7 @@ import { sidebarHidden } from '../recent.ts'
 import { formatSessionFailure, pgStoreFailure } from '../session-failure.ts'
 import { setupStateWord, type SetupT } from './locale.ts'
 import type { MachinePlatformInfo } from '../../machines/model.ts'
-import { createSteps, defaultMachine, machinesFor, needsStart, pgLoginProblem, pickable, resolveNewStoreName, stoppedOf, tileBlocks, type CreatePlan, type PgLogin, type PgLoginProblem, type Step, type StoreKind } from './model.ts'
+import { createSteps, defaultMachine, machinesFor, needsStart, pgLoginProblem, pickable, resolveNewStoreName, stoppedOf, tileBlocks, lastUsedStore, defaultStoreChoice, type StoreChoice, type CreatePlan, type PgLogin, type PgLoginProblem, type Step, type StoreKind } from './model.ts'
 import { pgDefaultMachine, pgPlaceable } from '../../storage/model.ts'
 import { LocationPicker, StartFirst, Tick, type LocationWords } from './MachineTiles.tsx'
 import { placeStore, runStep, startMachine } from './run.ts'
@@ -75,7 +75,7 @@ export function ProjectDialog({ api, t, tl, request }: { api: LayerfsApi, t: Set
       : <Create api={api} t={t} startFromFolder={request.mode === 'import'} back={back} onBusy={setBusy} />
   const title = request.mode === 'configure' ? request.project.name ?? request.project.key.split('/')[1] ?? request.project.key
     : request.mode === 'pick' ? t('pickTitle') : request.mode === 'import' ? t('importTitle') : t('newTitle')
-  return <Modal open headless onClose={close} title={title} className={css.dialog}>
+  return <Modal open headless onClose={close} title={title} className={clsx(css.dialog, (request.mode === 'new' || request.mode === 'import') && css.narrow)}>
     {body}
   </Modal>
 }
@@ -125,19 +125,6 @@ function Group({ label, hint, children }: { label: string, hint?: string | undef
 
 // ---------- pieces ----------
 
-/** One Store kind as a card: its mark, name and what it means. */
-function KindCard({ kind, selected, t, onSelect }: { kind: StoreKind, selected: boolean, t: SetupT, onSelect: () => void }): ReactNode {
-  return <button type="button" role="radio" aria-checked={selected} className={clsx(css.kind, selected && css.selected)} onClick={onSelect}>
-    <span className={css.kindMark}><StoreKindGlyph kind={kind} size={20} /></span>
-    <span className={css.kindText}>
-      <span className={css.kindName}>{kind === 'sqlite' ? t('kindSqliteTitle') : t('kindPgTitle')}</span>
-      <span className={css.kindBlurb}>{kind === 'sqlite' ? t('kindSqliteBlurb') : t('kindPgBlurb')}</span>
-    </span>
-    <Tick on={selected} />
-  </button>
-}
-
-/** The tiles' words from this dialog's locale. */
 /** The tiles' words; `os` names the native machine (This Mac, unisolated; This computer, sandboxed; This PC). */
 const wordsOf = (t: SetupT, os?: string): LocationWords => ({ thisMac: t(os === 'linux' ? 'thisLinux' : os === 'windows' ? 'thisPc' : 'thisMac'), nativeOs: os === 'linux' ? 'linux' : os === 'windows' || os === 'other' ? 'pc' : 'mac', running: t('running'), stopped: t('stopped'), default: t('default'), here: t('here'), blocked: t('machineBlocked'), engineDown: t('engineDown'), state: (s) => setupStateWord(s, t) })
 
@@ -221,11 +208,10 @@ function Progress({ steps, plan, t, failure, initJob, partTitle, onEdit }: {
 
 // ---------- create ----------
 
+/** Where a stopped Create sends Edit: the name (0), the Store (1) or the machine (2). */
 type Part = 0 | 1 | 2
-const PARTS = [0, 1, 2] as const
-type StoreMode = 'new' | 'existing'
 
-/** What a new PostgreSQL connection still needs, for the rail: its URL, else its login's problem. */
+/** What a new PostgreSQL connection still needs: its URL, else its login's problem. */
 function pgMissing(problem: PgLoginProblem | 'url' | null, t: SetupT): string {
   switch (problem) {
     case 'url': return t('needUrl')
@@ -236,21 +222,27 @@ function pgMissing(problem: PgLoginProblem | 'url' | null, t: SetupT): string {
 }
 /** What the project starts from: nothing, or a copy of a folder on this computer. */
 type StartFrom = 'empty' | 'folder'
-/** Folder on this Mac, PC or computer, by the native machine's OS (Mac for an older host). */
-const fromFolderKey = (os?: string): 'fromFolderPc' | 'fromFolderMac' | 'fromFolderLinux' => (os === 'windows' ? 'fromFolderPc' : os === 'macos' || os === undefined ? 'fromFolderMac' : 'fromFolderLinux')
+/** `native` in a summary line: This Mac, This PC or This computer, by the host's OS (Mac for an older host). */
+const nativeKey = (os?: string): 'nativeMac' | 'nativePc' | 'nativeLinux' => (os === 'windows' ? 'nativePc' : os === 'macos' || os === undefined ? 'nativeMac' : 'nativeLinux')
 
 /**
- * Create: Project, Store and Runs on on one scrolling page; the rail shows
- * whether each is ready and jumps to it. The project starts empty or from a
- * folder (Start from); `startFromFolder` opens it on Folder (Import a folder).
- * Create runs the steps and opens a session.
+ * Create (docs/specs/layerfs-workspaces.md §3): a name (and the folder for an
+ * import) and one Saved in line. The line names the Store — the last-used
+ * one by default, else a new SQLite Store named after the project — and the
+ * machine; Change opens the Store list and the machines in place. Whatever
+ * needs the person (a stopped machine, a Store that moves, a fallback) shows
+ * under the line whether it is open or not. Create runs the steps and opens a
+ * session. `startFromFolder` opens it on a folder (Import a folder).
  */
 function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t: SetupT, startFromFolder: boolean, back?: DialogRequest | undefined, onBusy: (busy: boolean) => void }): ReactNode {
   const id = useId()
   const view = useStorage(api)
+  const recent = useRecent(api)
   const scratch = useQuery(() => api.op<{ scratchKey?: string | null }>('projects.catalog').catch(() => ({ scratchKey: null })), [api])
-  const pane = useRef<HTMLFieldSetElement>(null)
-  const sections = useRef<(HTMLElement | null)[]>([])
+  const pane = useRef<HTMLDivElement>(null)
+  const nameInput = useRef<HTMLInputElement>(null)
+  const folderInput = useRef<HTMLInputElement>(null)
+  const details = useRef<HTMLDivElement>(null)
   const [name, setName] = useState('')
   // the name follows the folder until it is typed in
   const [nameTyped, setNameTyped] = useState(false)
@@ -259,9 +251,10 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const [source, setSource] = useState('')
   const [initJob, setInitJob] = useState<ProjectInitJob | null>(null)
   const [pickerMissing, setPickerMissing] = useState(false)
-  const [kind, setKind] = useState<StoreKind>('sqlite')
-  const [mode, setMode] = useState<StoreMode>('new')
-  const [picked, setPicked] = useState<string | null>(null)
+  // null: the default (model.ts defaultStoreChoice), which follows the Stores and recent projects as they load
+  const [choice, setChoice] = useState<StoreChoice | null>(null)
+  const [open, setOpen] = useState(false)
+  const [attempted, setAttempted] = useState(false)
   const [query, setQuery] = useState('')
   const [storeName, setStoreName] = useState<string | null>(null)
   const [url, setUrl] = useState('')
@@ -276,17 +269,22 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const scratchStore = scratch.data?.scratchKey?.split('/')[0]
   const data = view.data
   const platforms = usePlatforms(api)
+  const stores = (data?.stores ?? []).filter((s) => s.name !== scratchStore)
+  const last = lastUsedStore(recent.data?.projects ?? [], stores)
+  const auto = defaultStoreChoice(last, storeUsable)
+  const picked = choice ?? auto.choice
+  const existing = picked.kind === 'existing' ? stores.find((s) => s.name === picked.store) ?? null : null
+  const kind: StoreKind = existing ? (existing.kind === 'postgresql' ? 'postgresql' : 'sqlite') : picked.kind === 'pg' ? 'postgresql' : 'sqlite'
+  const creatingStore = !existing
   const machines = machinesFor(data, kind)
   // a machine whose platform is not ready here shows blocked; the default is native when docker cannot run now
   const blocks = useMemo(() => tileBlocks(data?.machines ?? [], platforms, data?.computer?.os), [data, platforms])
   // PostgreSQL (V23-11): only machines that run now, are not broken or blocked here and run PostgreSQL Sandboxes are offered; never a stopped one
   const offered = kind === 'postgresql' ? machines.filter((m) => pgPlaceable(m) && !blocks.has(m.name)) : machines
   const fallback = defaultMachine(offered, blocks)
-  const stores = (data?.stores ?? []).filter((s) => s.kind === kind && s.name !== scratchStore)
-  const existing = mode === 'existing' ? stores.find((s) => s.name === picked) ?? null : null
   const slug = slugify(name)
   const chosenSqlite = sqliteMachine ?? (existing?.machine ?? fallback)
-  // PostgreSQL: the first session's own machine (spec v23: nothing Store-wide), by default where the database was reached from
+  // PostgreSQL: the first session's own machine (spec v23: nothing Store-wide)
   const pgPicked = pgChoice && offered.some((m) => m.name === pgChoice) ? pgChoice : null
   // the project's last attached machine, else the only attached one, else none: the person picks (never a guessed default)
   const chosenPg = pgPicked ?? (existing ? pgDefaultMachine(existing, (data?.machines ?? []).filter((m) => !blocks.has(m.name))) : null)
@@ -296,7 +294,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const running = steps !== null && !error && !failure
   useEffect(() => { onBusy(running) }, [running])
   const words = wordsOf(t, data?.computer?.os)
-  const parts: readonly Part[] = PARTS
+  const machineWord = (m: string) => (m === 'native' ? t(nativeKey(data?.computer?.os)) : m)
 
   const folderName = (path: string) => path.replace(/\/+$/, '').split('/').pop() ?? ''
   const pickSource = (path: string) => { setSource(path); if (!nameTyped) setName(folderName(path)) }
@@ -312,6 +310,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const chooseFrom = (next: StartFrom) => {
     edits.current++
     setFrom(next)
+    setAttempted(false)
     if (next === 'folder' && !source.trim() && !pickerMissing) void browse()
     if (next === 'empty' && !nameTyped) setName('')
   }
@@ -319,30 +318,35 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const storeRes = resolveNewStoreName(slug, storeName, data)
   const autoStoreName = storeRes.autoName
   const chosenStoreName = storeRes.chosenName
-  const showStoreName = mode === 'new' && storeRes.showField
-  const storeConflictNotice = mode === 'new' && storeRes.conflictNotice
-  const storeNameTaken = mode === 'new' && !!chosenStoreName && !!data?.stores.some((store) => store.name === chosenStoreName)
-  const nameError = name.trim() && !NAME.test(slug) ? t('nameInvalid') : null
-  const storeNameError = showStoreName && chosenStoreName
+  const storeConflictNotice = creatingStore && storeRes.conflictNotice
+  const storeNameTaken = creatingStore && !!chosenStoreName && !!data?.stores.some((store) => store.name === chosenStoreName)
+  // a typed or conflicting Store name is checked; a name that follows the project quietly is the project's own check
+  const storeNameError = creatingStore && storeRes.showField && chosenStoreName
     ? (!NAME.test(chosenStoreName) ? t('storeNameInvalid') : storeNameTaken ? t('storeTaken', { store: chosenStoreName }) : null)
     : null
-  const folderError = importing && source.trim() && !source.trim().startsWith('/') ? t('folderInvalid') : null
-  const loginInUrl = kind === 'postgresql' && mode === 'new' && hasPgUrlLogin(url)
-  const linuxLocalhost = kind === 'postgresql' && mode === 'new' && !loginInUrl && isLinuxLocalhostUrl(url, data?.computer?.os)
-  const urlError = kind === 'postgresql' && mode === 'new' && url.trim()
-    ? (loginInUrl ? t('urlLoginInUrl') : !PG_URL.test(url.trim()) ? t('urlInvalid') : null)
+  // the Store's first 20 project names (StoreRow.projects): LayerFS still refuses a name taken past them
+  const nameTaken = !!existing && !!slug && existing.projects.includes(slug)
+  const nameError = name.trim() && !NAME.test(slug) ? t('nameInvalid')
+    : nameTaken ? t('nameTakenInStore', { store: existing!.name, name: slug })
+      : attempted && !slug && (!importing || source.trim()) ? t('needName') : null
+  const folderError = importing && source.trim() && !source.trim().startsWith('/') ? t('folderInvalid')
+    : attempted && importing && !source.trim() ? t('needFolder') : null
+  const loginInUrl = kind === 'postgresql' && creatingStore && hasPgUrlLogin(url)
+  const linuxLocalhost = kind === 'postgresql' && creatingStore && !loginInUrl && isLinuxLocalhostUrl(url, data?.computer?.os)
+  const urlError = kind === 'postgresql' && creatingStore && (url.trim() || attempted)
+    ? (!url.trim() ? t('needUrl') : loginInUrl ? t('urlLoginInUrl') : !PG_URL.test(url.trim()) ? t('urlInvalid') : null)
     : null
   const login: PgLogin = { user: pgUser, password: pgPassword }
-  const loginProblem = kind === 'postgresql' && mode === 'new' ? pgLoginProblem(login) : null
+  const loginProblem = kind === 'postgresql' && creatingStore ? pgLoginProblem(login) : null
   // the machines Create needs that are not running: each is started by its own Start below, never by Create
   const stopped = needsStart({ kind, store: existing, machines: chosen }, data)
   const startWords = startWordsOf(t)
   const ok: Record<Part, boolean> = {
     0: NAME.test(slug) && !nameError && !folderError && (!importing || !!source.trim()),
-    1: mode === 'existing' ? !!existing && storeUsable(existing) : NAME.test(chosenStoreName) && !storeNameError && (kind === 'sqlite' || (!!url.trim() && !urlError && !loginProblem)),
+    1: existing ? storeUsable(existing) : NAME.test(chosenStoreName) && !storeNameError && (kind === 'sqlite' || (!!url.trim() && !urlError && !loginProblem)),
     2: chosen.length > 0 && chosen.every((m) => offered.some((x) => x.name === m) && pickable(m, blocks)) && stopped.length === 0,
   }
-  const valid = !!data && parts.every((i) => ok[i])
+  const valid = !!data && ok[0] && ok[1] && ok[2]
 
   const plan = (): CreatePlan => ({
     name: slug, kind, store: existing,
@@ -377,164 +381,161 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
     projectDialog.close()
   }
 
-  const chooseKind = (next: StoreKind) => { setKind(next); setMode('new'); setPicked(null); setQuery(''); setStoreName(null); setPgChoice(null); setSqliteMachine(null) }
-  const chooseMode = (next: StoreMode) => {
-    setMode(next); setStoreName(null); setPgChoice(null); setSqliteMachine(null)
-    if (next === 'existing' && !stores.some((s) => s.name === picked && storeUsable(s))) setPicked(stores.find(storeUsable)?.name ?? null)
+  const choose = (next: StoreChoice) => { setChoice(next); setStoreName(null); setPgChoice(null); setSqliteMachine(null) }
+  // Edit on a stopped Create, or a submit with something missing: the name, else the Store and machine (opened)
+  const edit = (part: Part) => {
+    if (part === 0) { (importing && !source.trim() ? folderInput : nameInput).current?.focus(); return }
+    setOpen(true)
+    requestAnimationFrame(() => details.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))
   }
   const head = <Head title={importing ? t('importTitle') : t('newTitle')} sub={importing ? t('importSub') : t('newSub')} t={t} back={running ? undefined : back} />
-  if (!data) return <>{head}<div className={css.body}><Loading read={view} t={t} /></div></>
+  // the default Store follows the recent projects: wait for them (or their failure) so it does not jump
+  if (!data || (recent.data === undefined && !recent.error)) return <>{head}<div className={css.body}><Loading read={view} t={t} /></div></>
 
   const kindWord = kind === 'sqlite' ? t('kindSqliteTitle') : t('kindPgTitle')
-  const summaries: Record<Part, string> = {
-    0: ok[0] ? (importing ? t('fromSummary', { name: slug, source: shortPath(source.trim()) }) : slug) : importing && !source.trim() ? t('needFolder') : t('notNamed'),
-    1: !ok[1] ? (mode === 'existing' ? t('pickStore') : storeNameError ? t('renameStore') : kind === 'postgresql' && NAME.test(chosenStoreName) ? pgMissing(url.trim() && !urlError ? loginProblem : 'url', t) : t('needStoreName'))
-      : existing ? `${kindWord} · ${existing.name}` : `${kindWord} · ${t('newWord')} · ${chosenStoreName}`,
-    2: ok[2] ? chosen.map((m) => m).join(', ') : stopped.length ? t('needsStart', { machine: stopped.join(', ') }) : t('noneChosen'),
-  }
-  const railTitles: Record<Part, string> = { 0: t('stepProject'), 1: t('store'), 2: t('stepMachine') }
-  const titles: Record<Part, string> = { 0: t('stepProject'), 1: t('store'), 2: kind === 'sqlite' ? t('stepMachine') : t('runsOn') }
+  const partTitles: Record<Part, string> = { 0: t('name'), 1: t('store'), 2: t('stepMachine') }
   const q = query.trim().toLowerCase()
-  const listed = stores.filter((s) => !q || s.name.toLowerCase().includes(q) || (s.postgresql?.target ?? '').toLowerCase().includes(q))
+  const ordered = [...stores].sort((a, b) => Number(b.name === last?.name) - Number(a.name === last?.name))
+  const listed = ordered.filter((s) => !q || s.name.toLowerCase().includes(q) || (s.postgresql?.target ?? '').toLowerCase().includes(q))
   const moving = kind === 'sqlite' && existing && (existing.machine ?? 'native') !== chosenSqlite
-  const jump = (i: Part) => {
-    const root = pane.current, target = sections.current[i]
-    if (!root || !target) return
-    root.scrollTo({ top: Math.max(0, target.offsetTop - 12), behavior: 'smooth' })
-  }
-  const firstMissing = parts.find((i) => !ok[i])
+  const where = kind === 'sqlite' ? machineWord(chosenSqlite) : chosenPg ? t('sumRunsOn', { machine: machineWord(chosenPg) }) : t('noneChosen')
+  // the Store's name in code type, its kind or New … in words
+  const what = existing ? <><span className={css.mono}>{existing.name}</span><span className={css.whereSep}>·</span><span>{kindWord}</span></>
+    : <><span>{kind === 'sqlite' ? t('sumNewSqlite') : t('sumNewPg')}</span>{chosenStoreName ? <span className={css.mono}>{chosenStoreName}</span> : null}</>
+  // a new Store's name follows the project's: while the project has none, the Name field says so, not this line
+  const storeProblem = ok[1] ? null : !creatingStore ? t('pickStore')
+    : storeNameError ?? (kind === 'postgresql' && chosenStoreName ? pgMissing(url.trim() && !urlError ? loginProblem : 'url', t) : chosenStoreName || storeName !== null ? t('needStoreName') : null)
+  const isOn = (c: StoreChoice) => (c.kind === 'existing' ? existing?.name === c.store : !existing && picked.kind === c.kind)
+  const fellBack = choice === null && auto.fellBack && last
+
+  const storeRow = (c: StoreChoice, main: ReactNode, note: ReactNode, extra?: { tag?: ReactNode, broken?: boolean, title?: string | undefined, fix?: ReactNode }) =>
+    <div key={c.kind === 'existing' ? c.store : `@${c.kind}`} className={clsx(css.storeRowWrap, isOn(c) && css.storeRowOn, extra?.broken && css.storeRowDisabled)}>
+      <button type="button" role="radio" aria-checked={isOn(c)} disabled={extra?.broken} className={css.storeRowBtn} title={extra?.title} onClick={() => choose(c)}>
+        <span className={css.storeName}>{main}</span>
+        {extra?.tag ?? null}
+        <span className={css.storeNote}>{note}</span>
+        {isOn(c) ? <IconCheckOutlineRegular size={14} className={css.storeCheck} /> : null}
+      </button>
+      {extra?.fix ?? null}
+    </div>
 
   return <form className={css.form} aria-busy={running}
-    onSubmit={(e) => { e.preventDefault(); if (firstMissing !== undefined) jump(firstMissing); else void create() }}>
+    onSubmit={(e) => {
+      e.preventDefault()
+      setAttempted(true)
+      const missing = ([0, 1, 2] as const).find((i) => !ok[i])
+      if (missing !== undefined) edit(missing); else void create()
+    }}>
     {head}
-    <div className={css.wizard}>
-      <fieldset ref={pane} className={css.pane} disabled={running}>
-        {steps && shown ? <Progress steps={steps} plan={shown} t={t} failure={failure} initJob={initJob} partTitle={(i) => railTitles[i]} onEdit={jump} /> : null}
-        <section ref={(el) => { sections.current[0] = el }} className={css.part} aria-labelledby={`${id}-p0`}>
-          <h3 id={`${id}-p0`} className={css.partTitle}>{titles[0]}</h3>
-          <div className={css.fields}>
-          <Group label={t('startFrom')}>
-            <SegmentedControl<StartFrom> id={`${id}-from`} className={css.modes} value={from} label={t('startFrom')} onChange={chooseFrom}
-              options={[
-                { value: 'empty', label: t('fromEmpty') },
-                { value: 'folder', label: t(fromFolderKey(data.computer?.os)) },
-              ]} />
-          </Group>
+    {/* the div scrolls: a fieldset does not clip its overflow when its height comes from flex */}
+    <div ref={pane} className={css.wizard}>
+      <fieldset className={css.pane} disabled={running}>
+        {steps && shown ? <Progress steps={steps} plan={shown} t={t} failure={failure} initJob={initJob} partTitle={(i) => partTitles[i]} onEdit={edit} /> : null}
+        <div className={css.fields}>
           {importing ? <Field label={t('folder')} hint={t('folderHint')} error={folderError}>
             <span className={css.inline}>
-              <Input value={source} className={css.mono} placeholder="/Users/me/code/shop" autoComplete="off" spellCheck={false} onChange={(e) => typeSource(e.target.value)} />
+              <Input ref={folderInput} value={source} className={css.mono} placeholder="/Users/me/code/shop" autoComplete="off" spellCheck={false} onChange={(e) => typeSource(e.target.value)} />
               {pickerMissing ? null : <Button type="button" variant="outline" size="sm" icon={<IconFolderOpenOutlineRegular size={14} />} onClick={() => void browse()}>{t('browse')}</Button>}
             </span>
           </Field> : null}
-          <Field label={t('name')} error={nameError} hint={!nameError && slug && slug !== name.trim() ? t('savedAs', { slug }) : importing && !nameTyped ? t('nameFollows') : t('nameHint')}>
-            <Input value={name} placeholder={t('namePlaceholder')} autoComplete="off" spellCheck={false} data-modal-autofocus="" onChange={(e) => { setName(e.target.value); setNameTyped(e.target.value.trim() !== '') }} />
+          <Field label={t('name')} error={nameError} hint={slug && slug !== name.trim() ? t('savedAs', { slug }) : importing && !nameTyped && source.trim() ? t('nameFollows') : null}>
+            <Input ref={nameInput} value={name} placeholder={t('namePlaceholder')} autoComplete="off" spellCheck={false} data-modal-autofocus="" onChange={(e) => { setName(e.target.value); setNameTyped(e.target.value.trim() !== '') }} />
           </Field>
-          </div>
-        </section>
 
-        <section ref={(el) => { sections.current[1] = el }} className={css.part} aria-labelledby={`${id}-p1`}>
-          <h3 id={`${id}-p1`} className={css.partTitle}>{titles[1]}</h3>
-          <div className={css.fields}>
-          <Group label={t('storeKind')}>
-            <div className={css.kinds} role="radiogroup" aria-label={t('storeKind')}>
-              {(['sqlite', 'postgresql'] as const).map((k) => <KindCard key={k} kind={k} t={t} selected={kind === k} onSelect={() => chooseKind(k)} />)}
+          <section className={css.field} aria-labelledby={`${id}-where`}>
+            <h3 id={`${id}-where`} className={css.label}>{t('savedIn')}</h3>
+            <div className={css.where}>
+              <span className={css.whereMark} aria-hidden="true"><StoreKindGlyph kind={kind} size={16} /></span>
+              <span className={css.whereText}>
+                {what}
+                <span className={css.whereSep}>·</span>
+                <span>{where}</span>
+                {existing && existing.name === last?.name ? <span className={css.lastUsed}>{t('lastUsed')}</span> : null}
+              </span>
+              <Button type="button" variant="ghost" size="sm" aria-expanded={open} aria-controls={`${id}-details`} onClick={() => setOpen((o) => !o)}>
+                {open ? t('hideDetails') : t('change')}
+              </Button>
             </div>
-          </Group>
-          <div className={css.field} data-invalid={storeNameError ? '' : undefined}>
-            <h3 className={css.label}>{t('store')}</h3>
-            <div className={css.storeModeRow}>
-              <SegmentedControl<StoreMode> id={`${id}-mode`} className={css.modes} value={mode} label={t('store')} onChange={chooseMode}
-                options={[
-                  { value: 'new', label: kind === 'sqlite' ? t('newStore') : t('newConnection') },
-                  { value: 'existing', label: t('existingCount', { n: stores.length }) },
-                ]} />
-              {showStoreName ? <Input value={storeName ?? autoStoreName} className={clsx(css.mono, css.storeNameInput)} aria-label={t('storeName')}
-                placeholder={autoStoreName} autoComplete="off" spellCheck={false}
-                onChange={(e) => setStoreName(e.target.value)} /> : null}
+            {fellBack ? <p className={css.hint}>{t('lastFellBack', { store: last.name })} <button type="button" className={css.inlineLink} onClick={() => setOpen(true)}>{t('show')}</button></p> : null}
+            {storeConflictNotice ? <p className={css.storeConflictNotice} role="status">{t('storeNameAutoHint', { taken: slug, store: chosenStoreName })}</p> : null}
+            {!open && attempted && storeProblem ? <span className={css.error} role="alert">{storeProblem}</span> : null}
+            {willAttach ? <p className={css.hint}>{t('pgWillAttach', { machine: willAttach })}</p> : null}
+            {moving ? <p className={css.warn}>{t('moveWarn', { store: existing!.name, machine: chosenSqlite, n: Math.max(0, (existing!.projectsCount ?? existing!.projects.length)) })}</p> : null}
+            {offered.length === 0 ? <p className={css.notice}>{t('noMachines')}</p> : null}
+            {/* Create starts no machine: each stopped one it needs has its own Start here */}
+            <StartFirst names={stopped} words={startWords} start={(m) => startMachine(api, m)} onStarted={view.reload} />
+          </section>
+
+          {open ? <div ref={details} id={`${id}-details`} className={css.details}>
+            <div className={css.field}>
+              <h3 className={css.label}>{t('store')}</h3>
+              <div className={css.storeList}>
+                {stores.length > 6 ? <div className={css.storeSearch}>
+                  <IconSearchOutlineRegular size={14} className={css.searchIcon} />
+                  <input className={css.search} value={query} placeholder={t('searchStores', { n: stores.length })} aria-label={t('searchStores', { n: stores.length })}
+                    onChange={(e) => setQuery(e.target.value)} />
+                </div> : null}
+                <div role="radiogroup" aria-label={t('store')}>
+                  {stores.length ? <div className={css.storeGroup}>{t('existingGroup')}</div> : null}
+                  {listed.map((s) => {
+                    const storeFail = s.kind === 'postgresql' ? formatSessionFailure(pgStoreFailure(s), null, t, s.name, s) : null
+                    const broken = !storeUsable(s)
+                    const count = s.projectsCount ?? s.projects.length
+                    return storeRow({ kind: 'existing', store: s.name },
+                      <><StoreKindGlyph kind={s.kind === 'postgresql' ? 'postgresql' : 'sqlite'} size={14} /> {s.name}</>,
+                      <>{s.kind === 'postgresql' ? s.postgresql?.target ?? '' : machineWord(s.machine ?? 'native')}{' · '}{count === 1 ? t('oneProject') : t('projects', { n: count })}</>,
+                      {
+                        tag: <>{s.name === last?.name ? <span className={css.lastUsed}>{t('lastUsed')}</span> : null}{storeFail ? <span className={clsx(css.storeStatusTag, broken ? css.storeStatusError : css.storeStatusWarn)}>{storeFail.short}</span> : null}</>,
+                        broken, title: storeFail?.message,
+                        fix: broken ? <Button type="button" variant="ghost" size="sm" className={css.storeFixBtn} onClick={() => { projectDialog.close(); openStorage(api, `store:${s.name}`) }}>{t('sfOpenStore')}</Button> : undefined,
+                      })
+                  })}
+                  {stores.length && listed.length === 0 ? <p className={css.empty}>{t('noStoreMatch')}</p> : null}
+                  <div className={css.storeGroup}>{t('newGroup')}</div>
+                  {storeRow({ kind: 'sqlite' }, <><StoreKindGlyph kind="sqlite" size={14} /> {t('newSqlite')}</>, t('newSqliteNote'))}
+                  {storeRow({ kind: 'pg' }, <><StoreKindGlyph kind="postgresql" size={14} /> {t('connectPg')}</>, t('newConnectionNote'))}
+                </div>
+              </div>
             </div>
-            {showStoreName ? (
-              storeNameError
-                ? <span className={css.error} role="alert">{storeNameError}</span>
-                : storeConflictNotice
-                  ? <p className={css.storeConflictNotice} role="status">{t('storeNameAutoHint', { taken: slug, store: chosenStoreName })}</p>
-                  : <span className={css.hint}>{t('storeNameHint')}</span>
-            ) : null}
-          </div>
-          {mode === 'new' ? <>
-            {kind === 'postgresql' ? <>
+            {creatingStore ? <Field label={t('storeName')} error={storeNameError}
+              hint={t('storeNameHint')}>
+              <Input value={storeName ?? autoStoreName} className={css.mono} placeholder={autoStoreName || 'projects'} autoComplete="off" spellCheck={false}
+                onChange={(e) => setStoreName(e.target.value)} />
+            </Field> : null}
+            {creatingStore && kind === 'postgresql' ? <>
               <Field label={t('url')} hint={t('urlHint')} error={urlError}>
                 <Input value={url} className={css.mono} placeholder="postgresql://db.internal:5432/app" autoComplete="off" spellCheck={false} onChange={(e) => setUrl(e.target.value)} />
               </Field>
               {linuxLocalhost ? <PgLocalhostNotice message={t('urlLocalhostWarn')} actionLabel={t('urlLocalhostUseIpv4')} onReplace={() => setUrl(replaceLocalhostWithIpv4(url))} /> : null}
-              <Field label={t('user')}>
-                <Input value={pgUser} className={css.mono} autoComplete="off" spellCheck={false} aria-label={t('user')} onChange={(e) => setPgUser(e.target.value)} />
-              </Field>
-              <Field label={t('password')} hint={t('passwordHint')}>
-                <Input value={pgPassword} className={css.mono} type="password" autoComplete="new-password" spellCheck={false} aria-label={t('password')} onChange={(e) => setPgPassword(e.target.value)} />
-              </Field>
+              <div className={css.pair}>
+                <Field label={t('user')} error={attempted && loginProblem === 'user' ? t('needUser') : null}>
+                  <Input value={pgUser} className={css.mono} autoComplete="off" spellCheck={false} aria-label={t('user')} onChange={(e) => setPgUser(e.target.value)} />
+                </Field>
+                <Field label={t('password')} error={attempted && loginProblem === 'password' ? t('needPassword') : null}>
+                  <Input value={pgPassword} className={css.mono} type="password" autoComplete="new-password" spellCheck={false} aria-label={t('password')} onChange={(e) => setPgPassword(e.target.value)} />
+                </Field>
+              </div>
+              <p className={css.hint}>{t('passwordHint')}</p>
             </> : null}
-          </> : stores.length === 0
-            ? <p className={css.empty}>{kind === 'sqlite' ? t('noSqlite') : t('noPg')}</p>
-            : <div className={css.storeList}>
-              <div className={css.storeSearch}>
-                <IconSearchOutlineRegular size={14} className={css.searchIcon} />
-                <input className={css.search} value={query} placeholder={t('searchStores', { n: stores.length })} aria-label={t('searchStores', { n: stores.length })}
-                  onChange={(e) => setQuery(e.target.value)} />
-              </div>
-              <div role="radiogroup" aria-label={t('store')}>
-                {listed.map((s) => {
-                  const storeFail = kind === 'postgresql' ? formatSessionFailure(pgStoreFailure(s), null, t, s.name, s) : null
-                  const broken = !storeUsable(s)
-                  return <div key={s.name} className={clsx(css.storeRowWrap, existing?.name === s.name && css.storeRowOn, broken && css.storeRowDisabled)}>
-                    <button type="button" role="radio" aria-checked={existing?.name === s.name} disabled={broken}
-                      className={css.storeRowBtn}
-                      title={storeFail?.message}
-                      onClick={() => { setPicked(s.name); setPgChoice(null); setSqliteMachine(null) }}>
-                      <span className={css.storeName}>{s.name}</span>
-                      {storeFail ? <span className={clsx(css.storeStatusTag, broken ? css.storeStatusError : css.storeStatusWarn)}>{storeFail.short}</span> : null}
-                      <span className={css.storeNote}>
-                        {kind === 'sqlite' ? s.machine ?? 'native' : s.postgresql?.target ?? ''}
-                        {' · '}{s.projects.length === 1 ? t('oneProject') : t('projects', { n: s.projects.length })}
-                      </span>
-                      {existing?.name === s.name ? <IconCheckOutlineRegular size={14} className={css.storeCheck} /> : null}
-                    </button>
-                    {broken ? <Button type="button" variant="ghost" size="sm" className={css.storeFixBtn}
-                      onClick={() => { projectDialog.close(); openStorage(api, `store:${s.name}`) }}>{t('sfOpenStore')}</Button> : null}
-                  </div>
-                })}
-                {listed.length === 0 ? <p className={css.empty}>{t('noStoreMatch')}</p> : null}
-              </div>
-            </div>}
-          </div>
-        </section>
-
-        <section ref={(el) => { sections.current[2] = el }} className={css.part} aria-labelledby={`${id}-p2`}>
-          <h3 id={`${id}-p2`} className={css.partTitle}>{titles[2]}</h3>
-          <div className={css.fields}>
-          {kind === 'sqlite'
-            ? <Group label={t('machines')} hint={t('locationHint')}>
-              <LocationPicker machines={machines} value={chosenSqlite} onChange={setSqliteMachine} words={words} label={t('stepMachine')}
-                current={existing ? existing.machine ?? 'native' : null} fallback={fallback} blocks={blocks}>
-                <NewMachineTile api={api} t={t} />
-              </LocationPicker>
+            <Group label={kind === 'sqlite' ? t('storeFileOn') : t('sessionRunsOn')} hint={kind === 'sqlite' ? t('storeFileHint') : t('runsOnPg')}>
+              {kind === 'sqlite'
+                ? <LocationPicker machines={machines} value={chosenSqlite} onChange={setSqliteMachine} words={words} label={t('storeFileOn')}
+                  current={existing ? existing.machine ?? 'native' : null} fallback={fallback} blocks={blocks}>
+                  <NewMachineTile api={api} t={t} />
+                </LocationPicker>
+                : <LocationPicker machines={offered} value={chosenPg ?? ''} onChange={setPgChoice} words={words} label={t('sessionRunsOn')}
+                  current={null} blocks={blocks}>
+                  <NewMachineTile api={api} t={t} />
+                </LocationPicker>}
             </Group>
-            : <Group label={t('machines')} hint={t('runsOnPg')}>
-              <LocationPicker machines={offered} value={chosenPg ?? ''} onChange={setPgChoice} words={words} label={t('runsOn')}
-                current={null} blocks={blocks}>
-                <NewMachineTile api={api} t={t} />
-              </LocationPicker>
-            </Group>}
-          {willAttach ? <p className={css.notice}>{t('pgWillAttach', { machine: willAttach })}</p> : null}
-          {offered.length === 0 ? <p className={css.notice}>{t('noMachines')}</p> : null}
-          {/* Create starts no machine: each stopped one it needs has its own Start here */}
-          <StartFirst names={stopped} words={startWords} start={(m) => startMachine(api, m)} onStarted={view.reload} />
-          {moving ? <p className={css.warn}>{t('moveWarn', { store: existing!.name, machine: chosenSqlite, n: Math.max(0, existing!.projects.length) })}</p> : null}
-          </div>
-        </section>
+          </div> : null}
+        </div>
       </fieldset>
     </div>
     <footer className={css.foot}>
-      <span className={css.footNote}>{firstMissing !== undefined && !running ? t('missing', { part: railTitles[firstMissing], what: summaries[firstMissing] }) : null}</span>
+      <Button type="button" variant="ghost" size="sm" disabled={running} onClick={() => chooseFrom(importing ? 'empty' : 'folder')}>
+        {importing ? t('fromEmptyLink') : t('fromFolderLink')}
+      </Button>
       <div className={css.footActions}>
         <Button type="button" variant="outline" disabled={running} onClick={() => projectDialog.close()}>{t('cancel')}</Button>
         <Button type="submit" variant="primary" disabled={running || !data} aria-busy={running} icon={running ? <StatusDot state="ongoing" size={13} /> : undefined}>
