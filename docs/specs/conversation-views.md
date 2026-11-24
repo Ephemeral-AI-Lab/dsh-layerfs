@@ -1,4 +1,4 @@
-# Conversation views: Files, History, Sandbox, Stats
+# Conversation views: Trajectory, Files, History, Sandbox, Stats
 
 Status: implemented with DSH's public `conversation.view` slot; no DSH change.
 
@@ -6,16 +6,24 @@ Decisions that shape this page — the split view's DSH-side deviation, the
 custom Trajectory with its owed parity, and the brand inks — are recorded in
 `docs/specs/refinement-decisions.md`.
 
-A project session's conversation gets four LayerFS tabs beside DSH's own:
+A project session's conversation gets five LayerFS tabs beside DSH's Chat:
 
 ```text
 Chat · Trajectory · Files · History · Sandbox · Stats
- DSH     DSH        dsh-layerfs
+ DSH     dsh-layerfs
 ```
 
-Chat (order 0) and Trajectory (order 10, shown only while Developer tools is
-on) are stock DSH and unchanged. Trajectory is the trace for now; the plugin's
-call log stays a Center page (`docs/specs/layerfs-logs.md`) and gets no tab.
+Chat (order 0) is stock DSH. The plugin registers the other five entries:
+Trajectory under DSH's own id (`trajectory`, order 10) one priority rank lower,
+so the slot renders the plugin's view; while LayerFS mode is on it also
+suspends DSH's stock Trajectory entry
+(`@deepseek-ai/dsh-client-ui-trajectory`) through the cordis Loader and
+re-enables it on the way out (`stock-trajectory.ts`). If that suspension fails,
+the plugin takes its own Trajectory entry back, so one tab remains (the stock
+one) and the other four tabs stay. DSH hides any entry with id `trajectory`
+while Developer tools is off, so the stock and the plugin's Trajectory are both
+hidden then. The plugin's call log stays a Center page
+(`docs/specs/layerfs-logs.md`) and gets no tab.
 
 ## 1. Seam
 
@@ -29,6 +37,7 @@ show.
 
 | Tab | id | order |
 | --- | --- | --- |
+| Trajectory | `trajectory` | 10 (priority -1; the stock entry of the same id is suspended) |
 | Files | `layerfs-files` | 20 |
 | History | `layerfs-history` | 30 |
 | Sandbox | `layerfs-sandbox` | 50 |
@@ -54,10 +63,14 @@ Constraints of the seam (reported, not worked around):
   conversation on screen is a project session: an invisible
   `conversation.session.header.actions` entry reports each mounted header, and
   `session.place` says whether it has a project (subagents included). Normal
-  workspace sessions show only Chat and Trajectory; a remembered LayerFS tab
-  falls back to Chat. In a split view with one project and one workspace
-  session the tabs show for both, and the workspace one gets the
-  "not in a LayerFS project" state.
+  workspace sessions show only Chat and the stock Trajectory; a remembered
+  LayerFS tab falls back to Chat. In a split view with one project and one
+  workspace session the tabs show for both: the DSH pane gets the five tabs and
+  the LayerFS audit Trajectory, and its composer steps aside while one of those
+  tabs is open (its LayerFS tabs say "not in a LayerFS project"). That is an
+  accepted deviation, not a bug: the faithful fix is a DSH seam (a per-session
+  view registration or a tab row filter), recorded as a request in
+  `docs/specs/refinement-decisions.md` §2.
 - Only an entry of `conversation.view` receives `openView`; nothing outside the
   tabs (Chat's messages, the header, the sidebar) can select one. Linking from
   Chat to a tab needs a public "select view" call on the conversation service.
@@ -67,12 +80,18 @@ Constraints of the seam (reported, not worked around):
 A subagent shares its root's project context (`binding.kind === 'shared'`).
 Views resolve the root through DSH's session list (`useSessions`:
 `byId[id].parentSessionId` while `origin === 'subagent'`) and read
-`session.state` for that root. All four views show the root's project; the
-Sandbox map also lists every subagent under the root.
+`session.state` for that root. Files, History, Sandbox and Stats show the
+root's project; the Sandbox map also lists every subagent under the root.
+Trajectory is the mounted session's own view (`session.trajectory`), so a
+subagent's Trajectory shows its own records.
 
-The views read on mount, on events and on a 10 s poll while visible, none of
-it a press, so they always send `session.state { observe: true }`: the read
-that changes nothing. A refused machine, Store or Workspace check comes back
+The views read `session.state { observe: true }` on mount, on
+`layerfs-session`, `layerfs-checkpoint` and `layerfs-operation` (coalesced to
+at most one read per 500 ms) and every 10 s while visible, none of it a press,
+so the read changes nothing. The content views (Files' tree, History's graph,
+Stats' storage) follow `layerfs-checkpoint` only, plus reconnect. Trajectory
+reads `session.trajectory` on its LayerFS events (1 s coalesced) and every 3 s
+while the session runs. A refused machine, Store or Workspace check comes back
 as `execution.available: false` with its reason; the binding is never
 interrupted or saved by a view's read. Interrupting stays with an explicit
 action (a message's activation) and the host's own Store availability poll.
@@ -83,9 +102,10 @@ restart:
 | Need | Operation |
 | --- | --- |
 | Binding, unsaved count, execution | `session.state { observe: true }` |
+| Trajectory and its records | `session.trajectory`, `session.trajectory.record` |
 | Files, branches, commits, diffs | the shared file views (`files/`) over the `http` op |
 | Calls per session | `logs.list { tag: "dsh:<sessionId>:" }` |
-| Live refresh | events `layerfs-session`, `layerfs-checkpoint`, `layerfs-operation`, `logs`; a 10 s poll while visible |
+| Live refresh | events `layerfs-session`, `layerfs-checkpoint`, `layerfs-operation`; a 10 s poll while visible. Content views follow `layerfs-checkpoint` only (plus reconnect); Trajectory 1 s on events, 3 s while running |
 
 ## 3. Files
 
@@ -159,6 +179,15 @@ Hovering a node or a call dims what it does not touch; selecting a call opens
 its command, timing, outcome and, when this plugin kept it, what it printed
 (`logs.output`).
 
+The map reads the log (`logs.list` per agent) and follows `logs` events. An
+event names the root session and project that changed when everything appended
+in its one-second window has exactly one owner of each; the map ignores another
+session's calls. A rotation, a partial or untagged line, an output write, or a
+window that mixed sessions or projects names none, and every open view
+refreshes. Reads are coalesced: 4 s for the map, 3 s for the project page's
+Sandboxes tab, which follows the same event filtered by project instead of root
+session. A hidden page reads nothing until it is shown.
+
 Time: calls are written to the log when they finish, so the map replays rather
 than streams. The replay clock keeps real order but paces calls so each can be
 watched: idle gaps shrink to one second, every call lasts 1.4–6 s on the
@@ -213,8 +242,17 @@ Session row.
 
 - Unit: `test/views-model.test.mjs` covers argv → nodes, root resolution and
   replay timing.
-- Browser: on a side server, a project session shows the four tabs; Files
+- Browser: on a side server, a project session shows five tabs and exactly one
+  Trajectory (the LayerFS audit view; DSH's stock entry is suspended); Files
   opens on the session branch; History shows the project graph on the session
-  branch; Sandbox draws the map with wires and replays
-  calls; Stats shows the project's storage dashboard; a folder session shows
-  the empty state.
+  branch; Sandbox draws the map with wires and replays calls; Stats shows the
+  project's storage dashboard. A folder session shows only Chat and the stock
+  Trajectory (no LayerFS tabs; a remembered LayerFS tab falls back to Chat),
+  and with Developer tools off neither Trajectory shows for either kind of
+  session.
+- Guard: make the stock entry's `update` fail; the plugin takes its own
+  Trajectory entry back, exactly one (stock) Trajectory tab remains, and the
+  other four tabs stay.
+- Split view: with one project and one DSH session the DSH pane shows the same
+  five tabs and the audit Trajectory, and no composer while one of those tabs
+  is open — the accepted deviation in §1, not a bug.

@@ -1,4 +1,4 @@
-<!-- source: 066562293f04 -->
+<!-- source: 72ce0c43b984 -->
 # 对话
 
 > **位置：** 项目会话的对话，例如 `handbook` 里的 **Fake session** · **打开方式：** 侧边栏的 LayerFS 项目列表（`Workspaces ›` LayerFS 视图 `› handbook › Fake session`）、主页的项目行、日志行里的会话名、调用上的 **打开会话**（Open session） · **源码：** 见文末
@@ -33,6 +33,9 @@ LayerFS 项目（`session.place`，没有 LayerFS 调用），标签稍后跟着
 DSH 那边的 LayerFS 标签显示**不在 LayerFS 项目中**（Not in a LayerFS project），它的轨迹是 LayerFS
 的审计视图（不显示 DSH 的 token 用量、prompt 差异和实时工具输出），打开这些 LayerFS 标签还会隐藏
 它的输入框。关掉项目会话即可回到原生 DSH。
+
+DSH 关闭 **显示代码工作视图**（Show coding view，即 Developer tools）设置时，轨迹标签会完全隐藏：
+原生 DSH 和 LayerFS 都一样。Chat 和其余 LayerFS 标签还在，重新打开设置后轨迹就会回来。
 
 ## 轨迹
 
@@ -75,6 +78,7 @@ DSH 那边的 LayerFS 标签显示**不在 LayerFS 项目中**（Not in a LayerF
 | 头部（1） | 类型标签，**第 *n* 轮 · 步骤 *n* · *工具***（Turn *n* · Step *n* · *tool*）；**×**（**关闭详情**（Close details）） | × → 关闭 | — | |
 | 标签（2） | 工具调用：**摘要**（Summary）· **参数**（Payload）· **结果**（Result）· **LayerFS** · **计时**（Timing）。消息：**摘要**（Summary）· **计时**（Timing）。有保存的检查点：**摘要**（Summary）· **LayerFS** · **计时**（Timing） | 点击，或按 ←/→ | — | |
 | 内容（3） | **摘要**（Summary）：**状态**（Status）、**调用 ID**（Call ID）、参数和结果的几行、**LayerFS 调用**（LayerFS calls，个数）、**版本**（Versions）。**参数**（Payload）：调用参数。**结果**（Result）：输出。**LayerFS**：每次调用的 CLI 写法、结果、时间、时长和版本。**计时**（Timing）：**开始**（Started）、**结束**（Ended）、**时长**（Duration） | — | 参数和结果用 `session.trajectory.record`（没有 LayerFS 调用：读会话日志） | **已截断至 64 KiB。**（Cut at 64 KiB.）、**无参数**（No arguments）、**无输出**（No output）、**此调用没有发出 LayerFS 调用。**（This call made no LayerFS calls.）、**无法读取此记录**（Could not read this record），附 **重试**（Retry） |
+| **在日志中打开**（Open in Logs） | **LayerFS** 标签里被拒绝或失败的 LayerFS 调用：在 **被拒绝：*code***（Refused: *code*）或非零 **退出码 *n***（exit *n*）的结果旁边 | 按下 → [日志](logs.md)页，并筛选到这次调用 | —（打开日志，日志会读取） | 只在被拒绝或退出码非零时出现 |
 
 ![选中一个轮次检查点：它的保存、产生的版本和“在历史中打开”](../img/conversation-checkpoint.png)
 
@@ -185,7 +189,8 @@ Sandbox 标签回答的是“谁调用了 LayerFS、在哪个分支和哪个 San
 - **工作区有 *n* 项未保存**（*n* unsaved in the workspace，琥珀色）：智能体改了文件，下一个检查点会保存它们；
   文件和历史里暂时还看不到。
 - LayerFS 调用行上的 **被拒绝：*code***（Refused: *code*）：LayerFS 拒绝了这次调用；这一行的箭头和检查器的
-  LayerFS 标签会显示调用内容。去[日志](logs.md)页查看。
+  LayerFS 标签会显示调用内容。检查器里的 **在日志中打开**（Open in Logs）会打开[日志](logs.md)页并筛选到这次调用；
+  退出码非零（**退出码 *n***（exit *n*））的失败调用也有同样的按钮。
 - 检查点上的 **未保存：*code***（Not saved: *code*）：保存被拒绝；文件还留在 Workspace 里。
 
 ## 下一步

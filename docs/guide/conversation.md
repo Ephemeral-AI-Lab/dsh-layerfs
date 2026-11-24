@@ -39,6 +39,10 @@ token usage, prompt diffs and live tool output are not shown), and opening one o
 those tabs hides its composer. This is a known deviation from a plain DSH session;
 close the project conversation to get stock DSH back.
 
+DSH also hides the Trajectory tab entirely while its **Show coding view** setting
+(Developer tools) is off: stock DSH and LayerFS alike. Chat and the other LayerFS
+tabs stay, and turning the setting back on brings the Trajectory back.
+
 ## Trajectory
 
 ![The Trajectory tab with the turn before the first opened, numbered](img/conversation-trajectory.png)
@@ -82,6 +86,7 @@ from saved receipts are shown.** appears for a session stored in LayerFS but not
 | Header (1) | Kind pill, **Turn *n* · Step *n* · *tool***; **×** (**Close details**) | × → closes | — | |
 | Tabs (2) | Tool calls: **Summary** · **Payload** · **Result** · **LayerFS** · **Timing**. Messages: **Summary** · **Timing**. A checkpoint with a save: **Summary** · **LayerFS** · **Timing** | Click, or ←/→ | — | |
 | Body (3) | **Summary**: **Status**, **Call ID**, payload and result lines, **LayerFS calls** (count), **Versions**. **Payload**: the arguments. **Result**: the output. **LayerFS**: each call's CLI words, outcome, time, duration and versions. **Timing**: **Started**, **Ended**, **Duration** | — | `session.trajectory.record` for Payload and Result (no LayerFS call: the session log) | **Cut at 64 KiB.**, **No arguments**, **No output**, **This call made no LayerFS calls.**, **Could not read this record** with **Retry** |
+| **Open in Logs** | A refused or failed LayerFS call in the **LayerFS** tab: beside its **Refused: *code*** or non-zero **exit *n*** outcome | Press → the [Logs](logs.md) page, filtered to that call | — (opens Logs, which reads) | Only for a refused call or a failed exit |
 
 ![A turn checkpoint selected: its save, the version it made and Open in History](img/conversation-checkpoint.png)
 
@@ -200,7 +205,8 @@ read.** in red beside it.
 - ***n* unsaved in the workspace** (amber): the agent changed files that the next checkpoint
   will save; Files and History do not show them yet.
 - **Refused: *code*** on a LayerFS call line: LayerFS refused it; the line's chevron and the
-  inspector's LayerFS tab show the call. Check it on the [Logs](logs.md) page.
+  inspector's LayerFS tab show the call. **Open in Logs** there opens the [Logs](logs.md) page
+  filtered to that call; a call that ended with a non-zero `exit *n*` gets the same button.
 - **Not saved: *code*** on a checkpoint: the save was refused; the files stay in the
   Workspace.
 
