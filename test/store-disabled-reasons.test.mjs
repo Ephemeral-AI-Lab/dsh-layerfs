@@ -55,7 +55,7 @@ const testPlugin = {
 
     const stubHooks = {
       'machines/context.tsx': `export const useMachinesContext = () => ({ api: { call: async () => ({}) }, useMachines: (s) => s({ data: null, loading: false, error: null }), t: (k) => k }); export const useMachinesMaybe = () => null`,
-      'ui/use-query.ts': `export const useQuery = () => ({ data: undefined, loading: false, error: null, reload: () => {} })`,
+      'ui/use-query.ts': `export const useQuery = () => ({ data: undefined, loading: false, error: null, reload: () => {} }); export const cachedAnswer = () => undefined; export const errorText = (e) => String(e?.message ?? e); export const errorCode = (e) => e?.code`,
       'storage/hooks.ts': `export const useHostEvents = () => {}`,
       'projects/hooks.ts': `export const useProjectSessions = () => ({ data: null })`,
     }

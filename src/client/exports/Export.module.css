@@ -191,6 +191,40 @@
   width: min(480px, calc(100vw - 32px));
 }
 
+/* ---------- one-line progress (the export browser's bottom bar) ---------- */
+
+.progressRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.rowLabel {
+  flex: none;
+  white-space: nowrap;
+}
+
+.rowBar {
+  flex: 1;
+  min-width: 80px;
+}
+
+.rowPath {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.progressRow .num {
+  white-space: nowrap;
+}
+
 /* ---------- inspector ---------- */
 
 .inline {

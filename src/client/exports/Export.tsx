@@ -2,8 +2,8 @@
  * Project export views (docs/specs/project-exports.md):
  * - {@link ExportProgress}: one export's progress, stop and outcome, the same
  *   in the Home dialog and History's inspector;
- * - {@link ExportDialog}: Home's "Export main…": main's head, a folder, then
- *   the progress in place (closing it leaves the export running);
+ * - ExportBrowser.tsx: Home's "Export…", History and Files in one modal with
+ *   a bottom bar (it uses {@link ExportProgress} `row` and {@link FolderInput});
  * - {@link ExportInline}: History's inspector action for the selected Commit
  *   or Branch head, its form and progress inside the inspector;
  * - {@link ExportCell}: the Home row's Size cell while an export runs (bar,
@@ -15,12 +15,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   Button, IconCheckCircleFillRegular, IconCloseOutlineRegular, IconDownloadOutlineRegular, IconFolderOpenOutlineRegular,
-  IconStopFillRegular, IconWarningOutlineRegular, Input, Modal,
+  IconStopFillRegular, IconWarningOutlineRegular, Input,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { bytes, shortId } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
-import { enc, type LayerfsApi } from '../api.ts'
-import { Contained, toneScope } from '../ui/index.tsx'
+import type { LayerfsApi } from '../api.ts'
 import {
   dismissExport, lastFolder, percentOf, revealExport, running, startExport, stopExport, stoppable, suggestedName, useExport, useExports,
   type ProjectExport,
@@ -86,15 +85,52 @@ function StopButton({ api, job, t }: { api: LayerfsApi, job: ProjectExport, t: T
  * One export's progress, stop and outcome. `onAgain` (stopped, failed) and
  * `onClose` (an ended export) add their buttons; `onChangeFolder` (failed).
  */
-export function ExportProgress({ api, job, t, onAgain, onChangeFolder, onClose }: {
+export function ExportProgress({ api, job, t, onAgain, onChangeFolder, onClose, onBackground, row = false }: {
   api: LayerfsApi, job: ProjectExport, t: Translate
   onAgain?: (() => void) | undefined
   onChangeFolder?: (() => void) | undefined
   onClose?: (() => void) | undefined
+  /** While it runs: "Run in background" (closes the view; the export goes on). */
+  onBackground?: (() => void) | undefined
+  /** One line (the export browser's bottom bar) instead of a block. */
+  row?: boolean
 }): ReactNode {
   const percent = percentOf(job)
   const left = useSecondsLeft(job)
   const [revealError, setRevealError] = useState<string | null>(null)
+  const reveal = (
+    <Button variant="outline" size="sm" icon={<IconFolderOpenOutlineRegular size={14} />}
+      onClick={() => { setRevealError(null); void revealExport(api, job.id).catch((e) => setRevealError(errorText(e))) }}>
+      {isMac() ? t('export_reveal') : t('export_revealOther')}
+    </Button>
+  )
+  if (row) {
+    const copied = job.done !== null && job.total !== null && (job.phase === 'export' || job.phase === 'finalize')
+    if (running(job)) {
+      return (
+        <div className={css.progressRow} data-export-phase={job.phase}>
+          <span className={css.rowLabel}>{phaseText(job, t)}</span>
+          <span className={css.rowBar}><Bar job={job} /></span>
+          <span className={css.num} title={job.destination}>
+            {copied ? `${t('export_bytes', { done: bytes(job.done), total: bytes(job.total) })}${job.phase === 'export' && percent !== null ? ` · ${percent}%` : ''}${left !== null ? ` · ${t('export_left', { n: left })}` : ''}` : ''}
+          </span>
+          <StopButton api={api} job={job} t={t} />
+          {onBackground ? <Button variant="outline" size="sm" onClick={onBackground}>{t('export_background')}</Button> : null}
+        </div>
+      )
+    }
+    const done = job.phase === 'done'
+    return (
+      <div className={css.progressRow} data-export-phase={job.phase}>
+        {done ? <IconCheckCircleFillRegular size={16} className={css.ok} /> : job.phase === 'stopped' ? <IconCloseOutlineRegular size={16} className={css.quiet} /> : <IconWarningOutlineRegular size={16} className={css.bad} />}
+        <span className={css.rowLabel}>{done ? t('export_done', { files: (job.files ?? 0).toLocaleString(), size: bytes(job.total) }) : job.phase === 'stopped' ? t('export_stopped') : t('export_failed')}</span>
+        <span className={`${css.rowPath} ${done ? css.mono : css.bad}`} title={done ? job.destination : job.error?.message}>{done ? job.destination : job.phase === 'failed' ? job.error?.message ?? '' : ''}</span>
+        {revealError ? <span className={css.error} role="alert">{revealError}</span> : null}
+        {done ? reveal : null}
+        {onAgain ? <Button variant="outline" size="sm" onClick={onAgain}>{done ? t('export_another') : job.phase === 'failed' ? t('export_retry') : t('export_again')}</Button> : null}
+      </div>
+    )
+  }
   if (running(job)) {
     const copied = job.done !== null && job.total !== null && job.phase !== 'prepare' && job.phase !== 'queued'
     return (
@@ -123,10 +159,7 @@ export function ExportProgress({ api, job, t, onAgain, onChangeFolder, onClose }
         </div>
         {revealError ? <p className={css.error} role="alert">{revealError}</p> : null}
         <div className={css.actions}>
-          <Button variant="outline" size="sm" icon={<IconFolderOpenOutlineRegular size={14} />}
-            onClick={() => { setRevealError(null); void revealExport(api, job.id).catch((e) => setRevealError(errorText(e))) }}>
-            {isMac() ? t('export_reveal') : t('export_revealOther')}
-          </Button>
+          {reveal}
           {onClose ? <Button variant="outline" size="sm" onClick={onClose}>{t('export_ok')}</Button> : null}
         </div>
       </div>
@@ -160,34 +193,43 @@ export function ExportProgress({ api, job, t, onAgain, onChangeFolder, onClose }
 
 /**
  * The folder field: an absolute path, typed or filled by the native dialog
- * ("Choose…", absent on a host without one), and the folder the export makes in it.
+ * ("Choose…", absent on a host without one). `pickError` reports a dialog that failed.
  */
-function FolderCard({ api, t, folder, onFolder, name, error }: {
-  api: LayerfsApi, t: Translate, folder: string, onFolder: (folder: string) => void, name: string, error: string | null
+export function FolderInput({ api, t, folder, onFolder, invalid, onPickError }: {
+  api: LayerfsApi, t: Translate, folder: string, onFolder: (folder: string) => void, invalid?: boolean, onPickError?: (message: string | null) => void
 }): ReactNode {
   const [pickerMissing, setPickerMissing] = useState(false)
-  const [pickError, setPickError] = useState<string | null>(null)
   const browse = async () => {
-    setPickError(null)
+    onPickError?.(null)
     try {
       const picked = await api.pickDirectory()
       if (picked) onFolder(picked)
     } catch (e) {
       // a host without the native dialog keeps the typed path only
       if ((e as { code?: string })?.code === 'no-picker') setPickerMissing(true)
-      else setPickError(errorText(e))
+      else onPickError?.(errorText(e))
     }
   }
   return (
+    <div className={css.folderRow}>
+      <Input value={folder} autoComplete="off" spellCheck={false} className={`${css.input} ${css.mono}`} placeholder={t('export_folderPlaceholder')}
+        aria-label={t('export_folder')} aria-invalid={invalid || undefined} data-export-folder="" onChange={(e) => onFolder(e.target.value)} />
+      {pickerMissing ? null : (
+        <Button variant="outline" size="sm" type="button" data-export-pick="" onClick={() => void browse()}>{folder ? t('export_change') : t('export_choose')}</Button>
+      )}
+    </div>
+  )
+}
+
+/** The folder field with its label and the folder the export makes in it. */
+function FolderCard({ api, t, folder, onFolder, name, error }: {
+  api: LayerfsApi, t: Translate, folder: string, onFolder: (folder: string) => void, name: string, error: string | null
+}): ReactNode {
+  const [pickError, setPickError] = useState<string | null>(null)
+  return (
     <div className={css.stack}>
       <span className={css.label}>{t('export_folder')}</span>
-      <div className={css.folderRow}>
-        <Input value={folder} autoComplete="off" spellCheck={false} className={`${css.input} ${css.mono}`} placeholder={t('export_folderPlaceholder')}
-          aria-label={t('export_folder')} aria-invalid={error ? true : undefined} data-export-folder="" onChange={(e) => onFolder(e.target.value)} />
-        {pickerMissing ? null : (
-          <Button variant="outline" size="sm" type="button" data-export-pick="" onClick={() => void browse()}>{folder ? t('export_change') : t('export_choose')}</Button>
-        )}
-      </div>
+      <FolderInput api={api} t={t} folder={folder} onFolder={onFolder} invalid={!!error} onPickError={setPickError} />
       {error || pickError ? <p className={css.error} role="alert">{error ?? pickError}</p>
         : folder.trim().startsWith('/') ? <p className={css.hint}>{t('export_willCreate')} <span className={css.mono}>{join(folder.trim(), name)}</span></p>
           : <p className={css.hint}>{t('export_folderNone')}</p>}
@@ -195,98 +237,8 @@ function FolderCard({ api, t, folder, onFolder, name, error }: {
   )
 }
 
-/** The version line: Branch, latest or not, and the Commit. */
-function VersionCard({ t, branch, commit, latest, note }: { t: Translate, branch: string, commit: string | null, latest: boolean, note?: string | undefined }): ReactNode {
-  return (
-    <div className={css.stack}>
-      <span className={css.label}>{t('export_version')}</span>
-      <div className={css.card}>
-        <span className={css.cardIcon}><IconDownloadOutlineRegular size={18} /></span>
-        <span className={css.cardBody}>
-          <span className={css.cardTitle}>{branch}{latest ? <span className={css.num}> · {t('export_latest')}</span> : null}</span>
-          <span className={css.sub}><span className={css.mono}>{commit ? shortId(commit) : '…'}</span>{note ? ` · ${note}` : ''}</span>
-        </span>
-      </div>
-    </div>
-  )
-}
-
-const folderError = (folder: string, t: Translate): string | null =>
+export const folderError = (folder: string, t: Translate): string | null =>
   !folder.trim() ? t('export_folderRequired') : !folder.trim().startsWith('/') ? t('export_folderInvalid') : null
-
-/**
- * Home's "Export main…": main's head (read when the dialog opens, so the
- * export is of what was shown), a folder, then the progress in place.
- * Closing leaves a running export to the row's cell.
- */
-export function ExportDialog({ api, t, project, size, onClose, onOpenHistory }: {
-  api: LayerfsApi, t: Translate, project: string, size?: number | null | undefined
-  onClose: () => void
-  onOpenHistory?: (() => void) | undefined
-}): ReactNode {
-  const name = project.slice(project.indexOf('/') + 1)
-  const [head, setHead] = useState<string | null>(null)
-  const [headError, setHeadError] = useState<string | null>(null)
-  const [folder, setFolder] = useState(lastFolder)
-  const [tried, setTried] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [jobId, setJobId] = useState<string | null>(null)
-  const job = useExport(api, jobId)
-  useEffect(() => {
-    let live = true
-    void api.call<{ commit?: string }>('GET', `/api/projects/${enc(project)}/branches?branch=main`).then(
-      (b) => { if (live) setHead(typeof b?.commit === 'string' ? b.commit : null) },
-      (e) => { if (live) setHeadError(errorText(e)) },
-    )
-    return () => { live = false }
-  }, [api, project])
-  const problem = tried ? folderError(folder, t) : null
-  const submit = async () => {
-    setTried(true)
-    if (folderError(folder, t) || !head || busy) return
-    setBusy(true)
-    setError(null)
-    try {
-      const made = await startExport(api, { project, branch: 'main', commit: head, folder: folder.trim(), name: suggestedName(project, 'main', null) })
-      setJobId(made.id)
-    } catch (e) { setError(errorText(e)) } finally { setBusy(false) }
-  }
-  const again = () => { setJobId(null); setTried(false) }
-  const form = !job
-  const footer = form ? (
-    <div className={css.footer}>
-      <Button variant="outline" onClick={onClose}>{t('export_cancel')}</Button>
-      <Button variant="primary" disabled={!head || busy} aria-busy={busy || undefined} data-export-start="" onClick={() => void submit()}>{t('export_start')}</Button>
-    </div>
-  ) : running(job) ? (
-    <div className={css.footer}><Button variant="outline" onClick={onClose}>{t('export_background')}</Button></div>
-  ) : undefined
-  return (
-    <Contained>
-      <Modal open onClose={onClose} title={t('export_title', { name })} closeLabel={t('export_close')} className={`${toneScope} ${css.modal}`} footer={footer}>
-        <div className={css.stack} data-export-dialog={project}>
-          {form ? (
-            <>
-              <VersionCard t={t} branch="main" commit={head} latest note={size != null ? t('export_about', { size: bytes(size) }) : undefined} />
-              {headError ? <p className={css.error} role="alert">{headError}</p> : null}
-              <FolderCard api={api} t={t} folder={folder} onFolder={setFolder} name={suggestedName(project, 'main', null)} error={problem} />
-              {onOpenHistory ? (
-                <p className={css.hint}>{t('export_otherVersions')} <button type="button" className={css.link} onClick={onOpenHistory}>{t('export_openHistory')}</button></p>
-              ) : null}
-              {error ? <p className={css.error} role="alert">{error}</p> : null}
-            </>
-          ) : (
-            <>
-              <VersionCard t={t} branch={job.branch} commit={job.commit} latest={job.head} />
-              <ExportProgress api={api} job={job} t={t} onAgain={again} onChangeFolder={again} onClose={() => { void dismissExport(api, job.id); onClose() }} />
-            </>
-          )}
-        </div>
-      </Modal>
-    </Contained>
-  )
-}
 
 /**
  * History's inspector action for one version: a button, then the folder

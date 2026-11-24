@@ -58,7 +58,7 @@ const testPlugin = {
       'projects/hooks.ts': `export const useProjectMachines = () => ({ data: { available: true, machines: globalThis.__u205Machines, sandboxes: [] } }); export const useProjectSessions = () => ({ data: null })`,
       'doctor/Doctor.tsx': `export const DoctorAction = () => null`,
       'storage/hooks.ts': `export const useHostEvents = () => {}`,
-      'ui/use-query.ts': `export const useQuery = () => ({ data: undefined, loading: false, error: null, reload: () => {} })`,
+      'ui/use-query.ts': `export const useQuery = () => ({ data: undefined, loading: false, error: null, reload: () => {} }); export const cachedAnswer = () => undefined; export const errorText = (e) => String(e?.message ?? e); export const errorCode = (e) => e?.code`,
     }
     b.onResolve({ filter: /^\.\.?\/.*$/ }, (a) => {
       const resolved = join(a.resolveDir, a.path).replace(/\\/g, '/')

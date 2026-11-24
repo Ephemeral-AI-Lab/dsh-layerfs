@@ -77,8 +77,17 @@ export interface ProjectHistoryProps {
   tick?: number | undefined
   /** Opens a path at a saved id (e.g. the Files tab). */
   onOpenFile?: ((branch: string, path: string, pin: string) => void) | undefined
+  /** Tells the caller the selected version whenever it changes (closing the inspector reports nothing). */
+  onSelectionChange?: ((selection: HistorySelection) => void) | undefined
+  /** The inspector's own action for the selected version, in place of Export (the export browser's "View in Files"). */
+  inspectorAction?: ((selection: HistorySelection) => ReactNode) | undefined
+  /** The dock's export chip (default shown; the export browser has its own bar). */
+  exportChip?: boolean | undefined
   className?: string | undefined
 }
+
+/** The selected version: its Branch (an empty Branch through its fork point), its id, and whether it is that Branch's head. */
+export interface HistorySelection { branch: string, commit: string, head: boolean }
 
 /** The legend's counts, each singular or plural: "1 Branch · 3 checkpoints · 1 Layer". */
 export function treeCounts(branches: number, checkpoints: number, layers: number, t: Translate): string {
@@ -97,7 +106,7 @@ export function pickedCompare(picking: CompareEnd, to: CompareEnd, head: string 
   return { from: picking, to }
 }
 
-export function ProjectHistory({ api, project, t, initialBranch, initialCommit, tick = 0, onOpenFile, className }: ProjectHistoryProps): ReactNode {
+export function ProjectHistory({ api, project, t, initialBranch, initialCommit, tick = 0, onOpenFile, onSelectionChange, inspectorAction, exportChip = true, className }: ProjectHistoryProps): ReactNode {
   const key = `graph:${project}`
   const [view, setView] = useState<View>(() => {
     const v = { ...(saved.get(key) ?? newView()) }
@@ -456,7 +465,11 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
   const selectedLive = layout.byName.get(selectedBranch)?.live ?? true
   // a Branch head (or an empty Branch, shown at its fork point) exports as "latest"; LayerFS exports it on that Branch
   const selectedHead = !!selected && (selectedEmpty || branches.find((b) => b.name === selectedBranch)?.head === selected.id)
-  const exportAction = selected ? <ExportInline api={api} t={t} project={project} branch={selectedBranch} commit={selected.id} head={selectedHead} /> : null
+  const selection: HistorySelection | null = selected ? { branch: selectedBranch, commit: selected.id, head: selectedHead } : null
+  const exportAction = !selection ? null
+    : inspectorAction ? inspectorAction(selection)
+      : <ExportInline api={api} t={t} project={project} branch={selection.branch} commit={selection.commit} head={selection.head} />
+  useEffect(() => { if (selection) onSelectionChange?.(selection) }, [selection?.branch, selection?.commit, selection?.head])
   const inspector = selected ? (
     <aside className={css.detail} aria-label={t('files_commitDetails')}>
       <button type="button" className={css.inspectorClose} aria-label={t('files_closeDetails')} onClick={() => writeView({ selected: null, branch: '' })}><IconCloseOutlineRegular size={14} /></button>
@@ -550,7 +563,7 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
             )}
         {!ready && Object.keys(pages).length ? <Loading label={total != null ? t('files_loadingAllOf', { count: loaded.toLocaleString(), total: total.toLocaleString() }) : t('files_loadingAll', { count: loaded.toLocaleString() })} className={css.waiting} /> : null}
         <div className={css.dock}>
-          <ExportChip api={api} t={t} project={project} />
+          {exportChip ? <ExportChip api={api} t={t} project={project} /> : null}
           <span ref={setZoomSlot} className={css.zoomSlot} />
           <div className={css.mapControls} role="group" aria-label={t('files_history')}>
             {loadingAll === ALL

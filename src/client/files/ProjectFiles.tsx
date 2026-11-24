@@ -33,6 +33,8 @@ export interface ProjectFilesProps {
   tick?: number | undefined
   /** Tells the caller which Branch is shown. */
   onBranchChange?: ((branch: string) => void) | undefined
+  /** Tells the caller the version shown: the Branch, the saved id read (a pin, else the Branch's head) and whether it is the head. */
+  onVersionChange?: ((version: { branch: string, commit: string, head: boolean }) => void) | undefined
   className?: string | undefined
 }
 
@@ -75,7 +77,7 @@ export function SavedProjectFiles(props: Pick<ProjectFilesProps, 'api' | 'projec
 /** The project view's row order: folders first, then by name. */
 const byKind = (a: FsEntry, b: FsEntry) => Number(b.kind === 'dir') - Number(a.kind === 'dir') || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
 
-function FilesFrame({ api, project, t, branches, initialBranch, initialPin, initialPath, tick = 0, onBranchChange, className, more, savedOnly = false }: ProjectFilesProps & { branches: BranchInfo[], more: (() => void) | undefined, savedOnly?: boolean }) {
+function FilesFrame({ api, project, t, branches, initialBranch, initialPin, initialPath, tick = 0, onBranchChange, onVersionChange, className, more, savedOnly = false }: ProjectFilesProps & { branches: BranchInfo[], more: (() => void) | undefined, savedOnly?: boolean }) {
   const [ref, setRef] = useState(() => (initialBranch && branches.some((b) => b.name === initialBranch) ? initialBranch : branches.find((b) => b.name === 'main')?.name ?? branches[0]!.name))
   const [pin, setPin] = useState<string | undefined>(initialPin)
   const head = branches.find((b) => b.name === ref)?.head ?? undefined
@@ -90,6 +92,7 @@ function FilesFrame({ api, project, t, branches, initialBranch, initialPin, init
   const [mode, setMode] = useState<FileMode>('code')
   const openRef = useRef(open)
   openRef.current = open
+  useEffect(() => { if (at) onVersionChange?.({ branch: ref, commit: at, head: !pin || pin === head }) }, [ref, at, head, pin])
 
   // Another Branch or pinned version starts the tree over. The Branch's head moving (new
   // saves) or a refresh rereads the open folders in place, keeping what is on screen.

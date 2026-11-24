@@ -24,8 +24,8 @@ import clsx from 'clsx'
 import {
   IconChevronRightOutlineRegular, IconDownloadOutlineRegular, IconPlusOutlineRegular, IconTrashOutlineRegular, MenuItemButton,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { ExportCell, ExportDialog } from '../exports/Export.tsx'
-import { showProjectTab } from './project-tab.ts'
+import { ExportCell } from '../exports/Export.tsx'
+import { ExportBrowser } from '../exports/ExportBrowser.tsx'
 import { ago, bytes, when } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { MachineGlyph, SandboxGlyph } from '../machines/icons.tsx'
@@ -427,7 +427,7 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
                   close(); setSessionError(null)
                   void api.openProjectSession(key).catch((e: unknown) => setSessionError(String((e as Error)?.message ?? e)))
                 }}>{t('ptNewSession')}</MenuItemButton>
-                <MenuItemButton disabled={unread} icon={<IconDownloadOutlineRegular size={14} />} onSelect={() => { close(); setExporting(true) }}>{t('export_menuMain')}</MenuItemButton>
+                <MenuItemButton disabled={unread} icon={<IconDownloadOutlineRegular size={14} />} onSelect={() => { close(); setExporting(true) }}>{t('export_menu')}</MenuItemButton>
                 {onRemove ? (
                   <MenuItemButton separatorBefore danger icon={<IconTrashOutlineRegular size={14} />} onSelect={() => { close(); onRemove(store.name, p.name) }}>
                     {t('removeProject')}
@@ -440,8 +440,7 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
       </div>
       {sessionError && <p role="alert" className={css.error}>{sessionError}</p>}
       {exporting ? (
-        <ExportDialog api={api} t={tt} project={key} onClose={() => setExporting(false)}
-          onOpenHistory={() => { setExporting(false); showProjectTab(key, 'history'); openProject() }} />
+        <ExportBrowser api={api} t={tt} project={key} onClose={() => setExporting(false)} />
       ) : null}
       {job ? <div className={css.job}><JobLine job={job} t={t} label={`${store.name} · ${doingWords(job, t)}`} /></div> : null}
       {open && (

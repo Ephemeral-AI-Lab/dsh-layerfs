@@ -6,9 +6,14 @@ CLI's `project export <project> <destination> [--branch B] [--at C] [--progress]
 
 ## Where it starts
 
-- **Home › Projects**: a project row's `···` menu has **Export main…**. Its dialog
-  shows main's head (read when the dialog opens) and a folder; nothing else to
-  choose. A link opens the project's History for any other version.
+- **Home › Projects**: a project row's `···` menu has **Export…**. It opens the
+  export browser: the project's **History** and **Files** in one modal sharing one
+  selected version (it opens on main's head), over a bottom bar that names the
+  selection, takes the folder and exports. In History a Commit or a Branch tag
+  selects that version, and the inspector's **View in Files** opens Files on it;
+  in Files, choosing a Branch selects its head. A pill at the top right shows the
+  selection. The bar then shows the progress, Stop and **Run in background**, and
+  after it the outcome with **Show in Finder** and **Export another version**.
 - **Project › History** (and a project session's History tab): the inspector of
   the selected version has **Export latest `<branch>`…** (a Branch head, or an
   empty Branch at its fork point) or **Export this version…** (any other Commit
@@ -57,9 +62,11 @@ to one per 500 ms per job.
 
 One page store (`model.ts`) fed by the list and the events, shared by:
 
-- `ExportDialog` (Home): version, folder (typed, or the native dialog's
-  **Choose…** where the host has one), then the progress in place;
-  **Run in background** closes it and the row keeps the progress.
+- `ExportBrowser` (Home): `ProjectHistory` and `ProjectFiles` as tabs
+  (their `onSelectionChange` / `inspectorAction` and `onVersionChange` props),
+  the selection pill, and the bottom bar: the folder (typed, or the native
+  dialog's **Choose…** where the host has one) and Export, then
+  `ExportProgress` in its one-line form. Closing leaves the export running.
 - `ExportCell` (Home row's Size cell): a bar, the percent and a stop icon while
   it runs; the size with a check (click: show in Finder) or a warning after.
 - `ExportInline` (History inspector) and `ExportChip` (History's dock: ring,
