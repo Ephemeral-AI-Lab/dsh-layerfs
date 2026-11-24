@@ -109,19 +109,18 @@ Disconnect…. View actions: `Check all` beside the switch; `New Store` and
 |---|---|
 | Name | Feather glyph with the state dot (ready / machine stopped / operation running / needs attention), then the name |
 | Projects | Count (`N projects` when narrow) |
-| Machine | The one machine's glyph and name; stopped: the name muted and `Start` |
+| Machine | The one machine's glyph and name (opens it on Machines); stopped: the name muted and `Start` |
 | Size | The database file's size |
 | Backups | One glyph per bucket provider with a count and the worst result's dot, then the newest backup's age, or `N failed` (danger); none: `not backed up` (muted) |
 
 While an operation runs, its progress line takes the Machine, Size and Backups
 columns.
 
-Unfolded, right column: **Machine** (`Move…`, its tooltip states the move rule;
-one line: glyph with the state dot, name, provider, state words or the running
-operation, `Start` when stopped) and below it **Backups N** (`+ Add bucket`;
-one line per linked bucket: provider glyph, name, `provider · last success` or
-"last attempt failed" (danger) with the last success in the tooltip, `Back up`;
-empty: "Not backed up to any bucket").
+Unfolded, right column: **Backups N** (`+ Add bucket`; one line per linked
+bucket: provider glyph, name, `provider · last success` or "last attempt
+failed" (danger) with the last success in the tooltip, `Back up`; empty: "Not
+backed up to any bucket"). The machine is not repeated there: its name in the
+head opens it, and Push/Pull/Move are in the ⋯ menu.
 
 ⋯ menu: Open <name>, Push to… / Pull / Move to…, Back up to…, Back up now per
 bucket, Restore… (when backed up), Compact…, Remove….

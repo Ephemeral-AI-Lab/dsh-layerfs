@@ -792,9 +792,6 @@
 .pane + .pane {
   border-inline-start: 0.5px solid var(--dsw-alias-border-l2);
 }
-.paneNext {
-  margin-top: 10px;
-}
 .pane[data-stale] .projectLines {
   opacity: 0.6;
 }

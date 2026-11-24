@@ -10,9 +10,9 @@
  *   SQLite row      projects · its one machine (or the running operation) ·
  *                   size · backups (one icon per bucket provider, with a
  *                   count and the worst result's dot; the newest backup, or
- *                   failures). Unfolded, in the Machines board's bordered
- *                   panel: Projects (Add project) | Machine (Move…) and
- *                   Backups (Add bucket; Back up per bucket).
+ *                   failures); the machine's name opens it. Unfolded, in the
+ *                   Machines board's bordered panel: Projects (Add project)
+ *                   | Backups (Add bucket; Back up per bucket).
  *   PostgreSQL row  projects · machines (one icon per provider, with a count
  *                   and the worst reach's dot; Attach when none) · address
  *                   (or the host's failure and Edit connection…). Unfolded:
@@ -38,7 +38,7 @@ import { useQuery } from '../ui/use-query.ts'
 import { BucketMark, providerWords } from './BucketPage.tsx'
 import { JobLine } from './HomeCards.tsx'
 import type { StorageT } from './locale.ts'
-import { canAddProject, cardJob, inHome, storeWaitsFor } from './model.ts'
+import { canAddProject, cardJob, storeWaitsFor } from './model.ts'
 import { StoreGlyph } from './parts.tsx'
 import { StoreMenu, type StoreActions } from './StoreCard.tsx'
 import { runningByProject, type StoreProjectsView } from './store-page.ts'
@@ -542,7 +542,8 @@ function SqliteRow(props: RowProps): ReactNode {
   const machineCell = (
     <span className={css.machine} title={provider ? `${place} · ${provider}${state === 'stopped' ? ` · ${stateWord}` : ''}` : place}>
       <MachineGlyph platform={machine?.platform ?? ''} size={14} />
-      <span className={clsx(css.machineName, state === 'stopped' && css.muted)}>{place}</span>
+      <button type="button" className={clsx(css.linkPlain, css.machineName, state === 'stopped' && css.muted)} aria-label={t('openMachine', { machine: place })}
+        onClick={(e) => { stop(e); if (s.machine) on.openMachine(s.machine) }}>{place}</button>
       {state === 'stopped' ? <button type="button" className={css.link} aria-label={t('startMachine', { machine: place })} onClick={(e) => { stop(e); on.start() }}>{t('rowStart')}</button> : null}
     </span>
   )
@@ -589,30 +590,7 @@ function SqliteRow(props: RowProps): ReactNode {
       {open ? (
         <div id={`lfs-row-sqlite-${s.name}`} className={css.panel}>
           <ProjectsList {...props} action={add} />
-          <div className={css.pane}>
-            <section aria-label={t('colMachine')}>
-              <PaneHead title={t('colMachine')}>
-                <button type="button" className={mcss.columnAction} disabled={!!moveReason} title={moveReason ?? t('rowMoveRule', { machine: 'native' })} onClick={inHome(s) ? on.push : on.move}>{t('rowMove')}</button>
-              </PaneHead>
-              <ul className={mcss.lines}>
-                <li>
-                  <div className={clsx(mcss.line, css.staticLine, css.thingLine)}>
-                    <LineGlyph glyph={<MachineGlyph platform={machine?.platform ?? ''} size={14} />} tone={tone} />
-                    <button type="button" className={clsx(css.linkPlain, mcss.lineName)} title={provider ? `${place} · ${provider}` : place} onClick={() => s.machine && on.openMachine(s.machine)}>{place}</button>
-                    <span className={clsx(mcss.lineMeta, css.lineWords)}>{providerBeside(place, provider)}</span>
-                    <span className={css.lineEnd}>
-                      {running && job ? <JobLine job={job} t={t} /> : (
-                        <>
-                          <span className={css.lineState} data-tone={tone}>{stateWord}</span>
-                          {state === 'stopped' ? <button type="button" className={css.link} aria-label={t('startMachine', { machine: place })} onClick={on.start}>{t('rowStart')}</button> : null}
-                        </>
-                      )}
-                    </span>
-                  </div>
-                </li>
-              </ul>
-            </section>
-            <section className={css.paneNext} aria-label={t('backupsSection')}>
+          <section className={css.pane} aria-label={t('backupsSection')}>
               <PaneHead title={t('backupsSection')} count={s.links.length}>
                 <button type="button" className={mcss.columnAction} onClick={on.backup}>{plusSmall}{t('addBucket')}</button>
               </PaneHead>
@@ -641,8 +619,7 @@ function SqliteRow(props: RowProps): ReactNode {
                   })}
                 </ul>
               )}
-            </section>
-          </div>
+          </section>
         </div>
       ) : null}
     </li>
