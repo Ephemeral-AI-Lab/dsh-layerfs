@@ -34,17 +34,19 @@ export function registerViews(ctx: any, api: LayerfsApi): void {
   const t: Translate = ctx.locale.bind(NS)
   // Stats mounts the Storage page's project panel, with that page's copy.
   const storageT: StorageT = ctx.locale.bind(STORAGE_NS)
-  // While a LayerFS view is open the composer steps aside: a lowest-priority
+  // While a LayerFS view is open the composer steps aside: a
   // `conversation.composer` election that renders nothing (DSH keeps the stock
-  // composer mounted, so a draft survives). Approvals, questions and the
-  // subagent read-only composer outrank it and still show.
+  // composer mounted, so a draft survives). A chain elects in ASCENDING
+  // priority and the first non-null `select` wins, so this entry sits above
+  // every takeover it must yield to: approval priority 1, user questions
+  // default 0, subagent read-only -10. It renders only when none matches.
   const hidden = new Map<string, { count: number, dispose: () => void }>()
   const hideComposer = (sessionId: string) => {
     const held = hidden.get(sessionId)
     if (held) held.count++
     else {
       const dispose = ctx.slots.register({
-        name: 'conversation.composer', priority: -100,
+        name: 'conversation.composer', priority: 100,
         select: (owner: { sessionId?: string }) => (owner?.sessionId === sessionId ? true : null),
       }, HiddenComposer)
       hidden.set(sessionId, { count: 1, dispose })
