@@ -129,6 +129,10 @@ the tone lint allowlists those two values; the whale drops its `#fff` /
 
 ## Deferred design
 
+The project ↔ conversation ↔ Sandbox ↔ Workspace mapping and its open questions
+(Workspace naming, Sandbox lifecycle, machine changes, in-project UI labels) are
+recorded in `docs/specs/project-session-sandbox-mapping.md`.
+
 Session/project ownership in the sidebar and the New Session hero (the row
 mark, the DOM row hiding, the hero chip and the per-row `session.place` reads)
 is deferred to its own design: see `docs/specs/session-ownership-ui.md`.
