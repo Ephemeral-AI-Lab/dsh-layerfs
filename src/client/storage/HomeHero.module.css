@@ -391,6 +391,14 @@
   }
 }
 
+/* a phone-width Home: the lockup steps down so it stays on one line */
+@media (max-width: 420px) {
+  .lockup {
+    gap: 6px;
+    font-size: 20px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .tab,
   .runtime {
