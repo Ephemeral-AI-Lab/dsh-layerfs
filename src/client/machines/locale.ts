@@ -1253,7 +1253,7 @@ const zh: typeof en = {
   opTitle: '操作 {op}',
   opTitleUncertain: '操作 {op}（结果不确定）',
 
-  kindNative: '本机',
+  kindNative: '原生',
   kindDocker: 'Docker',
   kindAppleContainer: 'Apple Container',
   kindMicrosandbox: 'Microsandbox',

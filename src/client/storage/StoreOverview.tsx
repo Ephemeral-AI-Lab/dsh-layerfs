@@ -16,6 +16,7 @@ import type { StorageT } from './locale.ts'
 import { backupChip, overviewMachineHealth, storeStateWords } from './model.ts'
 import { latestBackupCopy, overviewBackupHealth, storeBackups } from './store-backups.ts'
 import { commitTotal, commitTotalWords, compressionOf, fileParts, growthRuns, projectShares, type ObservationJournal, type StoreProject, type StoreStats } from './store-page.ts'
+import { listWords } from './store-rows.ts'
 import type { StorageView, StoreRow } from './types.ts'
 import css from './StorePage.module.css'
 import storageCss from './Storage.module.css'
@@ -72,7 +73,7 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
         <Tile label={t('spRunning')} value={t(sandboxes === 1 ? 'spSandboxOne' : 'spSandboxes', { n: String(sandboxes) })} />
         {pg ? (
           <Tile label={t('rowRunsOn')} value={String((s.attached ?? []).length)}
-            sub={(s.attached ?? []).map((a) => (a.machine === 'native' ? t('pgThisComputer') : a.machine)).join(', ') || undefined} />
+            sub={listWords((s.attached ?? []).map((a) => a.machine)) || undefined} />
         ) : (
           <Tile label={t('factLastBackup')} value={backupTileValue} title={latestCopy?.at != null ? when(latestCopy.at) : undefined}
             onOpen={() => onTab('backups')} tone={backupTileTone} sub={backupTileSub} />

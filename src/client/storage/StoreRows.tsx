@@ -36,8 +36,8 @@ import { StoreGlyph } from './parts.tsx'
 import type { StoreActions } from './StoreCard.tsx'
 import { runningByProject, type StoreProjectsView } from './store-page.ts'
 import {
-  backupSummary, capped, LIST_ROWS, linkFailed, openFailed, pgAddress, pgStatusWord, pgSummary, reachStatus, readOpenRows,
-  REACH_LABEL, sqliteState, writeOpenRows, type ReachStatus,
+  backupSummary, capped, dotState, isLoopbackUrl, LIST_ROWS, linkFailed, listWords, loopbackShared, openFailed, pgAddress, pgStatusWord, pgSummary, providerBeside, reachStatus, readOpenRows,
+  REACH_LABEL, sqliteState, sqliteTone, writeOpenRows, type ReachStatus,
 } from './store-rows.ts'
 import { HOME_SCOPE, readStoreKind, readStoresAlt, watchHomeStores, writeStoreKind, writeStoresAlt } from './tabs.ts'
 import type { PgCheck, StorageJob, StorageView, StoreRow } from './types.ts'
@@ -169,17 +169,23 @@ export function StoreRows(props: StoreRowsProps): ReactNode {
 
 interface RowProps extends StoreRowsProps { s: StoreRow, open: boolean, onToggle: () => void }
 
-/** A row's head: the whole head toggles (its own links stop there); the left part is the toggle button for keyboards. */
-function Head({ s, open, onToggle, dot, line2, line2Title, summary, t }: {
-  s: StoreRow, open: boolean, onToggle: () => void, dot: ReactNode, line2: ReactNode, line2Title?: string | undefined, summary: ReactNode, t: StorageT
+/**
+ * A row's head: the whole head toggles (its own links stop there); the left
+ * part is the toggle button for keyboards. `copy` (Copy address) sits beside
+ * the toggle, never inside it.
+ */
+function Head({ s, open, onToggle, dot, line2, line2Title, copy, summary, t }: {
+  s: StoreRow, open: boolean, onToggle: () => void, dot: ReactNode, line2: ReactNode, line2Title?: string | undefined
+  copy?: ReactNode, summary: ReactNode, t: StorageT
 }): ReactNode {
   const body = `lfs-row-${s.kind}-${s.name}`
   return (
     <div className={css.head} onClick={onToggle} data-open={open || undefined}>
       <button type="button" className={css.main} aria-expanded={open} aria-controls={body} title={s.name} aria-label={t('rowToggle', { name: s.name })}>
-        <span className={css.line1}>{dot}<span className={css.name}>{s.name}</span></span>
+        <span className={css.line1}><span className={css.dotSlot}>{dot}</span><span className={css.name}>{s.name}</span></span>
         <span className={css.line2} title={line2Title}>{line2}</span>
       </button>
+      {copy ? <span className={css.copySlot}>{copy}</span> : null}
       <div className={css.summary}>{summary}</div>
       <span className={css.chevron} aria-hidden="true"><IconChevronDownOutlineRegular size={14} /></span>
     </div>
@@ -191,17 +197,29 @@ const stop = (e: React.SyntheticEvent) => e.stopPropagation()
 
 const Divider = () => <span className={css.divider} aria-hidden="true" />
 
-/** A check's status: its dot and label; LayerFS's words as the tooltip; its one action (Edit connection…, Start, Update…). */
-export function ReachWord({ status, t, machine, onEdit, onStart, onUpdate, compact }: {
-  status: ReachStatus, t: StorageT, machine?: string | undefined, onEdit?: (() => void) | undefined, onStart?: (() => void) | undefined, onUpdate?: (() => void) | undefined, compact?: boolean
+/** A status dot in its fixed slot: `checking` at 10 (with its words), the rest at 8. */
+export function Dot({ tone, label, t }: { tone: ReachStatus['tone'], label?: string | undefined, t: StorageT }): ReactNode {
+  if (tone === 'ongoing') return <span className={css.dotSlot} title={label ?? t('stChecking')} aria-label={label ?? t('stChecking')} role="img"><StatusDot state="ongoing" size={10} /></span>
+  return <span className={css.dotSlot}><StatusDot state={dotState(tone)} size={8} label={label} /></span>
+}
+
+/**
+ * A check's status: its dot and label; LayerFS's words as the tooltip; its one
+ * action (Edit connection…, Start, Update…). `bare`: the label alone (a row
+ * whose head dot already says it). `when`: the check's time, in the tooltip.
+ */
+export function ReachWord({ status, t, machine, onEdit, onStart, onUpdate, compact, bare, when }: {
+  status: ReachStatus, t: StorageT, machine?: string | undefined, onEdit?: (() => void) | undefined, onStart?: (() => void) | undefined, onUpdate?: (() => void) | undefined
+  compact?: boolean, bare?: boolean, when?: string | null | undefined
 }): ReactNode {
-  const dot = status.tone === 'ok' ? 'done' : status.tone === 'danger' ? 'error' : status.tone === 'warning' ? 'warning' : status.tone === 'ongoing' ? 'ongoing' : 'idle'
   const run = status.fix === 'edit' ? onEdit : status.fix === 'start' ? onStart : status.fix === 'update' ? onUpdate : undefined
   const label = status.fix === 'edit' ? t('pgEditConnectionShort') : status.fix === 'start' ? t('rowStart') : status.fix === 'update' ? t('rowUpdate') : null
+  const word = t(REACH_LABEL[status.key])
+  const title = [word, when, status.detail].filter(Boolean).join('\n')
   return (
-    <span className={css.reach} data-tone={status.tone} title={status.detail ?? undefined}>
-      <StatusDot state={dot} size={status.tone === 'ongoing' ? 11 : 8} />
-      <span className={css.reachText}>{t(REACH_LABEL[status.key])}</span>
+    <span className={css.reach} data-tone={status.tone} title={title}>
+      {bare ? null : <Dot tone={status.tone} t={t} />}
+      <span className={css.reachText}>{word}</span>
       {!compact && run && label ? <button type="button" className={css.link} aria-label={status.fix === 'start' && machine ? t('startMachine', { machine }) : undefined} onClick={(e) => { stop(e); run() }}>{label}</button> : null}
     </span>
   )
@@ -223,10 +241,17 @@ export function CopyAddress({ text, t }: { text: string, t: StorageT }): ReactNo
   )
 }
 
+/** The loopback note for a Store at `url`: which machines share this computer's network (LayerFS's `loopback`), or null for an address that is not local. */
+export function loopbackNote(url: string | null | undefined, machines: StorageView['machines'], t: StorageT): string | null {
+  if (!isLoopbackUrl(url)) return null
+  const names = loopbackShared(machines)
+  return names.length ? t('pgLoopbackNote', { names: listWords(names) }) : t('pgLoopbackNoteNone')
+}
+
 // ---------- PostgreSQL ----------
 
 function PgRow(props: RowProps & { checking: boolean, onCheck: () => void }): ReactNode {
-  const { s, t, view, open, onToggle } = props
+  const { s, t, view, open, onToggle, now } = props
   const on = props.actionsFor(s)
   const mc = useMachinesMaybe()
   const checkingSides = new Set(props.checking ? ['host', ...(s.attached ?? []).map((a) => a.machine)] : [])
@@ -235,36 +260,59 @@ function PgRow(props: RowProps & { checking: boolean, onCheck: () => void }): Re
   const address = pgAddress(s)
   const word = pgStatusWord(sum)
   const projects = t(sum.projects === 1 ? 'msProjectOne' : 'msProjectCount', { n: sum.projects })
-  const dot = <StatusDot state={sum.host.tone === 'ok' ? 'done' : hostFailed ? 'error' : sum.host.tone === 'ongoing' ? 'ongoing' : 'idle'} size={sum.host.tone === 'ongoing' ? 11 : 8} label={t(REACH_LABEL[sum.host.key])} />
+  const at = s.postgresql?.host?.at
+  const hostTip = at ? t('rowHostDot', { status: t(REACH_LABEL[sum.host.key]), when: ago(at, now, t as Translate) }) : t('rowHostDotNever', { status: t(REACH_LABEL[sum.host.key]) })
+  const loopTip = word?.key === 'pgRowLoopback' ? loopbackNote(s.postgresql?.url, view.machines, t) : null
+  const one = sum.machines.length === 1 ? sum.machines[0]! : null
+  const kind = (platform: string | null) => mc?.kind(platform ?? '') ?? platform ?? ''
+  const machines = !sum.machines.length ? (
+    <span className={css.machine}>
+      <span className={css.muted}>{t('rowNoMachines')}</span>
+      <button type="button" className={css.link} onClick={(e) => { stop(e); on.attach() }}>{t('rowAttachShort')}</button>
+    </span>
+  ) : one ? (
+    <span className={css.machine} title={`${one.machine} · ${kind(one.platform)} · ${t(REACH_LABEL[one.status.key])}`}>
+      <span className={css.icon}><MachineGlyph platform={one.platform ?? ''} size={14} /><StatusDot className={css.iconDot} state={dotState(one.status.tone)} size={6} /></span>
+      <span className={css.machineName}>{one.machine}</span>
+    </span>
+  ) : (
+    <span className={css.machine} aria-label={sum.machines.map((m) => `${m.machine}: ${t(REACH_LABEL[m.status.key])}`).join(', ')}>
+      <span className={css.icons}>
+        {sum.shown.map((m) => (
+          <span key={m.machine} className={css.icon} title={`${m.machine} · ${kind(m.platform)} · ${t(REACH_LABEL[m.status.key])}`}>
+            <MachineGlyph platform={m.platform ?? ''} size={14} />
+            <StatusDot className={css.iconDot} state={dotState(m.status.tone)} size={6} />
+          </span>
+        ))}
+        {sum.more ? <span className={css.more}>{`+${sum.more}`}</span> : null}
+      </span>
+      <span className={css.muted}>{t('rowMachines', { n: sum.machines.length })}</span>
+    </span>
+  )
   const summary = hostFailed ? (
     <>
       <span className={css.num}>{projects}</span>
       <Divider />
-      <ReachWord status={sum.host} t={t} compact />
+      <ReachWord status={sum.host} t={t} bare compact />
       <button type="button" className={css.link} onClick={(e) => { stop(e); on.editConnection() }}>{t('pgEditConnectionShort')}</button>
     </>
   ) : (
     <>
       <span className={css.num}>{projects}</span>
       <Divider />
-      <span className={css.icons} aria-label={sum.machines.map((m) => `${m.machine}: ${t(REACH_LABEL[m.status.key])}`).join(', ') || undefined}>
-        {sum.shown.map((m) => (
-          <span key={m.machine} className={css.icon} title={`${m.machine} · ${mc?.kind(m.platform ?? '') ?? m.platform ?? ''} · ${t(REACH_LABEL[m.status.key])}`}>
-            <MachineGlyph platform={m.platform ?? ''} size={14} />
-            <span className={css.iconDot} data-tone={m.status.tone} />
-          </span>
-        ))}
-        {sum.more ? <span className={css.more}>{`+${sum.more}`}</span> : null}
-      </span>
-      <span className={css.muted}>{sum.machines.length ? t(sum.machines.length === 1 ? 'rowMachineOne' : 'rowMachines', { n: sum.machines.length }) : t('rowNoMachines')}</span>
-      {word ? <span className={css.word} data-tone={word.tone}>{t(word.key, { n: word.n })}</span> : null}
+      {machines}
+      {word ? <><Divider /><span className={css.word} data-tone={word.tone} title={loopTip ?? undefined}>{t(word.key, { n: word.n })}</span></> : null}
     </>
   )
   return (
     <li className={css.row} data-store={s.name} data-kind="postgresql" data-host={sum.host.key}>
-      <Head s={s} open={open} onToggle={onToggle} dot={dot} t={t} summary={summary}
-        line2={address ? <><span className={css.mono}>{address}</span><span onClick={stop}><CopyAddress text={s.postgresql?.url ?? address} t={t} /></span></> : <span className={css.muted}>{t('rowNoAddress')}</span>}
-        line2Title={address ?? undefined} />
+      <Head s={s} open={open} onToggle={onToggle} t={t} summary={summary}
+        dot={sum.host.tone === 'ongoing'
+          ? <span className={css.dotSlot} role="img" title={t('stChecking')} aria-label={t('stChecking')}><StatusDot state="ongoing" size={10} /></span>
+          : <StatusDot state={dotState(sum.host.tone)} size={8} label={hostTip} />}
+        line2={address ? <span className={css.mono}>{address}</span> : <span className={css.muted}>{t('rowNoAddress')}</span>}
+        line2Title={address ?? undefined}
+        copy={address ? <CopyAddress text={s.postgresql?.url ?? address} t={t} /> : undefined} />
       {open ? (
         <div id={`lfs-row-postgresql-${s.name}`} className={css.body}>
           <div className={css.columns}>
@@ -290,8 +338,9 @@ function PgRow(props: RowProps & { checking: boolean, onCheck: () => void }): Re
 
 /**
  * The machines attached to a PostgreSQL Store, one row each: its mark, name,
- * provider, its reach, then × (detach) or, while Sandboxes of the Store run
- * there, their count. `cap` rows, then `+N →`.
+ * provider, the running Sandboxes' count, its reach, then × (detach; kept
+ * disabled with why while Sandboxes of the Store run there). `cap` rows, then
+ * `+N →`. On a narrow column the reach goes under the name.
  */
 export function RunsOnList({ s, view, t, on, checking, sandboxes, cap, onMore }: {
   s: StoreRow, view: Pick<StorageView, 'machines'>, t: StorageT, on: StoreActions, checking?: ReadonlySet<string> | undefined
@@ -308,21 +357,21 @@ export function RunsOnList({ s, view, t, on, checking, sandboxes, cap, onMore }:
           const record = view.machines.find((m) => m.name === a.machine)
           const status = reachStatus(a.reach, { checking: checking?.has(a.machine), machine: record ? { state: record.state, reason: record.reason ?? null } : null })
           const boxes = (sandboxes ?? []).filter((b) => (b.machine ?? 'native') === a.machine && b.project?.startsWith(`${s.name}/`)).length
+          const provider = mc?.kind(record?.platform ?? '') ?? record?.platform ?? ''
+          const beside = providerBeside(a.machine, provider)
+          const busy = boxes ? t('rowDetachBusy', { n: boxes, machine: a.machine }) : null
           return (
-            <li key={a.machine} className={css.item} data-machine={a.machine}>
+            <li key={a.machine} className={clsx(css.item, css.machineItem)} data-machine={a.machine}>
               <span className={css.itemMark}><MachineGlyph platform={record?.platform ?? ''} size={14} /></span>
-              <button type="button" className={clsx(css.itemName, css.linkPlain)} title={a.machine} onClick={() => on.openMachine(a.machine)}>{a.machine === 'native' ? t('pgThisComputer') : a.machine}</button>
-              <span className={css.itemMeta}>{mc?.kind(record?.platform ?? '') ?? record?.platform ?? ''}</span>
-              <ReachWord status={status} t={t} machine={a.machine} onEdit={on.editConnection} onStart={() => on.startMachine(a.machine)} onUpdate={() => on.openMachine(a.machine)} />
-              {boxes ? (
-                <span className={css.boxes} title={t('rowDetachBusy', { n: boxes, machine: a.machine })} aria-label={t(boxes === 1 ? 'pgSandboxOne' : 'pgSandboxes', { n: boxes })}>
-                  <SandboxGlyph size={12} />{boxes}
-                </span>
-              ) : (
-                <button type="button" className={css.detach} aria-label={t('rowDetach', { machine: a.machine })} title={t('rowDetach', { machine: a.machine })} onClick={() => on.detach(a.machine)}>
-                  <IconCloseOutlineRegular size={11} />
-                </button>
-              )}
+              <button type="button" className={clsx(css.linkPlain, css.itemName)} title={provider ? `${a.machine} · ${provider}` : a.machine} onClick={() => on.openMachine(a.machine)}>{a.machine}</button>
+              <span className={css.itemMeta}>{beside}</span>
+              <span className={css.itemEnd}>
+                {boxes ? <span className={css.boxes} title={busy ?? undefined} aria-label={t(boxes === 1 ? 'pgSandboxOne' : 'pgSandboxes', { n: boxes })}><SandboxGlyph size={12} />{boxes}</span> : null}
+                <ReachWord status={status} t={t} machine={a.machine} onEdit={on.editConnection} onStart={() => on.startMachine(a.machine)} onUpdate={() => on.openMachine(a.machine)} />
+              </span>
+              <button type="button" className={css.detach} disabled={!!busy} aria-label={t('rowDetach', { machine: a.machine })} title={busy ?? t('rowDetach', { machine: a.machine })} onClick={() => on.detach(a.machine)}>
+                <IconCloseOutlineRegular size={11} />
+              </button>
             </li>
           )
         })}
@@ -334,18 +383,13 @@ export function RunsOnList({ s, view, t, on, checking, sandboxes, cap, onMore }:
 
 // ---------- projects (both kinds) ----------
 
-/** When the projects on screen were last read: the time their answer arrived. */
-function useAnsweredAt(data: unknown): number | null {
-  const at = useRef<{ data: unknown, at: number | null }>({ data: undefined, at: null })
-  if (data !== undefined && data !== at.current.data) at.current = { data, at: Date.now() }
-  return at.current.at
-}
-
 /**
- * A Store's projects: each with its packed size (or "no commits yet") and the
- * Sandboxes running it, largest first; the total on the heading. `cap` rows,
- * then `+N projects →` (the Store page). `stale`: the host cannot reach the
- * database, so the list is greyed and the heading says when it was read.
+ * A Store's projects: each with its packed size ("no commits yet", or "No
+ * commits since Init" for a project holding only its Init) and the Sandboxes
+ * running it, largest first; the total over the size column when there is
+ * one. `cap` rows, then `+N projects →` (the Store page). `stale`: the host
+ * cannot reach the database, so the list is greyed and the heading says when
+ * LayerFS last read the Store (`observed_at`).
  */
 export function ProjectsList({ api, s, t, now, sandboxes, onOpenProject, onOpenStore, stale, cap = LIST_ROWS }: {
   api: LayerfsApi, s: StoreRow, t: StorageT, now: number, sandboxes?: Sandboxes | undefined
@@ -353,27 +397,31 @@ export function ProjectsList({ api, s, t, now, sandboxes, onOpenProject, onOpenS
 }): ReactNode {
   const q = useQuery(() => api.call<StoreProjectsView>('GET', `/api/stores/${enc(s.name)}/projects`), [api, s.name],
     { refresh: [s.projects.length, s.size?.bytes], cache: `store-projects:${s.name}` })
-  const read = useAnsweredAt(q.data)
   const running = runningByProject(s.name, (sandboxes ?? []).map((b) => ({ project: b.project ?? null, state: b.state, live: b.live })))
   const rows = (q.data?.projects ?? s.projects.map((name) => ({ name, totals: null, last: null }) as never)).map((p: StoreProjectsView['projects'][number]) => ({
-    name: p.name, bytes: p.totals ? p.totals.stored : null, empty: !!p.totals && !p.last, boxes: running.get(p.name) ?? 0,
+    name: p.name, bytes: p.totals ? p.totals.stored : null,
+    // no commit at all; a project with its Init publication only says so
+    empty: !!p.totals && !p.last && !p.totals.publications, initOnly: !!p.totals && !p.last && !!p.totals.publications,
+    boxes: running.get(p.name) ?? 0,
   })).sort((a, b) => (b.bytes ?? -1) - (a.bytes ?? -1) || a.name.localeCompare(b.name))
   const counted = rows.filter((r) => r.bytes !== null)
   const total = counted.length ? counted.reduce((n, r) => n + (r.bytes ?? 0), 0) : null
   const { shown, more } = cap ? capped(rows, cap) : { shown: rows, more: 0 }
+  const tt = t as Translate
+  const meta = stale ? (s.observedAt ? t('rowLastRead', { when: ago(s.observedAt, now, tt) }) : t('rowLastReadPlain')) : total ? bytes(total) : null
   return (
     <section className={css.section} data-stale={stale || undefined} aria-label={t('tabProjects')}>
       <div className={css.sectionHead}>
         <span className={css.sectionTitle}>{t('tabProjects')}</span>
-        <span className={css.sectionMeta}>{stale ? (read ? t('rowLastRead', { when: ago(read, now, t as Translate) }) : t('stNotChecked')) : total !== null ? bytes(total) : null}</span>
+        {meta ? <span className={css.sectionMeta}>{meta}</span> : null}
       </div>
       {!rows.length ? <p className={css.none}>{q.error && !q.data ? t('rowProjectsUnread') : t('msNoProjects')}</p> : (
         <ul className={css.items}>
           {shown.map((r) => (
             <li key={r.name} className={clsx(css.item, css.projectItem)}>
-              <button type="button" className={clsx(css.itemName, css.linkPlain)} title={r.name} onClick={() => onOpenProject(`${s.name}/${r.name}`)}>{r.name}</button>
+              <button type="button" className={clsx(css.linkPlain, css.itemName)} title={r.name} onClick={() => onOpenProject(`${s.name}/${r.name}`)}>{r.name}</button>
               {r.boxes ? <span className={css.boxes} title={t(r.boxes === 1 ? 'pgSandboxOne' : 'pgSandboxes', { n: r.boxes })}><SandboxGlyph size={12} />{r.boxes}</span> : <span />}
-              <span className={css.size}>{r.bytes === null ? (q.loading || !q.data ? '…' : '—') : r.empty ? <span className={css.muted}>{t('rowNoCommits')}</span> : bytes(r.bytes)}</span>
+              <span className={css.size}>{r.bytes === null ? (q.loading || !q.data ? '…' : '—') : r.empty ? <span className={css.muted}>{t('rowNoCommits')}</span> : r.initOnly ? <span className={css.muted}>{t('spNoCommits')}</span> : bytes(r.bytes)}</span>
             </li>
           ))}
         </ul>
@@ -396,8 +444,9 @@ function SqliteRow(props: RowProps): ReactNode {
   const backups = backupSummary(s, view.buckets)
   const projects = s.projectsCount ?? s.projects.length
   const tt = t as Translate
-  const place = s.machine === 'native' ? t('pgThisComputer') : s.machine ?? '?'
-  const dotState = state === 'ready' ? 'done' : state === 'busy' ? 'ongoing' : state === 'stopped' ? 'idle' : 'error'
+  const place = s.machine ?? '?'
+  const tone = sqliteTone(state)
+  const provider = mc?.kind(machine?.platform ?? '') ?? machine?.platform ?? ''
   const stateWord = t(state === 'ready' ? 'rowSqliteReady' : state === 'busy' ? 'rowSqliteBusy' : state === 'stopped' ? 'stMachineStopped' : 'rowSqliteAttention')
   const where = running && job ? <span className={css.job} onClick={stop}><JobLine job={job} t={t} /></span>
     : state === 'stopped' ? (
@@ -406,8 +455,8 @@ function SqliteRow(props: RowProps): ReactNode {
         <button type="button" className={css.link} aria-label={t('startMachine', { machine: place })} onClick={(e) => { stop(e); on.start() }}>{t('rowStart')}</button>
       </span>
     ) : (
-      <span className={css.machine} title={`${place} · ${mc?.kind(machine?.platform ?? '') ?? ''}`}>
-        <MachineGlyph platform={machine?.platform ?? (s.machine === 'native' ? 'native' : '')} size={14} />
+      <span className={css.machine} title={provider ? `${place} · ${provider}` : place}>
+        <MachineGlyph platform={machine?.platform ?? ''} size={14} />
         <span className={css.machineName}>{place}</span>
       </span>
     )
@@ -415,7 +464,7 @@ function SqliteRow(props: RowProps): ReactNode {
     <span className={css.backups} title={backups.last ? t('rowLastBackup', { when: ago(backups.last, now, tt) }) : undefined}>
       <BucketMark provider={view.buckets.find((b) => b.name === s.links[0]?.bucket)?.provider ?? null} size={13} />
       <span className={css.num}>{[t(backups.buckets === 1 ? 'rowBucketOne' : 'rowBuckets', { n: backups.buckets }), backups.last ? ago(backups.last, now, tt) : t('rowNeverBackedUp')].join(' · ')}</span>
-      {backups.failed ? <span className={css.word} data-tone="danger">{t('pgRowFailed', { n: backups.failed })}</span> : null}
+      {backups.failed ? <span className={css.word} data-tone="danger">{t('rowBackupsFailed', { n: backups.failed })}</span> : null}
     </span>
   ) : <span className={css.muted}>{t('rowNotBackedUp')}</span>
   const summary = (
@@ -432,9 +481,11 @@ function SqliteRow(props: RowProps): ReactNode {
   return (
     <li className={css.row} data-store={s.name} data-kind="sqlite" data-state={state}>
       <Head s={s} open={open} onToggle={onToggle} t={t} summary={summary}
-        dot={<StatusDot state={dotState} size={state === 'busy' ? 11 : 8} label={stateWord} />}
+        dot={tone === 'ongoing'
+          ? <span className={css.dotSlot} role="img" title={stateWord} aria-label={stateWord}><StatusDot state="ongoing" size={10} /></span>
+          : <StatusDot state={dotState(tone)} size={8} label={stateWord} />}
         line2={<span className={css.num}>{s.size ? bytes(s.size.bytes) : t('sizeUnavailable')}</span>}
-        line2Title={s.size?.stale && s.size.seen ? t('msSizeSeen', { when: ago(s.size.seen, now, tt) }) : undefined} />
+        line2Title={s.size?.stale && s.size.seen ? t('msSizeSeen', { when: ago(s.size.seen, now, tt) }) : t('rowStoreSizeTip')} />
       {open ? (
         <div id={`lfs-row-sqlite-${s.name}`} className={css.body}>
           <div className={css.columns}>
@@ -443,20 +494,22 @@ function SqliteRow(props: RowProps): ReactNode {
               <section className={css.section} aria-label={t('rowLivesOn')}>
                 <div className={css.sectionHead}>
                   <span className={css.sectionTitle}>{t('rowLivesOn')}</span>
-                  <button type="button" className={css.link} disabled={!!moveReason} title={moveReason ?? t('rowMoveRule')} onClick={inHome(s) ? on.push : on.move}>{t('rowMove')}</button>
+                  <button type="button" className={css.link} disabled={!!moveReason} title={moveReason ?? t('rowMoveRule', { machine: 'native' })} onClick={inHome(s) ? on.push : on.move}>{t('rowMove')}</button>
                 </div>
                 <ul className={css.items}>
-                  <li className={css.item}>
-                    <span className={css.itemMark}><MachineGlyph platform={machine?.platform ?? (s.machine === 'native' ? 'native' : '')} size={14} /></span>
-                    <button type="button" className={clsx(css.itemName, css.linkPlain)} title={place} onClick={() => s.machine && on.openMachine(s.machine)}>{place}</button>
-                    <span className={css.itemMeta}>{mc?.kind(machine?.platform ?? '') ?? ''}</span>
-                    {running && job ? <JobLine job={job} t={t} /> : (
-                      <span className={css.reach} data-tone={state === 'ready' ? 'ok' : state === 'stopped' ? 'warning' : 'danger'}>
-                        <StatusDot state={dotState} size={8} />
-                        <span className={css.reachText}>{stateWord}</span>
-                        {state === 'stopped' ? <button type="button" className={css.link} aria-label={t('startMachine', { machine: place })} onClick={on.start}>{t('rowStart')}</button> : null}
-                      </span>
-                    )}
+                  <li className={clsx(css.item, css.machineItem)}>
+                    <span className={css.itemMark}><MachineGlyph platform={machine?.platform ?? ''} size={14} /></span>
+                    <button type="button" className={clsx(css.linkPlain, css.itemName)} title={provider ? `${place} · ${provider}` : place} onClick={() => s.machine && on.openMachine(s.machine)}>{place}</button>
+                    <span className={css.itemMeta}>{providerBeside(place, provider)}</span>
+                    <span className={css.itemEnd}>
+                      {running && job ? <JobLine job={job} t={t} /> : (
+                        <span className={css.reach} data-tone={tone}>
+                          <Dot tone={tone} t={t} label={tone === 'ongoing' ? stateWord : undefined} />
+                          <span className={css.reachText}>{stateWord}</span>
+                          {state === 'stopped' ? <button type="button" className={css.link} aria-label={t('startMachine', { machine: place })} onClick={on.start}>{t('rowStart')}</button> : null}
+                        </span>
+                      )}
+                    </span>
                     <span />
                   </li>
                 </ul>
@@ -490,7 +543,7 @@ function SqliteRow(props: RowProps): ReactNode {
           </div>
           <div className={css.foot}>
             {on.compact ? <button type="button" className={css.link} disabled={!!compactReason} title={compactReason ?? undefined} onClick={on.compact}>{t('compactStore')}</button> : null}
-            <button type="button" className={css.link} disabled={!s.links.length} title={s.links.length ? undefined : t('rowNoBuckets')} onClick={on.backups}>{t('restore')}</button>
+            {s.links.length ? <button type="button" className={css.link} onClick={on.backups}>{t('restore')}</button> : null}
             <button type="button" className={clsx(css.link, css.end)} onClick={() => props.onOpenStore(s.name)}>{t('rowOpenStore')}</button>
           </div>
         </div>

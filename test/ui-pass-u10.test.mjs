@@ -258,7 +258,7 @@ test('M1, M2, M7, M8, M11: refused stats read —, plurals, counts not "None", t
   assert.equal(st('msMoreProjectOne'), '+1 project')
   assert.equal(st('bcMoreFileOne'), '+1 file')
   assert.equal(M.storageLocales.en.msNone, undefined, 'no "PostgreSQL None"')
-  assert.match(src('src/client/storage/MachineStores.tsx'), /msDatabases/)
+  assert.match(src('src/client/storage/MachineStores.tsx'), /t\(props\.postgresql\.length === 1 \? 'msStoreOne' : 'msStores'/, 'both kind tiles count Stores, as Home does')
   assert.ok(M.storageLocales.en.spColBranchesTitle && M.storageLocales.zh.spColBranchesTitle)
   assert.equal(fill(M.machineLocales.en.slotsOfWs, { n: 1, max: 16 }), '1/16 Workspaces')
   assert.equal(M.machineLocales.en.slotsOf, undefined)
@@ -291,7 +291,7 @@ test('M9, M10, M12, M13, M14: state words capitalised, short digests, loading be
   assert.match(src('src/client/doctor/Row.tsx'), /title=/)
   assert.match(src('src/client/storage/StoragePage.tsx'), /!view \? <Loading label=\{t\('readingStores'\)\} \/>/)
   // a Store row's summary wraps under its name on a narrow pane (StoreRows.module.css)
-  assert.match(src('src/client/storage/StoreRows.module.css'), /@container \(max-width: 719px\) \{\s*\.head \{[^}]*grid-template-areas: 'main chevron' 'summary summary';/)
+  assert.match(src('src/client/storage/StoreRows.module.css'), /@container \(max-width: 719px\) \{\s*\.head \{[^}]*grid-template-areas: 'main copy chevron' 'summary summary summary';/)
   const api = {}
   assert.equal(M.keptState(api), undefined)
   M.keepState(api, { world: null })

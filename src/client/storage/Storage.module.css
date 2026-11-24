@@ -543,6 +543,16 @@
   line-height: 18px;
   color: var(--dsw-alias-label-tertiary);
 }
+/* a refusal as one line (FormModal renderError): LayerFS's words are its title */
+.modalError {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--lf-tone-danger-fg);
+  font-size: 12.5px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .modalActions {
   display: flex;

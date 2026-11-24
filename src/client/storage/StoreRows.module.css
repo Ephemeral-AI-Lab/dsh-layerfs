@@ -16,6 +16,21 @@
   align-items: center;
   gap: 8px;
 }
+/* the Stores | Buckets switch stands apart from SQLite | PostgreSQL */
+.tiles + .tiles {
+  position: relative;
+  margin-inline-start: 17px;
+}
+.tiles + .tiles::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: -13px;
+  top: 50%;
+  width: 0.5px;
+  height: 16px;
+  background: var(--dsw-alias-border-l3);
+  transform: translateY(-50%);
+}
 .barActions {
   display: inline-flex;
   gap: 8px;
@@ -71,6 +86,26 @@
   font-size: 13px;
 }
 
+/* a name that opens something: a plain button that keeps the name's own type (.name, .itemName come after it) */
+.linkPlain {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.linkPlain:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
+  outline-offset: 1px;
+}
+@media (hover: hover) {
+  .linkPlain:hover {
+    color: var(--dsw-alias-link);
+  }
+}
+
 /* ---------- the list: one bordered box, a hairline between rows ---------- */
 
 .list {
@@ -88,13 +123,24 @@
 
 .head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto 16px;
-  grid-template-areas: 'main summary chevron';
+  grid-template-columns: minmax(0, max-content) auto minmax(max-content, 1fr) 16px;
+  grid-template-areas: 'main copy summary chevron';
   align-items: center;
-  gap: 12px;
+  column-gap: 12px;
   min-width: 0;
   padding: 10px 14px;
   cursor: pointer;
+}
+/* Copy address beside the toggle (never inside it), on the address line */
+.copySlot {
+  grid-area: copy;
+  align-self: end;
+  display: inline-flex;
+  margin-inline-start: -8px;
+}
+/* an open row is set apart */
+.row:has(> .head[data-open]) {
+  background: var(--dsw-alias-bg-layer-2);
 }
 @media (hover: hover) {
   .head:hover {
@@ -122,6 +168,14 @@
   gap: 8px;
   min-width: 0;
 }
+/* every status dot sits in one fixed slot, so names line up */
+.dotSlot {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 10px;
+  height: 10px;
+}
 .name {
   min-width: 0;
   overflow: hidden;
@@ -136,7 +190,7 @@
   align-items: center;
   gap: 4px;
   min-width: 0;
-  padding-inline-start: 16px;
+  padding-inline-start: 18px;
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
 }
@@ -170,6 +224,11 @@
 .head[data-open] .chevron {
   transform: rotate(180deg);
 }
+/* the summary's columns line up from row to row */
+.summary > .num:first-child {
+  min-width: 10ch;
+  text-align: end;
+}
 .divider {
   flex: none;
   width: 0.5px;
@@ -188,6 +247,9 @@
 .word[data-tone='danger'] {
   color: var(--lf-tone-danger-fg);
 }
+.word[data-tone='warning'] {
+  color: var(--lf-tone-warning-fg);
+}
 .word[data-tone='muted'] {
   color: var(--dsw-alias-label-tertiary);
   font-weight: 400;
@@ -202,20 +264,15 @@
   display: inline-flex;
   color: var(--dsw-alias-label-secondary);
 }
+/* a machine's reach as a StatusDot on its glyph's corner, ringed by the row's fill */
 .iconDot {
   position: absolute;
   inset-inline-end: -2px;
   bottom: -2px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  corner-shape: round;
-  background: var(--dsw-alias-label-tertiary);
-  box-shadow: 0 0 0 1.5px var(--dsw-alias-settings-card-fill);
 }
-.iconDot[data-tone='ok'] { background: var(--lf-tone-success-dot); }
-.iconDot[data-tone='danger'] { background: var(--lf-tone-danger-dot); }
-.iconDot[data-tone='warning'] { background: var(--dsw-alias-label-secondary); }
+.icon .iconDot[data-state] {
+  --halo: 0 0 0 1.5px var(--dsw-alias-settings-card-fill);
+}
 .more {
   color: var(--dsw-alias-label-tertiary);
   font-variant-numeric: tabular-nums;
@@ -224,7 +281,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  min-width: 0;
+  min-width: 9em;
   max-width: 180px;
 }
 .machineName {
@@ -245,15 +302,30 @@
 /* the summary moves under the name on a narrow list */
 @container (max-width: 719px) {
   .head {
-    grid-template-columns: minmax(0, 1fr) 16px;
-    grid-template-areas: 'main chevron' 'summary summary';
+    grid-template-columns: minmax(0, max-content) 1fr 16px;
+    grid-template-areas: 'main copy chevron' 'summary summary summary';
     row-gap: 6px;
+  }
+  .copySlot {
+    justify-self: start;
   }
   .summary {
     flex-wrap: wrap;
     justify-content: flex-start;
-    padding-inline-start: 16px;
+    column-gap: 12px;
+    row-gap: 2px;
+    padding-inline-start: 18px;
     white-space: normal;
+  }
+  .summary > .num:first-child {
+    min-width: 0;
+    text-align: start;
+  }
+  .machine {
+    min-width: 0;
+  }
+  .divider {
+    display: none;
   }
 }
 
@@ -267,13 +339,17 @@
   white-space: nowrap;
 }
 .reachText {
-  min-width: 0;
+  flex: 0 1 auto;
+  min-width: 6ch;
   overflow: hidden;
   color: var(--dsw-alias-label-secondary);
   text-overflow: ellipsis;
 }
 .reach[data-tone='danger'] .reachText {
   color: var(--lf-tone-danger-fg);
+}
+.reach[data-tone='warning'] .reachText {
+  color: var(--lf-tone-warning-fg);
 }
 .reach[data-tone='idle'] .reachText,
 .reach[data-tone='ongoing'] .reachText {
@@ -304,19 +380,6 @@
     text-decoration: underline;
   }
 }
-.linkPlain {
-  all: unset;
-  cursor: pointer;
-}
-.linkPlain:focus-visible {
-  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
-  outline-offset: 1px;
-}
-@media (hover: hover) {
-  .linkPlain:hover {
-    color: var(--dsw-alias-link);
-  }
-}
 .copy {
   all: unset;
   flex: none;
@@ -342,7 +405,7 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 4px 14px 12px 30px;
+  padding: 4px 14px 14px 32px;
 }
 .columns {
   display: grid;
@@ -353,21 +416,20 @@
   .columns {
     grid-template-columns: minmax(0, 1fr);
   }
-  .body {
-    padding-inline-start: 14px;
-  }
 }
 .side {
   display: flex;
   flex-direction: column;
   gap: 14px;
   min-width: 0;
+  container-type: inline-size;
 }
 .section {
   display: flex;
   flex-direction: column;
   gap: 6px;
   min-width: 0;
+  container-type: inline-size;
 }
 .section[data-stale] .items {
   opacity: 0.55;
@@ -384,16 +446,14 @@
   font-weight: 500;
 }
 .sectionMeta {
-  margin-inline-end: auto;
+  margin-inline-start: auto;
+  margin-inline-end: 0;
   color: var(--dsw-alias-label-tertiary);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 .sectionTitle + .link {
   margin-inline-start: auto;
-}
-.sectionMeta + .link {
-  margin-inline-start: 0;
 }
 .none {
   margin: 0;
@@ -437,6 +497,42 @@
   color: var(--dsw-alias-label-tertiary);
   white-space: nowrap;
 }
+/* a machine row: the name keeps at least 12ch (or 40%); the provider gives way first, then the reach words */
+.machineItem {
+  grid-template-columns: auto minmax(min(12ch, 40%), 1fr) minmax(0, max-content) max-content auto;
+  grid-template-areas: 'mark name meta end action';
+}
+.machineItem > .itemMark { grid-area: mark; }
+.machineItem > .itemName { grid-area: name; }
+.machineItem > .itemMeta {
+  grid-area: meta;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.machineItem > .itemEnd { grid-area: end; }
+.machineItem > :last-child { grid-area: action; }
+.itemEnd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+@container (max-width: 380px) {
+  .machineItem {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: 'mark name action' '. end .';
+    row-gap: 0;
+    padding-block: 4px;
+  }
+  .machineItem > .itemMeta {
+    display: none;
+  }
+  .machineItem > .itemEnd {
+    justify-content: flex-start;
+  }
+}
 .size {
   color: var(--dsw-alias-label-secondary);
   font-variant-numeric: tabular-nums;
@@ -452,16 +548,22 @@
 .detach {
   all: unset;
   display: inline-flex;
-  padding: 3px;
+  padding: 6px;
+  margin: -3px 0 -3px -3px;
   border-radius: 4px;
   color: var(--dsw-alias-label-tertiary);
   cursor: pointer;
+}
+.detach:disabled {
+  color: var(--dsw-alias-label-tertiary);
+  opacity: 0.45;
+  cursor: default;
 }
 .detach:focus-visible {
   outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
 }
 @media (hover: hover) {
-  .detach:hover {
+  .detach:not(:disabled):hover {
     color: var(--dsw-alias-label-primary);
     background: var(--dsw-alias-interactive-bg-hover);
   }

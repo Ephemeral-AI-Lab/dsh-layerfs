@@ -10,12 +10,15 @@
  * - the caps (3 icons in a summary, 5 rows in a list) and `+N`;
  * - the attach picker's choices, grouped by provider, with why a machine (or
  *   a Store, from a machine page) cannot attach;
- * - loopback and login-in-URL detection for the Connect dialog;
+ * - loopback and login-in-URL detection for the Connect dialog, and the
+ *   machines that share this computer's network (LayerFS's `loopback`);
+ * - one tone → dot state rule for every status dot;
  * - the open rows, remembered per viewer.
  *
  * Kept free of React so it is unit tested (test/store-rows.test.mjs).
  */
 import { classifyPgFailure } from '../../shared/pg-failure.ts'
+import { timeLocale } from '../ui/locale-sync.ts'
 import type { StorageKey } from './locale.ts'
 import { storeBackups } from './store-backups.ts'
 import type { BucketRow, PgAttached, PgReach, StorageJob, StorageView, StoreRow } from './types.ts'
@@ -72,6 +75,7 @@ export function failureKey(error: string | null | undefined, code?: string): Rea
   if (/holds another Store than|not this Store/i.test(text)) return 'notThisStore'
   if (/SQLSTATE 3D000|database "?[^"\s]*"? does not exist|database not found/i.test(text)) return 'database'
   if (/machine \S+ is stopped|machine is stopped|\bstopped\b.*machine/i.test(text)) return 'machineStopped'
+  if (/SQLSTATE 28P01|SQLSTATE 28000|password authentication failed/i.test(text)) return 'password'
   switch (classifyPgFailure(code, text)) {
     case 'server': case 'daemon_dns': return 'address'
     case 'login': return 'password'
@@ -111,6 +115,37 @@ export function hostStatus(s: Pick<StoreRow, 'state' | 'reason' | 'message' | 'p
   return status('notChecked')
 }
 
+/**
+ * A refused connect (Connect a database, Edit connection) as one line and the
+ * field it is about: the label LayerFS's words map to, never the words
+ * themselves (they stay the line's title). `Exists` is the name.
+ */
+export function connectFailure(code: string, message: string): { key: StorageKey, field: 'address' | 'password' | 'name' | null } {
+  if (code === 'Exists') return { key: 'cdNameTaken', field: 'name' }
+  // LayerFS's own refusal leaves user, password and database open; the password line names all three.
+  if (/the server refused the session/i.test(message) && failureKey(message, code) === 'failed') return { key: 'pgErrPassword', field: 'password' }
+  switch (failureKey(message, code)) {
+    case 'password': return { key: 'pgErrPassword', field: 'password' }
+    case 'address': return { key: 'pgErrAddress', field: 'address' }
+    case 'database': return { key: 'pgErrDatabase', field: 'address' }
+    case 'notThisStore': return { key: 'pgErrNotThisStore', field: 'address' }
+    default: return { key: 'pgErrFailed', field: null }
+  }
+}
+
+/** A list of words joined as the reader's language does ("a, b and c" / "a、b和c"). */
+export function listWords(items: readonly string[]): string {
+  try { return new Intl.ListFormat(timeLocale() ?? 'en', { type: 'conjunction' }).format(items) } catch { return items.join(', ') }
+}
+
+/** A provider's words beside a name, unless they say the same thing ("docker Docker", "native Native"). */
+export const providerBeside = (name: string, provider: string): string | null => (provider && provider.toLowerCase() !== name.toLowerCase() ? provider : null)
+
+/** A status tone as a StatusDot state: the one rule for every dot on the tab. */
+export type DotState = 'done' | 'error' | 'warning' | 'ongoing' | 'idle'
+export const dotState = (tone: ReachStatus['tone']): DotState =>
+  tone === 'ok' ? 'done' : tone === 'danger' ? 'error' : tone === 'warning' ? 'warning' : tone === 'ongoing' ? 'ongoing' : 'idle'
+
 // ---------- addresses ----------
 
 const LOOPBACK = /^(localhost|127(?:\.\d{1,3}){3}|\[?::1\]?)$/i
@@ -146,9 +181,9 @@ export function urlHasLogin(url: string | null | undefined): boolean {
   }
 }
 
-/** Whether machines of `platform` share this computer's loopback (the platform's reach rule): native, and Docker on Linux (host networking). */
-export function sharesLoopback(platform: string | null | undefined, hostOs?: string | null): boolean {
-  return platform === 'native' || (platform === 'docker' && hostOs === 'linux')
+/** The machines that share this computer's network (LayerFS's `loopback: shared`), by name: the ones a loopback address works from. */
+export function loopbackShared(machines: readonly { name: string, loopback?: 'shared' | 'apart' | null }[]): string[] {
+  return machines.filter((m) => m.loopback === 'shared').map((m) => m.name).sort((a, b) => a.localeCompare(b))
 }
 
 /** A PostgreSQL Store's address line: `user@host:port/database` (never a password), or null. */
@@ -173,6 +208,8 @@ export interface PgSummary {
   more: number
   /** Machines whose last check failed. */
   failed: number
+  /** Attached machines that are stopped. */
+  stopped: number
   /** The address is this computer's loopback: only this computer (and machines sharing its loopback) can reach it. */
   loopbackOnly: boolean
 }
@@ -189,13 +226,16 @@ export function pgSummary(s: StoreRow, view: Pick<StorageView, 'machines'>, chec
     host: hostStatus(s, checking.has('host')),
     machines, shown, more,
     failed: machines.filter((m) => m.status.tone === 'danger').length,
+    stopped: machines.filter((m) => m.status.key === 'machineStopped').length,
     loopbackOnly: isLoopbackUrl(s.postgresql?.url),
   }
 }
 
-/** The one status word on a folded PostgreSQL row: `N failed`, else `this computer only` for a loopback address, else none. */
-export function pgStatusWord(sum: Pick<PgSummary, 'failed' | 'loopbackOnly'>): { key: 'pgRowFailed' | 'pgRowLoopback', n: number, tone: 'danger' | 'muted' } | null {
+/** The one status word on a folded PostgreSQL row: `N failed`, else `N stopped`, else `local address`, else none; none with no machine attached. */
+export function pgStatusWord(sum: Pick<PgSummary, 'failed' | 'stopped' | 'loopbackOnly' | 'machines'>): { key: 'pgRowFailed' | 'pgRowStopped' | 'pgRowLoopback', n: number, tone: 'danger' | 'warning' | 'muted' } | null {
+  if (!sum.machines.length) return null
   if (sum.failed > 0) return { key: 'pgRowFailed', n: sum.failed, tone: 'danger' }
+  if (sum.stopped > 0) return { key: 'pgRowStopped', n: sum.stopped, tone: 'warning' }
   if (sum.loopbackOnly) return { key: 'pgRowLoopback', n: 0, tone: 'muted' }
   return null
 }
@@ -204,6 +244,10 @@ export function pgStatusWord(sum: Pick<PgSummary, 'failed' | 'loopbackOnly'>): {
 
 /** A SQLite row's dot: ready, its machine stopped, an operation running, or needs attention. */
 export type SqliteState = 'ready' | 'stopped' | 'busy' | 'attention'
+
+/** A SQLite row's state as a status tone (the one dot rule): a stopped machine is a warning, as everywhere. */
+export const sqliteTone = (state: SqliteState): ReachStatus['tone'] =>
+  state === 'ready' ? 'ok' : state === 'busy' ? 'ongoing' : state === 'stopped' ? 'warning' : 'danger'
 
 export function sqliteState(s: Pick<StoreRow, 'state' | 'blockedBy' | 'op'>, machineState: string | null | undefined, job: Pick<StorageJob, 'ended'> | null | undefined): SqliteState {
   if ((job && !job.ended) || s.state === 'busy' || s.op) return 'busy'
@@ -244,23 +288,22 @@ export type AttachBlock = 'stopped' | 'address' | 'platform'
 export interface AttachMachine { name: string, platform: string, block: AttachBlock | null }
 export interface ProviderGroup<T> { platform: string, items: T[] }
 
-/** A machine record as the picker reads it. */
-export interface PickerMachine { name: string, platform: string, state?: string | null, supports?: readonly string[] | null }
+/** A machine record as the picker reads it; `loopback` is LayerFS's (`shared` / `apart`). */
+export interface PickerMachine { name: string, platform: string, state?: string | null, supports?: readonly string[] | null, loopback?: 'shared' | 'apart' | null }
 
-/** Why `m` cannot attach to a Store at `url`: it cannot run PostgreSQL Sandboxes, it is stopped, or it cannot reach a loopback address. */
-export function attachBlock(m: PickerMachine, url: string | null | undefined, hostOs?: string | null): AttachBlock | null {
+/** Why `m` cannot attach to a Store at `url`: it cannot run PostgreSQL Sandboxes, it does not share this computer's network for a loopback address, or it is stopped. */
+export function attachBlock(m: PickerMachine, url: string | null | undefined): AttachBlock | null {
   if (m.supports && !m.supports.includes('postgresql_sandbox')) return 'platform'
+  if (isLoopbackUrl(url) && m.loopback !== 'shared') return 'address'
   if (m.state === 'stopped') return 'stopped'
-  if (isLoopbackUrl(url) && !sharesLoopback(m.platform, hostOs)) return 'address'
   return null
 }
 
-/** Group items by provider (platform), providers in first-seen order after native and Docker; items by name. */
+/** Group items by provider (platform), providers and items by name. */
 export function byProvider<T>(items: readonly T[], platformOf: (item: T) => string, nameOf: (item: T) => string): ProviderGroup<T>[] {
   const groups = new Map<string, T[]>()
   for (const item of items) groups.set(platformOf(item), [...(groups.get(platformOf(item)) ?? []), item])
-  const rank = (p: string) => (p === 'native' ? 0 : p === 'docker' ? 1 : 2)
-  return [...groups.entries()].sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b))
+  return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b))
     .map(([platform, list]) => ({ platform, items: [...list].sort((a, b) => nameOf(a).localeCompare(nameOf(b))) }))
 }
 
@@ -269,12 +312,12 @@ export function byProvider<T>(items: readonly T[], platformOf: (item: T) => stri
  * grouped by provider, those that cannot attach greyed with why. A search
  * keeps the machines whose name or provider matches.
  */
-export function attachMachines(s: Pick<StoreRow, 'attached' | 'postgresql'>, machines: readonly PickerMachine[], opts: { hostOs?: string | null, query?: string, provider?: (platform: string) => string } = {}): ProviderGroup<AttachMachine>[] {
+export function attachMachines(s: Pick<StoreRow, 'attached' | 'postgresql'>, machines: readonly PickerMachine[], opts: { query?: string, provider?: (platform: string) => string } = {}): ProviderGroup<AttachMachine>[] {
   const attached = new Set((s.attached ?? []).map((a) => a.machine))
   const q = (opts.query ?? '').trim().toLowerCase()
   const rows = machines.filter((m) => !attached.has(m.name))
     .filter((m) => !q || m.name.toLowerCase().includes(q) || (opts.provider?.(m.platform) ?? m.platform).toLowerCase().includes(q))
-    .map((m): AttachMachine => ({ name: m.name, platform: m.platform, block: attachBlock(m, s.postgresql?.url, opts.hostOs) }))
+    .map((m): AttachMachine => ({ name: m.name, platform: m.platform, block: attachBlock(m, s.postgresql?.url) }))
   return byProvider(rows, (m) => m.platform, (m) => m.name)
 }
 
@@ -297,11 +340,11 @@ export function attachFailure(code: string, message: string): { words: StorageKe
 export interface AttachStore { name: string, address: string | null, block: AttachBlock | null }
 
 /** The PostgreSQL Stores a machine's picker lists: those not attached to it, greyed when it cannot reach their address or run their Sandboxes. */
-export function attachStores(machine: PickerMachine, stores: readonly StoreRow[], opts: { hostOs?: string | null, query?: string } = {}): AttachStore[] {
+export function attachStores(machine: PickerMachine, stores: readonly StoreRow[], opts: { query?: string } = {}): AttachStore[] {
   const q = (opts.query ?? '').trim().toLowerCase()
   return stores.filter((s) => s.kind === 'postgresql' && !(s.attached ?? []).some((a) => a.machine === machine.name))
     .filter((s) => !q || s.name.toLowerCase().includes(q) || (pgAddress(s) ?? '').toLowerCase().includes(q))
-    .map((s) => ({ name: s.name, address: pgAddress(s), block: attachBlock(machine, s.postgresql?.url, opts.hostOs) }))
+    .map((s) => ({ name: s.name, address: pgAddress(s), block: attachBlock(machine, s.postgresql?.url) }))
     .sort((a, b) => Number(!!a.block) - Number(!!b.block) || a.name.localeCompare(b.name))
 }
 

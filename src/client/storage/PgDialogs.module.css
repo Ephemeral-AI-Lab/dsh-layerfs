@@ -3,20 +3,33 @@
 .mono {
   font-family: var(--ds-font-family-code, ui-monospace, monospace);
 }
-.note {
-  margin: -4px 0 0;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 12px;
-  line-height: 17px;
+/* the "Saved · leave empty to keep" placeholder reads as words, not as a value */
+.mono::placeholder {
+  font-family: inherit;
 }
 .search {
+  box-sizing: border-box;
   width: 100%;
+  min-width: 0;
+}
+.search input::placeholder,
+input.search::placeholder {
+  color: var(--dsw-alias-label-secondary);
+  opacity: 1;
 }
 .list {
   display: flex;
   flex-direction: column;
   gap: 10px;
   min-width: 0;
+  container-type: inline-size;
+}
+.stoppedNotice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 .group {
   display: flex;
@@ -39,10 +52,15 @@
   border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: var(--dsw-radius-md, 8px);
 }
-/* one line: mark, the checkbox with its name (truncates), then the reason or address; the trailing part never gets pushed out */
+/*
+ * one line: the checkbox, the mark, the name (truncates), then the reason or
+ * address; the trailing part never gets pushed out. The checkbox's label is
+ * laid out by the row (display: contents) so the mark sits between its box
+ * and its name.
+ */
 .choice {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   min-height: 32px;
@@ -55,15 +73,30 @@
 .choice[data-blocked] .check {
   color: var(--dsw-alias-label-tertiary);
 }
+.choice[data-blocked] .mark {
+  opacity: 0.5;
+}
 .mark {
+  order: 1;
   display: inline-flex;
   color: var(--dsw-alias-label-secondary);
 }
 .check {
+  display: contents;
+}
+.check > input {
+  order: 0;
+}
+.check > span:last-child {
+  order: 2;
   min-width: 0;
   overflow: hidden;
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.choice > :last-child:not(.check):not(.mark) {
+  order: 3;
 }
 .choiceName {
   min-width: 0;
@@ -120,11 +153,17 @@
   list-style: none;
   font-size: 12.5px;
 }
-@media (max-width: 480px) {
+/* a narrow picker: the reason or address goes under the name */
+@container (max-width: 440px) {
   .choice {
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: auto auto minmax(0, 1fr);
+    row-gap: 2px;
+    padding-block: 6px;
   }
-  .choice > :last-child:not(.check) {
-    grid-column: 2;
+  .choice > :last-child:not(.check):not(.mark) {
+    grid-column: 3;
+  }
+  .choiceMeta {
+    max-width: none;
   }
 }

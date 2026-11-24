@@ -84,7 +84,7 @@ export function PgStorePage({ s, view, t, api, now, on, onOpenProject, onOpen }:
                 <span className={rowsCss.mono}>{pg?.server ?? '—'}</span>{pg?.url ? <CopyAddress text={pg.url} t={t} /> : null}
               </dd>
               <dt>{t('pgDatabase')}</dt>
-              <dd className={rowsCss.mono} title={pg?.binding ? t('pgStoreId', { id: pg.binding }) : undefined}>{pg?.database ?? '—'}</dd>
+              <dd className={rowsCss.mono} title={pg?.database ? [pg.database, pg.binding ? t('pgStoreId', { id: pg.binding }) : null].filter(Boolean).join('\n') : undefined}>{pg?.database ?? '—'}</dd>
               <dt>{t('pgUser')}</dt>
               <dd className={rowsCss.mono}>{pg?.user ?? '—'}</dd>
               <dt>{t('pgPasswordValue')}</dt>
@@ -93,8 +93,7 @@ export function PgStorePage({ s, view, t, api, now, on, onOpenProject, onOpen }:
               </dd>
               <dt>{t('pgHostCheck')}</dt>
               <dd className={css.check}>
-                <ReachWord status={host} t={t} onEdit={on.editConnection} />
-                {pg?.host?.at ? <span className={rowsCss.muted}>{ago(pg.host.at, now, tt)}</span> : null}
+                <ReachWord status={host} t={t} onEdit={on.editConnection} when={pg?.host?.at ? ago(pg.host.at, now, tt) : null} />
               </dd>
             </dl>
           </section>

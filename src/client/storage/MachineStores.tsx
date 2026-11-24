@@ -113,7 +113,7 @@ function StoresBoard(props: BoardProps): ReactNode {
     },
     {
       kind: 'postgresql', label: t('postgresql'),
-      figure: props.postgresql.length ? t(props.postgresql.length === 1 ? 'msDatabaseOne' : 'msDatabases', { n: props.postgresql.length }) : t('msDatabases', { n: 0 }),
+      figure: t(props.postgresql.length === 1 ? 'msStoreOne' : 'msStores', { n: props.postgresql.length }),
       why: props.postgresql.length ? null : props.noPostgresql,
     },
   ]
@@ -133,7 +133,7 @@ function StoresBoard(props: BoardProps): ReactNode {
             <button key={tile.kind} id={`lfs-ms-${scope}-${tile.kind}`} type="button" role="tab" className={css.tile}
               aria-selected={kind === tile.kind} tabIndex={kind === tile.kind ? 0 : -1} aria-controls={`lfs-ms-${scope}-panel`}
               onClick={() => setKind(tile.kind)} data-store-kind={tile.kind}
-              title={[words[tile.kind].note, tile.why].filter(Boolean).join(' · ')}>
+              title={[tile.figure, words[tile.kind].note, tile.why].filter(Boolean).join(' · ')}>
               <StoreGlyph kind={tile.kind} size={14} />
               <span className={css.tileLabel}>{tile.label}</span>
               <span className={css.tileFigure}>{tile.figure}</span>
@@ -158,7 +158,7 @@ function StoresBoard(props: BoardProps): ReactNode {
 export function MachineStores(props: MachineStoresProps): ReactNode {
   const { machine, view, t } = props
   const stores = machineStores(view, machine, t, props.busy)
-  const place = machine === 'native' ? t('layerfsHome') : machine
+  const place = machine
   const plus = <IconPlusOutlineRegular size={12} />
   return (
     <StoresBoard {...props} {...stores} scope={machine} words={{

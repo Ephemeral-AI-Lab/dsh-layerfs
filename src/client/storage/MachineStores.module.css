@@ -380,14 +380,16 @@
   font-size: 12px;
 }
 
-/* narrow: the tiles stack their note under a shorter figure */
+/* narrow: the two tiles share the width; the figure moves into the tile's title */
 @container (max-width: 520px) {
-  .tileFigure {
-    font-size: 15px;
-    line-height: 22px;
+  .tiles {
+    width: 100%;
   }
-  .tileNote {
-    white-space: normal;
+  .tile {
+    flex: 1 1 0;
+  }
+  .tileFigure {
+    display: none;
   }
 }
 
