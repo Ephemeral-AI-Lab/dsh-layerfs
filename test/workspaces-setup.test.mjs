@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createSteps, defaultMachine, defaultStoreChoice, freeStoreName, lastUsedStore, machinesFor, needsStart, pgLoginBody, pgLoginProblem, pickable, primaryMachine, runsOn, stoppedOf, tileBlocks } from '../src/client/projects/setup/model.ts'
+import { createSteps, defaultMachine, freeStoreName, machinesFor, needsStart, pgLoginBody, pgLoginProblem, pickable, primaryMachine, runsOn, stoppedOf, tileBlocks } from '../src/client/projects/setup/model.ts'
 
 const view = {
   machines: [
@@ -130,19 +130,4 @@ test('create steps: a folder is checked before anything is made', () => {
   assert.deepEqual(ids(createSteps({ name: 'app', kind: 'postgresql', store: null, newStore: { name: 'pg' }, machines: ['native'], source: '/srv/app' }, view)),
     ['check', 'connect', 'init', 'attach:native', 'open'])
   assert.equal(createSteps({ name: 'app', kind: 'sqlite', store: null, newStore: { name: 'app' }, machines: ['native'] }, view)[0].id, 'store', 'an empty project has no check')
-})
-
-test('the last-used Store: the newest recent project whose Store still exists', () => {
-  const stores = [{ name: 'shop' }, { name: 'notes' }]
-  assert.equal(lastUsedStore([{ project: 'gone/x' }, { project: 'notes/daily' }, { project: 'shop/cart' }], stores)?.name, 'notes', 'a removed Store is skipped')
-  assert.equal(lastUsedStore([], stores), null, 'no recent project: none')
-  assert.equal(lastUsedStore([{ project: 'gone/x' }], stores), null)
-})
-
-test('the default Store: the last-used one when usable, else a new SQLite Store (and it says it fell back)', () => {
-  const usable = (s) => s.state === 'ready' || s.state === 'blocked'
-  assert.deepEqual(defaultStoreChoice({ name: 'shop', state: 'ready' }, usable), { choice: { kind: 'existing', store: 'shop' }, fellBack: false })
-  assert.deepEqual(defaultStoreChoice({ name: 'shop', state: 'blocked' }, usable), { choice: { kind: 'existing', store: 'shop' }, fellBack: false }, 'a stopped machine keeps it: its Start is shown')
-  assert.deepEqual(defaultStoreChoice({ name: 'shop', state: 'broken' }, usable), { choice: { kind: 'sqlite' }, fellBack: true })
-  assert.deepEqual(defaultStoreChoice(null, usable), { choice: { kind: 'sqlite' }, fellBack: false }, 'a first project: a new Store, nothing to explain')
 })

@@ -245,11 +245,13 @@ try {
   // New project… opens the project dialog in create mode (docs/specs/layerfs-workspaces.md §2-3).
   await page.getByRole('menuitem', { name: 'New project…' }).click()
   const draft = page.getByRole('dialog', { name: 'New project', exact: true })
-  // One page: Name and the Saved in line (docs/specs/layerfs-workspaces.md §3); Change opens the Store list and machines.
+  // One page: Project, Store, Machine; the rail says which are ready and jumps to them.
   await draft.getByLabel('Name', { exact: true }).fill('blank')
-  await draft.getByRole('button', { name: 'Change', exact: true }).click()
-  await draft.getByRole('radio', { name: new RegExp(`^\\s*${store.replace(/[.]/g, '\\.')}\\b`) }).click()
-  // The fixture Store is on native: keep it there.
+  await draft.getByRole('navigation').getByRole('button', { name: /^Store/ }).click()
+  await draft.getByRole('tab', { name: /^Existing/ }).click()
+  await draft.getByRole('radio', { name: new RegExp(`^${store.replace(/[.]/g, '\\.')}\\b`) }).click()
+  await draft.getByRole('navigation').locator('button[data-ready]').filter({ hasText: /^Store/ }).waitFor()
+  // The fixture Store is on native: keep it there instead of the docker default.
   await draft.getByRole('radio', { name: /^native/ }).click()
   await draft.getByRole('button', { name: 'Create and open' }).click()
   await draft.waitFor({ state: 'detached', timeout: 60000 })

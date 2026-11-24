@@ -47,63 +47,54 @@ in a tile, the title, one line under it, and Close.
 
 ### Create / Import
 
-A short form: a **Name** (and, for an import, the **Folder** above it) and one
-**Saved in** line. Most projects need only the name; everything else has a
-default the line states. The page scrolls inside a height cap while the head
-and the footer stay put. Opened from the picker, the head has a **‹ Projects**
-link back to it.
+One page with three parts, **Project**, **Store** and **Runs on**, in a pane
+that is the only thing that scrolls. A left rail lists **Project**, **Store**
+and **Machine** with their readiness: a check and what was chosen
+(`website`, `SQLite · new · website`, `docker`) when ready, else the part's
+number and what is missing in warning ink (`Not named yet`, `Needs a name`,
+`Pick a Store`). Clicking a rail item scrolls the pane to that part; the item
+of the part on screen is highlighted. The footer says the first missing part
+and has Cancel and Create and open (which jumps to the first missing part
+instead while one is missing). On a narrow screen the rail becomes a row above
+the pane. Opened from the picker, the head has a **‹ Projects** link back to it.
 
-- **Name**: free text, saved as its slug (`Saved as <slug>` shows when they
-  differ). An import's name follows the folder's until one is typed.
-- **Folder** (import): an absolute path; Browse opens a native dialog. The
-  footer's **Start from a folder…** / **Start empty instead** switches between
-  the two (the title follows); the dialog opens on the folder for Import a
-  folder.
-- **Saved in**: the Store's kind mark, its name and kind (`shop · SQLite`, or
-  `New SQLite Store website`, `New PostgreSQL connection website`), then the
-  machine (`This Mac`, `docker`; for PostgreSQL `sessions run on <machine>`),
-  and **Last used** on the last-used Store. **Change** opens the details in
-  place (Hide closes them).
-  - **Default Store: the last-used one** — the Store of the newest project
-    with sessions on this DSH (`projects.recent`, §7; a Create opens a
-    session, so the Store of the last project made or worked in). A SQLite
-    Store whose machine is stopped stays the default (its Start shows). When
-    the last-used Store can't be used (broken, or a PostgreSQL Store that is
-    not ready) the default is a new SQLite Store and a line says so, with
-    **Show**. With no last-used Store (a first project) it is a new SQLite
-    Store named after the project (`-2`… when taken, with a notice).
-  - What needs the person shows under the line whether the details are open
-    or not: the auto-renamed new Store, the PostgreSQL machine that will be
-    attached, the warning that moving an existing SQLite Store moves its
-    other projects too, and a named **Start** for each stopped machine Create
-    needs (Create starts no machine itself).
-- **Details** (Change): one Store list, **Existing** first (the last-used on
-  top; mark, name, `<machine> · N projects` or `<server> · N projects`, a
-  status tag, and Open Store on a broken one, which can't be picked), then
-  **New**: **New SQLite Store** and **Connect PostgreSQL…**. Picking a Store
-  sets the kind: there is no separate kind choice. A search box shows above
-  more than six Stores. A new Store shows its **Store name**; a new connection
-  adds the URL without a user or password, and its User and Password (saved
-  by this computer for the Store; the password goes to LayerFS on stdin).
-  Then the machine tiles (mark, name, state, a Default or Here now badge):
-  **Store file on** for SQLite (choosing another for an existing Store moves
-  it), **This session runs on** for PostgreSQL (only machines that run now and
-  run PostgreSQL Sandboxes; none is guessed). **New machine** closes the
-  dialog and opens Add machine (`openStorage(api, 'machines:new')`).
-- **Errors** show at the field, never as a disabled button: an empty name
-  (`Enter a name`), a name the chosen Store already has (from its first 20
-  project names; LayerFS refuses the rest), an invalid folder, URL or Store
-  name. Create and open with something missing focuses the name or opens the
-  details at what is missing.
-- **Create and open** runs these steps (model.ts `createSteps`), listed with
-  their state at the top of the page; a stopped Create shows Refused (or No
-  answer), the step, LayerFS's words as the dot's tip, and Edit, which focuses
-  the name or opens the details:
-  - an import checks the folder first, so a wrong one leaves no empty Store;
-  - SQLite: create the Store when new → Init → place it on the chosen machine
-    when it differs from where the Store is → open a session;
-  - PostgreSQL: connect when new → Init → attach the chosen machine when it is
-    not yet → open a session on it.
+- **Project**: Name (free text; saved as its slug). Import adds Folder
+  (absolute path, Browse opens a native dialog).
+- **Store**: two kind cards, **SQLite** (feather) and **PostgreSQL**
+  (elephant), then **New Store / New connection** or **Existing · N**. New asks
+  the Store name (prefilled, `-2`… when taken); a new connection also asks the
+  URL without a user or password, and its login (LayerFS 2.0 saved logins):
+  **New login** (login name, prefilled with the Store's when no saved login has
+  it; user; password typed once) or **Saved · N** (picked from `store auths`).
+  The host saves a new login with `store save-auth <login> --user <user>
+  --password-stdin` (the password on stdin, never in argv or a log), refuses a
+  name a saved login has (never overwrites it), then runs `store connect
+  <store> <url> --auth <login>`; if LayerFS refuses that connect, the new login
+  is removed again (`store remove-auth`), and an unknown outcome keeps it. A
+  stopped Create shows Refused (or No answer) and the step, LayerFS's words as
+  the dot's tip, and one action, Edit, which scrolls to the part to change.
+  Existing shows one searchable list of that kind's Stores (`name`, then
+  `<machine> · N projects` or `<server> · N projects`); the kind icon is on the
+  card only, not repeated on rows.
+- **Runs on**: machine tiles with the machine's mark (Docker whale, Apple for
+  native, Lima…), name, state and a badge (Default, Here now). Both kinds pick one
+  (radio). **Default: docker** when it can run the kind, else native. Machines
+  that can't run the kind are not offered. A stopped one is offered with a
+  line saying Create starts it. **New machine**
+  closes the dialog and opens Resources with Add machine open
+  (`openStorage(api, 'machines:new')`). Moving an existing SQLite Store warns
+  that its other projects move too.
+- **Create and open** runs these steps, listed with their state at the top of
+  the page; a failure stops there and says which step failed:
+  - SQLite, new Store: `POST /api/stores` → Init (`POST /api/projects`, wait) →
+    start the machine if stopped → place (`POST /api/machines/<m>/stores`, wait
+    the storage job) when not native → open a session.
+  - SQLite, existing Store: start its machine if stopped → Init → start the
+    target and place when it differs → open.
+  - PostgreSQL, new connection: `POST /api/stores/postgresql` (with the
+    machine picked, `runsOn`) → Init → start the machine if stopped → open.
+    Existing connection: Init → `POST /api/stores/<s>/runs-on` when another
+    machine is picked → start it if stopped → open. Nothing is attached.
 
   On success the dialog closes and the new session is on screen.
 

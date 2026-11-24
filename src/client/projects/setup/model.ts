@@ -209,31 +209,3 @@ export function stoppedOf(names: readonly string[], view: Pick<StorageView, 'mac
     return !!m && m.state !== 'broken' && !isRunning(m)
   })
 }
-
-/** The Store a new project goes in: an existing one by name, a new SQLite Store, or a new PostgreSQL connection. */
-export type StoreChoice = { kind: 'existing', store: string } | { kind: 'sqlite' } | { kind: 'pg' }
-
-/**
- * The last-used Store: the Store of the newest project with sessions on this
- * DSH (`projects.recent`, newest first, keys `<store>/<project>`) that is still
- * one of `stores`. A Create opens a session, so the Store of the last project
- * made or worked in. Null when none is.
- */
-export function lastUsedStore<S extends Pick<StoreRow, 'name'>>(recent: readonly { project: string }[], stores: readonly S[]): S | null {
-  for (const r of recent) {
-    const name = r.project.split('/')[0]
-    const store = stores.find((s) => s.name === name)
-    if (store) return store
-  }
-  return null
-}
-
-/**
- * The Create dialog's default Store: the last-used one when a new project can
- * use it (a SQLite Store whose machine is stopped stays: its Start is shown),
- * else a new SQLite Store. `fellBack`: there is a last-used Store, but not usable.
- */
-export function defaultStoreChoice<S extends Pick<StoreRow, 'name'>>(last: S | null, usable: (s: S) => boolean): { choice: StoreChoice, fellBack: boolean } {
-  if (last && usable(last)) return { choice: { kind: 'existing', store: last.name }, fellBack: false }
-  return { choice: { kind: 'sqlite' }, fellBack: !!last }
-}
