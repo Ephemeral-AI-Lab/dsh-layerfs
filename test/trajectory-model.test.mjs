@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  checkpointVersion, compactNumber, durationParts, filterTurns, flattenRows, focusTarget, laneItems, opCommand, opWrites, place,
-  prettyArgs, recentTurns, recordMatches, selectionTurn, shownHostOp, thinLane, timeSpan, toolEntries,
+  checkpointVersion, compactNumber, durationParts, filterTurns, flattenRows, focusTarget, laneItems, loadedRecords, mergeOlder, opCommand,
+  opWrites, place, prettyArgs, recentTurns, recordMatches, selectionTurn, shownHostOp, thinLane, timeSpan, toolEntries,
 } from '../src/client/views/trajectory-model.ts'
 
 const T0 = 1_700_000_000_000
@@ -285,4 +285,48 @@ test('toolEntries: header order with change marks, then removed tools with their
   assert.deepEqual(toolEntries(tools, { added: [], removed: [], changed: [] }, undefined).map((entry) => entry.mark ?? null), [null, null, null])
   assert.deepEqual(toolEntries(tools, undefined, undefined).map((entry) => entry.mark ?? null), [null, null, null])
   assert.deepEqual(toolEntries([], { added: [], removed: [], changed: [] }, undefined), [])
+})
+
+
+// ---------------------------------------------------- paging on screen
+
+const paged = {
+  ...answer, revision: 'r1', recordTotal: 4, hasMore: true, olderBefore: 4,
+  turns: [{ ...turn2, records: [turn2.records[1]], totalRecords: 2 }],
+}
+const olderPage = {
+  ...answer, revision: 'r2', recordTotal: 4,
+  turns: [
+    { ...turn1, records: [turn1.records[0]], checkpoints: [], hostOps: [], orphanCalls: [] },
+    { ...turn2, records: [turn2.records[0]], checkpoints: [], hostOps: [], orphanCalls: [] },
+  ],
+}
+
+test('loadedRecords counts what the answer carries', () => {
+  assert.equal(loadedRecords(answer), turn1.records.length + turn2.records.length)
+  assert.equal(loadedRecords(paged), 1)
+})
+
+test('mergeOlder appends records in log order, keeps the newer turn and takes the older cursor', () => {
+  const merged = mergeOlder(paged, olderPage)
+  assert.equal(merged.revision, 'r1', 'the revision the first page was built from stays')
+  assert.equal(merged.recordTotal, 4)
+  assert.equal(merged.hasMore, undefined, 'the older page exhausted the history')
+  assert.equal(merged.olderBefore, undefined)
+  assert.deepEqual(merged.turns.map((turn) => turn.turn), [1, 2], 'an older turn joins the list, ordered')
+  const turn = merged.turns.find((t) => t.turn === 2)
+  assert.deepEqual(turn.records.map((r) => r.seq), [10, 11], 'log order')
+  assert.equal(turn.totalRecords, 2, 'the first page keeps its total')
+  assert.equal(turn.checkpoints.length, paged.turns[0].checkpoints.length, 'the newer turn keeps its checkpoints')
+  assert.equal(loadedRecords(merged), 3, 'the older page\'s records plus the first page\'s')
+})
+
+test('mergeOlder keeps the older cursor while records remain, and never repeats a record', () => {
+  const more = { ...olderPage, hasMore: true, olderBefore: 9, turns: [{ ...turn2, records: [turn2.records[0], turn2.records[1]], checkpoints: [], hostOps: [], orphanCalls: [] }] }
+  const merged = mergeOlder(paged, more)
+  assert.equal(merged.hasMore, true)
+  assert.equal(merged.olderBefore, 9)
+  assert.equal(merged.turns.find((t) => t.turn === 2).records.length, 2, 'the already loaded record is not repeated')
+  const again = mergeOlder(merged, more)
+  assert.equal(again.turns.find((t) => t.turn === 2).records.length, 2)
 })

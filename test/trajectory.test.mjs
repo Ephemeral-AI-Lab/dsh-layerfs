@@ -4,8 +4,8 @@
 //   node --test test/trajectory.test.mjs
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildTrajectory, summarize, trajectoryDetail, usageOf, versionBranch } from '../src/host/sessions/trace.ts'
-import { DETAIL_MAX, PREVIEW_MAX, TOOL_DESCRIPTION_MAX } from '../src/shared/trajectory.ts'
+import { buildTrajectory, pageTrajectory, summarize, trajectoryDetail, trajectoryReader, usageOf, versionBranch } from '../src/host/sessions/trace.ts'
+import { DETAIL_MAX, MAX_OPS, MAX_RECORDS, PREVIEW_MAX, TOOL_DESCRIPTION_MAX } from '../src/shared/trajectory.ts'
 
 const C1 = '12' + '1'.repeat(64), C2 = '12' + '2'.repeat(64), C3 = '12' + '3'.repeat(64), L1 = '32' + '4'.repeat(64)
 const ev = (seq, type, data, time = 1000 + seq) => ({ seq, type, data, time })
@@ -463,4 +463,118 @@ test('a request without a tool set in its header has no catalog view', () => {
   assert.equal(detail.previousRequestSeq, 104)
   assert.deepEqual(buildParity().turns[0].records.filter((r) => r.kind === 'request')[1].toolsChanged,
     { added: [], removed: ['bash', 'read', 'write'], changed: [] })
+})
+
+
+// ---------------------------------------------------- an unchanged read costs bytes
+
+test('an unchanged since answers unchanged, and builds nothing', () => {
+  let builds = 0
+  const read = trajectoryReader(8, (input) => { builds++; return buildTrajectory(input) })
+  const input = { sessionId: 's', project: 'st/p', branch: 'dsh.s', events, invocations: receipts, checkpoints }
+  const first = read(input)
+  assert.equal(builds, 1)
+  assert.ok(first.turns.length)
+  const again = read(input, { since: first.revision })
+  assert.deepEqual(again, { sessionId: 's', revision: first.revision, unchanged: true })
+  assert.equal('turns' in again, false, 'no records cross the wire')
+  assert.equal(builds, 1, 'nothing was built')
+  // A caller without `since` (a tab opening) reuses the memo.
+  const warm = read(input)
+  assert.equal(builds, 1)
+  assert.deepEqual(warm.turns.map((turn) => turn.turn), first.turns.map((turn) => turn.turn))
+  // A record's previews are byte-for-byte the whole answer for that revision.
+  assert.equal(JSON.stringify(warm).length, JSON.stringify(first).length)
+})
+
+test('a new event, checkpoint, receipt or Branch changes the revision and forces the full answer', () => {
+  let builds = 0
+  const read = trajectoryReader(8, (input) => { builds++; return buildTrajectory(input) })
+  const base = { sessionId: 's', project: 'st/p', branch: 'dsh.s', events, invocations: receipts, checkpoints }
+  const revision = read(base).revision
+  assert.equal(builds, 1)
+  const nextEvent = [...events, ev(22, 'turn/end', { turn: 2 })]
+  const nextCheckpoint = [...checkpoints, { kind: 'turn', turn: 2, seq: 21, commit: C2, branch: 'dsh.s', changed: 1, message: 'dsh turn 2', at: 4000 }]
+  const nextReceipt = [...receipts, { id: 'r8', origin: 'tool', sessionId: 's', turn: 2, toolCallId: 'call_d', operation: 'file.read', outcome: 'success', versions: [], at: 4001 }]
+  for (const input of [
+    { ...base, events: nextEvent },
+    { ...base, checkpoints: nextCheckpoint },
+    { ...base, invocations: nextReceipt },
+    { ...base, branch: 'dsh.s.r1' },
+    { ...base, project: 'st/other' },
+    { ...base, events: undefined },
+  ]) {
+    const answer = read(input, { since: revision })
+    assert.equal('unchanged' in answer, false, `${JSON.stringify(Object.keys(input))} must not answer unchanged`)
+    assert.notEqual(answer.revision, revision)
+  }
+  assert.equal(builds, 7, 'one build per change')
+})
+
+// ---------------------------------------------------- the payload is bounded
+
+const bigLog = (() => {
+  const log = []
+  let seq = 0
+  for (let turn = 1; turn <= 40; turn++) {
+    log.push(ev(++seq, 'turn/start', { turn }))
+    for (let i = 0; i < 40; i++) log.push(user(++seq, `turn ${turn} record ${i}`))
+    log.push(ev(++seq, 'turn/end', { turn }))
+  }
+  return log
+})()
+
+test('a page carries the newest records, with totals and a cursor for the older ones', () => {
+  const read = trajectoryReader()
+  const input = { sessionId: 's', project: 'st/p', branch: 'dsh.s', events: bigLog, invocations: [], checkpoints: [] }
+  const first = read(input)
+  const records = first.turns.flatMap((turn) => turn.records)
+  assert.equal(records.length, MAX_RECORDS)
+  assert.equal(first.recordTotal, 1600)
+  assert.equal(first.hasMore, true)
+  assert.equal(first.olderBefore, records[0].seq, 'the oldest seq this answer carries')
+  assert.equal(first.turns.at(-1).turn, 40, 'the newest turns are all there')
+  // The cut turn says how many records it has in the whole log.
+  const cut = first.turns.find((turn) => turn.totalRecords !== undefined)
+  assert.ok(cut, 'the boundary turn keeps its total')
+  assert.ok(cut.totalRecords > cut.records.length)
+  assert.deepEqual(cut.records.map((r) => r.seq), Array.from({ length: cut.records.length }, (_, i) => cut.records[0].seq + i), 'log order, no holes')
+  assert.equal(first.turns.filter((turn) => turn.totalRecords !== undefined).length, 1, 'only the boundary turn is cut')
+  // Every record is either loaded or older than the cursor.
+  const older = records.filter((r) => r.seq < first.olderBefore)
+  assert.equal(older.length, 0)
+
+  const second = read(input, { before: first.olderBefore })
+  const olderRecords = second.turns.flatMap((turn) => turn.records)
+  assert.equal(olderRecords.length, 100)
+  assert.equal(olderRecords[0].seq < first.olderBefore, true)
+  assert.equal(second.hasMore, undefined)
+  assert.equal(second.olderBefore, undefined)
+  assert.equal(second.revision, first.revision, 'an older page keeps the revision it belongs to')
+  // No record is repeated, and the two pages together are the whole log.
+  const seen = new Set(records.map((r) => r.seq))
+  assert.ok(olderRecords.every((r) => !seen.has(r.seq)))
+  assert.equal(new Set([...records, ...olderRecords].map((r) => r.seq)).size, 1600)
+  // Checkpoint-only turns older than the record cut still load with an older page.
+  assert.equal(second.turns[0].turn, 1, 'older pages run from the oldest turn')
+})
+
+test('a page budgets a shell loop\'s calls but always keeps the saves and refusals', () => {
+  const loop = Array.from({ length: MAX_OPS + 5 }, (_, i) => ({
+    id: `r${i}`, origin: 'tool', sessionId: 's', turn: 1, toolCallId: 'big', operation: 'home.log', outcome: 'success', versions: [], argv: ['home', 'log'], at: 1000 + i,
+  }))
+  const saved = { id: 'save', origin: 'tool', sessionId: 's', turn: 1, toolCallId: 'big', operation: 'workspace.commit', outcome: 'success', kind: 'Committed', versions: [{ kind: 'Commit', id: C1, effect: 'created' }], argv: ['workspace', 'commit', 'sb:main'], at: 5000 }
+  const refused = { id: 'refused', origin: 'tool', sessionId: 's', turn: 1, toolCallId: 'big', operation: 'file.read', outcome: 'refusal', code: 'NotFound', versions: [], argv: ['file', 'read', 'st/p', 'dsh.s', '/missing'], at: 5001 }
+  const answer = buildTrajectory({
+    sessionId: 's', project: 'st/p', branch: 'dsh.s', checkpoints: [],
+    events: [ev(1, 'turn/start', { turn: 1 }), call(2, 1, 1, 'big', 'bash', { command: 'for … do layerfs home log' }), ev(3, 'turn/end', { turn: 1 })],
+    invocations: [...loop, saved, refused],
+  })
+  const record = pageTrajectory(answer).turns[0].records.find((r) => r.kind === 'tool')
+  assert.equal(record.opsTotal, loop.length + 2)
+  assert.ok(record.ops.length <= MAX_OPS + 2, `${record.ops.length} calls`)
+  assert.ok(record.ops.some((op) => op.id === 'save'), 'the save keeps its version chip')
+  assert.ok(record.ops.some((op) => op.id === 'refused'), 'a refusal stays')
+  assert.ok(record.ops.some((op) => op.id === `r${MAX_OPS + 4}`), 'the newest reads are kept')
+  assert.equal(record.ops.some((op) => op.id === 'r0'), false, 'the oldest reads fall off the page')
 })
