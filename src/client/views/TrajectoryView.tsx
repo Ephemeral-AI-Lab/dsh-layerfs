@@ -13,8 +13,8 @@ import { Button, IconChevronDownOutlineRegular, IconChevronRightOutlineRegular, 
 import { StatusDot } from '../ui/StatusDot.tsx'
 import type { LayerfsApi } from '../api.ts'
 import { EmptyState, ErrorState, Loading } from '../files/States.tsx'
-import { useQuery } from '../files/use-query.ts'
-import type { RequestRecord, ToolRecord, TraceVersion, TrajectoryAnswer, TrajectoryRecord, TrajectoryTurn } from '../../shared/trajectory.ts'
+import { cachedAnswer, useQuery } from '../files/use-query.ts'
+import { isUnchanged, type RequestRecord, type ToolRecord, type TraceVersion, type TrajectoryAnswer, type TrajectoryRecord, type TrajectoryReply, type TrajectoryTurn } from '../../shared/trajectory.ts'
 import { HISTORY_VIEW, useNoComposer, type ViewProps } from './FileViews.tsx'
 import { useSessionRows } from './hooks.ts'
 import { isStreamingAssistant, mergeLiveSteps, useLiveSteps } from './live-step.ts'
@@ -24,8 +24,8 @@ import { openLogs } from '../logs/request.ts'
 import { clock, durationText, KindCell, OpLine, toolsDelta, usageText, Versions, type OpenVersion } from './TrajectoryParts.tsx'
 import { TrajectoryTimeline } from './TrajectoryTimeline.tsx'
 import {
-  checkpointVersion, filterTurns, flattenRows, focusTarget, opWrites, recentTurns, recordMatches, ROW_PAGE, SAVES, selectionTurn, timeSpan,
-  type Row, type Selection,
+  checkpointVersion, filterTurns, flattenRows, focusTarget, loadedRecords, mergeOlder, opWrites, recentTurns, recordMatches, ROW_PAGE, SAVES,
+  selectionTurn, timeSpan, type Row, type Selection,
 } from './trajectory-model.ts'
 import views from './views.module.css'
 import css from './trajectory.module.css'
@@ -43,17 +43,35 @@ const EVENTS = ['layerfs-operation', 'layerfs-checkpoint', 'layerfs-session'] as
  * `session.trajectory` of `sessionId`, read again on its LayerFS events, on reconnect and
  * while it runs. One read at a time: events during a read queue one more (a run fires them
  * many a second), at most one per second; the last answer draws at once on a remount.
+ *
+ * Every read passes the revision of the answer on screen (`since`), so a read where
+ * nothing moved answers `unchanged` and the rows stay as they are. A reconnect
+ * forgets the revision: the feed may have missed events while it was down.
+ * Idle sessions are not polled — their events cover every change — and while a
+ * session runs the 3 s poll stays as a fallback for receipts that land without
+ * one, now that an unchanged poll costs bytes rather than a rebuild.
  */
 function useTrajectory(api: LayerfsApi, sessionId: string, running: boolean) {
   const [tick, setTick] = useState(0)
-  const query = useQuery(() => api.op<TrajectoryAnswer>('session.trajectory', { sessionId }).then((answer) => ({ sessionId, answer })), [api, sessionId], { refresh: [tick], cache: `session.trajectory:${sessionId}` })
+  const cacheKey = `session.trajectory:${sessionId}`
+  const full = useRef(false)
+  const query = useQuery(() => {
+    const kept = cachedAnswer<{ sessionId: string, answer: TrajectoryAnswer }>(cacheKey)
+    const since = !full.current && kept?.sessionId === sessionId ? kept.answer.revision : undefined
+    full.current = false
+    return api.op<TrajectoryReply>('session.trajectory', { sessionId, ...(since ? { since } : {}) }).then((reply) => {
+      if (!isUnchanged(reply)) return { sessionId, answer: reply }
+      if (kept) return kept
+      throw new Error('session.trajectory answered unchanged without a kept answer')
+    })
+  }, [api, sessionId], { refresh: [tick], cache: cacheKey })
   const reload = useCallback(() => setTick((n) => n + 1), [])
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined
     const later = () => { if (!timer) timer = setTimeout(() => { timer = undefined; reload() }, REFRESH_MS) }
     const mine = (e: { data?: any }) => { if (!e.data?.sessionId || e.data.sessionId === sessionId) later() }
     const offs = EVENTS.map((name) => api.onEvent(name, mine))
-    offs.push(api.onEvent('connection', later))
+    offs.push(api.onEvent('connection', () => { full.current = true; later() }))
     return () => { offs.forEach((off) => off()); if (timer) clearTimeout(timer) }
   }, [api, sessionId, reload])
   useEffect(() => {
@@ -159,10 +177,12 @@ function recordMeta(record: TrajectoryRecord, t: Translate, now: number): string
 
 function TurnHead({ turn, t }: { turn: TrajectoryTurn, t: Translate }): ReactNode {
   const meta = [turn.at ? clock(turn.at) : '', turn.at && turn.endAt ? durationText(t, turn.endAt - turn.at) : ''].filter(Boolean).join(' · ')
+  const older = turn.totalRecords !== undefined ? turn.totalRecords - turn.records.length : 0
   return (
     <>
       <span className={css.turnTitle}>{turn.turn > 0 ? t('trajTurn', { n: turn.turn }) : t('trajBeforeTurns')}</span>
       {meta ? <span className={css.turnMeta}>{meta}</span> : null}
+      {older > 0 ? <span className={css.turnMeta}>{t('trajOlderRecords', { n: older })}</span> : null}
     </>
   )
 }
@@ -306,7 +326,12 @@ export function TrajectoryView(props: ViewProps): ReactNode {
   const { api, t, sessionId, sessions, openView, viewRequest, completeViewRequest } = props
   const { byId } = useSessionRows(sessions)
   const running = !!byId[sessionId]?.running
-  const { answer, error, reload } = useTrajectory(api, sessionId, running)
+  const { answer: first, error, reload } = useTrajectory(api, sessionId, running)
+  // Older pages loaded on request, merged under the first page they belong to.
+  // A new first page (a change, or a reconnect) drops them.
+  const [older, setOlder] = useState<{ base: TrajectoryAnswer, answer: TrajectoryAnswer } | null>(null)
+  const [olderBusy, setOlderBusy] = useState(false)
+  const answer = first && older?.base === first ? older.answer : first
   // The running step's text arrives on the session's live feed; the host answer
   // gains its record only after the step's message is logged.
   const live = useLiveSteps(props.liveStep)
@@ -334,8 +359,20 @@ export function TrajectoryView(props: ViewProps): ReactNode {
   // A new conversation starts over.
   useEffect(() => {
     setSelected(null); setTurnOverride(new Map()); setCallOverride(new Map()); setContextOpen(new Set()); setLimit(ROW_PAGE)
+    setOlder(null); setOlderBusy(false)
     cache.clear(); diffs.clear()
   }, [sessionId, cache, diffs])
+
+  /** Ask for the next older page; one request at a time, and only while this first page says there is one. */
+  const loadOlder = useCallback(() => {
+    if (!first || !answer || olderBusy || !answer.hasMore || answer.olderBefore === undefined) return
+    const base = first
+    const before = answer.olderBefore
+    setOlderBusy(true)
+    api.op<TrajectoryAnswer>('session.trajectory', { sessionId, before }).then((page) => {
+      setOlder((prev) => ({ base, answer: mergeOlder(prev && prev.base === base ? prev.answer : base, page) }))
+    }).catch(() => { /* the button stays; the next press retries */ }).finally(() => setOlderBusy(false))
+  }, [api, sessionId, first, answer, olderBusy])
 
   const now = useMemo(() => Date.now(), [answer]) // eslint-disable-line react-hooks/exhaustive-deps
   const filtered = useMemo(() => filterTurns(turns, { onlyWrites, query }), [turns, onlyWrites, query])
@@ -465,6 +502,12 @@ export function TrajectoryView(props: ViewProps): ReactNode {
                 {rows.length > limit ? (
                   <div className={css.more}>
                     <Button variant="outline" size="sm" onClick={() => setLimit((n) => n + ROW_PAGE)}>{t('trajShowMore', { n: rows.length - limit })}</Button>
+                  </div>
+                ) : answer.hasMore && answer.olderBefore !== undefined ? (
+                  <div className={css.more}>
+                    <Button variant="outline" size="sm" onClick={loadOlder} disabled={olderBusy}>
+                      {olderBusy ? t('loading') : t('trajShowOlder', { n: Math.max(0, (answer.recordTotal ?? loadedRecords(answer)) - loadedRecords(answer)) })}
+                    </Button>
                   </div>
                 ) : null}
               </>

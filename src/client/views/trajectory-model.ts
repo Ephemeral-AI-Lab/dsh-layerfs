@@ -14,6 +14,50 @@ export const OPEN_RECENT_TURNS = 3
 /** Rows rendered before "Show more". */
 export const ROW_PAGE = 400
 
+/** Records the answer carries; older ones may still be unread (`hasMore` names their cursor). */
+export function loadedRecords(answer: TrajectoryAnswer): number {
+  return answer.turns.reduce((n, turn) => n + turn.records.length, 0)
+}
+
+/**
+ * An older page merged under the answer on screen: its records join by seq
+ * (never twice, in log order), the newer answer keeps its turn metadata,
+ * checkpoints and own calls, and the older page's cursor becomes the next
+ * "older" read. The newer answer's revision stays: it is the log state its
+ * first page was built from, so the next read of that revision is a full one.
+ */
+export function mergeOlder(answer: TrajectoryAnswer, older: TrajectoryAnswer): TrajectoryAnswer {
+  const turns = answer.turns.slice()
+  const at = new Map(turns.map((turn, index) => [turn.turn, index]))
+  for (const page of older.turns) {
+    const index = at.get(page.turn)
+    if (index === undefined) {
+      turns.push(page)
+      at.set(page.turn, turns.length - 1)
+      continue
+    }
+    const have = turns[index]!
+    if (!page.records.length) continue
+    const seqs = new Set(have.records.map((record) => record.seq))
+    const records = [...page.records.filter((record) => !seqs.has(record.seq)), ...have.records].sort((a, b) => a.seq - b.seq)
+    turns[index] = {
+      ...have, records,
+      ...(have.totalRecords === undefined && page.totalRecords !== undefined ? { totalRecords: page.totalRecords } : {}),
+    }
+  }
+  turns.sort((a, b) => a.turn - b.turn)
+  const merged: TrajectoryAnswer = { ...answer, turns }
+  if (older.recordTotal !== undefined) merged.recordTotal = older.recordTotal
+  if (older.hasMore && older.olderBefore !== undefined) {
+    merged.hasMore = true
+    merged.olderBefore = older.olderBefore
+  } else {
+    delete merged.hasMore
+    delete merged.olderBefore
+  }
+  return merged
+}
+
 // ---------------------------------------------------------------- selection
 
 /** What the inspector shows: a record by seq, a checkpoint, an orphan call or a turn's host calls. */

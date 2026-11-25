@@ -18,6 +18,18 @@ export const PREVIEW_MAX = 300
 export const DETAIL_MAX = 64 * 1024
 /** Characters a request detail keeps of one tool's description. */
 export const TOOL_DESCRIPTION_MAX = 400
+/**
+ * Records one trajectory answer carries: the newest. Older records load on
+ * request (`{ before }`), so a long session's first paint is bounded.
+ */
+export const MAX_RECORDS = 1500
+/**
+ * A record's LayerFS calls one trajectory answer carries beyond the ones that
+ * matter most: calls that wrote or named a version, and refusals, are always
+ * kept; read-only calls are budgeted per answer (a shell loop can log
+ * thousands) and the record's `opsTotal` says how many it made.
+ */
+export const MAX_OPS = 1200
 
 interface RecordBase {
   /** The record's own session event seq (a tool record: its `tool/call`). Unique; the record's id. */
@@ -179,6 +191,8 @@ export interface ToolRecord extends RecordBase {
   endedAt?: number
   /** The receipts whose `toolCallId` is this call, in order. */
   ops: TraceOp[]
+  /** Calls the whole log holds for this call; present when `ops` carries only some (writes, versions and refusals are never dropped). */
+  opsTotal?: number
 }
 
 export type TrajectoryRecord = UserRecord | AssistantRecord | ToolRecord | SystemRecord | RequestRecord
@@ -190,11 +204,13 @@ export interface TrajectoryTurn {
   endAt?: number
   /** In log order. Turn 0 holds what came before the first turn (none, usually). */
   records: TrajectoryRecord[]
+  /** Records this turn has in the whole log; present when `records` carries only the newest ones. */
+  totalRecords?: number
   /**
    * Calls for receipts whose tool call is not in the loaded log: the log was
    * not loaded, or the call fell outside it. No name; `ops` only.
    */
-  orphanCalls: { callId: string, ops: TraceOp[] }[]
+  orphanCalls: { callId: string, ops: TraceOp[], opsTotal?: number }[]
   /** DSH's own LayerFS calls outside any tool call that are not a checkpoint's save. */
   hostOps: TraceOp[]
   checkpoints: TraceCheckpoint[]
@@ -211,7 +227,33 @@ export interface TrajectoryAnswer {
   logLoaded: boolean
   /** Distinct versions the session created (tool calls, its own calls and its turns' checkpoints), and the tool calls that created any. */
   counts: { versionsCreated: number, callsWithVersions: number }
+  /**
+   * Cheap identity of everything this answer was built from: the log length
+   * and last seq, the Branch, and the checkpoint and receipt tails. A client
+   * passes it back as `since`; an unchanged read answers `{ unchanged: true }`
+   * instead of these turns.
+   */
+  revision: string
+  /** Records the whole log holds; `turns` carries at most {@link MAX_RECORDS} of them (the newest). */
+  recordTotal?: number
+  /** Older records exist beyond this answer; read them with `{ before: olderBefore }`. */
+  hasMore?: boolean
+  /** The oldest record seq this answer carries: the cursor that reads the older page. */
+  olderBefore?: number
 }
+
+/** The answer to `session.trajectory { sessionId, since }` when nothing moved since `since`. */
+export interface TrajectoryUnchanged {
+  sessionId: string
+  revision: string
+  unchanged: true
+}
+
+/** What `session.trajectory` answers: a page of the trajectory, or `unchanged`. */
+export type TrajectoryReply = TrajectoryAnswer | TrajectoryUnchanged
+
+/** True for the `unchanged` answer, so the caller can keep the answer it holds. */
+export const isUnchanged = (reply: TrajectoryReply): reply is TrajectoryUnchanged => (reply as TrajectoryUnchanged).unchanged === true
 
 /** One record in full, read when the inspector opens it. */
 export interface TrajectoryDetail {

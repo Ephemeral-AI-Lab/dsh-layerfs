@@ -29,7 +29,8 @@
  *   session.state {sessionId, observe?} binding, checkpoints, Workspace status, store progress (observe: no interrupt or save)
  *   sessions.availability               poll Store health now (deactivating as needed); last health per Store
  *   session.place {sessionId}           the project a live session works in (New Session control)
- *   session.trajectory {sessionId}      the Trajectory tab's records, LayerFS calls and checkpoints by turn
+ *   session.trajectory {sessionId, since?, before?}  the Trajectory tab's records, LayerFS calls and checkpoints by turn;
+ *                    `since` answers `unchanged` when nothing moved, `before` reads the older page
  *   session.trajectory.record {sessionId, seq} one trajectory record in full (NotFound when not in the loaded log)
  *   session.trajectory.prompt-diff {sessionId, seq} a record's system/tools line diff (NotFound when it has none)
  *   checkpoints.create {sessionId, message?}
@@ -53,7 +54,7 @@ import { LayerfsSessions } from './service.ts'
 import { localPersistence, SessionStore } from './store.ts'
 import { promptDiff } from './prompt-diff.ts'
 import { normalizeKind } from '../../shared/trajectory.ts'
-import { buildTrajectory, trajectoryDetail, type TrajectoryInput } from './trace.ts'
+import { trajectoryDetail, trajectoryReader, type TrajectoryInput } from './trace.ts'
 
 /** Stored session logs kept parsed for the Trajectory (finished subagents' logs, which DSH has unloaded). */
 const STORED_LOGS = 16
@@ -297,6 +298,12 @@ export function apply(ctx: Context): void {
     /** Stored logs read for sessions DSH has not loaded, by id, kept while the file's size and mtime hold. */
     const storedLogs = new Map<string, { key: string, events: any[] }>()
     /**
+     * The trajectory memo: one built answer per session keyed by its revision,
+     * so a tab opening without `since` builds at most once between changes, and
+     * an unchanged `since` costs bytes. Bounded by `trajectoryReader`.
+     */
+    const readTrajectory = trajectoryReader()
+    /**
      * A session's DSH log: the loaded session's, else its stored log (a finished
      * subagent is unloaded, but its log stays on disk). Undefined when neither exists.
      */
@@ -329,7 +336,10 @@ export function apply(ctx: Context): void {
     /** What `buildTrajectory` reads: the log, receipts and checkpoints (shared subagents follow their parent's binding). */
     const trajectoryInput = async (id: string): Promise<TrajectoryInput> => {
       const persistence = ctx.get('sessionPersistence' as never) as any
-      const sidecar = await Promise.resolve(persistence?.readSidecar?.(id)).catch(() => undefined)
+      // Cached by the sidecar's file identity: this read runs on every event and
+      // poll, and a long session's receipts are large (the unchanged check must
+      // not re-parse them). Only the trajectory path shares the parsed value.
+      const sidecar = await Promise.resolve(persistence?.readSidecar?.(id, { cached: true })).catch(() => undefined)
       let binding = sessions.binding(id)
       if (binding?.kind === 'shared' && binding.parent) binding = sessions.binding(binding.parent) ?? binding
       const local = sessions.checkpoints(id)
@@ -523,7 +533,16 @@ export function apply(ctx: Context): void {
         const persistence = ctx.get('sessionPersistence' as never) as any
         return await persistence?.readSidecar?.(id) ?? { invocations: [] }
       },
-      'session.trajectory': async (args: any) => buildTrajectory(await trajectoryInput(need(args, 'sessionId'))),
+      'session.trajectory': async (args: any) => {
+        const id = need(args, 'sessionId')
+        const since = typeof args.since === 'string' ? args.since : undefined
+        let before: number | undefined
+        if (args.before !== undefined) {
+          if (!Number.isSafeInteger(args.before) || args.before < 0) throw new CliError('InvalidInput', 'before must be a record seq')
+          before = args.before
+        }
+        return readTrajectory(await trajectoryInput(id), { ...(since ? { since } : {}), ...(before !== undefined ? { before } : {}) })
+      },
       'session.trajectory.record': async (args: any) => {
         const id = need(args, 'sessionId')
         const seq = Number(args?.seq)

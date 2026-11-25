@@ -308,7 +308,15 @@ function ToolBody({ record, tab, detail, t, onOpen, layerfs, sessionId, onOpenLo
       </>
     )
   }
-  if (tab === 'layerfs') return <OpsList ops={record.ops} sessionId={sessionId} t={t} onOpen={onOpen} onOpenLogs={onOpenLogs} />
+  if (tab === 'layerfs') {
+    const older = record.opsTotal !== undefined ? record.opsTotal - record.ops.length : 0
+    return (
+      <>
+        <OpsList ops={record.ops} sessionId={sessionId} t={t} onOpen={onOpen} onOpenLogs={onOpenLogs} />
+        {older > 0 ? <p className={css.note}>{t('trajCallsNotLoaded', { n: older })}</p> : null}
+      </>
+    )
+  }
   if (tab === 'timing') return <Timing t={t} start={record.at} end={record.endedAt} running={running} />
   const created = record.ops.flatMap((op) => op.versions)
   return (
@@ -319,7 +327,7 @@ function ToolBody({ record, tab, detail, t, onOpen, layerfs, sessionId, onOpenLo
       <Field label={t('trajCallId')}><code className={css.mono}>{record.callId}</code></Field>
       {record.summary ? <Field label={t('trajTab_payload')}><code className={css.mono}>{record.summary}</code></Field> : null}
       {record.result ? <Field label={t('trajTab_result')}><span className={clsx(css.clamp, record.isError && css.errorText)}>{record.result}</span></Field> : null}
-      {layerfs ? <Field label={t('trajLayerfsCalls')}>{record.ops.length}</Field> : null}
+      {layerfs ? <Field label={t('trajLayerfsCalls')}>{record.opsTotal !== undefined ? `${record.ops.length} / ${record.opsTotal}` : record.ops.length}</Field> : null}
       {created.length ? <Field label={t('trajVersionsMade')}><ul className={css.versionList}>{created.map((v) => <VersionLine key={`${v.effect}:${v.id}`} version={v} t={t} onOpen={onOpen} />)}</ul></Field> : null}
     </dl>
   )

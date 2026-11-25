@@ -177,6 +177,16 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
   private routesSignature?: string
   private readonly stock: any
   private headerCache?: HeaderCache
+  /**
+   * Parsed sidecars kept for the trajectory's frequent reads, by file path and
+   * identity. A long project session's `layerfs.json` carries tens of thousands
+   * of receipts (tens of MB), so re-parsing it on every event would dominate the
+   * Trajectory tab. The identity is the same one the header cache trusts
+   * (`logIdentity`): a rewrite replaces the inode, so a hit is a fresh read.
+   * Bounded by count and source bytes.
+   */
+  private readonly sidecars = new Map<string, { key: string, bytes: number, value: SessionSidecar | undefined }>()
+  private sidecarBytes = 0
   /** Non-importing facade for the archive store; routes to the owner's backend. */
   readonly local: any
 
@@ -382,7 +392,10 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
       const root = join(this.projectHome, 'projects', owner.key, 'sessions')
       const dir = snapshot?.location?.path ? dirname(snapshot.location.path) : undefined
       const inside = dir ? relative(root, dir) : ''
-      if (dir && inside && !inside.startsWith('..') && !inside.startsWith(sep)) rmSync(dir, { recursive: true, force: true })
+      if (dir && inside && !inside.startsWith('..') && !inside.startsWith(sep)) {
+        this.forgetSidecar(join(dir, 'layerfs.json'))
+        rmSync(dir, { recursive: true, force: true })
+      }
       this.setOwner(id, undefined)
       this.invalidateHeader(id)
       removed.push(id)
@@ -466,10 +479,12 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     if (sourceStat.location?.path) {
       const sourceDir = dirname(sourceStat.location.path)
       const sourceSidecar = join(sourceDir, 'layerfs.json')
+      if (target?.location?.path) this.forgetSidecar(join(dirname(target.location.path), 'layerfs.json'))
       if (target?.location?.path && existsSync(sourceSidecar)) {
         const sidecar = JSON.parse(readFileSync(sourceSidecar, 'utf8'))
         atomicJson(join(dirname(target.location.path), 'layerfs.json'), { ...sidecar, ...(project ? { project } : {}) })
       }
+      this.forgetSidecar(sourceSidecar)
       const backup = join(this.projectHome, 'migration-backups', randomUUID())
       mkdirSync(dirname(backup), { recursive: true })
       try { renameSync(sourceDir, backup) } catch (error: any) {
@@ -560,9 +575,48 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     if (!snapshot?.location?.path) throw new Error(`Session ${id} has no durable log for LayerFS metadata`)
     return join(dirname(snapshot.location.path), 'layerfs.json')
   }
-  async readSidecar(id: string): Promise<SessionSidecar | undefined> {
+  /** The sidecar file's identity (as {@link logIdentity}) and its size in bytes. */
+  private sidecarIdentity(path: string): { key: string, bytes: number } | undefined {
+    try {
+      const s = statSync(path, { bigint: true })
+      return { key: `${s.dev}:${s.ino}:${s.size}:${s.mtimeNs}:${s.ctimeNs}`, bytes: Number(s.size) }
+    } catch { return undefined }
+  }
+  private forgetSidecar(path: string): void {
+    const kept = this.sidecars.get(path)
+    if (!kept) return
+    this.sidecars.delete(path)
+    this.sidecarBytes -= kept.bytes
+  }
+  private rememberSidecar(path: string, key: string, bytes: number, value: SessionSidecar | undefined): void {
+    this.forgetSidecar(path)
+    this.sidecars.set(path, { key, bytes, value })
+    this.sidecarBytes += bytes
+    while (this.sidecars.size > 8 || (this.sidecarBytes > 64 * 1024 * 1024 && this.sidecars.size > 1)) {
+      const oldest = this.sidecars.keys().next().value as string
+      this.forgetSidecar(oldest)
+    }
+  }
+  /**
+   * The session's `layerfs.json`. `cached` keeps the parsed value while the
+   * file's identity holds: the Trajectory tab rereads on every event, and a
+   * long session's receipts are far too big to parse each time. The value is
+   * shared, so a cached caller must not mutate it.
+   */
+  async readSidecar(id: string, options: { cached?: boolean } = {}): Promise<SessionSidecar | undefined> {
     const path = await this.sidecarPath(id)
-    return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : undefined
+    if (!options.cached) return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : undefined
+    const identity = this.sidecarIdentity(path)
+    const kept = this.sidecars.get(path)
+    if (identity && kept?.key === identity.key) {
+      // Keep it hot for the next read.
+      this.sidecars.delete(path)
+      this.sidecars.set(path, kept)
+      return kept.value
+    }
+    const value = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : undefined
+    if (identity) this.rememberSidecar(path, identity.key, identity.bytes, value)
+    return value
   }
   async updateSidecar(id: string, fn: (sidecar: SessionSidecar) => void): Promise<void> {
     const path = await this.sidecarPath(id)
@@ -576,6 +630,13 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     value.projectId = this.projectIdOf(id)
     value.projectIdentity = this.owners.sessions[id]?.identity
     atomicJson(path, value)
+    // A cached trajectory read sees the value just written; the new file
+    // identity also makes any other cache entry stale on its own.
+    if (this.sidecars.has(path)) {
+      const identity = this.sidecarIdentity(path)
+      if (identity) this.rememberSidecar(path, identity.key, identity.bytes, value)
+      else this.forgetSidecar(path)
+    }
   }
   async recordInvocation(invocation: any): Promise<void> {
     await this.updateSidecar(String(invocation.sessionId), (sidecar) => {

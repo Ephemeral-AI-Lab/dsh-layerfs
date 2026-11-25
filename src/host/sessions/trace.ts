@@ -7,10 +7,12 @@
  */
 import type { TraceCheckpoint, TraceOp, TraceVersion } from '../../shared/trace.ts'
 import {
-  DETAIL_MAX, PREVIEW_MAX, TOOL_DESCRIPTION_MAX, displayKind, kindFamily,
+  DETAIL_MAX, MAX_OPS, MAX_RECORDS, PREVIEW_MAX, TOOL_DESCRIPTION_MAX, displayKind, kindFamily,
   type AssistantRecord, type RequestRecord, type SystemRecord, type ToolRecord, type ToolsChange, type TrajectoryAnswer,
-  type TrajectoryDetail, type TrajectoryTool, type TrajectoryTurn, type TrajectoryUsage, type UserRecord,
+  type TrajectoryDetail, type TrajectoryRecord, type TrajectoryReply, type TrajectoryTool, type TrajectoryTurn, type TrajectoryUsage,
+  type UserRecord,
 } from '../../shared/trajectory.ts'
+import { isWrite } from '../../shared/logs.ts'
 import { promptChanges } from './prompt-diff.ts'
 
 export interface TrajectoryInput {
@@ -24,6 +26,152 @@ export interface TrajectoryInput {
   invocations: readonly any[]
   /** Checkpoints, oldest first. */
   checkpoints: readonly any[]
+}
+
+/**
+ * A cheap identity of what `buildTrajectory` would read: the log's length and
+ * last seq, the Branch, and the checkpoint and receipt tails. Reading it is
+ * O(1) over the loaded log and metadata (no walk, no serialization), so an
+ * unchanged `session.trajectory` is answered without building or sending the
+ * records. Any new event, checkpoint or receipt, a Branch change, a different
+ * project or a log that appeared or vanished changes it.
+ */
+export function trajectoryRevision(input: TrajectoryInput): string {
+  const events = input.events
+  const last = events?.length ? events[events.length - 1] : undefined
+  const checkpoint = input.checkpoints.length ? input.checkpoints[input.checkpoints.length - 1] : undefined
+  const receipt = input.invocations.length ? input.invocations[input.invocations.length - 1] : undefined
+  return [
+    events ? 'log' : 'nolog',
+    events?.length ?? 0,
+    Number.isInteger(last?.seq) ? last.seq : '',
+    last?.type ?? '',
+    input.project ?? '',
+    input.branch ?? '',
+    input.checkpoints.length,
+    checkpoint ? [checkpoint.kind, checkpoint.turn, checkpoint.changed, checkpoint.endSeq ?? '', checkpoint.commit ?? ''].join('.') : '',
+    input.invocations.length,
+    receipt && typeof receipt === 'object' ? (receipt.id ?? '') : '',
+  ].join(':')
+}
+
+/** Calls that are never dropped from a page: they wrote or named a version, or were refused. */
+const essentialOp = (op: TraceOp): boolean =>
+  op.versions.length > 0 || op.outcome !== 'success' || isWrite(op.argv?.length ? op.argv : op.operation.split('.'))
+
+/**
+ * The records and calls one page of this answer carries. `before` (a record
+ * seq) selects the next older page; without it the page is the newest
+ * {@link MAX_RECORDS} records. Non-record content (checkpoints, DSH's own calls,
+ * receipts without a call) rides with the turn it belongs to; a turn that the
+ * record cut only partly keeps `totalRecords`, and tool records that kept only
+ * some of their calls keep `opsTotal`. Calls that wrote, named a version or
+ * were refused are always kept; the other calls are budgeted from the newest
+ * record back, because a shell loop can log thousands of reads under one call.
+ */
+export function pageTrajectory(answer: TrajectoryAnswer, before?: number): TrajectoryAnswer {
+  const entries: { turn: number, record: TrajectoryRecord }[] = []
+  answer.turns.forEach((turn, index) => { for (const record of turn.records) entries.push({ turn: index, record }) })
+  let end = entries.length
+  if (before !== undefined) {
+    const at = entries.findIndex((entry) => entry.record.seq >= before)
+    end = at < 0 ? entries.length : at
+  }
+  const start = Math.max(0, end - MAX_RECORDS)
+  const kept = entries.slice(start, end)
+  const wanted = new Set(kept.map((entry) => entry.record))
+  const hasMore = start > 0
+  // Which calls each carried record and orphan call keeps. Newest first, so a
+  // page keeps the calls closest to what just happened; essential calls always.
+  const keepOp = new Map<TraceOp, boolean>()
+  for (const { record } of kept) {
+    if (record.kind === 'tool') for (const op of record.ops) if (essentialOp(op)) keepOp.set(op, true)
+  }
+  const pageTurns = kept.length ? { first: kept[0]!.turn, last: kept[kept.length - 1]!.turn } : undefined
+  if (pageTurns) {
+    for (let turn = pageTurns.first; turn <= pageTurns.last; turn++) {
+      for (const call of answer.turns[turn]!.orphanCalls) for (const op of call.ops) if (essentialOp(op)) keepOp.set(op, true)
+    }
+  }
+  let budget = MAX_OPS
+  const newerFirst = (ops: readonly TraceOp[]): void => {
+    for (let i = ops.length - 1; i >= 0 && budget > 0; i--) {
+      const op = ops[i]!
+      if (keepOp.get(op)) continue
+      keepOp.set(op, true)
+      budget--
+    }
+  }
+  for (let i = kept.length - 1; i >= 0; i--) {
+    const record = kept[i]!.record
+    if (record.kind === 'tool') newerFirst(record.ops)
+  }
+  if (pageTurns) {
+    for (let turn = pageTurns.last; turn >= pageTurns.first; turn--) {
+      for (const call of answer.turns[turn]!.orphanCalls) newerFirst(call.ops)
+    }
+  }
+  const prune = <T extends { ops: TraceOp[] }>(value: T): T => {
+    const ops = value.ops.filter((op) => keepOp.get(op))
+    return ops.length === value.ops.length ? value : { ...value, ops, opsTotal: value.ops.length }
+  }
+  // The first page starts at the turn its oldest kept record is in; an older
+  // page covers every turn up to its newest kept one (checkpoint-only turns
+  // included), so old turns load with their records.
+  let from = 0
+  let to = answer.turns.length - 1
+  if (kept.length) {
+    from = before === undefined ? kept[0]!.turn : 0
+    to = before === undefined ? answer.turns.length - 1 : kept[kept.length - 1]!.turn
+  } else if (before !== undefined) {
+    from = answer.turns.length
+    to = -1
+  }
+  const turns: TrajectoryTurn[] = []
+  for (let i = from; i <= to; i++) {
+    const turn = answer.turns[i]!
+    const records = turn.records.filter((record) => wanted.has(record)).map((record) => record.kind === 'tool' ? prune(record) : record)
+    const orphanCalls = turn.orphanCalls.map(prune)
+    turns.push({
+      ...turn, records, orphanCalls,
+      ...(records.length !== turn.records.length ? { totalRecords: turn.records.length } : {}),
+    })
+  }
+  return {
+    ...answer, turns,
+    recordTotal: entries.length,
+    ...(hasMore && kept.length ? { hasMore: true, olderBefore: kept[0]!.record.seq } : {}),
+  }
+}
+
+/**
+ * `session.trajectory` reads over one host: memoise the built answer per
+ * session keyed by its revision (the newest `memo` sessions kept), answer an
+ * unchanged `since` with `{ unchanged: true }` without building, and return a
+ * page otherwise. Callers without `since` (a tab opening) rebuild at most once
+ * between changes.
+ */
+export function trajectoryReader(memo = 8, build: (input: TrajectoryInput) => TrajectoryAnswer = buildTrajectory) {
+  const answers = new Map<string, { revision: string, answer: TrajectoryAnswer }>()
+  return (input: TrajectoryInput, options: { since?: string, before?: number } = {}): TrajectoryReply => {
+    const revision = trajectoryRevision(input)
+    if (options.before === undefined && options.since !== undefined && options.since === revision) {
+      return { sessionId: input.sessionId, revision, unchanged: true }
+    }
+    const kept = answers.get(input.sessionId)
+    let answer: TrajectoryAnswer
+    if (kept?.revision === revision) {
+      answer = kept.answer
+      answers.delete(input.sessionId)
+      answers.set(input.sessionId, kept)
+    } else {
+      answer = build(input)
+      answers.delete(input.sessionId)
+      answers.set(input.sessionId, { revision, answer })
+      while (answers.size > memo) answers.delete(answers.keys().next().value!)
+    }
+    return pageTrajectory(answer, options.before)
+  }
 }
 
 const SUMMARY_MAX = 200
@@ -485,6 +633,7 @@ export function buildTrajectory(input: TrajectoryInput): TrajectoryAnswer {
     turns: [...turns.values()].sort((a, b) => a.turn - b.turn),
     logLoaded: input.events !== undefined,
     counts: { versionsCreated: created.size + unnamed, callsWithVersions },
+    revision: trajectoryRevision(input),
   }
 }
 
