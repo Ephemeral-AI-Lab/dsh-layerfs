@@ -3,7 +3,8 @@
 import { chromium } from 'playwright-core'
 import { devUrl, dismiss } from './ui.mjs'
 
-export const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+/** System Chrome; CHROME_PATH overrides it (Linux CI, a Playwright install). */
+export const CHROME = process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 
 /** Launch system Chrome on the dev server (dismissed dialogs, debug flag set). */
 export async function openDev({ url = devUrl(), size = '1280x820', headless = true } = {}) {
