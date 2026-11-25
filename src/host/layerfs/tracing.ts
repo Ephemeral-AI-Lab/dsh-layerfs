@@ -13,6 +13,7 @@ import { basename, dirname, join, resolve } from 'node:path'
 import { OUTPUT_MAX, operationOf, type CallLine, type CallOutput, type SimulationStep } from '../../shared/logs.ts'
 import { appendCallLine, makeReceipt, renderCall, ROTATE_BYTES, savedFields } from './call-log.ts'
 import { DEFAULT_BOUNDS, RAW_DIR, outputName, outputRecord, outputsDir, outputSink, writeOutput, type OutputBounds } from './call-output.ts'
+import { displayKind, versionEffect } from '../../shared/trajectory.ts'
 
 export interface VersionLink { kind: 'Commit' | 'Layer'; id: string; effect: 'created' | 'unchanged' | 'referenced' }
 /**
@@ -89,17 +90,16 @@ export function savedVersions(operation: string, result: any): VersionLink[] {
 }
 
 /**
- * Versions a call log line names. `Committed`/`Added` created;
- * `UpToDate`/`NoChanges` unchanged; `Forked` referenced. A line has no
- * `fast_forward`, so `Merged` is created only when the caller read
- * `fastForward: false` from the call's stored answer ({@link fastForwardOfOutput}),
- * else referenced.
+ * Versions a call log line names, in whichever vocabulary wrote its `kind`
+ * (`committed`/`Committed` …; see {@link versionEffect}). A line has no
+ * `fast_forward`, so a merge (`merged`/`Merged`) is created only when the
+ * caller read `fastForward: false` from the call's stored answer
+ * ({@link fastForwardOfOutput}), else referenced.
  */
 export function lineVersions(line: Pick<CallLine, 'argv' | 'kind' | 'commit' | 'layer'>, fastForward?: boolean): VersionLink[] {
   const allowed: readonly string[] = CHECKPOINT_OPERATIONS
   if (!allowed.includes(operationOf(line.argv))) return []
-  const effects: Record<string, VersionLink['effect']> = { Committed: 'created', Added: 'created', UpToDate: 'unchanged', NoChanges: 'unchanged', Forked: 'referenced', Merged: fastForward === false ? 'created' : 'referenced' }
-  const effect = line.kind ? effects[line.kind] : undefined
+  const effect = line.kind ? versionEffect(line.kind, fastForward) : undefined
   const hex = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{66}$/.test(value)
   if (!effect) return []
   if (hex(line.commit)) return [{ kind: 'Commit', id: line.commit, effect }]
@@ -205,7 +205,7 @@ export function receiptFromLine(line: CallLine, identity: TraceIdentity, id: str
   const allowed: readonly string[] = CHECKPOINT_OPERATIONS
   const captureGap = !targetKnown ? 'target-workspace-unconfirmed'
     : outcome === 'success' && allowed.includes(operation) && !line.kind ? 'structured-result-unavailable' : undefined
-  const code = line.outcome === 'ok' ? undefined : shortText(line.outcome), kind = shortText(line.kind)
+  const code = line.outcome === 'ok' ? undefined : shortText(line.outcome), rawKind = shortText(line.kind), kind = rawKind ? displayKind(rawKind) : undefined
   return {
     ...portable(identity, id, project), operation, outcome,
     versions: outcome === 'success' && targetKnown && !identity.internal ? lineVersions(line, fastForward) : [],
@@ -238,7 +238,8 @@ export async function traceInvocation<T>(operation: string, run: (tag?: string) 
     } catch { /* receipt argv is best effort */ }
     // the kind is this log's own word for a 2.0 answer (as the call log line's), else the answer's own `kind`
     const code = error ? shortText(error.code) ?? 'Failed' : undefined
-    const kind = error ? undefined : savedFields(words ?? operation.split('.'), result).kind ?? shortText((result as any)?.kind)
+    const rawKind = error ? undefined : savedFields(words ?? operation.split('.'), result).kind ?? shortText((result as any)?.kind)
+    const kind = rawKind ? displayKind(rawKind) : undefined
     const receipt: Invocation = {
       ...portable(trace, id, !targetKnown ? '' : targetProject ?? trace.project), operation,
       outcome: error ? error.transport === 'refusal' ? 'refusal' : 'unknown' : 'success',

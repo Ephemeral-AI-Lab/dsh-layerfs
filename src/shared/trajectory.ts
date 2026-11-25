@@ -8,7 +8,7 @@
  *   session.trajectory.record {sessionId, seq}  → TrajectoryDetail (one record in full)
  *   session.trajectory.prompt-diff {sessionId, seq} → PromptDiffAnswer (the system/tools line diff)
  */
-import type { TraceCheckpoint, TraceOp } from './trace.ts'
+import type { TraceCheckpoint, TraceEffect, TraceOp } from './trace.ts'
 
 export type { TraceCheckpoint, TraceEffect, TraceOp, TraceVersion } from './trace.ts'
 
@@ -233,4 +233,75 @@ export interface TrajectoryDetail {
   previousRequestSeq?: number
   /** Fields cut at {@link DETAIL_MAX}. */
   truncated?: ('args' | 'result' | 'text' | 'thinking' | 'header' | 'tools')[]
+}
+
+/**
+ * The call log's `kind` vocabulary (docs/specs/layerfs-logs.md §4): the pinned
+ * CLI names a save's result in lower case (`committed`, `unchanged`, `forked`,
+ * …; its `home log --detail` reports it as `outcome`), while the plugin's
+ * stand-in wrote the same word capitalized (`Committed`, `UpToDate`, `Forked`,
+ * …). The families are the same, so every reader normalizes before comparing
+ * and displays {@link displayKind}'s canonical word.
+ *
+ * Normalization: camel-case is split, then case is dropped and separators
+ * (`-`, `_`, spaces) become one `-`; `uptodate`/`nochanges` fold to the same
+ * spellings. An unknown kind normalizes to itself and is displayed as given.
+ */
+export function normalizeKind(kind: string): string {
+  const normalized = kind
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+    .replace(/[\s_]+/g, '-')
+    .replace(/-+/g, '-')
+    .toLowerCase()
+  return normalized === 'uptodate' ? 'up-to-date' : normalized === 'nochanges' ? 'no-changes' : normalized
+}
+
+/** What a call log `kind` says the call did to a version. */
+export type KindFamily = 'created' | 'unchanged' | 'forked'
+
+const KIND_FAMILIES: Readonly<Record<string, KindFamily>> = {
+  committed: 'created',
+  added: 'created',
+  merged: 'created',
+  'up-to-date': 'unchanged',
+  'no-changes': 'unchanged',
+  unchanged: 'unchanged',
+  forked: 'forked',
+}
+
+/** The family a `kind` belongs to, in any vocabulary; an unknown kind has none. */
+export function kindFamily(kind: string | undefined): KindFamily | undefined {
+  return kind ? KIND_FAMILIES[normalizeKind(kind)] : undefined
+}
+
+const KIND_WORDS: Readonly<Record<string, string>> = {
+  committed: 'Committed',
+  added: 'Added',
+  merged: 'Merged',
+  forked: 'Forked',
+  'up-to-date': 'UpToDate',
+  'no-changes': 'NoChanges',
+  unchanged: 'Unchanged',
+}
+
+/** The canonical word for a known kind, else the kind exactly as the CLI gave it. */
+export function displayKind(kind: string): string {
+  const raw = kind.trim()
+  return raw ? KIND_WORDS[normalizeKind(raw)] ?? raw : raw
+}
+
+/**
+ * The effect a line's `kind` names on its version: a save created it
+ * (`committed`/`added`), nothing changed (`up-to-date`/`no-changes`/
+ * `unchanged`), or the call only referenced it (`forked`; `merged` when the
+ * caller knows it was not a fast-forward). Unknown: undefined.
+ */
+export function versionEffect(kind: string, fastForward?: boolean): TraceEffect | undefined {
+  const normalized = normalizeKind(kind)
+  if (normalized === 'committed' || normalized === 'added') return 'created'
+  if (normalized === 'up-to-date' || normalized === 'no-changes' || normalized === 'unchanged') return 'unchanged'
+  if (normalized === 'forked') return 'referenced'
+  if (normalized === 'merged') return fastForward === false ? 'created' : 'referenced'
+  return undefined
 }

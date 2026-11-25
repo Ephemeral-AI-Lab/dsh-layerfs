@@ -52,6 +52,7 @@ import { UNCLAIMED } from './catalog.ts'
 import { LayerfsSessions } from './service.ts'
 import { localPersistence, SessionStore } from './store.ts'
 import { promptDiff } from './prompt-diff.ts'
+import { normalizeKind } from '../../shared/trajectory.ts'
 import { buildTrajectory, trajectoryDetail, type TrajectoryInput } from './trace.ts'
 
 /** Stored session logs kept parsed for the Trajectory (finished subagents' logs, which DSH has unloaded). */
@@ -122,7 +123,7 @@ export function apply(ctx: Context): void {
         // The line has no exit code; a `workspace exec` call's stored output holds it in its final frame.
         const exit = line.argv[0] === 'workspace' && line.argv[1] === 'exec' && line.tag ? exitOfOutput(readOutput(outputsDir(ctx.layerfs.callLog), line.tag), line.argv.includes('--stream')) : undefined
         // Nor `fast_forward`: a merge's stored answer tells a new merge Commit from a moved pointer.
-        const fastForward = line.argv[0] === 'branch' && line.argv[1] === 'merge' && line.kind === 'Merged' && line.tag ? fastForwardOfOutput(readOutput(outputsDir(ctx.layerfs.callLog), line.tag)) : undefined
+        const fastForward = line.argv[0] === 'branch' && line.argv[1] === 'merge' && normalizeKind(line.kind ?? '') === 'merged' && line.tag ? fastForwardOfOutput(readOutput(outputsDir(ctx.layerfs.callLog), line.tag)) : undefined
         await record(receiptFromLine(line, call.identity, tag.receiptId, exit, fastForward))
       }
     }

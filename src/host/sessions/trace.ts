@@ -7,7 +7,7 @@
  */
 import type { TraceCheckpoint, TraceOp, TraceVersion } from '../../shared/trace.ts'
 import {
-  DETAIL_MAX, PREVIEW_MAX, TOOL_DESCRIPTION_MAX,
+  DETAIL_MAX, PREVIEW_MAX, TOOL_DESCRIPTION_MAX, displayKind, kindFamily,
   type AssistantRecord, type RequestRecord, type SystemRecord, type ToolRecord, type ToolsChange, type TrajectoryAnswer,
   type TrajectoryDetail, type TrajectoryTool, type TrajectoryTurn, type TrajectoryUsage, type UserRecord,
 } from '../../shared/trajectory.ts'
@@ -109,7 +109,7 @@ export function toOp(receipt: any, checkpoints: readonly any[], current: string 
     ...(Array.isArray(receipt.argv) ? { argv: receipt.argv.filter((w: unknown) => typeof w === 'string') } : {}),
     outcome: receipt.outcome === 'success' || receipt.outcome === 'refusal' ? receipt.outcome : 'unknown',
     ...(text(receipt.code) ? { code: receipt.code } : {}),
-    ...(text(receipt.kind) ? { kind: receipt.kind } : {}),
+    ...(text(receipt.kind) ? { kind: displayKind(receipt.kind) } : {}),
     ...(finite(receipt.at) !== undefined ? { at: receipt.at } : {}),
     ...(finite(receipt.ms) !== undefined ? { ms: receipt.ms } : {}),
     ...(receipt.exit === null || Number.isInteger(receipt.exit) ? { exit: receipt.exit } : {}),
@@ -267,9 +267,6 @@ type ToolEntry = ToolRecord & { turn: number }
  * outside any open turn belongs to the next turn to open; at the log's end, with
  * no next `turn/start` yet, that is the last logged turn + 1 (turn 1 when none).
  */
-/** A call log `kind` that says the call made a version (call-log.ts savedFields). */
-const CREATING_KINDS: ReadonlySet<string> = new Set(['Committed', 'Added', 'Merged'])
-
 export function buildTrajectory(input: TrajectoryInput): TrajectoryAnswer {
   const { checkpoints, branch } = input
   // The recorded prompt changes (docs/specs/layerfs-trajectory.md): a system or
@@ -469,7 +466,7 @@ export function buildTrajectory(input: TrajectoryInput): TrajectoryAnswer {
   const madeBy = (op: TraceOp): boolean => {
     let any = false
     for (const v of op.versions) if (v.effect === 'created') { created.add(v.id); any = true }
-    if (!any && op.outcome === 'success' && CREATING_KINDS.has(op.kind ?? '')) { unnamed++; any = true }
+    if (!any && op.outcome === 'success' && kindFamily(op.kind) === 'created') { unnamed++; any = true }
     return any
   }
   const count = (ops: readonly TraceOp[]): void => { if (ops.map(madeBy).some(Boolean)) callsWithVersions++ }
