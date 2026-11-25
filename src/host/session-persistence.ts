@@ -52,6 +52,8 @@ interface CachedHeader {
 }
 
 const HEADER_CACHE_LIMIT = 1024
+/** How long a proven-missing session log is remembered (a pending session gains one on its first turn). */
+const MISSING_TTL_MS = 2_000
 /** Headers stay small; this caps a pathological header or a long-lived process. */
 const HEADER_CACHE_BUDGET = 4 * 1024 * 1024
 
@@ -205,8 +207,11 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
   }
 
   private get headers(): HeaderCache { return (this.headerCache ??= new HeaderCache()) }
+  /** id -> epoch ms a `stat` may answer "no log" without asking the backend again (lazy: tests build the object without field initializers). */
+  private missingCache?: Map<string, number>
+  private get missing(): Map<string, number> { return (this.missingCache ??= new Map<string, number>()) }
   /** Drop one session's cached header after its log or its route changed. */
-  private invalidateHeader(id: string): void { this.headerCache?.delete(String(id)) }
+  private invalidateHeader(id: string): void { this.headerCache?.delete(String(id)); this.missing.delete(String(id)) }
 
   private get service(): any { return (this as any).ctx.get('layerfs') }
   private get sessions(): any { return (this as any).ctx.get('layerfsSessions') }
@@ -540,6 +545,15 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
   private async statLocal(id: string, options?: any) {
     const backend = await this.target(id)
     const cache = this.headers
+    // A pending session has no log yet, and asking the stock backend for it scans
+    // the project home (`findLog`): a 33-session project listed 22 of them, so
+    // every list read cost 22 fruitless scans (~700 ms). Remember the miss for a
+    // moment; create/append/flush and the writes below clear it at once.
+    const missingUntil = this.missing.get(id)
+    if (missingUntil !== undefined) {
+      if (Date.now() < missingUntil) { options?.signal?.throwIfAborted(); return undefined }
+      this.missing.delete(id)
+    }
     const cached = cache.get(id)
     if (cached && cached.backend === backend && cached.snapshot.formatStatus !== 'migration-required') {
       options?.signal?.throwIfAborted()
@@ -551,6 +565,7 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
       cache.delete(id)
     }
     const snapshot = await backend.stat(id, options)
+    if (!snapshot) this.missing.set(id, Date.now() + MISSING_TTL_MS)
     const path = snapshot?.location?.path
     // A versioned (historical) header's revision also covers the historical
     // corpus, which can move without this file changing: keep re-reading it.
@@ -582,6 +597,8 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     const snapshot = await this.statLocal(String(id), options)
     if (snapshot || options?.restore === false) return snapshot
     if (!(await this.restore(String(id)))) return snapshot
+    // The import just wrote the log: forget the miss it was imported from.
+    this.missing.delete(String(id))
     return this.statLocal(String(id), options)
   }
   async open(id: any, access: any, options?: any) {
