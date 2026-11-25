@@ -113,6 +113,12 @@ export interface CliFeatures {
   readonly inspect: { readonly machineLog: boolean, readonly sandboxLog: boolean, readonly files: boolean, readonly machineFiles: boolean, readonly machineStats: boolean }
   /** machine.stats takes `--with space`: where a machine's data disk goes, by part, and what of it is not LayerFS's. */
   readonly machineSpace: boolean
+  /** store.upgrade exists (#804): an older-format Store to the latest format, in place. */
+  readonly storeUpgrade: boolean
+  /** store.get and store.list take `--with format` (each Store's format, its latest and status). */
+  readonly storeFormat: boolean
+  /** The formats this build writes, by engine (`--version --json` `formats`), or null when it does not say. */
+  readonly formats: { readonly sqlite: number | null, readonly postgresql: number | null } | null
 }
 
 /** The features a discovery (its call table and identity features) has. */
@@ -133,7 +139,18 @@ export function featuresOf(discovery: Partial<Pick<Discovery, 'calls' | 'identit
     imageStage: images && imageLoad && imagePrune && imageRefs && sandboxRuntime ? 1 : 0,
     inspect: { machineLog: !!call('machine', 'log'), sandboxLog: !!call('sandbox', 'log'), files: !!call('sandbox', 'files'), machineFiles: !!call('machine', 'files'), machineStats: !!call('machine', 'stats') },
     machineSpace: withValues(call('machine', 'stats')).includes('space'),
+    storeUpgrade: !!call('store', 'upgrade'),
+    storeFormat: withValues(call('store', 'get')).includes('format') && withValues(call('store', 'list')).includes('format'),
+    formats: formatsOf((discovery?.identity as { formats?: unknown } | undefined)?.formats),
   }
+}
+
+/** `--version --json` `formats` ({ sqlite: 3, postgresql: 4 }), or null without it. */
+function formatsOf(f: unknown): CliFeatures['formats'] {
+  if (!f || typeof f !== 'object') return null
+  const n = (v: unknown) => (typeof v === 'number' && Number.isSafeInteger(v) && v > 0 ? v : null)
+  const { sqlite, postgresql } = f as { sqlite?: unknown, postgresql?: unknown }
+  return n(sqlite) === null && n(postgresql) === null ? null : { sqlite: n(sqlite), postgresql: n(postgresql) }
 }
 
 /** The pinned CLI's features; none when discovery fails (its calls fail too). */

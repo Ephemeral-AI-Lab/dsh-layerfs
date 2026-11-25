@@ -27,6 +27,7 @@ Storage writes marked ↻ then read the Storage view again (`home get`, `project
 | `POST /api/stores/:id/move` | `storage.move` | `backup list`, `store move` ↻ | between two machines, two moves through native in one job: { machine } |
 | `POST /api/stores/:id/backup` | `storage.backup` | `backup create`, `backup list` | { bucket, file? } |
 | `POST /api/stores/:id/compact` | `storage.compact` | `backup list`, `store compact` ↻ | reclaim the Store's dead bytes (store.compact), as a job |
+| `POST /api/stores/:id/upgrade` | `storage.upgrade` | `backup list`, `store upgrade` ↻ | an older-format Store to the latest format in place (store.upgrade, #804), as a job |
 | `POST /api/buckets` | `storage.connectBucket` | `backup connect`, `backup list` ↻ | { name, url \| parts, accessKey, secretKey }: the secret goes to LayerFS on stdin |
 | `DELETE /api/buckets/:id` | `storage.disconnectBucket` | `backup disconnect` ↻ |  |
 | `GET /api/buckets/:id/files` | `storage.listBucket` | `backup list` |  |
@@ -34,6 +35,7 @@ Storage writes marked ↻ then read the Storage view again (`home get`, `project
 | `GET /api/storage-jobs/:id` | `storage.job` | host only |  |
 | `POST /api/storage-jobs/:id/inspect` | `storage.inspect` | host only |  |
 | `POST /api/storage-jobs/:id/retry` | `storage.retry` | `backup list`, `store move` ↻ |  |
+| `POST /api/storage-jobs/:id/stop` | `storage.stop` | host only | Cancel of a running upgrade: SIGTERM to its CLI, whose reply decides; refused at commit |
 | `GET /api/platforms` | `machines.platforms` | `home get` | Compute's machines. Power is manual (#535 D11): start and stop are their own calls, and no read starts one |
 | `GET /api/metrics` | `metrics.view` | host only | machine and Sandbox metrics: ?machines=a,b&since=<seq>, answered from the sampler's memory (no LayerFS call, layerfs-project#182 D2) |
 | `GET /api/sandbox-creates` | `sandbox-creates.list` | host only |  |

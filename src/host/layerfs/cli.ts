@@ -158,7 +158,7 @@ export const withValues = (entry: Pick<CallEntry, 'form'> | undefined): string[]
 
 /** `help --json` plus `--version --json`. */
 export interface Discovery {
-  readonly identity: { readonly version: string, readonly commit: string, readonly dirty: boolean, readonly features: readonly string[] }
+  readonly identity: { readonly version: string, readonly commit: string, readonly dirty: boolean, readonly features: readonly string[], readonly formats?: Readonly<Record<string, number>> }
   readonly calls: readonly CallEntry[]
   readonly commands: readonly unknown[]
   readonly switches: readonly { readonly name: string, readonly calls: readonly string[] }[]
@@ -414,7 +414,7 @@ export function laneOf(argv: readonly string[]): Lane {
 const LONG_CALLS = new Set([
   'project.init', 'project.export',
   'machine.create', 'machine.start', 'machine.stop', 'machine.update', 'machine.remove', 'machine.load_image', 'machine.prune',
-  'store.move', 'store.connect', 'store.attach', 'store.detach', 'store.doctor', 'store.compact',
+  'store.move', 'store.connect', 'store.attach', 'store.detach', 'store.doctor', 'store.compact', 'store.upgrade',
   'backup.connect', 'backup.create', 'backup.restore',
   'sandbox.create', 'sandbox.remove',
 ])

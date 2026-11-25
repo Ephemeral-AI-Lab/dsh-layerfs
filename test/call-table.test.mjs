@@ -235,6 +235,8 @@ const GATED = [
   { site: /^home\.(get|init)$/, file: 'src/host/service.ts', gate: /this\.homeCalls\(\)/, lines: 8 },
   // GC (layerfs-project#41): the route refuses `Unsupported` when the call table has no store.compact, and the view hides the menu row
   { site: /^store\.compact$/, file: 'src/host/routes/storage.ts', gate: /const call = await this\.compactCall\(\)\n\s+if \(!call\) throw refuse\(409, 'Unsupported'/, lines: 6 },
+  // store upgrade (LayerFS #804): Storage.upgrade refuses 501 without storeUpgrade, and the view hides Upgrade…
+  { site: /^store\.upgrade$/, file: 'src/host/routes/storage.ts', gate: /cliFeatures\(this\.host\)\)\.storeUpgrade\b/, lines: 4 },
   // GC (layerfs-project#41): project.delete replaced project.remove; Projects.remove sends the one the call table has
   { site: /^project\.(delete|remove)$/, file: 'src/host/routes/projects.ts', gate: /const hasDelete = \(await this\.host\.discover\(\)\)\.calls\.some\(/, lines: 3 },
   // the Doctor page (call surface 2.0): the records tree is read only when the call table lists `tree` among `home get`'s --with values; else the route refuses `Unsupported`

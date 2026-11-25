@@ -55,7 +55,8 @@ const withNames = (c) => new Set(Object.keys(c.form?.with ?? {}))
  * LayerFS branch claude/pg-connect-attach) the plugin sends before a pinned
  * runtime has it: these calls and options are not asked of an older table.
  */
-const AHEAD = { 'store.attach': null, 'store.detach': null, 'store.connect': ['user', 'password'] }
+// store.upgrade (LayerFS #804) is sent only behind `cliFeatures(...).storeUpgrade` (call-table.test.mjs GATED) until the pinned runtime has it
+const AHEAD = { 'store.attach': null, 'store.detach': null, 'store.connect': ['user', 'password'], 'store.upgrade': null }
 const ahead = (name, option) => name in AHEAD && (option === undefined || AHEAD[name] === null || AHEAD[name].includes(option))
 const flagAhead = (name, flag) => name in AHEAD && (AHEAD[name] === null || ['--user', '--password-stdin'].includes(flag))
 
@@ -89,6 +90,7 @@ const SENT = {
   'store.doctor': { options: ['machine'] },
   'store.move': { progress: true },
   'store.compact': { progress: true },
+  'store.upgrade': { progress: true },
   'backup.connect': { options: ['access_key', 'secret_key'] },
   'backup.disconnect': {},
   'backup.list': { options: ['bucket'] },

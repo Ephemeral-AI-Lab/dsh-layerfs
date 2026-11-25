@@ -36,6 +36,17 @@
  *   backup/restore    backup.create / backup.restore as jobs
  *   compact           store.compact as a job, its phases from on_progress (a
  *                     remote sqlite Store is compacted by its machine's worker)
+ *   upgrade / stop    store.upgrade as a job (#804 §10): an older-format Store
+ *                     to the latest format in place, its phases check,
+ *                     convert, verify, commit (PostgreSQL check, convert).
+ *                     Stop is the export pattern: SIGTERM to the job's CLI,
+ *                     then its reply decides (`Cancelled` is `stopped`; an
+ *                     `upgraded` reply is success); refused 409 at `commit`.
+ *
+ * Formats (`--with format`, when the pinned CLI lists it): each Store row's
+ * `format` { version, latest, status, fix } comes from the same `store list`
+ * call (no read of its own); the view says what the CLI can do (`upgrade`,
+ * `format`) and the formats it writes (`formats`, `--version --json`).
  *
  * Secrets (a PostgreSQL password, a bucket's secret key) go to LayerFS on
  * stdin and are kept by the home (its secret folder); the host never writes,
@@ -48,9 +59,10 @@ import { READ_TIMEOUT_MS } from '../layerfs/cli.ts'
 import { randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, rmdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { COMPACT_STEPS, JobStore, failureOutcome, inspectJob, transferSummary, type StorageJob } from './jobs.ts'
+import { COMPACT_STEPS, JobStore, UPGRADE_STEPS, failureOutcome, inspectJob, transferSummary, upgradeOutcome, type StorageJob } from './jobs.ts'
+import { killGroup } from './project-exports.ts'
 import { computer } from './computer.ts'
-import { fixOf, pages, refuse, wire, type RouteHost } from './util.ts'
+import { cliFeatures, fixOf, pages, refuse, wire, type RouteHost } from './util.ts'
 import { StoreSizes } from './store-sizes.ts'
 import { attachedOf, companionsOf, machineRows, msAt, opOf } from '../layerfs/machine-records.ts'
 
@@ -221,6 +233,9 @@ export function moveLegacyStorageState(home: string, jobDir: string, statDir: st
 export function storeRow(s: any, jobs: StorageJob[]) {
   const kind: 'sqlite' | 'postgresql' = s.engine === 'postgresql' ? 'postgresql' : 'sqlite'
   const names = (Array.isArray(s.projects) ? s.projects : []).map(String)
+  // this host's upgrade holds the Store: busy with it, whatever the list read before its op was recorded
+  const upgrading = jobs.find((j) => j.store === s.store && !j.ended && j.kind === 'upgrade')
+  const held = upgrading && (s.state ?? 'ready') === 'ready' ? { state: 'busy', op: { id: '', name: 'store.upgrade', phase: upgrading.phase ?? '', started: upgrading.started, uncertain: false } } : null
   return {
     name: String(s.store),
     kind,
@@ -229,9 +244,10 @@ export function storeRow(s: any, jobs: StorageJob[]) {
     projectsCount: typeof s.projects_count === 'number' ? s.projects_count : names.length,
     created: msAt(s.created_at),
     size: typeof s.size === 'number' ? { bytes: s.size } as { bytes: number, seen?: number, stale?: true } : null,
-    state: typeof s.state === 'string' ? s.state : 'ready',
-    op: opOf(s.op),
+    state: held?.state ?? (typeof s.state === 'string' ? s.state : 'ready'),
+    op: held?.op ?? opOf(s.op),
     ...companionsOf(s),
+    format: formatOf(s.format),
     links: (Array.isArray(s.backups) ? s.backups : []).filter((b: any) => typeof b?.bucket === 'string').map((b: any) => ({
       bucket: b.bucket, file: typeof b.file === 'string' ? b.file : String(s.store),
       last: b.last && typeof b.last === 'object' ? { op: String(b.last.call ?? ''), at: msAt(b.last.ended_at), bytes: typeof b.last.size === 'number' ? b.last.size : null } : null,
@@ -241,6 +257,18 @@ export function storeRow(s: any, jobs: StorageJob[]) {
     postgresql: kind === 'postgresql' ? pgOf(s) : null,
     attached: kind === 'postgresql' ? attachedRows(s) : [],
   }
+}
+
+/**
+ * A Store's format as `--with format` answers it (#804 §2): its version, the
+ * latest this build writes, the status word (`current`, `outdated`,
+ * `unsupported`, `newer`) and its fix line; null when the section is absent
+ * (a CLI without it, or a read that did not report it).
+ */
+export function formatOf(f: any): { version: number | null, latest: number | null, status: string, fix: string | null } | null {
+  if (!f || typeof f !== 'object' || typeof f.status !== 'string') return null
+  const n = (v: unknown) => (typeof v === 'number' && Number.isSafeInteger(v) ? v : null)
+  return { version: n(f.version), latest: n(f.latest), status: f.status, fix: typeof f.fix === 'string' && f.fix ? f.fix : null }
 }
 
 /** The not_listed entry for a bucket as the page shows it: its reason, LayerFS's sentence and its fix line (`backup connect`, when the key was refused or the record has none). */
@@ -267,8 +295,14 @@ export class Storage {
   readonly sizes: StoreSizes
   readonly reconciled: Promise<void>
 
-  /** @param host - the route dependencies. */
-  constructor(private readonly host: RouteHost) {
+  /** Upgrade jobs whose Stop has sent SIGTERM to their CLI (once each). */
+  private readonly signalled = new Set<string>()
+
+  /**
+   * @param host - the route dependencies.
+   * @param kill - signals a CLI's process group (the export Stop's own; tests pass a recorder).
+   */
+  constructor(private readonly host: RouteHost, private readonly kill: (pid: number, signal: NodeJS.Signals) => void = killGroup) {
     // the job and stat folders in the LayerFS home, all owner-only (LayerFS requires 0700; a home made here is too)
     moveLegacyStorageState(host.home, host.jobs, host.stats)
     for (const dir of [host.jobs, host.stats, join(host.stats, 'storage-observations'), join(host.stats, 'project-storage')]) {
@@ -325,8 +359,10 @@ export class Storage {
   private async readView(generation: number, fresh: boolean) {
     // An explicit refresh also observes changes from other CLI processes.
     const probe = fresh ? { timeout_ms: READ_TIMEOUT_MS } : {}
+    // what the pinned CLI can do: an upgrade, and each Store's format in the same list read (#804)
+    const features = await cliFeatures(this.host)
     const [listed, machines, bucketRecords] = await Promise.all([
-      this.lfs.store.list({ ...probe, detail: true, with: ['stats'] }),
+      this.lfs.store.list({ ...probe, detail: true, with: features.storeFormat ? ['stats', 'format'] : ['stats'] }),
       machineRows(this.lfs),
       this.bucketRows(probe).catch((error: any) => (this.log(`[storage] home get --with tree: ${error?.message ?? error}`), null)),
     ])
@@ -366,6 +402,9 @@ export class Storage {
       bucketInventoryComplete: bucketRecords !== null,
       jobs,
       compact: true,
+      upgrade: features.storeUpgrade,
+      format: features.storeFormat,
+      formats: features.formats,
       at: Date.now(),
     }
     // a write while this read ran: answer it, but do not keep it for the join
@@ -681,6 +720,8 @@ export class Storage {
       if (typeof p?.phase === 'string' && p.phase !== job.phase) {
         job.phase = p.phase
         job.phases.push({ phase: p.phase, half: job.half, at: Date.now() })
+        // a Stop asked before the call's first phase: its CLI has its signal handler now
+        if (job.stopping) this.signal(job)
         this.changed()
       }
       // push and pull give bytes only while sending (#536 §10b), in 8 MiB steps
@@ -697,7 +738,7 @@ export class Storage {
     }
     this.jobStore.save()
     let running: Promise<unknown>
-    try { running = Promise.resolve(run(on_progress, step, (pid) => { job.pid = pid; emit() })) } catch (error) { running = Promise.reject(error) }
+    try { running = Promise.resolve(run(on_progress, step, (pid) => { job.pid = pid; if (job.stopping) this.signal(job); emit() })) } catch (error) { running = Promise.reject(error) }
     this.running.set(job.id, running)
     running
       .then(
@@ -706,13 +747,15 @@ export class Storage {
           // the SDK's refusal as it came: its code and text, the phase it stopped in, and its detail (entity, op, related)
           job.phase = error?.detail?.phase ?? job.phase
           // a transfer that stops in install or record is unknown; a compaction's refusal says so itself (`Unknown`)
-          job.outcome = failureOutcome(error, kind === 'compact' ? null : job.phase)
+          // an upgrade's own reply decides: Cancelled is stopped (nothing changed)
+          job.outcome = kind === 'upgrade' ? upgradeOutcome(error) : failureOutcome(error, kind === 'compact' ? null : job.phase)
           job.error = { transport: error?.transport ?? null, code: error?.code ?? 'Failed', message: error?.message ?? String(error), phase: error?.detail?.phase ?? job.phase, detail: error?.detail ?? null, ...fixOf(error), ...(error?.note ? { note: error.note } : {}) }
           this.log(`[storage] ${kind} ${store}: ${error?.code ?? ''} ${error?.message ?? error}`)
         },
       )
       .finally(() => {
         this.running.delete(job.id)
+        this.signalled.delete(job.id)
         job.ended = Date.now()
         job.summary = transferSummary(job)
         emit()
@@ -840,13 +883,59 @@ export class Storage {
     return this.start('compact', store, store, null, (on_progress, _step, on_spawn) => this.lfs.store.compact(store, { on_progress, on_spawn, detail: true }), null, COMPACT_STEPS[family])
   }
 
+  /**
+   * store.upgrade(store): an older-format Store to the latest format, in place
+   * and in one transaction (#804). LayerFS refuses a Store in use (`InUse`), a
+   * busy one (`Busy`), one it cannot upgrade (`Unsupported`, with remove or
+   * disconnect as its fix) and answers `current` for one already at the latest
+   * format. One attempt: nothing here runs it again. Its result is
+   * `{ outcome, format_before, format_after, steps, warnings, … }`.
+   */
+  async upgrade(store: unknown) {
+    checkName(store, 'An upgrade')
+    if (!(await cliFeatures(this.host)).storeUpgrade) throw refuse(501, 'Unsupported', 'The selected LayerFS runtime cannot upgrade a Store; choose a newer one in Setup')
+    const family = (await this.lfs.store.get(store))?.engine === 'postgresql' ? 'postgresql' : 'sqlite'
+    return this.start('upgrade', store, store, null, (on_progress, _step, on_spawn) => this.lfs.store.upgrade(store, { on_progress, on_spawn, detail: true }), null, UPGRADE_STEPS[family])
+  }
+
+  /**
+   * Cancel of a running upgrade (the export Stop): SIGTERM to its CLI, which
+   * ends the transaction before COMMIT and answers `Cancelled`; the job keeps
+   * reading that reply, and the reply decides (a Cancel that lands too late
+   * reads `upgraded`). A CLI not yet at its first phase gets the signal when it
+   * reports one (its handler is installed by then). Refused at `commit`, the
+   * point of no return, and for a job that is not a running upgrade.
+   */
+  stop(id: string) {
+    const job = this.jobs.get(id)
+    if (!job) throw refuse(404, 'NotFound', 'no such job: it ended long ago or another host started it')
+    if (job.kind !== 'upgrade') throw refuse(409, 'Conflict', 'Only a Store upgrade can be cancelled')
+    if (job.ended) throw refuse(409, 'Conflict', 'This upgrade has already ended')
+    if (job.phase === 'commit') throw refuse(409, 'Busy', 'The upgrade is finishing (commit) and can no longer be cancelled')
+    if (!job.stopping) {
+      job.stopping = true
+      this.signal(job)
+      this.jobStore.save()
+      this.event({ type: 'storage-job', job: { ...job } })
+    }
+    return { ...job }
+  }
+
+  /** SIGTERM to a stopping upgrade's CLI, once, when its pid is known and it has reported a phase. */
+  private signal(job: StorageJob): void {
+    if (!job.pid || !job.phases.length || this.signalled.has(job.id) || job.ended) return
+    this.signalled.add(job.id)
+    try { this.kill(job.pid, 'SIGTERM') } catch { /* already gone: its reply decides */ }
+  }
+
   async inspect(id: string) {
     const job = this.jobs.get(id)
     if (!job || !job.ended) throw refuse(409, 'ConnectBusy', 'Wait for a completed job before inspecting recovery')
     job.observation = await inspectJob(this.lfs, job)
     const value = job.observation.value
     if (value?.state === 'broken' && value?.reason === 'unresolved') job.outcome = 'unknown'
-    else if (value?.state === 'ready' && job.error?.transport === 'transport-unknown' && !['install', 'record'].includes(job.phase ?? '')) job.outcome = 'interrupted'
+    // an upgrade's Check reads its format (the client words it Upgraded or Outdated); its outcome stays as its reply left it
+    else if (job.kind !== 'upgrade' && value?.state === 'ready' && job.error?.transport === 'transport-unknown' && !['install', 'record'].includes(job.phase ?? '')) job.outcome = 'interrupted'
     job.summary = transferSummary(job)
     this.jobStore.save()
     return { ...job }

@@ -45,7 +45,7 @@ const viewLfs = (extra = {}, sandboxes = []) => ({
 
 const NO_INSPECT = { machineLog: false, sandboxLog: false, files: false, machineFiles: false, machineStats: false }
 /** The features read from one call or option each (layerfs-project#164, #180): absent from this table's CLIs. */
-const NO_OBSERVE = { machineSpace: false }
+const NO_OBSERVE = { machineSpace: false, storeUpgrade: false, storeFormat: false, formats: null }
 const NONE = { forceStop: false, images: false, imageLoad: false, imagePrune: false, imageRefs: false, createProgress: false, sandboxRuntime: false, imageStage: 0, inspect: NO_INSPECT, ...NO_OBSERVE }
 
 test('features: the machines view says what the pinned CLI has, Stage 1 only with every piece', async () => {
@@ -67,6 +67,12 @@ test('features: featuresOf reads the call table and identity; `image` of kind te
   const json = [entry('machine', 'images'), entry('machine', 'load_image'), entry('machine', 'prune'), entry('sandbox', 'create', ['image'], 'json')]
   assert.equal(featuresOf({ calls: json, identity: { features: ['sandbox-runtime'] } }).imageStage, 0, 'the feature branch\'s json `image` is no reference support')
   assert.equal(featuresOf({ calls: STAGE1, identity: { features: ['sandbox-runtime'] } }).imageStage, 1)
+  // store upgrade (LayerFS #804): the call, `--with format` on both store reads, and the formats the build writes
+  const store = (call, withs) => ({ family: 'store', call, args: [], options: [], form: { with: Object.fromEntries(withs.map((w) => [w, {}])) } })
+  const upgraded = featuresOf({ calls: [...PINNED, store('upgrade', []), store('get', ['live', 'stats', 'format']), store('list', ['stats', 'format'])], identity: { features: [], formats: { sqlite: 3, postgresql: 4 } } })
+  assert.deepEqual([upgraded.storeUpgrade, upgraded.storeFormat, upgraded.formats], [true, true, { sqlite: 3, postgresql: 4 }])
+  const half = featuresOf({ calls: [store('get', ['format']), store('list', ['stats'])], identity: { formats: { sqlite: 'x' } } })
+  assert.deepEqual([half.storeUpgrade, half.storeFormat, half.formats], [false, false, null], 'format needs both reads; a malformed formats is none')
 })
 
 const hex = (c) => c.repeat(64)

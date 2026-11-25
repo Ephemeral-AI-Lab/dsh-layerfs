@@ -198,6 +198,8 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     if (id && sub === 'backup' && method === 'POST') return storage.backup(id, body ?? {})
     // reclaim the Store's dead bytes (store.compact), as a job
     if (id && sub === 'compact' && method === 'POST') return storage.compact(id)
+    // an older-format Store to the latest format in place (store.upgrade, #804), as a job
+    if (id && sub === 'upgrade' && method === 'POST') return storage.upgrade(id)
     return undefined
   }
   if (group === 'buckets') {
@@ -212,6 +214,8 @@ export async function route(g: Groups, method: string, parts: string[], query: U
   if (group === 'storage-jobs' && id && !sub && method === 'GET') return storage.job(id)
   if (group === 'storage-jobs' && id && sub === 'inspect' && method === 'POST') return storage.inspect(id)
   if (group === 'storage-jobs' && id && sub === 'retry' && method === 'POST') return storage.retry(id)
+  // Cancel of a running upgrade: SIGTERM to its CLI, whose reply decides; refused at commit
+  if (group === 'storage-jobs' && id && sub === 'stop' && method === 'POST') return storage.stop(id)
   // Compute's machines. Power is manual (#535 D11): start and stop are their own calls, and no read starts one
   if (group === 'platforms' && !id && method === 'GET') return machines.platforms()
   // machine and Sandbox metrics: ?machines=a,b&since=<seq>, answered from the sampler's memory (no LayerFS call, layerfs-project#182 D2)

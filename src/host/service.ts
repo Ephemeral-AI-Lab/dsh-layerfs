@@ -93,6 +93,8 @@ export interface RuntimeStatus {
   readonly version: string | null
   readonly commit: string | null
   readonly features: readonly string[]
+  /** The Store formats this build writes, by engine (`--version --json` `formats`, #804); null when it does not say. */
+  readonly formats: Readonly<Record<string, number>> | null
   /** The Node SDK agents import as `$DSH_LAYERFS_SDK`: the install built from the CLI's commit, or null with where it is looked for. */
   readonly sdk: { readonly dir: string, readonly commit: string } | null
   readonly sdkDir: string | null
@@ -725,9 +727,9 @@ export class LayerfsService extends Service {
     try {
       const d = await this.discovery()
       const sdkDir = this.sdkDir(), sdk = findSdk(sdkDir, d.identity.commit)
-      return { ...base, ok: true, version: d.identity.version, commit: d.identity.commit, features: d.identity.features, sdk: sdk && { dir: sdk.dir, commit: sdk.commit }, sdkDir, error: null }
+      return { ...base, ok: true, version: d.identity.version, commit: d.identity.commit, features: d.identity.features, formats: formatsOf(d.identity.formats), sdk: sdk && { dir: sdk.dir, commit: sdk.commit }, sdkDir, error: null }
     } catch (error: any) {
-      return { ...base, ok: false, version: null, commit: null, features: [], sdk: null, sdkDir: null, error: { code: error?.code ?? 'Failed', message: String(error?.message ?? error) } }
+      return { ...base, ok: false, version: null, commit: null, features: [], formats: null, sdk: null, sdkDir: null, error: { code: error?.code ?? 'Failed', message: String(error?.message ?? error) } }
     }
   }
 
@@ -812,4 +814,11 @@ export class LayerfsService extends Service {
 
   /** The `layerfs` Remote, for modules registering operations. */
   get remote(): LayerfsRemote { return this.ctx.layerfsRemote }
+}
+
+/** `--version --json` `formats` as the status answers it: engine -> format, positive integers only; null without any. */
+function formatsOf(f: unknown): Readonly<Record<string, number>> | null {
+  if (!f || typeof f !== 'object') return null
+  const out = Object.fromEntries(Object.entries(f).filter(([, v]) => typeof v === 'number' && Number.isSafeInteger(v) && v > 0)) as Record<string, number>
+  return Object.keys(out).length ? out : null
 }
