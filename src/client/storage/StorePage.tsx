@@ -14,7 +14,7 @@ import type { DoctorT } from '../doctor/locale.ts'
 import { useDetailTab } from '../machines/detail-tabs.ts'
 import { useProjectMachines } from '../projects/hooks.ts'
 import { useQuery } from '../ui/use-query.ts'
-import { Empty, Notice, PageHead, StateChip } from '../ui/index.tsx'
+import { DangerButton, Empty, Notice, PageHead, StateChip } from '../ui/index.tsx'
 import { StatusDot } from '../ui/StatusDot.tsx'
 import { useHostEvents } from './hooks.ts'
 import { JobPanel, OpPanel } from './JobProgress.tsx'
@@ -62,14 +62,15 @@ function StoreNoticeWords({ s, t, notice }: { s: StoreRow, t: StorageT, notice: 
 }
 
 /** The page head's format signal: the dot and word, "Format 2 · latest 3" as its tip, Upgrade… as its action when offered. */
-function FormatSignal({ s, t, chip, onUpgrade }: { s: StoreRow, t: StorageT, chip: NonNullable<ReturnType<typeof formatChip>>, onUpgrade: (() => void) | undefined }): ReactNode {
+function FormatSignal({ s, t, chip, onUpgrade, onRemove }: { s: StoreRow, t: StorageT, chip: NonNullable<ReturnType<typeof formatChip>>, onUpgrade: (() => void) | undefined, onRemove?: (() => void) | undefined }): ReactNode {
   const state = chip.tone === 'danger' ? 'error' : 'warning'
   return (
     <span data-store-format={s.format?.status}>
       <Signal state={state} title={chip.label} label={[chip.label, formatTip(s.format, t)].filter(Boolean).join(': ')}
         anchorText={<span className={tabCss.unreadWord}><StatusDot state={state} size={8} />{chip.label}</span>}
         detail={formatTip(s.format, t) ?? undefined}
-        action={onUpgrade ? <Button variant="outline" size="sm" onClick={onUpgrade}>{t('upgradeStore')}</Button> : undefined} />
+        action={onUpgrade ? <Button variant="outline" size="sm" onClick={onUpgrade}>{t('upgradeStore')}</Button>
+          : onRemove ? <DangerButton appearance="outline" size="sm" onClick={onRemove}>{s.kind === 'postgresql' ? t('disconnect') : t('remove')}</DangerButton> : undefined} />
     </span>
   )
 }
@@ -119,7 +120,8 @@ export function StorePage({ refreshKey = 0, name, view, t, api, doctorT, now, jo
     <>
       <PageHead title={s.name} icon={<StoreGlyph kind={s.kind} size={22} />}
         badge={s.state !== 'ready' ? <StateChip tone={storeTone(s.state, s.blockedBy)} label={stoppedBlock(s) ? t('stateMachineStopped') : storeStateWords(s.state, t)} live={s.state === 'busy'} />
-          : chip ? <FormatSignal s={s} t={t} chip={chip} onUpgrade={runningJob || !canUpgrade(s, view) ? undefined : on.upgrade} />
+          : chip ? <FormatSignal s={s} t={t} chip={chip} onUpgrade={runningJob || !canUpgrade(s, view) ? undefined : on.upgrade}
+            onRemove={s.format?.status === 'unsupported' && !runningJob ? (pg ? on.disconnect : on.remove) : undefined} />
             : outdated ? <StateChip tone="danger" label={t('spOutdated')} /> : undefined}
         intro={(
           <span className={css.cardSub}>

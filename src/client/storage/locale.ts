@@ -1170,6 +1170,10 @@ const en = {
   upgradeSteps: 'Upgrade steps',
   upgradeElapsed: '{time} elapsed',
   fixRunUpgrade: 'Upgrade {name}',
+  fmtUnsupportedChip: 'Unsupported format',
+  fmtNoPath: '{v} · no upgrade path',
+  fmtUnknown: 'unknown',
+  upgradeFormatUnknownTip: 'The format could not be read (its machine stopped, its server unreachable, or this LayerFS cannot read it). Check again when it can.',
 }
 
 const zh: typeof en = {
@@ -2323,6 +2327,10 @@ const zh: typeof en = {
   upgradeSteps: '升级步骤',
   upgradeElapsed: '已用 {time}',
   fixRunUpgrade: '升级 {name}',
+  fmtUnsupportedChip: '格式不受支持',
+  fmtNoPath: '{v} · 无升级路径',
+  fmtUnknown: '未知',
+  upgradeFormatUnknownTip: '无法读取格式（机器已停止、服务器无法访问，或此 LayerFS 无法读取）。可读取时再检查。',
 }
 
 export const locales = { en, zh }

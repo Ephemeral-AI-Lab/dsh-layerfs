@@ -137,18 +137,65 @@ test('host: Cancel is refused 409 at commit, for another kind, and after the end
   assert.throws(() => svc.stop('nope'), (e) => e.status === 404)
 })
 
-test('host: a Cancel before the first phase waits for it (the CLI installs its handler first), then signals', async () => {
+test('host: a Cancel before the CLI is spawned signals it as soon as its pid is known, with no phase needed', async () => {
   const { svc, ctl, kills } = fixture()
   const job = await svc.upgrade('old')
   svc.stop(job.id)
+  assert.deepEqual(kills, [], 'no pid yet: nothing to signal')
   await until(() => ctl.spawn)
   ctl.spawn(779)
-  assert.deepEqual(kills, [], 'spawned but no phase yet: no signal')
-  ctl.progress('check')
-  assert.deepEqual(kills, [[779, 'SIGTERM']])
+  assert.deepEqual(kills, [[779, 'SIGTERM']], 'signalled at spawn, before any phase')
+  // a kill before LayerFS masks the signal ends the CLI by the signal: Unknown, never a false Cancelled
+  ctl.reject(Object.assign(new Error('LayerFS ended without a complete result'), { code: 'Unknown', transport: 'transport-unknown', detail: { signal: 'SIGTERM' } }))
+  await ended(svc, job.id)
+  assert.equal(svc.job(job.id).outcome, 'unknown')
+})
+
+test('host: a kill that fails is not counted: the next Stop tries again; ESRCH (already gone) counts', async () => {
+  const kills = []
+  let fail = 'EPERM'
+  const { svc, ctl } = fixture({ kill: (pid, signal) => { kills.push([pid, signal]); if (fail) throw Object.assign(new Error(fail), { code: fail }) } })
+  const job = await svc.upgrade('old')
+  await until(() => ctl.spawn)
+  ctl.spawn(780); ctl.progress('check')
+  svc.stop(job.id)
+  assert.equal(kills.length, 1)
+  assert.equal(svc.job(job.id).stopping, true)
+  fail = 'ESRCH'
+  svc.stop(job.id)
+  assert.equal(kills.length, 2, 'the second press retries the failed kill')
+  svc.stop(job.id)
+  assert.equal(kills.length, 2, 'ESRCH: the process is gone, its reply is on its way; nothing more is sent')
   ctl.reject(CANCELLED())
   await ended(svc, job.id)
   assert.equal(svc.job(job.id).outcome, 'stopped')
+})
+
+test('host: the short reply has no `ok` key ({"outcome":"upgraded"}); the outcome never depends on it', async () => {
+  for (const reply of [{ outcome: 'upgraded' }, { outcome: 'current' }]) {
+    const { svc, ctl } = fixture()
+    const job = await svc.upgrade('old')
+    await until(() => ctl.resolve)
+    ctl.resolve(reply)
+    await ended(svc, job.id)
+    const done = svc.job(job.id)
+    assert.equal(done.outcome, 'succeeded')
+    assert.equal(M.upgradeEnd(done, t).word, reply.outcome === 'current' ? 'jobUpgradeCurrent {"place":"old"}' : 'jobUpgraded {"place":"old"}')
+  }
+})
+
+test('host: without --with format the Check reads no format and says format unknown', async () => {
+  const { svc, ctl } = fixture({ discovery: { calls: [{ family: 'store', call: 'upgrade', args: [], options: [] }], identity: { features: [] } } })
+  const job = await svc.upgrade('old')
+  await until(() => ctl.reject)
+  ctl.reject(Object.assign(new Error('gone'), { code: 'Unknown', transport: 'transport-unknown' }))
+  await ended(svc, job.id)
+  const seen = await svc.inspect(job.id)
+  assert.ok(!ctl.calls.some((c) => c[0] === 'store.get' && c[2]?.with), 'no `--with format` is sent')
+  assert.equal(seen.observation.value.format.status, 'unknown')
+  const end = M.upgradeEnd(seen, t)
+  assert.deepEqual([end.state, end.check], ['warning', true])
+  assert.match(end.tip, /upgradeFormatUnknownTip/)
 })
 
 test('host: a Store holds one job: a second upgrade while one runs is refused', async () => {
@@ -268,7 +315,14 @@ test('words: the format row, tips and chips come from --with format alone', () =
   assert.equal(M.formatWords(null, t), null)
   assert.match(M.formatTip(f(2, 3, 'outdated'), t), /^fmtTip/)
   assert.deepEqual(M.formatChip(f(2, 3, 'outdated'), t), { tone: 'danger', label: 'spOutdated' })
-  assert.deepEqual(M.formatChip(f(1, 3, 'unsupported'), t), { tone: 'danger', label: 'spOutdated' })
+  // no upgrade path: its own words, never Outdated; an unreadable format (`unknown`) earns no chip
+  assert.deepEqual(M.formatChip(f(1, 3, 'unsupported'), t), { tone: 'danger', label: 'fmtUnsupportedChip' })
+  assert.equal(M.formatWords(f(1, 3, 'unsupported'), t), 'fmtNoPath {"v":"1"}')
+  assert.equal(M.formatWords(f(null, 3, 'unsupported'), t), 'fmtUnknown', 'an unrecognized one reads Format unknown')
+  assert.equal(M.formatChip(f(null, 3, 'unknown'), t), null)
+  assert.equal(M.formatWords(f(null, 3, 'unknown'), t), 'fmtUnknown')
+  assert.equal(M.formatTip(f(null, 3, 'unknown'), t), 'fmtTip {"words":"fmtUnknown"}')
+  assert.ok(!M.canUpgrade({ name: 'old', format: f(null, 3, 'unknown') }, { upgrade: true }))
   assert.deepEqual(M.formatChip(f(4, 3, 'newer'), t), { tone: 'warning', label: 'fmtNewerChip' })
   assert.equal(M.formatChip(f(3, 3, 'current'), t), null)
   assert.equal(M.upgradeLine(f(2, 3, 'outdated'), t), 'fmtArrow {"from":"2","to":"3"}')

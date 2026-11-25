@@ -720,8 +720,6 @@ export class Storage {
       if (typeof p?.phase === 'string' && p.phase !== job.phase) {
         job.phase = p.phase
         job.phases.push({ phase: p.phase, half: job.half, at: Date.now() })
-        // a Stop asked before the call's first phase: its CLI has its signal handler now
-        if (job.stopping) this.signal(job)
         this.changed()
       }
       // push and pull give bytes only while sending (#536 §10b), in 8 MiB steps
@@ -902,9 +900,11 @@ export class Storage {
    * Cancel of a running upgrade (the export Stop): SIGTERM to its CLI, which
    * ends the transaction before COMMIT and answers `Cancelled`; the job keeps
    * reading that reply, and the reply decides (a Cancel that lands too late
-   * reads `upgraded`). A CLI not yet at its first phase gets the signal when it
-   * reports one (its handler is installed by then). Refused at `commit`, the
-   * point of no return, and for a job that is not a running upgrade.
+   * reads `upgraded`). A Stop before the CLI was spawned signals it as soon
+   * as its pid is known (LayerFS masks SIGINT/SIGTERM right after parsing, so
+   * an earlier kill reads Unknown, never a false Cancelled). A Stop whose kill
+   * failed is tried again by the next press. Refused at `commit`, the point of
+   * no return, and for a job that is not a running upgrade.
    */
   stop(id: string) {
     const job = this.jobs.get(id)
@@ -912,26 +912,38 @@ export class Storage {
     if (job.kind !== 'upgrade') throw refuse(409, 'Conflict', 'Only a Store upgrade can be cancelled')
     if (job.ended) throw refuse(409, 'Conflict', 'This upgrade has already ended')
     if (job.phase === 'commit') throw refuse(409, 'Busy', 'The upgrade is finishing (commit) and can no longer be cancelled')
-    if (!job.stopping) {
-      job.stopping = true
-      this.signal(job)
+    const first = !job.stopping
+    job.stopping = true
+    // a later press retries a kill that did not go through
+    this.signal(job)
+    if (first) {
       this.jobStore.save()
       this.event({ type: 'storage-job', job: { ...job } })
     }
     return { ...job }
   }
 
-  /** SIGTERM to a stopping upgrade's CLI, once, when its pid is known and it has reported a phase. */
+  /**
+   * SIGTERM to a stopping upgrade's CLI once its pid is known. It counts as
+   * sent only when the kill went through (or the process is already gone,
+   * ESRCH: its reply is on its way); any other failure leaves it to the next
+   * Stop. The reply decides how the job ends either way.
+   */
   private signal(job: StorageJob): void {
-    if (!job.pid || !job.phases.length || this.signalled.has(job.id) || job.ended) return
-    this.signalled.add(job.id)
-    try { this.kill(job.pid, 'SIGTERM') } catch { /* already gone: its reply decides */ }
+    if (!job.pid || this.signalled.has(job.id) || job.ended) return
+    try {
+      this.kill(job.pid, 'SIGTERM')
+      this.signalled.add(job.id)
+    } catch (error: any) {
+      if (error?.code === 'ESRCH') this.signalled.add(job.id)
+      else this.log(`[storage] upgrade ${job.store}: SIGTERM to ${job.pid} failed: ${error?.code ?? ''} ${error?.message ?? error}`)
+    }
   }
 
   async inspect(id: string) {
     const job = this.jobs.get(id)
     if (!job || !job.ended) throw refuse(409, 'ConnectBusy', 'Wait for a completed job before inspecting recovery')
-    job.observation = await inspectJob(this.lfs, job)
+    job.observation = await inspectJob(this.lfs, job, (await cliFeatures(this.host)).storeFormat)
     const value = job.observation.value
     if (value?.state === 'broken' && value?.reason === 'unresolved') job.outcome = 'unknown'
     // an upgrade's Check reads its format (the client words it Upgraded or Outdated); its outcome stays as its reply left it

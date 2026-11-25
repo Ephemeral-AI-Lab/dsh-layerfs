@@ -89,7 +89,11 @@ export function transferSummary(job: StorageJob): string | null {
  * ready again after a certain failure, and resolved (the same `store move`,
  * LayerFS's own `fix`) when it is broken `unresolved` and the machine is ready.
  */
-export async function inspectJob(lfs: Lfs, job: StorageJob) {
+/** The format an upgrade's Check answers when the CLI cannot read it (`--with format` not in its table). */
+export const UNKNOWN_FORMAT = { version: null, latest: null, status: 'unknown', fix: null } as const
+
+/** @param storeFormat - the CLI takes `store get --with format` (else an upgrade's Check reads format unknown). */
+export async function inspectJob(lfs: Lfs, job: StorageJob, storeFormat = false) {
   const at = Date.now()
   const live = () => lfs.store.get(job.store, { detail: true, with: ['live'] })
   if (job.kind === 'backup') return { at, kind: 'backup', value: await lfs.backup.list({ bucket: job.target, detail: true }), action: null }
@@ -98,7 +102,8 @@ export async function inspectJob(lfs: Lfs, job: StorageJob) {
   if (job.kind === 'compact') return { at, kind: 'compact', value: await live(), action: null }
   // an upgrade's Check: the Store's format alone (`--with format` reads only the version, works on an old Store);
   // `current` reads Upgraded, `outdated` Outdated with the upgrade again as its fix
-  if (job.kind === 'upgrade') return { at, kind: 'upgrade', value: await lfs.store.get(job.store, { detail: true, with: ['format'], timeout_ms: READ_TIMEOUT_MS }), action: null }
+  // (only when the CLI lists it: else the format is unknown, and the card says so)
+  if (job.kind === 'upgrade') return { at, kind: 'upgrade', value: storeFormat ? await lfs.store.get(job.store, { detail: true, with: ['format'], timeout_ms: READ_TIMEOUT_MS }) : { store: job.store, format: { ...UNKNOWN_FORMAT } }, action: null }
   const status = await live()
   const direction = job.kind === 'move' ? job.half ?? 'pull' : job.kind
   const machine = direction === 'pull' ? job.from : job.target

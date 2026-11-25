@@ -580,12 +580,19 @@ export function endedWords(j: StorageJob, t: StorageT, size?: (n: number) => str
 
 // ---------- Store formats and upgrades (#804) ----------
 
-/** A Store's format in its details row: "3 (latest)", "2 · latest 3", "4 · newer than this LayerFS"; null when not reported. */
+/**
+ * A Store's format in its details row: "3 (latest)", "2 · latest 3", "4 ·
+ * newer than this LayerFS", "2 · no upgrade path" (`unsupported`), and
+ * "unknown" when it could not be read (`unknown`: a stopped machine, an
+ * unreachable server; or an unrecognized `unsupported` one); null when not reported.
+ */
 export function formatWords(f: StoreFormat | null | undefined, t: StorageT): string | null {
-  if (!f || f.version === null) return null
+  if (!f) return null
+  if (f.status === 'unknown' || f.version === null) return f.status === 'unknown' || f.status === 'unsupported' ? t('fmtUnknown') : null
   const v = String(f.version)
   if (f.status === 'current') return t('fmtLatest', { v })
   if (f.status === 'newer') return t('fmtNewer', { v })
+  if (f.status === 'unsupported') return t('fmtNoPath', { v })
   return f.latest !== null ? t('fmtBehind', { v, latest: String(f.latest) }) : v
 }
 
@@ -596,13 +603,16 @@ export function formatTip(f: StoreFormat | null | undefined, t: StorageT): strin
 }
 
 /**
- * The chip a Store's format earns on its row and page head, or null: older
- * (`outdated`, and `unsupported` with no upgrade path) reads Outdated in red,
- * a newer one Newer format in amber. Only from `--with format`; no sentence parsing.
+ * The chip a Store's format earns on its row and page head, or null: an older
+ * one with an upgrade path (`outdated`) reads Outdated in red, one with none
+ * (`unsupported`) Unsupported format in red, a newer one Newer format in
+ * amber; a format that could not be read (`unknown`) earns none. Only from
+ * `--with format`; no sentence parsing.
  */
 export function formatChip(f: StoreFormat | null | undefined, t: StorageT): { tone: 'danger' | 'warning', label: string } | null {
   if (!f) return null
-  if (f.status === 'outdated' || f.status === 'unsupported') return { tone: 'danger', label: t('spOutdated') }
+  if (f.status === 'outdated') return { tone: 'danger', label: t('spOutdated') }
+  if (f.status === 'unsupported') return { tone: 'danger', label: t('fmtUnsupportedChip') }
   if (f.status === 'newer') return { tone: 'warning', label: t('fmtNewerChip') }
   return null
 }
@@ -648,6 +658,8 @@ export function upgradeEnd(j: StorageJob, t: StorageT): { state: UpgradeEndState
     const f = j.observation?.kind === 'upgrade' ? j.observation.value?.format as StoreFormat | undefined : undefined
     if (f?.status === 'current') return { state: 'ok', word: t('jobUpgraded', { place }), tip: latest(f.version), check: true }
     if (f?.status === 'outdated') return { state: 'error', word: t('jobUpgradeOutdated', { place }), tip: [t('upgradeOutdatedTip'), formatTip(f, t)].filter(Boolean).join('\n'), check: true }
+    // the Check could not read the format (no `--with format`, a stopped machine, an unreachable server): still unknown
+    if (f?.status === 'unknown') return { state: 'warning', word: t(j.outcome === 'interrupted' ? 'jobUpgradeInterrupted' : 'jobUpgradeUnknown', { place }), tip: [t('upgradeFormatUnknownTip'), formatTip(f, t)].filter(Boolean).join('\n'), check: true }
     return { state: 'warning', word: t(j.outcome === 'interrupted' ? 'jobUpgradeInterrupted' : 'jobUpgradeUnknown', { place }), tip: t('upgradeUnknownTip'), check: true }
   }
   const tip = j.error ? [`${j.error.code}: ${j.error.message}`, ...(j.error.fix ? [j.error.fix] : [])].join('\n') : null
