@@ -1,11 +1,11 @@
 // Bundle src/host/routes (and the CLI SDK it uses) with esbuild for tests, and
 // build a RouteHost over either a fake lfs or the real pinned CLI.
 import { build } from 'esbuild'
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { runtimePin } from '../scripts/runtime-pin.mjs'
+import { liveCli, liveSkipReason } from './support/env.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 
@@ -54,8 +54,9 @@ export function testHost({ lfs, root, home, secrets = join(root, 'secrets'), job
   }
 }
 
-/** The pinned CLI/daemon (DSH_LAYERFS_*, else the newest runtime in ~/.layerfs), or null. */
+/** The pinned CLI/daemon (DSH_LAYERFS_*, else the newest runtime in ~/.layerfs), unpinned from a wrapper that fixes LAYERFS_HOME, or null. */
 export function pinned() {
-  const pin = runtimePin()
-  return pin && existsSync(pin.cli) ? pin : null
+  return liveCli()
 }
+
+export { liveSkipReason }

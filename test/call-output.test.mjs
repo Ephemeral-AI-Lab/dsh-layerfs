@@ -110,7 +110,9 @@ test('execute(): host tags outside sessions, session tags inside, outputs stored
 
 function run(command, argv, env, input = '') {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, argv, { env: { ...process.env, ...env }, stdio: 'pipe' })
+    // A test run inside a dsh session inherits that session's trace context; a case that
+    // means "no context" (or its own) must not be tagged by the agent's.
+    const child = spawn(command, argv, { env: { ...process.env, DSH_LAYERFS_TRACE_CONTEXT: '', LAYERFS_LOGS_TAG: '', ...env }, stdio: 'pipe' })
     const out = [], err = []
     child.stdout.on('data', d => out.push(d)); child.stderr.on('data', d => err.push(d))
     child.on('error', reject); child.on('close', (code, signal) => resolve({ stdout: Buffer.concat(out), stderr: Buffer.concat(err).toString(), code, signal })); child.stdin.end(input)

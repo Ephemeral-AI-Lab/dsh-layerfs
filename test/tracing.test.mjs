@@ -92,7 +92,9 @@ test('concurrent SDK calls keep exact tool identity, host origin and failed outc
 })
 function run(command, argv, env, input = '') {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, argv, { env: { ...process.env, ...env }, stdio: 'pipe' })
+    // A test run inside a dsh session inherits that session's trace context; a case that
+    // means "no context" (or its own) must not be tagged by the agent's.
+    const child = spawn(command, argv, { env: { ...process.env, DSH_LAYERFS_TRACE_CONTEXT: '', LAYERFS_LOGS_TAG: '', ...env }, stdio: 'pipe' })
     let stdout = '', stderr = ''
     child.stdout.on('data', data => { stdout += data }); child.stderr.on('data', data => { stderr += data })
     child.on('error', reject); child.on('close', (code, signal) => resolve({ stdout, stderr, code, signal })); child.stdin.end(input)

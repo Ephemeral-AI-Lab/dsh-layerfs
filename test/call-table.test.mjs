@@ -12,7 +12,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
-import { pinned } from './routes-helper.mjs'
+import { pinned, liveSkipReason } from './routes-helper.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const pin = pinned()
@@ -273,7 +273,7 @@ function sources() {
   return walk(join(root, 'src/host')).map((p) => ({ file: relative(root, p), text: readFileSync(p, 'utf8') }))
 }
 
-const skip = pin ? false : 'no pinned LayerFS CLI (set DSH_LAYERFS_CLI or install a runtime in ~/.layerfs/runtime)'
+const skip = pin ? false : liveSkipReason()
 const help = pin ? pinnedHelp() : null
 const files = sources()
 const scan = help ? violations(files, help) : null

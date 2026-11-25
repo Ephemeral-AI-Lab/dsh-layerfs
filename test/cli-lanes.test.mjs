@@ -93,6 +93,19 @@ else answer({ argv: a })
 let n = 0
 const fresh = () => { const dir = join(root, `t${n++}`); mkdirSync(dir); return { dir, ...fakeCli(dir) } }
 
+/** Whether a pid has ended. A process killed here becomes a zombie: this container's
+ * PID 1 is `dsh web`, which never reaps, so `kill(pid, 0)` keeps answering for a
+ * process that is already dead. A zombie is not a live helper. */
+function gone(pid) {
+  try { process.kill(pid, 0) } catch (error) { return error.code === 'ESRCH' }
+  try { return /^\d+ \(.*\) Z /.test(readFileSync(`/proc/${pid}/stat`, 'utf8')) } catch { return true }
+}
+/** Wait for the observable end instead of a fixed sleep (a /proc scan here is slow). */
+async function waitGone(pid, ms = 15_000) {
+  for (let i = 0; i < ms / 25 && !gone(pid); i++) await new Promise((resolve) => setTimeout(resolve, 25))
+  return gone(pid)
+}
+
 test('laneOf: short calls, long jobs, Workspace commands and cancel take separate lanes', () => {
   // Machine probes poll an unreachable VM for their whole budget: they never take a page read's slot.
   for (const argv of [['machine', 'list'], ['machine', 'get', '--', 'vm'], ['machine', 'images', '--', 'vm']]) assert.equal(C.laneOf(argv).name, 'probes', argv.join(' '))
@@ -158,7 +171,7 @@ test('machine probes default to the short budget: a dead VM answers unreachable 
   assert.ok(took >= C.PROBE_TIMEOUT_MS - 200 && took < C.PROBE_TIMEOUT_MS + 2 * C.KILL_GRACE_MS + 3000, `settled after ${took} ms`)
 })
 
-test('a timeout ends the CLI\'s process group, escalating to SIGKILL, and settles', { timeout: 40000 }, async () => {
+test('a timeout ends the CLI\'s process group, escalating to SIGKILL, and settles', { timeout: 60000 }, async () => {
   const dir = join(root, 'hang'); mkdirSync(join(dir, 'home'), { recursive: true })
   const cli = join(dir, 'layerfs')
   // ignores SIGTERM, and so does its helper, which holds stdout/stderr open
@@ -178,11 +191,12 @@ writeFileSync(${JSON.stringify(join(dir, 'helper'))}, String(helper.pid))
     (error) => error.code === 'Unknown' && error.transport === 'transport-unknown')
   const took = Date.now() - started
   assert.ok(existsSync(join(dir, 'helper')), 'the CLI was up when its budget ran out')
-  assert.ok(took >= budget + C.KILL_GRACE_MS - 200 && took < budget + 2 * C.KILL_GRACE_MS + 3000, `settled after ${took} ms (SIGTERM ignored, SIGKILL after the grace)`)
+  // The upper bound only proves it settles; this box runs with hundreds of zombies
+  // and several suites at once, so leave room rather than time the busy loop sharply.
+  assert.ok(took >= budget + C.KILL_GRACE_MS - 200 && took < budget + 2 * C.KILL_GRACE_MS + 15_000, `settled after ${took} ms (SIGTERM ignored, SIGKILL after the grace)`)
   const helper = Number(readFileSync(join(dir, 'helper'), 'utf8'))
-  await new Promise((r) => setTimeout(r, 100))
-  assert.throws(() => process.kill(helper, 0), /ESRCH/, 'the helper is gone')
-  assert.throws(() => process.kill(pid, 0), /ESRCH/, 'the CLI is gone')
+  assert.ok(await waitGone(helper), `the helper is gone (pid ${helper})`)
+  assert.ok(await waitGone(pid), `the CLI is gone (pid ${pid})`)
   assert.equal(C.children.size, 0)
 })
 
@@ -205,8 +219,7 @@ test('a CLI that exits while a helper holds its stdout still answers; child.kill
   for (const child of C.children) child.kill('SIGTERM')
   await assert.rejects(running, (error) => error.transport === 'transport-unknown')
   const helper = Number(readFileSync(join(dir, 'helper'), 'utf8'))
-  await new Promise((r) => setTimeout(r, 100))
-  assert.throws(() => process.kill(helper, 0), /ESRCH/)
+  assert.ok(await waitGone(helper), `the helper is gone (pid ${helper})`)
   assert.ok(spawned.pid)
 })
 

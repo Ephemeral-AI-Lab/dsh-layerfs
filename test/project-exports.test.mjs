@@ -8,7 +8,8 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadRoutes, pinned, testHost } from './routes-helper.mjs'
+import { liveSkipReason, loadRoutes, pinned, testHost } from './routes-helper.mjs'
+import { tmpRoot } from './support/env.mjs'
 
 const R = await loadRoutes()
 const { ProjectExports, folderName, defaultName } = R.exportsModule
@@ -228,8 +229,8 @@ test('routes: start, list, get, stop and dismiss through the http operation', as
 
 const pin = pinned()
 
-test('live: export main, a Branch Commit, and stop a running export', { skip: !pin && 'no pinned LayerFS CLI', timeout: 300_000 }, async (context) => {
-  const root = mkdtempSync('/tmp/dshx-')
+test('live: export main, a Branch Commit, and stop a running export', { skip: !pin && liveSkipReason(), timeout: 300_000 }, async (context) => {
+  const root = tmpRoot('dshx-')
   const home = join(root, 'home')
   const env = { ...process.env, LAYERFS_HOME: home }
   const run = (...args) => execFileSync(pin.cli, args, { env, timeout: 120_000 }).toString()

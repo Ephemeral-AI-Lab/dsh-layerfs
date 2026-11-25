@@ -10,7 +10,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
-import { loadRoutes, pinned, testHost } from './routes-helper.mjs'
+import { liveSkipReason, loadRoutes, pinned, testHost } from './routes-helper.mjs'
+import { tmpRoot } from './support/env.mjs'
 
 const R = await loadRoutes()
 const repoRoot = new URL('..', import.meta.url).pathname
@@ -933,9 +934,9 @@ test('project init job and saved reads route to their calls', async () => {
 
 const pin = pinned()
 
-test('live: machines, store create, project init, list/get, branches, fs, file', { skip: !pin && 'no pinned LayerFS CLI', timeout: 600_000 }, async (context) => {
-  // a short path: the native daemon's sockets live in the home
-  const root = mkdtempSync('/tmp/dshrt-')
+test('live: machines, store create, project init, list/get, branches, fs, file', { skip: !pin && liveSkipReason(), timeout: 600_000 }, async (context) => {
+  // a short-ish path: the native daemon's sockets live in the home
+  const root = tmpRoot('dshrt-')
   const home = join(root, 'home')
   // a 2.0 CLI makes no home on a read: `home init` first, as Set up LayerFS does
   execFileSync(pin.cli, ['home', 'init'], { env: { ...process.env, LAYERFS_HOME: home }, timeout: 30_000 })
@@ -1002,7 +1003,43 @@ test('live: machines, store create, project init, list/get, branches, fs, file',
   assert.ok(Array.isArray(sandboxes))
   const storage = await ok('GET', '/api/storage')
   assert.ok(storage.stores.some((s) => s.name === 'rt' && s.projects.includes('demo')))
-  // a Sandbox, a forked side Branch mounted in it, its status, unmount and close
+})
+
+// A Linux native Sandbox needs root for FUSE; the docker machine's worker runs
+// namespaces Sandboxes as the container's own user. On macOS the native machine runs
+// them directly. Either way the project sits on a Store of that machine.
+const sandboxHost = !pin ? null : process.platform === 'darwin' ? 'native' : existsSync('/var/run/docker.sock') && pin.bundle ? 'docker' : null
+const sandboxSkip = !pin ? liveSkipReason() : !sandboxHost && 'needs Docker and DSH_LAYERFS_BUNDLE: a native Linux Sandbox backend needs root for FUSE'
+
+test('live: a Sandbox, a forked side Branch mounted in it, its status, unmount and close', { skip: sandboxSkip, timeout: 600_000 }, async (context) => {
+  const root = tmpRoot('dshsb-'), home = join(root, 'home'), src = join(root, 'src')
+  const env = { ...process.env, LAYERFS_HOME: home, ...(pin.bundle ? { LAYERFS_BUNDLE: pin.bundle } : {}) }
+  const savedBundle = process.env.LAYERFS_BUNDLE
+  if (pin.bundle) process.env.LAYERFS_BUNDLE = pin.bundle
+  const lfs = R.cli.client({ cli: pin.cli, home, bundle: pin.bundle })
+  const t = testHost({ lfs, root, home, cli: pin.cli, daemon: pin.daemon ?? null, discovery: () => R.cli.discover({ cli: pin.cli }) })
+  const groups = R.createGroups(t.host, async () => ({ ok: true }))
+  const http = async (method, path, body) => R.handle(groups, { method, path, body })
+  const ok = async (method, path, body) => {
+    const r = await http(method, path, body)
+    assert.equal(r.status, 200, `${method} ${path}: ${JSON.stringify(r.body)}`)
+    return r.body
+  }
+  const key = encodeURIComponent('sbd/demo')
+  context.after(async () => {
+    await http('POST', `/api/projects/${key}/close-sandboxes`, { force: true }).catch(() => {})
+    await groups.projects.close()
+    // --force: a failed assertion may leave the Sandbox recorded; its worker must still go.
+    try { execFileSync(pin.cli, ['machine', 'stop', sandboxHost, '--force'], { env, timeout: 120_000 }) } catch {}
+    if (savedBundle === undefined) delete process.env.LAYERFS_BUNDLE; else process.env.LAYERFS_BUNDLE = savedBundle
+    rmSync(root, { recursive: true, force: true })
+  })
+  execFileSync(pin.cli, ['home', 'init'], { env, timeout: 30_000 })
+  if (sandboxHost === 'docker') execFileSync(pin.cli, ['machine', 'start', 'docker'], { env, timeout: 300_000 })
+  mkdirSync(src)
+  writeFileSync(join(src, 'README.md'), '# hello\n')
+  execFileSync(pin.cli, ['store', 'create', 'sbd', '--machine', sandboxHost], { env, timeout: 120_000 })
+  execFileSync(pin.cli, ['project', 'init', 'sbd/demo', src], { env, timeout: 120_000 })
   await ok('POST', `/api/projects/${key}/sandboxes`, { name: 'rtsb' })
   const ws = await ok('POST', '/api/sandboxes/rtsb/workspaces', { branch: 'side', fork: true, name: 'w' })
   assert.equal(ws.branch ?? 'side', 'side')
@@ -1013,7 +1050,18 @@ test('live: machines, store create, project init, list/get, branches, fs, file',
   const main = await http('POST', '/api/sandboxes/rtsb/workspaces', { branch: 'main' })
   assert.equal(main.status, 400)
   await ok('DELETE', `/api/workspaces/${encodeURIComponent(handle)}?discard=1`)
-  await ok('DELETE', '/api/sandboxes/rtsb')
+  // The namespaces backend can still see a Sandbox process a moment after cgroup.kill and refuses
+  // the removal with `nothing was sent` (before effect). Wait for it to clear, as a Busy retry does,
+  // instead of failing this route test on LayerFS's teardown race.
+  for (let i = 0; ; i++) {
+    const removed = await http('DELETE', '/api/sandboxes/rtsb')
+    if (removed.status === 200) break
+    if (i >= 60 || !/nothing was sent/.test(String(removed.body?.message ?? ''))) {
+      assert.equal(removed.status, 200, `DELETE /api/sandboxes/rtsb: ${JSON.stringify(removed.body)}`)
+      break
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
   const gone = await http('GET', '/api/sandboxes/rtsb')
   assert.equal(gone.status, 404, JSON.stringify(gone.body))
 })
