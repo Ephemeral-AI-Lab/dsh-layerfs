@@ -4,7 +4,8 @@
  * tool call did in LayerFS. The host builds it from the DSH session log, the
  * session's `layerfs.json` receipts and its checkpoints; nothing is stored.
  *
- *   session.trajectory        {sessionId}       → TrajectoryAnswer (light records, previews)
+ *   session.trajectory        {sessionId, since?, before?} → TrajectoryReply (a page of light
+ *                             records; `{ unchanged: true }` when `since` is current)
  *   session.trajectory.record {sessionId, seq}  → TrajectoryDetail (one record in full)
  *   session.trajectory.prompt-diff {sessionId, seq} → PromptDiffAnswer (the system/tools line diff)
  */
