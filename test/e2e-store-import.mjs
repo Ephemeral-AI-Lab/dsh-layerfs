@@ -13,7 +13,7 @@ import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { chromium } from 'playwright-core'
-import { CHROME, runTurn } from '../tools/e2e-lib.mjs'
+import { CHROME, createStore, runTurn } from '../tools/e2e-lib.mjs'
 import { dismiss } from '../tools/ui.mjs'
 
 const dirA = process.env.A_DIR, dirB = process.env.B_DIR
@@ -55,7 +55,7 @@ try {
   step(`A: project ${project}, one turn`)
   const src = mkdtempSync(join(tmpdir(), 'dshlfs-imp-'))
   writeFileSync(join(src, 'README.md'), '# app\n')
-  await A.http('POST', '/api/stores', { name: store })
+  await createStore(A.http, store)
   const init = await A.http('POST', '/api/projects', { store, name: 'app', source: src })
   for (let i = 0; i < 120 && (await A.http('GET', `/api/project-inits/${init.id}`)).step !== 'done'; i++) await new Promise((r) => setTimeout(r, 500))
   const placed1 = await A.openProject(project)

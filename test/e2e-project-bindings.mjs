@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { openDev, runTurn } from '../tools/e2e-lib.mjs'
+import { createStore, openDev, runTurn } from '../tools/e2e-lib.mjs'
 
 const { browser, page, logs } = await openDev()
 page.setDefaultTimeout(20_000)
@@ -17,7 +17,7 @@ const http = async (method, path, body) => {
   return reply.body
 }
 async function init() {
-  await http('POST', '/api/stores', { name: store })
+  await createStore(http, store)
   const job = await http('POST', '/api/projects', { store, name: 'app' })
   for (let i = 0; i < 120; i++) {
     const current = await http('GET', `/api/project-inits/${job.id}`)

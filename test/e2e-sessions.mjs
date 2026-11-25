@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { openDev, runTurn } from '../tools/e2e-lib.mjs'
+import { createStore, E2E_MACHINE, openDev, runTurn } from '../tools/e2e-lib.mjs'
 import { dismiss, openPanel } from '../tools/ui.mjs'
 
 const step = (m) => console.log(`\n== ${m}`)
@@ -41,6 +41,8 @@ const until = async (what, fn, ms = 30000) => {
 const projectCommand = (command) => `bash: "$DSH_LAYERFS_CLI" workspace exec "$DSH_LAYERFS_WS" ${JSON.stringify(command)} --stream`
 
 const tag = Date.now().toString(36)
+// The Store (and so the project) runs on this machine; native when unset.
+const machine = E2E_MACHINE ?? 'native'
 const store = `e2e${tag}`, name = 'demo', project = `${store}/${name}`
 let failed = false
 try {
@@ -50,7 +52,7 @@ try {
   const src = mkdtempSync(join(fixtureRoot, 'sessions-'))
   writeFileSync(join(src, 'README.md'), '# demo\n')
   mkdirSync(join(src, 'src')); writeFileSync(join(src, 'src', 'main.js'), 'console.log(1)\n')
-  await http('POST', '/api/stores', { name: store })
+  await createStore(http, store)
   const init = await http('POST', '/api/projects', { store, name, source: src })
   await until('project init', async () => (await http('GET', `/api/project-inits/${init.id}`)).step === 'done', 60000)
 
@@ -205,7 +207,7 @@ try {
   // ⚙ opens the project dialog in configure mode (docs/specs/layerfs-workspaces.md §3).
   const setup = page.getByRole('dialog', { name, exact: true })
   await setup.getByText('Machine', { exact: true }).waitFor({ timeout: 15000 })
-  await setup.locator(`[data-machine="native"][aria-checked="true"]`).waitFor()
+  await setup.locator(`[data-machine="${machine}"][aria-checked="true"]`).waitFor()
   await setup.getByRole('button', { name: 'Done', exact: true }).click()
   await setup.waitFor({ state: 'detached' })
   // The header's + → Other project… opens the picker; there is no Projects page.
@@ -251,8 +253,8 @@ try {
   await draft.getByRole('tab', { name: /^Existing/ }).click()
   await draft.getByRole('radio', { name: new RegExp(`^${store.replace(/[.]/g, '\\.')}\\b`) }).click()
   await draft.getByRole('navigation').locator('button[data-ready]').filter({ hasText: /^Store/ }).waitFor()
-  // The fixture Store is on native: keep it there instead of the docker default.
-  await draft.getByRole('radio', { name: /^LayerFS Home/ }).click()
+  // Keep the fixture Store on its own machine instead of the docker default.
+  await draft.locator(`[data-machine="${machine}"]`).click()
   await draft.getByRole('button', { name: 'Create and open' }).click()
   await draft.waitFor({ state: 'detached', timeout: 60000 })
   await until('hero on the new project', async () => (await page.locator('[data-layerfs-hero] button[aria-label^="LayerFS project:"]').first().innerText().catch(() => '')).trim() === 'blank', 60000)

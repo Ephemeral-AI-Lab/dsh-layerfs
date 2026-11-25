@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { openDev, runTurn } from '../tools/e2e-lib.mjs'
+import { createStore, openDev, runTurn } from '../tools/e2e-lib.mjs'
 import { dismiss } from '../tools/ui.mjs'
 
 const step = (m) => console.log(`\n== ${m}`)
@@ -48,7 +48,7 @@ try {
   mkdirSync(fixtureRoot, { recursive: true })
   const src = mkdtempSync(join(fixtureRoot, 'trajectory-'))
   writeFileSync(join(src, 'README.md'), '# demo\n')
-  await http('POST', '/api/stores', { name: store })
+  await createStore(http, store)
   const init = await http('POST', '/api/projects', { store, name, source: src })
   await until('project init', async () => (await http('GET', `/api/project-inits/${init.id}`)).step === 'done', 60000)
 

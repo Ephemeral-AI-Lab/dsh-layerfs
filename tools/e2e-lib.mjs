@@ -1,7 +1,31 @@
 // Shared browser helpers for end-to-end tests against the dev web UI with the
 // scripted fake model (dev/fake-llm). Launch helpers mirror tools/shot.mjs.
 import { chromium } from 'playwright-core'
+import { execFileSync } from 'node:child_process'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { devUrl, dismiss } from './ui.mjs'
+
+/**
+ * The machine e2e project Stores run on. Unset keeps the web API's native
+ * default; set `DSH_E2E_MACHINE=docker` on a host whose native Sandboxes need
+ * root. A sqlite Store's machine is the project's machine, so this is set once
+ * where the test makes its Store.
+ */
+export const E2E_MACHINE = process.env.DSH_E2E_MACHINE ?? null
+
+/**
+ * Make a Store for an e2e run. `POST /api/stores` always makes a native Store;
+ * any other machine is named once by the private CLI `store create --machine`
+ * (the same LayerFS home the dev server uses). `http` is the calling test's
+ * `http(method, path, body)` helper.
+ */
+export async function createStore(http, name) {
+  if (!E2E_MACHINE || E2E_MACHINE === 'native') return await http('POST', '/api/stores', { name })
+  const devDir = process.env.DSH_LAYERFS_DEV_DIR ?? fileURLToPath(new URL('../.dev', import.meta.url))
+  const cli = process.env.DSH_LAYERFS_CLI ?? join(devDir, 'agent-bin', 'layerfs')
+  execFileSync(cli, ['store', 'create', name, '--machine', E2E_MACHINE], { stdio: ['ignore', 'pipe', 'pipe'] })
+}
 
 /** System Chrome; CHROME_PATH overrides it (Linux CI, a Playwright install). */
 export const CHROME = process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
