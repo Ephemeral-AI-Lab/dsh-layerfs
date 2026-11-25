@@ -2,9 +2,9 @@
 
 Status: implementation specification, based on the session-design discussion.
 
-Sessions run in a project-owned Sandbox (one per project and machine, one
-Workspace per session); the host's per-session Sandbox is being retired. See
-`docs/specs/refinement-decisions.md`.
+Sessions run in a per-session Sandbox (`dsh-<session>`) with one Workspace
+named `main` on the session's branch. A project-owned Sandbox was considered
+and is not planned; see `docs/specs/refinement-decisions.md` §1.
 The implementation retains stock DSH formats and public plugin seams; practical
 integration details are recorded below.
 

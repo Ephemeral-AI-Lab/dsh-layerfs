@@ -10,41 +10,41 @@ call, what it changes and the work it creates.
 The current work is #185 (session open) and #186 (conversation tabs). Only two
 of these decisions touch them:
 
-- #185 flags the per-session Sandbox and moves on; the project-owned Sandbox
-  is implemented with groups 5 and 9.
+- #185 keeps today's per-session Sandbox (decision 1) and only labels it; a
+  project-owned Sandbox is not part of either work item.
 - #186 takes the brand cleanup as polish; the Trajectory parity list is out of
   its acceptance, so only the `stock.suspend()` guard ships with it.
 - The split view is documentation only (decision 2).
 
-Project-owned Sandboxes and Trajectory parity stay decided but deferred; no
-work item depends on them today.
+Trajectory parity stays out of these work items; the per-session Sandbox is
+the model, and no project-owned Sandbox work is planned.
 
-## 1. Sandbox ownership: project-owned
+## 1. Sandbox ownership: per-session (kept)
 
-**Decision.** One Sandbox per project and machine. Every session mounts its own
-Workspace (its branch) inside it; the per-session `dsh-<session>` Sandbox is
-retired.
+**Decision.** Keep today's model: one Sandbox per root session, named
+`dsh-<session>`, with one Workspace named `main` on that session's branch. A
+project-owned Sandbox (one per project and machine, option B) was considered
+and **not** chosen: it would need project-level naming, sharding at 16
+Workspaces, a shared failure domain and a host lifecycle migration, while the
+Sandboxes page can show the per-session Sandbox honestly with a **Session**
+tag. Revisit only if the container count becomes a real constraint; the design
+for that option is kept in `project-session-sandbox-mapping.md` as a future
+note, not a plan.
 
 **Consequences.**
 
-- Host: `sandboxOf(sessionId)` becomes a project-level name derived from the
-  project identity; `mount` creates or reuses that Sandbox; `close` no longer
-  removes a Sandbox per session (it closes when the project has no active
-  session, or on project close); import stops hard-coding the session name.
-- Sixteen Workspaces per Sandbox is the LayerFS limit: shard at the limit
-  (`<name>-2`, …) so a project with more concurrent sessions still runs.
-- Failure domain grows: a broken or recreated Sandbox must re-mount every one
-  of the project's sessions, not only the one that noticed the failure.
-- Migration: sessions already open in per-session Sandboxes keep running until
-  they close; new activations use the project Sandbox. Branches and commits
-  need no migration.
-- Tests: `test/sessions.test.mjs:339` (the name assertion) and the mount,
-  close and import suites change.
+- No host change: `sandboxOf(sessionId)`, `mount` and `close` stay as they are;
+  closing a session checkpoints and then removes its Sandbox; the idle timer
+  (30 minutes) is the automatic close.
+- The per-session Sandbox is identified on the project's Sandboxes tab by the
+  **Session** tag (`sandboxInfo.sessionId`), not hidden and not re-modelled.
+- No sharding, no project-level machine, no cross-session remount.
+- The mapping decisions in `project-session-sandbox-mapping.md` are written for
+  this model.
 
-**Follow-up.** Host and tests with groups 5 and 9, not in #185: #185 only
-flags the per-session Sandbox so nothing builds on it. Group 5's Sandboxes tab
-and group 9's Sandbox page then show one Sandbox per project with a Workspace
-per session.
+**Follow-up.** Nothing in #185/#186: the **Session** tag already ships, and
+groups 5 and 9 show the same model. If project-owned Sandboxes are ever
+revisited, the prerequisites are in the mapping note.
 
 ## 2. Split view: keep the global mode, document the DSH-side deviation
 
@@ -129,9 +129,9 @@ the tone lint allowlists those two values; the whale drops its `#fff` /
 
 ## Deferred design
 
-The project ↔ conversation ↔ Sandbox ↔ Workspace mapping and its open questions
-(Workspace naming, Sandbox lifecycle, machine changes, in-project UI labels) are
-recorded in `docs/specs/project-session-sandbox-mapping.md`.
+The project ↔ conversation ↔ Sandbox ↔ Workspace mapping is recorded in
+`docs/specs/project-session-sandbox-mapping.md`; it settles the per-session
+Sandbox model (option A), so no mapping question is open.
 
 Session/project ownership in the sidebar and the New Session hero (the row
 mark, the DOM row hiding, the hero chip and the per-row `session.place` reads)
@@ -142,8 +142,8 @@ is deferred to its own design: see `docs/specs/session-ownership-ui.md`.
 - Group 3: Sandbox host work, session rows and readiness.
 - Group 4: the split-view acceptance (deviation documented), Trajectory parity
   slices, one mark component.
-- Groups 5 and 9: the Sandboxes tab and Sandbox page now match the
-  project-owned model.
+- Groups 5 and 9: the Sandboxes tab and page show the session-owned Sandbox
+  with the **Session** tag; no project-owned model.
 
 ## Caveats carried from the review
 

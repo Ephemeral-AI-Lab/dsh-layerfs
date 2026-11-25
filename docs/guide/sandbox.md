@@ -142,7 +142,7 @@ gone, a refused read stops polling (**Stopped reading**).
   `sandbox remove --force`. It is session-owned today: its card on the project's
   Sandboxes tab carries a quiet **Session** tag (hover: *This Sandbox belongs to one
   conversation and is removed when it closes.*), and it is removed when the conversation
-  closes. Project-owned Sandboxes are a later change.
+  closes. A project-owned Sandbox (one per project) was considered and is not planned.
 - **LayerFS Home** Sandboxes run as host processes: the Image fact reads **None · host
   processes**, and the Usage card shows the whole machine, muted, with why.
 - **A gone Sandbox** (its daemon ended with the machine): no **New workspace**, the Daemon
