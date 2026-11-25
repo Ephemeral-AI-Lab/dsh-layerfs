@@ -64,6 +64,13 @@ export class OwnershipStore {
   /** The last answer for one id; a stable object until that answer changes. */
   entry = (id: string): OwnershipEntry => this.entries.get(id) ?? UNKNOWN
 
+  /** The ids currently answered as project; the row adapter's probe watches these. */
+  projectIds = (): string[] => {
+    const ids: string[] = []
+    for (const [id, entry] of this.entries) if (entry.state === 'project') ids.push(id)
+    return ids
+  }
+
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener)
     return () => { this.listeners.delete(listener) }

@@ -11,3 +11,19 @@
 :global([role='treeitem'][data-layerfs-project-owned]) {
   display: none;
 }
+
+/*
+ * The empty "Ungrouped" header left after its only rows are hidden. In DSH's
+ * markup the Ungrouped group is a div whose direct children are the header
+ * (`data-row-key="workspace:"`, the empty workspace key) and its session rows
+ * (`data-row-key="session:<id>"`). Hide that div only when it has at least one
+ * direct session row and every one carries our mark. The exact header key and
+ * the direct-child selectors are the safety: if DSH renames the key, moves the
+ * rows into a wrapper, or nests a workspace group inside this one, the rule
+ * does not match and the header stays visible (fallback: the empty header
+ * remains; we never hide a group with an unmarked row). Never keyed on the
+ * group's name text.
+ */
+:global(div:has(> [role='treeitem'][data-row-key='workspace:']):has(> [role='treeitem'][data-row-key^='session:']):not(:has(> [role='group'] [role='treeitem'])):not(:has(> [role='treeitem'][data-row-key^='session:']:not([data-layerfs-project-owned])))) {
+  display: none;
+}
