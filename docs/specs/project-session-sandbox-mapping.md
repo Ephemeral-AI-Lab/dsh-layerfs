@@ -1,7 +1,9 @@
 # Project, conversation, Sandbox and Workspace: the mapping
 
 Status: **settled** (2026-11-25, revised). The mapping decisions below are the
-owner's calls; project-owned Sandboxes are implemented with groups 5 and 9. Broader
+owner's calls; project-owned Sandboxes are implemented with groups 5 and 9. The
+checkpoint model stays hybrid (host turn and close saves plus per-operation
+`file.*` commits). Broader
 decisions live in `refinement-decisions.md`.
 
 ## What exists today
@@ -71,12 +73,16 @@ Project  <store>/<name>                      identity branch dsh.project.<uuid>
    machine first selects (or confirms) its local scratch folder, then mounts
    into the project Sandbox as `s-<compact>`; import does not execute before the
    folder is chosen, so the first command runs in the right directory.
-8. **Checkpoints (revised).** The host's per-turn checkpoint is **off** by
-   default (`checkpoints: 'off'`, the existing config): the agent owns saving
-   its work (the `file.*` calls commit per operation; shell changes need an
-   explicit `workspace commit`), and the preset says so. The **close-time
-   checkpoint stays**, as today: closing a session or the project Sandbox first
-   saves that session's Workspace, and only then unmounts or removes it.
+8. **Checkpoints (revised).** Saving stays **hybrid, as today**:
+   - the host checkpoints at each turn end (default `checkpoints: 'turn'`; the
+     existing config can disable it), which saves shell changes made through
+     `workspace.exec`;
+   - the agent's `file.*` calls commit per operation, and an agent may run
+     `workspace commit` itself;
+   - closing a session or the project Sandbox first saves that session's
+     Workspace, and only then unmounts or removes it (see below).
+   The agent is not the only writer, and the host's turn/close checkpoints are
+   the guarantee that shell work is not lost.
 9. **Subagents.** The host keeps the root's binding for a subagent (`kind:
    shared`): the same Sandbox, Workspace and Branch; it creates no per-subagent
    Workspace or branch. Agents may still fork a branch and mount it themselves
@@ -89,8 +95,8 @@ Project  <store>/<name>                      identity branch dsh.project.<uuid>
 
 Today `close()` checkpoints the session's Workspace (`checkpoint('idle')`) and
 throws if that save fails, so the close is refused and the Workspace/Sandbox are
-kept; only after a successful save does it unmount or remove. Under decision 8
-that is the **only** automatic save left, and it stays exactly as it is:
+kept; only after a successful save does it unmount or remove. Decision 8 keeps
+that behaviour exactly as it is:
 
 - a dirty Workspace is saved before it is released (no discard, no silent loss);
 - a failed save refuses the close, keeps the resources, and shows
