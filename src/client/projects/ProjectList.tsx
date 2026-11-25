@@ -237,7 +237,9 @@ function SidebarRow({ item, showStore, api, titles, t, onChanged }: { item: Proj
   const startReason = actions.busy ? t('starting') : startGuard.settling ? t('reviewStart') : undefined
   // The open is tracked by SessionLine, which shows DSH's refusal at that row;
   // a success reloads the list (the opening state and the refusal live there).
-  const resume = (sessionId: string) => api.op('sessions.open', { sessionId, project: project.key }).then(() => { onChanged() })
+  // The open changes this project's local rows only: reloading the archive here
+  // walked the Store again on every click (a second of the click-to-open wait).
+  const resume = (sessionId: string) => api.op('sessions.open', { sessionId, project: project.key }).then(() => { read.reloadLocal() })
   const where = item.runsOn.join(', ')
   const archiveFail = read.error ? formatSessionFailure(null, errorMessage(read.error, t), t, storeName, item.store) : null
   const hasInterruptedFailure = sessions.some((s) => s.executionState === 'interrupted' && !!formatSessionFailure(s.failure, s.error, t, storeName, item.store))

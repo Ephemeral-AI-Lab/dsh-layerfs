@@ -97,6 +97,8 @@ export function useProjectSessions(api: LayerfsApi, project: string, enabled = t
     [api, project, projectId, enabled, archiveArmed],
     { cache: `sessions-archive:${key}` })
   const reload = () => { local.reload(); archive.reload() }
+  /** Reload only the local read: an open or an archive only changes local rows, and a Store walk per open made a click slow. */
+  const reloadLocal = () => { local.reload() }
   // Session, storage and machine events come many a second during a run: they reread the
   // local list only. The portable archive (a Store walk: a Branch list plus one manifest
   // read per stored session) is reread on reconnect and by its own slow poll; under a team
@@ -121,5 +123,6 @@ export function useProjectSessions(api: LayerfsApi, project: string, enabled = t
     loaded: local.data !== undefined || archive.data !== undefined,
     error: local.error ?? archive.error ?? (archive.data?.discoveryError ? new Error(archive.data.discoveryError.message) : undefined),
     reload,
+    reloadLocal,
   }
 }
