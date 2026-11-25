@@ -268,7 +268,7 @@ function SidebarRow({ item, showStore, api, titles, t, onChanged }: { item: Proj
           {archiveFail?.openStore && !hasInterruptedFailure ? <button type="button" className={css.inlineLink} onClick={() => openStorage(api, `store:${archiveFail.store ?? storeName}`)}>{t('sfOpenStore')}</button> : null}
           <button type="button" className={css.inlineLink} onClick={read.reload}>{t('retry')}</button>
         </span>
-      </li> : read.loading ? <li className={css.notice}>{t('archiveLoading')}</li> : null}
+      </li> : read.loading && !read.loaded ? <li className={css.notice}>{t('archiveLoading')}</li> : null}
       {sessions.length ? sessions.map((session) => {
         const title = titles[session.sessionId]?.title || session.title || t('untitled')
         const readiness = sessionReadiness(session, availability, storeName, t, item.store)

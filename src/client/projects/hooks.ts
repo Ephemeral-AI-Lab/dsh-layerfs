@@ -68,6 +68,8 @@ export function useProjectSessions(api: LayerfsApi, project: string, enabled = t
   return {
     sessions: [...rows.values()].sort((a, b) => b.updatedAt - a.updatedAt),
     loading: local.loading || archive.loading,
+    /** An answer has arrived at least once: a reload after that keeps the rows, so the loading notice is for the first read only. */
+    loaded: local.data !== undefined || archive.data !== undefined,
     error: local.error ?? archive.error ?? (archive.data?.discoveryError ? new Error(archive.data.discoveryError.message) : undefined),
     reload,
   }
