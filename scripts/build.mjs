@@ -2,8 +2,9 @@
 // Build both faces: the host ESM plugin (lib/index.js) and the browser
 // closure-factory bundle (lib/client.js) in the format dsh-client-modules
 // serves: window.__ModuleLoader__.load({ id, factory: (require) => exports }).
-import { build, context } from 'esbuild'
+import { build, context, stop } from 'esbuild'
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
 import { builtinModules } from 'node:module'
 import { join, resolve } from 'node:path'
 
@@ -76,11 +77,39 @@ const clientOptions = {
   plugins: [wrapClient],
 }
 
+/**
+ * Always let esbuild's service process exit with this script. The service is a
+ * child process: when the wrapper is killed (a timeout, a cancelled agent step,
+ * a disposed test shell) an undisposed service is orphaned, re-parented to PID 1
+ * and — in a container whose PID 1 is `dsh web`, which has no reaper — stays a
+ * zombie for the container's whole life. Repeated builds then fill the process
+ * table and every full /proc scan (DSH's subprocess runner does one per 15 ms
+ * poll) gets slower.
+ */
+async function shutDown(contexts = []) {
+  for (const ctx of contexts) await ctx.dispose().catch(() => {})
+  await stop().catch(() => {})
+  // `stop()` asks the service to exit but does not wait for it: if this process
+  // exits first, the service is re-parented (PID 1 here is `dsh web`, which
+  // reaps nothing) and stays a zombie. On Linux /proc lists our children, so
+  // wait for that list to drain before returning.
+  try {
+    const children = `/proc/self/task/${process.pid}/children`
+    for (let i = 0; i < 60; i++) {
+      if (!readFileSync(children, 'utf8').trim()) return
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+  } catch { /* not Linux: nothing to wait on */ }
+}
+
 if (watch) {
   const host = await context(hostOptions)
   const client = await context(clientOptions)
   await Promise.all([host.watch(), client.watch()])
   console.log('watching')
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+    process.once(signal, () => { void shutDown([host, client]).finally(() => process.exit(0)) })
+  }
 } else {
   // Faces build independently: a broken one does not block the other.
   const only = process.argv.includes('--host') ? ['host'] : process.argv.includes('--client') ? ['client'] : ['host', 'client']
@@ -88,4 +117,5 @@ if (watch) {
   const failed = only.filter((_, i) => results[i].status === 'rejected')
   console.log(`built ${only.filter((f) => !failed.includes(f)).join(' + ') || 'nothing'}${failed.length ? `; FAILED: ${failed.join(', ')}` : ''}`)
   if (failed.length) process.exitCode = 1
+  await shutDown()
 }
