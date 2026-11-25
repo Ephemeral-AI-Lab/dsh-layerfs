@@ -445,6 +445,8 @@ export function apply(ctx: Context): void {
         const rows = new Map<string, any>()
         const debug = args?.debug === true ? { t0: performance.now(), phases: {} as Record<string, number> } : undefined
         const mark = (name: string) => { if (debug) debug.phases[name] = +(performance.now() - debug.t0).toFixed(1) }
+        /** Accumulate one step across sessions (stat vs sidecar vs title). */
+        const add = (name: string, ms: number) => { if (debug) debug.phases[name] = +((debug.phases[name] ?? 0) + ms).toFixed(1) }
         // One list call reads each session's log once and its sidecar once: the
         // three loops overlap (an owned session may be pending), and a sidecar
         // read used to stat the same log again to find its folder.
