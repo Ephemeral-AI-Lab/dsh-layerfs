@@ -500,11 +500,17 @@ export function apply(ctx: Context): void {
           const value = sidecar !== undefined ? sidecar : await sidecarOf(id).catch(() => undefined)
           return value?.title ?? null
         }
+        /** Time one awaited step into the opt-in phase totals. */
+        const timed = async <T,>(name: string, run: () => Promise<T> | T): Promise<T> => {
+          if (!debug) return await run()
+          const t = performance.now()
+          try { return await run() } finally { add(name, performance.now() - t) }
+        }
         for (const b of Object.values(state.sessions)) {
           if (b.project !== project || b.kind === 'shared' || !belongs(b.sessionId)) continue
-          const snap = await snapshotOf(b.sessionId).catch(() => undefined)
+          const snap = await timed('stat', () => snapshotOf(b.sessionId).catch(() => undefined))
           rows.set(b.sessionId, {
-            sessionId: b.sessionId, title: snap ? await titleOf(b.sessionId) : null, branch: b.branch ?? null, state: b.state, local: !!snap,
+            sessionId: b.sessionId, title: snap ? await timed('title', () => titleOf(b.sessionId)) : null, branch: b.branch ?? null, state: b.state, local: !!snap,
             executionState: b.executionState ?? (b.state === 'bound' ? 'active' : 'inactive'), error: b.error ?? null, failure: b.failure ?? null,
             checkpoints: (state.checkpoints[b.sessionId] ?? []).filter((c) => c.commit && c.changed > 0).length,
             updatedAt: b.updatedAt, stored: !!state.mirror[b.sessionId] && !state.mirror[b.sessionId].error,
@@ -512,19 +518,19 @@ export function apply(ctx: Context): void {
         }
         for (const [id, pending] of Object.entries(state.pending)) {
           if (pending.project !== project || rows.has(id) || !belongs(id)) continue
-          const snap = await snapshotOf(id)
+          const snap = await timed('stat', () => snapshotOf(id))
           if (!snap) continue
-          const sidecar = await sidecarOf(id).catch(() => undefined)
-          rows.set(id, { sessionId: id, title: await titleOf(id, sidecar), state: 'pending', local: true, checkpoints: 0, updatedAt: snap.header.createdAt, stored: false })
+          const sidecar = await timed('sidecar', () => sidecarOf(id).catch(() => undefined))
+          rows.set(id, { sessionId: id, title: await timed('title', () => titleOf(id, sidecar)), state: 'pending', local: true, checkpoints: 0, updatedAt: snap.header.createdAt, stored: false })
         }
         for (const id of provider?.ownedSessionIds?.(project, unclaimed ? undefined : liveId) ?? []) {
           if (rows.has(id) || !belongs(id)) continue
-          const snap = await snapshotOf(id)
+          const snap = await timed('stat', () => snapshotOf(id))
           if (!snap || snap.header.origin === 'subagent') continue
-          const sidecar = await sidecarOf(id)
+          const sidecar = await timed('sidecar', () => sidecarOf(id))
           if (sidecar?.bindingKind === 'shared') continue
           rows.set(id, {
-            sessionId: id, title: await titleOf(id, sidecar), state: 'local', local: true,
+            sessionId: id, title: await timed('title', () => titleOf(id, sidecar)), state: 'local', local: true,
             checkpoints: (sidecar?.checkpoints ?? []).filter((c: any) => c.commit && c.changed > 0).length,
             updatedAt: snap.header.createdAt, stored: !!sidecar?.archive && !sidecar.archive.error,
           })
