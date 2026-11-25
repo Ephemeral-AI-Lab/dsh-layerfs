@@ -1160,3 +1160,75 @@
   color: var(--dsw-alias-label-secondary);
   font: var(--dsw-font-xs-13);
 }
+
+/* The recorded prompt change: a row hint, and the Diff tab's unified system/tools hunks */
+
+.promptHint {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  padding: 0 5px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-xs);
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-module-platform);
+  font-size: 10.5px;
+  line-height: 15px;
+  white-space: nowrap;
+}
+
+.promptDiffSections {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0 0 8px;
+}
+
+.promptDiffSection {
+  min-width: 0;
+}
+
+.promptDiffTitle {
+  margin: 0 0 6px;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xs-strong-13);
+  user-select: none;
+}
+
+.promptDiff {
+  margin: 0;
+  padding: 6px 0;
+  overflow-x: auto;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-layer-1);
+  font: 11px/17px var(--ds-font-family-code);
+  white-space: pre;
+}
+
+.promptDiffLine {
+  display: block;
+  min-width: max-content;
+  padding: 0 8px;
+}
+
+.diff_meta {
+  color: var(--dsw-alias-label-caption);
+  background: var(--dsw-alias-bg-module-platform);
+  user-select: none;
+}
+
+.diff_context {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.diff_added {
+  color: var(--lf-tone-success-fg);
+  background: var(--lf-tone-success-bg);
+}
+
+.diff_removed {
+  color: var(--lf-tone-danger-fg);
+  background: var(--lf-tone-danger-bg);
+}

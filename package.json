@@ -57,6 +57,9 @@
     "@deepseek-ai/dsh-session-persistence-jsonl": "0.2.2-rc.1",
     "@deepseek-ai/dsh-session-format-catalog": "0.2.2-rc.1"
   },
+  "dependencies": {
+    "diff": "9.0.0"
+  },
   "devDependencies": {
     "@deepseek-ai/cordis": "~4.1.0",
     "@deepseek-ai/dsh": "0.2.2-rc.1",

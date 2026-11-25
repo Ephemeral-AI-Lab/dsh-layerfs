@@ -11,6 +11,7 @@ import {
   type AssistantRecord, type RequestRecord, type SystemRecord, type ToolRecord, type ToolsChange, type TrajectoryAnswer,
   type TrajectoryDetail, type TrajectoryTool, type TrajectoryTurn, type TrajectoryUsage, type UserRecord,
 } from '../../shared/trajectory.ts'
+import { promptChanges } from './prompt-diff.ts'
 
 export interface TrajectoryInput {
   sessionId: string
@@ -271,6 +272,10 @@ const CREATING_KINDS: ReadonlySet<string> = new Set(['Committed', 'Added', 'Merg
 
 export function buildTrajectory(input: TrajectoryInput): TrajectoryAnswer {
   const { checkpoints, branch } = input
+  // The recorded prompt changes (docs/specs/layerfs-trajectory.md): a system or
+  // request record gains only a hint and its predecessor's seq here; the diff
+  // text itself stays behind `session.trajectory.prompt-diff`.
+  const prompt = promptChanges(input.events)
   const turns = new Map<number, TrajectoryTurn>()
   const turn = (n: number): TrajectoryTurn => {
     let t = turns.get(n)
@@ -354,9 +359,11 @@ export function buildTrajectory(input: TrajectoryInput): TrajectoryAnswer {
       const step = integer(data?.step)
       const p = preview(blocks(data.message.content, 'text'))
       const source = text(data.message.source?.name) ?? text(data.message.source?.kind)
+      const changed = prompt.flags.get(seq)
       const record: SystemRecord = {
         kind: 'system', seq, turn: n, ...(step !== undefined ? { step } : {}), ...(at !== undefined ? { at } : {}),
         text: p.text, ...(p.truncated ? { truncated: true } : {}), ...(source ? { source } : {}),
+        ...(changed ? { promptChanged: changed.promptChanged, previousSeq: changed.previousSeq } : {}),
       }
       turn(n).records.push(record)
     } else if (type === 'request/header') {
@@ -371,12 +378,14 @@ export function buildTrajectory(input: TrajectoryInput): TrajectoryAnswer {
       const tools = Array.isArray(header?.tools) ? header.tools.length : 0
       const reason = text(data.reason)
       const catalog = toolFingerprints(header?.tools)
+      const changed = prompt.flags.get(seq)
       const record: RequestRecord = {
         kind: 'request', seq, turn: n, ...(step !== undefined ? { step } : {}), ...(at !== undefined ? { at } : {}),
         ...(provider ? { provider } : {}), ...(model ? { model } : {}), tools,
         ...(previousTools ? { toolsChanged: toolsChangeOf(previousTools, catalog) } : {}),
         ...(reason ? { reason } : {}),
         summary: requestSummary(provider, model, tools),
+        ...(changed ? { promptChanged: changed.promptChanged, previousSeq: changed.previousSeq } : {}),
       }
       previousTools = catalog
       turn(n).records.push(record)

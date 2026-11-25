@@ -1,15 +1,17 @@
 /**
  * The LayerFS trajectory's inspector: the selected record in full (read on
  * demand through `session.trajectory.record`), with Summary, Payload, Result,
- * LayerFS and Timing tabs for a tool call.
+ * LayerFS and Timing tabs for a tool call. A record where the recorded prompt
+ * changed also gets DSH's Diff tab (`session.trajectory.prompt-diff`), read
+ * lazily when the tab opens.
  */
-import { useEffect, useId, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { Button, IconCloseOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { ErrorState, Loading } from '../files/States.tsx'
 import { PREVIEW_MAX, TOOL_DESCRIPTION_MAX } from '../../shared/trajectory.ts'
-import type { ToolsChange, TraceCheckpoint, TraceOp, TraceVersion, TrajectoryDetail, TrajectoryRecord, TrajectoryTool } from '../../shared/trajectory.ts'
+import type { PromptDiffAnswer, ToolsChange, TraceCheckpoint, TraceOp, TraceVersion, TrajectoryDetail, TrajectoryRecord, TrajectoryTool } from '../../shared/trajectory.ts'
 import { sessionTag } from '../../shared/logs.ts'
 import type { Translate } from './locale.ts'
 import { clock, durationText, KindCell, opOutcome, toolsDelta, Version, type OpenVersion } from './TrajectoryParts.tsx'
@@ -23,12 +25,15 @@ export type Inspected =
   | { kind: 'checkpoint', turn: number, checkpoint: TraceCheckpoint }
   | { kind: 'ops', turn: number, title: string, ops: TraceOp[] }
 
-type Tab = 'summary' | 'payload' | 'result' | 'layerfs' | 'tools' | 'timing'
+type Tab = 'summary' | 'payload' | 'result' | 'layerfs' | 'tools' | 'diff' | 'timing'
 
 /** Details read once per record and result: a running call's detail is read again once it ends. */
 export type DetailCache = Map<string, TrajectoryDetail>
+/** Prompt diffs read once per record: the host recomputes the line diff on demand. */
+export type PromptDiffCache = Map<string, PromptDiffAnswer>
 
 const detailKey = (sessionId: string, record: TrajectoryRecord) => `${sessionId}:${record.seq}:${record.kind === 'tool' ? record.resultSeq ?? '' : ''}`
+const promptDiffKey = (sessionId: string, seq: number) => `${sessionId}:${seq}`
 
 function useDetail(api: LayerfsApi, sessionId: string, record: TrajectoryRecord | null, cache: DetailCache) {
   const key = record ? detailKey(sessionId, record) : null
@@ -49,6 +54,58 @@ function useDetail(api: LayerfsApi, sessionId: string, record: TrajectoryRecord 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api, sessionId, key, cache, tick])
   return { ...(state.key === key ? state : { key }), retry: () => setTick((n) => n + 1) }
+}
+
+/** The Diff tab's lazy read: only while it is open, kept in the per-session cache by session and seq. */
+function usePromptDiff(api: LayerfsApi, sessionId: string, record: TrajectoryRecord | null, cache: PromptDiffCache, enabled: boolean) {
+  const changed = record && (record.kind === 'system' || record.kind === 'request') ? record.promptChanged : undefined
+  const key = enabled && changed && record ? promptDiffKey(sessionId, record.seq) : null
+  const seq = record?.seq
+  const [state, setState] = useState<{ key: string | null, diff?: PromptDiffAnswer, error?: unknown }>({ key: null })
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    if (key === null || seq === undefined) return
+    const hit = cache.get(key)
+    if (hit) { setState({ key, diff: hit }); return }
+    let live = true
+    setState({ key })
+    api.op<PromptDiffAnswer>('session.trajectory.prompt-diff', { sessionId, seq }).then(
+      (diff) => { cache.set(key, diff); if (live) setState({ key, diff }) },
+      (error) => { if (live) setState({ key, error }) },
+    )
+    return () => { live = false }
+  }, [api, sessionId, key, seq, cache, tick])
+  return { ...(state.key === key ? state : { key }), retry: () => setTick((n) => n + 1) }
+}
+
+/** One diff section: the stock unified hunks, `+`/`-`/space prefixes kept. */
+function PromptDiffSectionView({ title, section }: { title: string, section: NonNullable<PromptDiffAnswer['system']> }): ReactNode {
+  return (
+    <section className={css.promptDiffSection}>
+      <h3 className={css.promptDiffTitle}>{title}</h3>
+      <pre className={css.promptDiff}>
+        {section.lines.map((line, index) => (
+          <span key={index} className={clsx(css.promptDiffLine, css[`diff_${line.kind}`])}>{line.text || ' '}{'\n'}</span>
+        ))}
+      </pre>
+    </section>
+  )
+}
+
+/** A record's prompt diff: system and/or tools sections, with a note when the host cut it. */
+export function PromptDiffBody({ state, t }: { state: ReturnType<typeof usePromptDiff>, t: Translate }): ReactNode {
+  if (state.error) return <ErrorState title={t('trajDiffFailed')} error={state.error} retryLabel={t('retry')} onRetry={state.retry} />
+  if (!state.diff) return <Loading label={t('loading')} />
+  const diff = state.diff
+  return (
+    <>
+      <div className={css.promptDiffSections}>
+        {diff.system ? PromptDiffSectionView({ title: t('trajDiffSystem'), section: diff.system }) : null}
+        {diff.tools ? PromptDiffSectionView({ title: t('trajDiffTools'), section: diff.tools }) : null}
+      </div>
+      {diff.truncated ? <p className={css.note}>{t('trajDiffTruncated')}</p> : null}
+    </>
+  )
 }
 
 function Field({ label, children }: { label: string, children: ReactNode }): ReactNode {
@@ -351,11 +408,13 @@ export function UnknownBody({ kind, t }: { kind: string, t: Translate }): ReactN
   return <p className={css.note}>{t('trajUnknownRecord')} ({kind})</p>
 }
 
-function RecordBody({ record, tab, detail, t, onOpen, layerfs, sessionId, onOpenLogs, tools }: {
+function RecordBody({ record, tab, detail, t, onOpen, layerfs, sessionId, onOpenLogs, tools, promptDiff }: {
   record: TrajectoryRecord, tab: Tab, detail: ReturnType<typeof useDetail>, t: Translate, onOpen: OpenVersion
   layerfs: boolean, sessionId: string, onOpenLogs?: ((tag: string) => void) | undefined
   tools?: RequestToolsSource | undefined
+  promptDiff: ReturnType<typeof usePromptDiff>
 }): ReactNode {
+  if (tab === 'diff') return PromptDiffBody({ state: promptDiff, t })
   switch (record.kind) {
     case 'tool':
       return <ToolBody record={record} tab={tab} detail={detail} t={t} onOpen={onOpen} layerfs={layerfs} sessionId={sessionId} onOpenLogs={onOpenLogs} />
@@ -398,7 +457,7 @@ const PARITY_TABS: Tab[] = ['summary', 'payload', 'timing']
 /** A request record: also its parsed tool catalog and what changed in it. */
 const REQUEST_TABS: Tab[] = ['summary', 'payload', 'tools', 'timing']
 
-export function TrajectoryInspector({ api, sessionId, inspected, tab, onTab, onClose, onOpen, onOpenLogs, cache, t, layerfs = true }: {
+export function TrajectoryInspector({ api, sessionId, inspected, tab, onTab, onClose, onOpen, onOpenLogs, cache, diffs, t, layerfs = true }: {
   api: LayerfsApi
   sessionId: string
   inspected: Inspected
@@ -409,19 +468,27 @@ export function TrajectoryInspector({ api, sessionId, inspected, tab, onTab, onC
   /** Opens the Logs page filtered to one call's receipt tag (a refused call's "check Logs"). */
   onOpenLogs?: ((tag: string) => void) | undefined
   cache: DetailCache
+  /** Prompt diffs read by the Diff tab; the caller keeps them across tab switches. */
+  diffs?: PromptDiffCache | undefined
   t: Translate
   /** A project session: tool calls get the LayerFS tab. */
   layerfs?: boolean
 }): ReactNode {
   const record = inspected.kind === 'record' ? inspected.record : null
-  const detail = useDetail(api, sessionId, record, cache)
-  const uid = useId()
+  const diffTab = !!record && (record.kind === 'system' || record.kind === 'request') && !!record.promptChanged && record.previousSeq !== undefined
+  const withDiff = (base: Tab[]): Tab[] => diffTab ? ['diff', ...base] : base
   const tabs: Tab[] = record
     ? record.kind === 'tool' ? (layerfs ? TOOL_TABS : TOOL_TABS.filter((x) => x !== 'layerfs'))
-      : record.kind === 'system' ? PARITY_TABS
-        : record.kind === 'request' ? REQUEST_TABS : MESSAGE_TABS
+      : record.kind === 'system' ? withDiff(PARITY_TABS)
+        : record.kind === 'request' ? withDiff(REQUEST_TABS) : MESSAGE_TABS
     : inspected.kind === 'checkpoint' ? (inspected.checkpoint.op ? ['summary', 'layerfs', 'timing'] : MESSAGE_TABS) : ['layerfs']
   const current = tabs.includes(tab) ? tab : tabs[0]!
+  // The diff tab needs no record detail: do not read one just to show it.
+  const detail = useDetail(api, sessionId, current === 'diff' ? null : record, cache)
+  const localDiffs = useRef<PromptDiffCache>(new Map()).current
+  const diffCache = diffs ?? localDiffs
+  const promptDiff = usePromptDiff(api, sessionId, record, diffCache, current === 'diff')
+  const uid = useId()
   const kind = record ? record.kind : inspected.kind === 'checkpoint' ? 'checkpoint' : 'layerfs'
   const where = [
     inspected.turn > 0 ? t('trajTurn', { n: inspected.turn }) : t('trajBeforeTurns'),
@@ -460,7 +527,7 @@ export function TrajectoryInspector({ api, sessionId, inspected, tab, onTab, onC
         </div>
       ) : null}
       <div id={`${uid}-panel`} role={tabs.length > 1 ? 'tabpanel' : undefined} aria-labelledby={tabs.length > 1 ? tabId(current) : undefined} className={css.inspectorBody}>
-        {record ? <RecordBody record={record} tab={current} detail={detail} t={t} onOpen={onOpen} layerfs={layerfs} sessionId={sessionId} onOpenLogs={onOpenLogs} tools={{ api, sessionId, cache }} />
+        {record ? <RecordBody record={record} tab={current} detail={detail} t={t} onOpen={onOpen} layerfs={layerfs} sessionId={sessionId} onOpenLogs={onOpenLogs} tools={{ api, sessionId, cache }} promptDiff={promptDiff} />
           : inspected.kind === 'checkpoint' ? <CheckpointBody checkpoint={inspected.checkpoint} tab={current} t={t} onOpen={onOpen} sessionId={sessionId} onOpenLogs={onOpenLogs} />
           : inspected.kind === 'ops' ? <OpsList ops={inspected.ops} sessionId={sessionId} t={t} onOpen={onOpen} onOpenLogs={onOpenLogs} /> : null}
       </div>

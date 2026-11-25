@@ -18,7 +18,7 @@ import type { RequestRecord, ToolRecord, TraceVersion, TrajectoryAnswer, Traject
 import { HISTORY_VIEW, useNoComposer, type ViewProps } from './FileViews.tsx'
 import { useSessionRows } from './hooks.ts'
 import type { Translate } from './locale.ts'
-import { TrajectoryInspector, type DetailCache, type Inspected, type InspectorTab } from './TrajectoryInspector.tsx'
+import { TrajectoryInspector, type DetailCache, type Inspected, type InspectorTab, type PromptDiffCache } from './TrajectoryInspector.tsx'
 import { openLogs } from '../logs/request.ts'
 import { clock, durationText, KindCell, OpLine, toolsDelta, usageText, Versions, type OpenVersion } from './TrajectoryParts.tsx'
 import { TrajectoryTimeline } from './TrajectoryTimeline.tsx'
@@ -119,6 +119,7 @@ export function RecordText({ record, t }: { record: TrajectoryRecord, t: Transla
     return (
       <span className={css.text}>
         {record.source ? <span className={css.badge}>{record.source}</span> : null}
+        {record.promptChanged ? <span className={css.promptHint}>{t(`trajPromptChanged_${record.promptChanged}`)}</span> : null}
         {record.text ? <span className={css.plain}>{record.text}</span> : <span className={css.muted}>{t('trajNoText')}</span>}
       </span>
     )
@@ -128,6 +129,7 @@ export function RecordText({ record, t }: { record: TrajectoryRecord, t: Transla
       <span className={css.text}>
         <span className={css.plain}>{requestLine(record, t)}</span>
         {toolsDelta(record.toolsChanged, t)}
+        {record.promptChanged ? <span className={css.promptHint}>{t(`trajPromptChanged_${record.promptChanged}`)}</span> : null}
         {record.reason ? <span className={css.badge}>{record.reason}</span> : null}
       </span>
     )
@@ -310,12 +312,13 @@ export function TrajectoryView(props: ViewProps): ReactNode {
   const [scrollTo, setScrollTo] = useState<Selection | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const cache = useRef<DetailCache>(new Map()).current
+  const diffs = useRef<PromptDiffCache>(new Map()).current
 
   // A new conversation starts over.
   useEffect(() => {
     setSelected(null); setTurnOverride(new Map()); setCallOverride(new Map()); setContextOpen(new Set()); setLimit(ROW_PAGE)
-    cache.clear()
-  }, [sessionId, cache])
+    cache.clear(); diffs.clear()
+  }, [sessionId, cache, diffs])
 
   const now = useMemo(() => Date.now(), [answer]) // eslint-disable-line react-hooks/exhaustive-deps
   const filtered = useMemo(() => answer ? filterTurns(answer.turns, { onlyWrites, query }) : [], [answer, onlyWrites, query])
@@ -452,7 +455,7 @@ export function TrajectoryView(props: ViewProps): ReactNode {
         </div>
         {inspected ? (
           <TrajectoryInspector api={api} sessionId={sessionId} inspected={inspected} tab={tab} onTab={setTab} layerfs={layerfs}
-            onClose={() => setSelected(null)} onOpen={onOpen} cache={cache} t={t}
+            onClose={() => setSelected(null)} onOpen={onOpen} cache={cache} diffs={diffs} t={t}
             onOpenLogs={(tag) => openLogs(api, { tag })} />
         ) : null}
       </div>

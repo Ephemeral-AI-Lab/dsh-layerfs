@@ -6,6 +6,7 @@
  *
  *   session.trajectory        {sessionId}       → TrajectoryAnswer (light records, previews)
  *   session.trajectory.record {sessionId, seq}  → TrajectoryDetail (one record in full)
+ *   session.trajectory.prompt-diff {sessionId, seq} → PromptDiffAnswer (the system/tools line diff)
  */
 import type { TraceCheckpoint, TraceOp } from './trace.ts'
 
@@ -84,6 +85,39 @@ export interface TrajectoryTool {
   parameters?: unknown
 }
 
+/** What a recorded prompt change changed: the system prompt, or the request's tool catalog. */
+export type PromptChangeKind = 'system' | 'tools'
+
+/** One line of a prompt diff in DSH's stock shape: a hunk header, context, added or removed. */
+export interface PromptDiffLine {
+  kind: 'meta' | 'context' | 'added' | 'removed'
+  /** The rendered line, prefix included (`@@ … @@`, `+…`, `-…`, ` …`). */
+  text: string
+}
+
+/** One side of the stock prompt diff, as unified hunks with 3 lines of context. */
+export interface PromptDiffSection {
+  lines: PromptDiffLine[]
+  /** The section was cut at the diff display caps. */
+  truncated?: boolean
+}
+
+/** A record's prompt diff, read on demand by the Diff tab. */
+export interface PromptDiffAnswer {
+  /** The trajectory record's seq the diff belongs to. */
+  seq: number
+  /** Present when the effective system prompt changed. */
+  system?: PromptDiffSection
+  /** Present when the raw tool catalog (pretty JSON) changed. */
+  tools?: PromptDiffSection
+  /** The seq of the recorded prompt state this diff is against. */
+  before?: { seq: number }
+  /** The seq of the prompt state this diff reaches (the record's seq). */
+  after: { seq: number }
+  /** A section was cut at the diff display caps. */
+  truncated?: boolean
+}
+
 /** Tool names that differ from the session's previous request. */
 export interface ToolsChange {
   /** In this request but not the previous one. */
@@ -102,6 +136,10 @@ export interface SystemRecord extends RecordBase {
   truncated?: boolean
   /** The source's `name` when logged, else its `kind` (`system-prompt`). */
   source?: string
+  /** This record is where the recorded prompt changed; absent when it did not. */
+  promptChanged?: PromptChangeKind
+  /** The seq of the recorded prompt state this change is against. */
+  previousSeq?: number
 }
 
 /** A `request/header`: the resolved call config and tool set of the request before a step. */
@@ -119,6 +157,10 @@ export interface RequestRecord extends RecordBase {
   reason?: string
   /** One line, at most {@link PREVIEW_MAX} characters: the model and tool count. */
   summary: string
+  /** This record is where the recorded prompt changed; absent when it did not. */
+  promptChanged?: PromptChangeKind
+  /** The seq of the recorded prompt state this change is against. */
+  previousSeq?: number
 }
 
 /** A `tool/call` and its `tool/result`, with the LayerFS calls it made. */

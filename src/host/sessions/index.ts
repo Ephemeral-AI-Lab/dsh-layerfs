@@ -31,6 +31,7 @@
  *   session.place {sessionId}           the project a live session works in (New Session control)
  *   session.trajectory {sessionId}      the Trajectory tab's records, LayerFS calls and checkpoints by turn
  *   session.trajectory.record {sessionId, seq} one trajectory record in full (NotFound when not in the loaded log)
+ *   session.trajectory.prompt-diff {sessionId, seq} a record's system/tools line diff (NotFound when it has none)
  *   checkpoints.create {sessionId, message?}
  *   checkpoints.diff {sessionId, from, to}
  *   checkpoints.restore {sessionId, commit}
@@ -50,6 +51,7 @@ import { branchFields } from '../../shared/session-branch.ts'
 import { UNCLAIMED } from './catalog.ts'
 import { LayerfsSessions } from './service.ts'
 import { localPersistence, SessionStore } from './store.ts'
+import { promptDiff } from './prompt-diff.ts'
 import { buildTrajectory, trajectoryDetail, type TrajectoryInput } from './trace.ts'
 
 /** Stored session logs kept parsed for the Trajectory (finished subagents' logs, which DSH has unloaded). */
@@ -528,6 +530,14 @@ export function apply(ctx: Context): void {
         const detail = trajectoryDetail(await sessionEvents(id), seq)
         if (!detail) throw new CliError('NotFound', `No trajectory record ${seq} in this session's log`)
         return detail
+      },
+      'session.trajectory.prompt-diff': async (args: any) => {
+        const id = need(args, 'sessionId')
+        const seq = Number(args?.seq)
+        if (!Number.isInteger(seq)) throw new CliError('InvalidInput', 'seq must be an integer')
+        const diff = promptDiff(await sessionEvents(id), seq)
+        if (!diff) throw new CliError('NotFound', `No recorded prompt change at trajectory record ${seq}`)
+        return diff
       },
       // B2 #7: a project session row's one action, Archive (DSH's own archive set; Unarchive in DSH brings it back)
       'sessions.archive': async (args: any) => {
