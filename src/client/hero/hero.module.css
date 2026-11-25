@@ -36,6 +36,31 @@
   color: var(--lf-tone-danger-fg);
 }
 
+/* A read that failed is neutral, not an error of the project control itself. */
+.chip[data-state='unknown'] {
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* The failed read's one action, beside the chip (the menu stays available). */
+.retry {
+  flex: none;
+  padding: 0 2px;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 20px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .retry:hover {
+    color: var(--dsw-alias-label-primary);
+  }
+}
+
 .chip:disabled {
   cursor: default;
   opacity: 0.6;

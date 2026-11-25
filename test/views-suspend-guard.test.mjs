@@ -56,10 +56,13 @@ function fakeCtx(entries) {
 /** `registerViews` in LayerFS mode; the presence header reports one session and the mode settles. */
 async function viewsOf(entries) {
   const harness = fakeCtx(entries)
-  M.registerViews(harness.ctx, { op: async () => ({ place: { project: 'proj' } }), onEvent: () => () => {} })
+  M.registerViews(harness.ctx, {
+    op: async (op) => (op === 'sessions.places' ? { places: { 'session-1': { project: 'proj' } } } : {}),
+    onEvent: () => () => {},
+  })
   const header = harness.registrations.find((r) => r.options.name === 'conversation.session.header.actions')
   header.options.inject('session-1').report('session-1')
-  await wait(300)
+  await wait(800)
   return harness
 }
 const viewRegs = (registrations) => registrations.filter((r) => r.options.name === 'conversation.view')

@@ -3,7 +3,9 @@
  * shows the project the new session will work in, or "No project" for a plain
  * workspace session, and switches it — another project, a new empty project,
  * or a project imported from a host folder. Project ownership and the selected
- * local scratch folder are independent. While an import runs, the control shows its
+ * local scratch folder are independent, and ownership comes from the one store
+ * (`../session/ownership.ts`): a failed read is its own visible state with a
+ * Retry, never a false "No project". While an import runs, the control shows its
  * progress.
  */
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
@@ -11,6 +13,7 @@ import { Button, IconChevronDownOutlineRegular, IconFolderOpenOutlineRegular, Ic
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
+import { ownershipStore, useOwnership, type OwnershipEntry } from '../session/ownership.ts'
 import { listProjects, messageOf, type ProjectInitJob, type ProjectRow } from '../picker/NewProjectForm.tsx'
 import { ProjectDialogMount, projectDialog } from '../projects/dialog.ts'
 import { runsOn } from '../projects/setup/model.ts'
@@ -81,10 +84,22 @@ export interface HeroProjectProps {
   imports: Imports
 }
 
-export function HeroProject({ sessionId, api, t, imports }: HeroProjectProps): ReactNode {
+export function HeroProject(props: HeroProjectProps): ReactNode {
+  const ownership = useOwnership(props.api, props.sessionId)
+  return <HeroProjectControl {...props} ownership={ownership} retry={() => ownershipStore(props.api).retry(props.sessionId)} />
+}
+
+export interface HeroProjectControlProps extends HeroProjectProps {
+  /** The store's entry for this session (a test renders a fake one). */
+  ownership: OwnershipEntry
+  /** Read this session's place again (the Retry action). */
+  retry: () => void
+}
+
+/** The control itself; exported so tests can render a fake ownership state. */
+export function HeroProjectControl({ sessionId, api, t, imports, ownership, retry }: HeroProjectControlProps): ReactNode {
   const root = useRef<HTMLSpanElement>(null)
   const anchor = useRef<HTMLButtonElement>(null)
-  const [place, setPlace] = useState<Place | null>(null)
   const [rows, setRows] = useState<ProjectRow[] | null>(null)
   const [scratchKey, setScratchKey] = useState<string | null>(null)
   const [storage, setStorage] = useState<StorageView | null>(null)
@@ -94,14 +109,6 @@ export function HeroProject({ sessionId, api, t, imports }: HeroProjectProps): R
   const [switching, setSwitching] = useState(false)
   const running = useSyncExternalStore(imports.subscribe, imports.get)
   const [, tick] = useState(0)
-
-  useEffect(() => {
-    let live = true
-    const load = () => api.op<{ place: Place | null }>('session.place', { sessionId }).then((v) => { if (live) setPlace(v.place) }, () => {})
-    void load()
-    const off = api.onEvent('layerfs-session', (e) => { if (!e.data?.sessionId || e.data.sessionId === sessionId) void load() })
-    return () => { live = false; off() }
-  }, [api, sessionId])
 
   const loadProjects = () => {
     setLoadError(false)
@@ -125,6 +132,18 @@ export function HeroProject({ sessionId, api, t, imports }: HeroProjectProps): R
     return () => clearInterval(timer)
   }, [running])
 
+  // The three states, mapped onto the control: a known project (or none), and
+  // an unknown read that keeps the menu but never reads as "No project".
+  const failed = ownership.state === 'unknown' && ownership.error !== undefined
+  const place: Place | null = ownership.state === 'notProject' ? { project: null }
+    : ownership.state === 'project' && ownership.project
+      ? {
+          project: ownership.project,
+          ...(ownership.projectId ? { projectId: ownership.projectId } : {}),
+          ...(ownership.scratch ? { scratch: ownership.scratch } : {}),
+        }
+      : null
+
   /** Place this session in a LayerFS project (or back in a plain folder). */
   const switchTo = async (key: string | null) => {
     setError(null)
@@ -132,6 +151,8 @@ export function HeroProject({ sessionId, api, t, imports }: HeroProjectProps): R
     try {
       const row = rows?.find((p) => (p.projectId ?? p.key) === key)
       await api.op('sessions.choose', { sessionId, project: row?.key ?? key, projectId: row?.projectId })
+      // The host event is coalesced; the person's own choice updates at once.
+      retry()
     } catch (e) {
       setError(t('switchFailed', { message: messageOf(e) }))
     } finally {
@@ -199,8 +220,10 @@ export function HeroProject({ sessionId, api, t, imports }: HeroProjectProps): R
     )
   }
 
-  const current = place?.projectId ?? place?.project ?? null
-  const label = place === null ? '' : place.project ? nameOf(place.project) : t('noProject')
+  // A failed read keeps the last known project as the menu's selection, while the
+  // chip says the read failed (never "No project").
+  const current = place?.projectId ?? place?.project ?? (ownership.state === 'unknown' ? ownership.projectId ?? ownership.project ?? null : null)
+  const label = failed ? t('placeUnknown') : place === null ? '' : place.project ? nameOf(place.project) : t('noProject')
   const projects = (rows ?? []).filter((r) => r.key !== scratchKey && (!r.catalogState || r.catalogState === 'available'))
   const items: MenuEntry[] = [
     { id: NONE, label: t('noProject'), icon: <IconFolderOpenOutlineRegular size={14} /> },
@@ -242,7 +265,8 @@ export function HeroProject({ sessionId, api, t, imports }: HeroProjectProps): R
           else if (id !== (current ?? NONE)) void switchTo(id === NONE ? null : id)
         }}
         anchor={(
-          <button ref={anchor} type="button" className={css.chip} aria-label={t('chipAria', { project: label })} aria-haspopup="menu" aria-expanded={open}
+          <button ref={anchor} type="button" className={css.chip} data-state={failed ? 'unknown' : undefined}
+            aria-label={failed ? t('placeUnknown') : t('chipAria', { project: label })} aria-haspopup="menu" aria-expanded={open}
             disabled={switching} aria-busy={switching || undefined}
             onClick={() => { if (!open) loadProjects(); setOpen((v) => !v) }}>
             <LayerfsGlyph size={14} />
@@ -250,6 +274,7 @@ export function HeroProject({ sessionId, api, t, imports }: HeroProjectProps): R
             <IconChevronDownOutlineRegular size={12} aria-hidden="true" />
           </button>
         )} />
+      {failed ? <button type="button" className={css.retry} onClick={retry}>{t('retry')}</button> : null}
       {error ? <span className={css.error} role="alert">{error}</span> : null}
       <ProjectDialogMount />
     </span>

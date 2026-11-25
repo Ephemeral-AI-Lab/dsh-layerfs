@@ -1,7 +1,7 @@
-// A failed `session.place` read is not an answer: it must not drop the
-// conversation views or pin the session as "not a project". The next
-// `layerfs-session` event (or a reconnect) reads again; only a real place
-// answer changes the tabs.
+// A failed `sessions.places` read is not an answer: it must not drop the
+// conversation views or pin the session as "not a project". The one ownership
+// store keeps the last answer, retries on the next `layerfs-session` event (or a
+// reconnect), and only a real "not a project" answer drops the tabs.
 //   node --test test/views-place-read.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -28,16 +28,18 @@ await build({
 const M = await import(pathToFileURL(join(out, 'place-read.mjs')).href)
 test.after(() => rmSync(out, { recursive: true, force: true }))
 
+/** The store's coalescing window (500 ms) plus the views' 150 ms settle. */
+const SETTLE_MS = 800
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-/** A ctx whose slot registrations and disposers are recorded, and a mutable `session.place` answer. */
+/** A ctx whose slot registrations and disposers are recorded, and a mutable `sessions.places` answer. */
 function harness() {
   const registrations = []
   const listeners = new Map()
   const calls = []
-  let answer = async () => ({ place: { project: 'proj' } })
+  let answer = async () => ({ places: { 'session-1': { project: 'proj' } } })
   const api = {
-    op: (name, args) => { calls.push({ name, sessionId: args?.sessionId }); return answer() },
+    op: (name, args) => { calls.push({ name, ids: args?.sessionIds }); return answer(name, args) },
     onEvent: (name, fn) => {
       const set = listeners.get(name) ?? new Set()
       set.add(fn)
@@ -68,27 +70,29 @@ function harness() {
 
 const viewRegs = (registrations) => registrations.filter((r) => r.options.name === 'conversation.view')
 
-test('a failed session.place read keeps the tabs; the next event retries and a "not a project" answer drops them', async () => {
+test('a failed read keeps the tabs; the next event retries and a "not a project" answer drops them', async () => {
   const h = harness()
   M.registerViews(h.ctx, h.api)
   const header = h.registrations.find((r) => r.options.name === 'conversation.session.header.actions')
   header.options.inject('session-1').report('session-1')
-  await wait(300)
+  await wait(SETTLE_MS)
   assert.equal(viewRegs(h.registrations).length, 5, 'the project session shows the five views')
-  assert.equal(h.calls.length, 1, 'the presence header asked for the place once')
+  assert.equal(h.calls.length, 1, 'the presence header asked the one store once')
+  assert.equal(h.calls[0].name, 'sessions.places', 'the visible ids go in one batch')
+  assert.deepEqual(h.calls[0].ids, ['session-1'])
 
   // A host blip: the read rejects. It is not an answer, so no view is disposed.
   h.answer(() => Promise.reject(new Error('host unavailable')))
   h.emit('layerfs-session', { sessionId: 'session-1' })
-  await wait(300)
-  assert.equal(h.calls.length, 2, 'the event asked again')
+  await wait(SETTLE_MS)
+  assert.equal(h.calls.length, 2, 'the event made the store read again')
   assert.equal(viewRegs(h.registrations).length, 5)
   assert.deepEqual(viewRegs(h.registrations).map((r) => r.disposed), [0, 0, 0, 0, 0], 'a failed read is not an answer')
 
   // The next event reads again; now the answer is "not a project".
-  h.answer(async () => ({ place: null }))
+  h.answer(async () => ({ places: { 'session-1': null } }))
   h.emit('layerfs-session', { sessionId: 'session-1' })
-  await wait(300)
+  await wait(SETTLE_MS)
   assert.equal(h.calls.length, 3, 'the next event retried')
   assert.deepEqual(viewRegs(h.registrations).map((r) => r.disposed), [1, 1, 1, 1, 1], 'a real answer drops the tabs')
 })

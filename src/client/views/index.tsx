@@ -6,6 +6,7 @@
  */
 import { useEffect, type ComponentType } from 'react'
 import type { LayerfsApi } from '../api.ts'
+import { ownershipStore } from '../session/ownership.ts'
 import { NS as STORAGE_NS, type StorageT } from '../storage/locale.ts'
 import { FILES_VIEW, FilesView, HISTORY_VIEW, HistoryView, SANDBOX_VIEW, STATS_VIEW, type ViewInjected, type ViewProps } from './FileViews.tsx'
 import type { SessionsSource } from './hooks.ts'
@@ -132,38 +133,32 @@ export function registerViews(ctx: any, api: LayerfsApi): void {
     running = true
     void transition(wanted).finally(() => { running = false; settle() })
   }
-  // Switching conversations unmounts one header before the next mounts, and a
-  // session's place is re-read on LayerFS events: wait a moment so those
-  // passing states do not stop and restart DSH's Trajectory.
+  // Switching conversations unmounts one header before the next mounts, and the
+  // ownership store reads a session's place again on LayerFS events: wait a
+  // moment so those passing states do not stop and restart DSH's Trajectory.
   const setEnabled = (on: boolean) => {
     wanted = on
     if (timer === undefined) timer = setTimeout(settle, MODE_SETTLE_MS)
   }
-  const projectOf = new Map<string, boolean | Promise<void>>()
-  /** The last answer per session, kept while it is read again (a LayerFS event clears `projectOf`). */
-  const lastKnown = new Map<string, boolean>()
+  // Ownership comes from the one store (`session/ownership.ts`): `project`
+  // enables LayerFS mode, `notProject` disables it, and `unknown` keeps the last
+  // answer (the store keeps it), so a failed read does not flip the tabs.
+  const ownership = ownershipStore(api)
   const isProject = (id: string) => {
-    const v = projectOf.get(id)
-    return typeof v === 'boolean' ? v : lastKnown.get(id) === true
+    const entry = ownership.entry(id)
+    return entry.state === 'project' || (entry.state === 'unknown' && entry.project !== undefined)
   }
   // Conversations on screen: each mounted session header reports itself
   // (an invisible header entry), since DSH's session list does not notify on
   // selection changes.
   const visible = new Map<string, number>()
+  /** Recompute the mode from the store's answers, without asking for another read. */
+  const sync = () => setEnabled([...visible.keys()].some(isProject))
+  /** A header appeared or went: ask the store to read the conversations on screen. */
   const refresh = () => {
     const ids = [...visible.keys()]
-    for (const id of ids) {
-      if (projectOf.has(id)) continue
-      const known = (value: boolean) => { projectOf.set(id, value); lastKnown.set(id, value) }
-      // A failed read is not an answer: it must not write `lastKnown` (that would
-      // pin the session as non-project), so the tabs stay and the next
-      // `layerfs-session`/`connection` event can read again. `projectOf` gets the
-      // last answer as a plain boolean, so `refresh` does not immediately reread.
-      projectOf.set(id, api.op<{ place: { project: string | null } | null }>('session.place', { sessionId: id })
-        .then((r) => known(!!r.place?.project), () => { projectOf.set(id, lastKnown.get(id) ?? false) })
-        .finally(refresh))
-    }
-    setEnabled(ids.some(isProject))
+    if (ids.length) ownership.refresh(ids)
+    sync()
   }
   const report = (sessionId: string) => {
     visible.set(sessionId, (visible.get(sessionId) ?? 0) + 1)
@@ -179,13 +174,11 @@ export function registerViews(ctx: any, api: LayerfsApi): void {
     inject: (sessionId: string) => ({ sessionId: String(sessionId), report }),
   }, Presence)), 'dsh-layerfs: conversation views presence')
   ctx.effect(() => {
-    const forget = (e: { data?: any }) => {
-      if (e.data?.sessionId) projectOf.delete(String(e.data.sessionId)); else projectOf.clear()
-      refresh()
-    }
-    const offs = [api.onEvent('layerfs-session', forget), api.onEvent('connection', forget)]
+    // The store already follows `layerfs-session` and `connection`; the views
+    // only follow its answers (a project answer can arrive after the settle).
+    const off = ownership.subscribe(sync)
     return () => {
-      offs.forEach((off) => off())
+      off()
       // Unloading: give DSH its Trajectory back, and drop ours, at once.
       if (timer !== undefined) clearTimeout(timer)
       timer = undefined

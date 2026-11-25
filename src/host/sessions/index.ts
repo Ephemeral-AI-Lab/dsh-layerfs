@@ -20,6 +20,7 @@
  *   sessions.choose {sessionId, project|null, machine?}  place the session in a LayerFS project (or clear it);
  *                    `machine`: where a PostgreSQL project's Sandbox runs (else placement.ts's default);
  *                                              it stays in whichever workspace it was selected in
+ *   sessions.places {sessionIds}        the project of each of up to 200 sessions, in one read-only batch (ownership store)
  *   sessions.prepareScratch             the Scratch workspace (a plain folder workspace)
  *   sessions.list {project}             local bindings + sessions stored in the project (imports missing ones)
  *   sessions.open {sessionId, project?, workspaceId?} open a session, importing it from the project if missing locally
@@ -75,6 +76,9 @@ function agentCli(ctx: Context): string | null {
 
 /** How often Store health is polled while a project conversation is active. */
 const AVAILABILITY_POLL_MS = 10_000
+
+/** The most session ids one `sessions.places` batch accepts. */
+const PLACES_MAX = 200
 
 const turnOf = (session: any): number | undefined => {
   const events = session?.snapshotEvents(0) ?? []
@@ -531,6 +535,27 @@ export function apply(ctx: Context): void {
         await ctx.workspaceRegistry.archiveSession(id as never)
         ctx.layerfs.emit('layerfs-session', { sessionId: id })
         return { sessionId: id, archived: true }
+      },
+      // One batch for every row mark and chip (the client's ownership store):
+      // the same read-only lookups `session.place` uses, no mutation, no observe.
+      'sessions.places': (args: any) => {
+        const ids = args?.sessionIds
+        if (!Array.isArray(ids) || ids.length > PLACES_MAX) {
+          throw new CliError('InvalidInput', `sessionIds must be an array of at most ${PLACES_MAX} session ids`)
+        }
+        const values = [...new Set(ids.map((id: unknown) => {
+          if (typeof id !== 'string' || !id) throw new CliError('InvalidInput', 'each session id must be a non-empty string')
+          return id
+        }))]
+        const persistence = ctx.get('sessionPersistence' as never) as any
+        const places: Record<string, { project: string, projectId?: string, scratch?: string } | null> = {}
+        for (const id of values) {
+          const place = sessions.placeOfId(id)
+          if (!place?.project) { places[id] = null; continue }
+          const projectId = persistence?.projectIdOf?.(id) as string | undefined
+          places[id] = { project: place.project, ...(projectId ? { projectId } : {}), ...(place.scratch ? { scratch: place.scratch } : {}) }
+        }
+        return { places }
       },
       'session.place': (args: any) => {
         const id = need(args, 'sessionId')

@@ -53,12 +53,15 @@ function fakeCtx() {
 /** `registerViews` for one project session; returns the registered options by slot. */
 async function viewsOf() {
   const { ctx, registrations } = fakeCtx()
-  M.registerViews(ctx, { op: async () => ({ place: { project: 'proj' } }), onEvent: () => () => {} })
+  M.registerViews(ctx, {
+    op: async (op) => (op === 'sessions.places' ? { places: { 'session-1': { project: 'proj' } } } : {}),
+    onEvent: () => () => {},
+  })
   // The presence header reports the conversation on screen; after the mode settles
   // `registerViews` registers its views and each view's `inject` hands out `hideComposer`.
   const header = registrations.find((r) => r.options.name === 'conversation.session.header.actions')
   header.options.inject('session-1').report('session-1')
-  await wait(300)
+  await wait(800)
   return { registrations, views: registrations.filter((r) => r.options.name === 'conversation.view') }
 }
 

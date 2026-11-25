@@ -1218,3 +1218,33 @@ test('sessions.list rows carry the branch kind too, from the row\'s branch and i
   assert.equal('restore' in byId.own, false)
   for (const id of Object.keys(byId)) assert.equal(state.sessions[id].branchKind, undefined, id)
 })
+
+test('sessions.places: one read-only batch over placeOfId and projectIdOf; bad ids and oversize batches are refused', () => {
+  const places = { live: { project: 'st/app', scratch: '/scratch' }, folder: { project: null }, gone: null }
+  const projectIds = { live: 'pid-1' }
+  const ops = {}
+  const ctx = {
+    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
+    layerfsSessions: { state: { read: () => S.initialState() }, placeOfId: (id) => places[id] ?? null },
+    layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
+    plugin() {},
+    inject: (deps, callback) => { if (deps.includes('layerfsSessions')) callback(ctx) },
+    on() {},
+    effect() {},
+    get: (name) => name === 'sessionPersistence' ? { projectIdOf: (id) => projectIds[id] } : undefined,
+    logger: () => ({ warn() {}, info() {} }),
+    workspaceRegistry: { archivedSessionIds: [] },
+  }
+  S.applySessionsIndex(ctx)
+  assert.deepEqual(ops['sessions.places']({ sessionIds: ['live', 'folder', 'gone', 'live'] }), {
+    places: {
+      live: { project: 'st/app', projectId: 'pid-1', scratch: '/scratch' },
+      folder: null,
+      gone: null,
+    },
+  })
+  assert.deepEqual(ops['sessions.places']({ sessionIds: [] }), { places: {} })
+  for (const bad of [{}, { sessionIds: 'live' }, { sessionIds: [1] }, { sessionIds: [''] }, { sessionIds: Array.from({ length: 201 }, (_, i) => `s${i}`) }]) {
+    assert.throws(() => ops['sessions.places'](bad), (error) => error.code === 'InvalidInput')
+  }
+})
