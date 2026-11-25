@@ -1,7 +1,7 @@
 # Project, conversation, Sandbox and Workspace: the mapping
 
-Status: **settled** (2026-11-25). The mapping decisions below are the owner's
-calls; project-owned Sandboxes are implemented with groups 5 and 9. Broader
+Status: **settled** (2026-11-25, revised). The mapping decisions below are the
+owner's calls; project-owned Sandboxes are implemented with groups 5 and 9. Broader
 decisions live in `refinement-decisions.md`.
 
 ## What exists today
@@ -40,17 +40,17 @@ Project  <store>/<name>                      identity branch dsh.project.<uuid>
 - Closing a session checkpoints and unmounts its Workspace; it no longer
   removes the Sandbox.
 
-## Mapping decisions (settled 2026-11-25)
+## Mapping decisions (settled 2026-11-25, revised the same day)
 
 1. **Workspace name.** One per session, `s-<compact(id)>` (the host's session-id
    compaction, truncated safely if it is long; uniqueness inside the Sandbox is
    checked when it mounts). No `main` special case, so a single-session project
    also uses its session name; the UI shows the conversation's title beside it
    and `DSH_LAYERFS_WS` is `<sandbox>:<name>`.
-2. **Sandbox lifecycle.** Closing a session checkpoints its own Workspace and
-   unmounts it. The project Sandbox closes after the last bound session's idle
-   timeout (default 30 minutes) or on the project's Close; one session ending
-   never removes the project Sandbox.
+2. **Sandbox lifecycle (revised).** The project Sandbox stays warm until the
+   user closes it or deletes the project; it is not closed after the last
+   session's idle timeout. Closing a session checkpoints its own Workspace and
+   unmounts it, releasing its slot; the Sandbox itself stays.
 3. **Failure recovery.** A broken or recreated Sandbox remounts every session's
    Workspace. The project shows one **recovering** notice, each affected session
    keeps DSH's **Interrupted** word, and the next message retries; the notice
@@ -60,8 +60,8 @@ Project  <store>/<name>                      identity branch dsh.project.<uuid>
    Sandbox is closed once it holds no mounted Workspaces. Branches and commits
    are untouched.
 5. **Shards.** One project Sandbox per machine. At 16 Workspaces the host opens
-   the next shard (`<name>-2`, …) and fills sessions in order; sharding is
-   transparent and a shard is not a separate project.
+   the next shard (`<name>-2`, …) on the same machine and fills sessions in
+   order; sharding is transparent and a shard is not a separate project.
 6. **UI mapping.** A Workspace row shows its conversation's title with a short
    id, and the conversation's Sandbox tab marks **this session**. The interim
    **Session** tag stays until the session/project ownership design
@@ -71,9 +71,12 @@ Project  <store>/<name>                      identity branch dsh.project.<uuid>
    machine first selects (or confirms) its local scratch folder, then mounts
    into the project Sandbox as `s-<compact>`; import does not execute before the
    folder is chosen, so the first command runs in the right directory.
-8. **Checkpoints on close.** When the project Sandbox closes, every bound
-   session is checkpointed once (one **By DSH** row per session). A refused save
-   shows **Not saved: *code*** on that session's row and keeps its Workspace.
+8. **Checkpoints (revised).** The host's per-turn checkpoint is **off** by
+   default (`checkpoints: 'off'`, the existing config): the agent owns saving
+   its work (the `file.*` calls commit per operation; shell changes need an
+   explicit `workspace commit`), and the preset says so. The **close-time
+   checkpoint stays**, as today: closing a session or the project Sandbox first
+   saves that session's Workspace, and only then unmounts or removes it.
 9. **Subagents.** The host keeps the root's binding for a subagent (`kind:
    shared`): the same Sandbox, Workspace and Branch; it creates no per-subagent
    Workspace or branch. Agents may still fork a branch and mount it themselves
@@ -81,6 +84,19 @@ Project  <store>/<name>                      identity branch dsh.project.<uuid>
    merge: the agent must commit it, and the parent branch does not see it until
    it is merged. Automating per-subagent branches is not part of this design;
    revisit with an explicit merge policy if it becomes a product need.
+
+### Dirty close: aligned with today
+
+Today `close()` checkpoints the session's Workspace (`checkpoint('idle')`) and
+throws if that save fails, so the close is refused and the Workspace/Sandbox are
+kept; only after a successful save does it unmount or remove. Under decision 8
+that is the **only** automatic save left, and it stays exactly as it is:
+
+- a dirty Workspace is saved before it is released (no discard, no silent loss);
+- a failed save refuses the close, keeps the resources, and shows
+  **Not saved: *code*** on that session's row;
+- `unmount --discard` remains only in the re-mount/restore paths where it exists
+  today, never on a normal close.
 
 **Implementation order.** 1, 2 and 3 are prerequisites for project-owned
 Sandboxes (groups 5 and 9); 4 and 5 land with that host work; 6 belongs to the
