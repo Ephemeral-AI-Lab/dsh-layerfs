@@ -91,7 +91,7 @@ DSH 关闭 **显示代码工作视图**（Show coding view，即 Developer tools
 ![停在会话分支上的文件标签](../img/conversation-files.png)
 
 和项目页一样的[文件视图](components.md#file-views)，打开时停在这个会话的分支上
-（分支选择器显示 **会话 ef98eca**（Session ef98eca））。下面只列出不同的地方：
+（分支选择器显示**本会话的分支**（This session’s branch））。下面只列出不同的地方：
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|

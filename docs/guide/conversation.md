@@ -100,7 +100,7 @@ host ran at the end of the turn, **Committed**, and the version (3) with its Bra
 ![The Files tab on the session's Branch](img/conversation-files.png)
 
 The same [file views](components.md#file-views) as the project page, opened on this session's
-Branch (the Branch picker reads **Session ef98eca**). Only what differs here:
+Branch (the Branch picker reads **This session's branch**). Only what differs here:
 
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
