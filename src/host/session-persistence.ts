@@ -185,7 +185,9 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
    * (`logIdentity`): a rewrite replaces the inode, so a hit is a fresh read.
    * Bounded by count and source bytes.
    */
-  private readonly sidecars = new Map<string, { key: string, bytes: number, value: SessionSidecar | undefined }>()
+  private readonly sidecars = new Map<string, { id: string, key: string, bytes: number, value: SessionSidecar | undefined }>()
+  /** Session id -> its sidecar path, so a write can drop exactly that entry. */
+  private readonly sidecarPaths = new Map<string, string>()
   private sidecarBytes = 0
   /** Non-importing facade for the archive store; routes to the owner's backend. */
   readonly local: any
@@ -230,6 +232,7 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
   private setOwner(id: string, owner: Owner | undefined): void {
     // A route change can point the id at another backend with its own log.
     this.invalidateHeader(id)
+    this.invalidateSidecar(id)
     const path = join(this.projectHome, 'owners.json')
     withFileLock(`${path}.lock`, () => {
       const routes = readRoutes(path)
@@ -241,6 +244,8 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
       this.routesSignature = signatureOf(path)
     })
     this.invalidateHeader(id)
+    this.invalidateSidecar(id)
+    this.invalidateDiscovery(undefined)
   }
   /** Ownership is local durable metadata, readable without reaching LayerFS. */
   ownerOf(id: string): { project: string } | undefined {
@@ -331,7 +336,7 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
       // Delegate through the facade: a migration swaps `current` under it.
       const write = (name: 'append' | 'flush'): any => {
         const inner = (wrapped as any)[name].bind(wrapped)
-        return (...args: any[]) => { this.invalidateHeader(id); return inner(...args) }
+        return (...args: any[]) => { this.invalidateHeader(id); this.invalidateSidecar(id); return inner(...args) }
       }
       wrapped.append = write('append')
       wrapped.flush = write('flush')
@@ -339,6 +344,7 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
       const close = wrapped.close.bind(wrapped)
       wrapped.close = () => {
         this.invalidateHeader(id)
+        this.invalidateSidecar(id)
         if (this.handles.get(id) === wrapped) this.handles.delete(id)
         return close()
       }
@@ -398,6 +404,8 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
       }
       this.setOwner(id, undefined)
       this.invalidateHeader(id)
+      this.invalidateSidecar(id)
+      this.invalidateDiscovery(owner.project)
       removed.push(id)
     }
     if (Object.keys(records).length) {
@@ -415,9 +423,13 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     const run = previous.then(() => this.migrateNow(id, project))
     this.migrations.set(id, run)
     this.invalidateHeader(id)
+    this.invalidateSidecar(id)
     try { await run } finally {
       if (this.migrations.get(id) === run) this.migrations.delete(id)
       this.invalidateHeader(id)
+      this.invalidateSidecar(id)
+      // The conversation may have moved between projects: both stored lists changed.
+      this.invalidateDiscovery(undefined)
     }
   }
   private async migrateNow(id: string, project: string | null): Promise<void> {
@@ -501,7 +513,12 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
   async create(header: any, options?: any) {
     const id = String(header.id)
     this.invalidateHeader(id)
-    try { return this.wrap(await (await this.target(id, header)).create(header, options)) } finally { this.invalidateHeader(id) }
+    this.invalidateSidecar(id)
+    try { return this.wrap(await (await this.target(id, header)).create(header, options)) } finally {
+      this.invalidateHeader(id)
+      this.invalidateSidecar(id)
+      this.invalidateDiscovery(this.owners.sessions[id]?.project)
+    }
   }
   async flush() {
     if (!this.stock) return this.local.flush()
@@ -566,14 +583,15 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
       return this.openLocal(String(id), access, options)
     }
   }
-  private async sidecarPath(id: string): Promise<string> {
-    let snapshot = await this.statLocal(id)
-    if (snapshot && !snapshot.location?.path) {
+  /** The sidecar path; `snapshot` is the log stat a caller already read (one stat per list, not two). */
+  private async sidecarPath(id: string, snapshot?: any): Promise<string> {
+    let current = snapshot ?? await this.statLocal(id)
+    if (current && !current.location?.path) {
       await (await this.target(id)).flush()
-      snapshot = await this.statLocal(id)
+      current = await this.statLocal(id)
     }
-    if (!snapshot?.location?.path) throw new Error(`Session ${id} has no durable log for LayerFS metadata`)
-    return join(dirname(snapshot.location.path), 'layerfs.json')
+    if (!current?.location?.path) throw new Error(`Session ${id} has no durable log for LayerFS metadata`)
+    return join(dirname(current.location.path), 'layerfs.json')
   }
   /** The sidecar file's identity (as {@link logIdentity}) and its size in bytes. */
   private sidecarIdentity(path: string): { key: string, bytes: number } | undefined {
@@ -587,36 +605,55 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     if (!kept) return
     this.sidecars.delete(path)
     this.sidecarBytes -= kept.bytes
+    if (this.sidecarPaths.get(kept.id) === path) this.sidecarPaths.delete(kept.id)
   }
-  private rememberSidecar(path: string, key: string, bytes: number, value: SessionSidecar | undefined): void {
+  /** Drop one session's cached sidecar after its file, its log or its route changed. */
+  private invalidateSidecar(id: string): void {
+    const path = this.sidecarPaths.get(id)
+    if (path !== undefined) this.forgetSidecar(path)
+    this.sidecarPaths.delete(id)
+  }
+  /** A local write changed what a project's stored-session list shows (save, import, delete). */
+  private invalidateDiscovery(project: string | undefined): void {
+    try { this.store?.invalidateDiscovery?.(project) } catch { /* the discovery memo is best effort */ }
+  }
+  private rememberSidecar(path: string, id: string, key: string, bytes: number, value: SessionSidecar | undefined): void {
     this.forgetSidecar(path)
-    this.sidecars.set(path, { key, bytes, value })
+    this.sidecars.set(path, { id, key, bytes, value })
+    this.sidecarPaths.set(id, path)
     this.sidecarBytes += bytes
-    while (this.sidecars.size > 8 || (this.sidecarBytes > 64 * 1024 * 1024 && this.sidecars.size > 1)) {
+    while (this.sidecars.size > 1024 || (this.sidecarBytes > 64 * 1024 * 1024 && this.sidecars.size > 1)) {
       const oldest = this.sidecars.keys().next().value as string
       this.forgetSidecar(oldest)
     }
   }
   /**
-   * The session's `layerfs.json`. `cached` keeps the parsed value while the
-   * file's identity holds: the Trajectory tab rereads on every event, and a
-   * long session's receipts are far too big to parse each time. The value is
-   * shared, so a cached caller must not mutate it.
+   * The session's `layerfs.json`, kept while the file's identity holds. `cached`
+   * shares the parsed value (the Trajectory tab rereads on every event and a
+   * long session's receipts are too big to parse or copy each time); every other
+   * caller gets a copy, so it can keep or mutate it freely. A sidecar passed in
+   * by a caller that has already stat'ed the log (`snapshot`) avoids that stat.
+   * An absent sidecar is never cached, so one written later shows next read.
    */
-  async readSidecar(id: string, options: { cached?: boolean } = {}): Promise<SessionSidecar | undefined> {
-    const path = await this.sidecarPath(id)
-    if (!options.cached) return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : undefined
+  /** Read one sidecar file; overridable so a test can count real file reads. */
+  private readSidecarFile(path: string): SessionSidecar | undefined {
+    return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) as SessionSidecar : undefined
+  }
+  async readSidecar(id: string, options: { cached?: boolean, snapshot?: any } = {}): Promise<SessionSidecar | undefined> {
+    const path = await this.sidecarPath(id, options.snapshot)
     const identity = this.sidecarIdentity(path)
+    if (identity === undefined) { this.invalidateSidecar(id); return undefined }
     const kept = this.sidecars.get(path)
-    if (identity && kept?.key === identity.key) {
+    if (kept?.key === identity.key) {
       // Keep it hot for the next read.
       this.sidecars.delete(path)
       this.sidecars.set(path, kept)
-      return kept.value
+      return options.cached ? kept.value : structuredClone(kept.value)
     }
-    const value = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : undefined
-    if (identity) this.rememberSidecar(path, identity.key, identity.bytes, value)
-    return value
+    const value = this.readSidecarFile(path)
+    if (value === undefined) { this.invalidateSidecar(id); return undefined }
+    this.rememberSidecar(path, id, identity.key, identity.bytes, value)
+    return options.cached ? value : structuredClone(value)
   }
   async updateSidecar(id: string, fn: (sidecar: SessionSidecar) => void): Promise<void> {
     const path = await this.sidecarPath(id)
@@ -634,7 +671,7 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     // identity also makes any other cache entry stale on its own.
     if (this.sidecars.has(path)) {
       const identity = this.sidecarIdentity(path)
-      if (identity) this.rememberSidecar(path, identity.key, identity.bytes, value)
+      if (identity) this.rememberSidecar(path, id, identity.key, identity.bytes, value)
       else this.forgetSidecar(path)
     }
   }
