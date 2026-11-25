@@ -94,7 +94,9 @@ test('a reload that replaces the row clears the refusal', async () => {
 })
 
 test('resume keeps the open tracked: it returns the promise and reloads on success, no refusal is swallowed', () => {
-  assert.match(src, /const resume = \(sessionId: string\) => api\.op\('sessions\.open', \{ sessionId, project: project\.key \}\)\.then\(\(\) => \{ onChanged\(\) \}\)/)
+  // The open reloads the project's local rows only (read.reloadLocal): the archive
+  // read is a Store walk and paid once per click made the open slow.
+  assert.match(src, /const resume = \(sessionId: string\) => api\.op\('sessions\.open', \{ sessionId, project: project\.key \}\)\.then\(\(\) => \{ read\.reloadLocal\(\) \}\)/)
   assert.doesNotMatch(src, /\.catch\(\(\) => \{\}\)/)
   for (const lang of ['en', 'zh']) assert.ok(M.listLocales[lang].openAgain, `${lang}.openAgain`)
 })
