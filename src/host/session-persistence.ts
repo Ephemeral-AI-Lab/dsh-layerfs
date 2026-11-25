@@ -572,9 +572,16 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
       return false
     }
   }
+  /**
+   * A session's snapshot. A miss is imported from its LayerFS project unless
+   * `options.restore === false`: listing must not import (a pending session has
+   * no log yet, so a list of 33 sessions used to attempt 23 Store imports on
+   * every read, ~600 ms). Opening the session imports it.
+   */
   async stat(id: any, options?: any) {
     const snapshot = await this.statLocal(String(id), options)
-    if (snapshot || !(await this.restore(String(id)))) return snapshot
+    if (snapshot || options?.restore === false) return snapshot
+    if (!(await this.restore(String(id)))) return snapshot
     return this.statLocal(String(id), options)
   }
   async open(id: any, access: any, options?: any) {

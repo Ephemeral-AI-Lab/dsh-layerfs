@@ -452,7 +452,9 @@ export function apply(ctx: Context): void {
         const snapshotOf = (id: string) => {
           let snapshot = snapshots.get(id)
           if (!snapshot) {
-            snapshot = Promise.resolve(persistence?.stat(id))
+            // Listing never imports: a pending session has no log yet, and a Store
+            // import per session on every read made the expand slow.
+            snapshot = Promise.resolve(persistence?.stat(id, { restore: false }))
             snapshots.set(id, snapshot)
             statted.add(id)
             void snapshot.then((snap) => { if (snap) localIds.add(id) }, () => {})
