@@ -297,6 +297,8 @@ export function apply(ctx: Context): void {
 
     /** Stored logs read for sessions DSH has not loaded, by id, kept while the file's size and mtime hold. */
     const storedLogs = new Map<string, { key: string, events: any[] }>()
+    /** A loaded session's title, keyed by its log length: the scan is only redone when the log grows. */
+    const titles = new Map<string, { seq: number, title: string | null }>()
     /**
      * The trajectory memo: one built answer per session keyed by its revision,
      * so a tab opening without `since` builds at most once between changes, and
@@ -468,10 +470,24 @@ export function apply(ctx: Context): void {
           }
           return sidecar
         }
+        // A loaded session's title is its newest `session/title` event; scanning a
+        // long log's events for it on every list made a 32-session project cost
+        // ~5 ms a session. `seq` is the log length: while it holds, the title holds.
         const liveTitle = (id: string): string | null => {
-          const live = (ctx.get('sessions' as never) as any)?.get(id as never) as any
-          const titles = live?.snapshotEvents(0).filter((event: any) => event.type === 'session/title' && typeof event.data?.title === 'string') ?? []
-          return titles.at(-1)?.data.title ?? null
+          const live = (ctx.get('sessions' as never) as any)?.get?.(id as never) as any
+          if (!live) return null
+          const seq = typeof live.seq === 'number' ? live.seq : -1
+          const kept = titles.get(id)
+          if (kept && kept.seq === seq) return kept.title
+          const events: readonly any[] = live.snapshotEvents?.(0) ?? []
+          let title: string | null = null
+          for (let i = events.length - 1; i >= 0; i--) {
+            const event = events[i]
+            if (event?.type === 'session/title' && typeof event.data?.title === 'string') { title = event.data.title; break }
+          }
+          titles.set(id, { seq, title })
+          while (titles.size > 1024) titles.delete(titles.keys().next().value!)
+          return title
         }
         /** A loaded session's title, else its sidecar's; `sidecar` when the caller already read one. */
         const titleOf = async (id: string, sidecar?: any): Promise<string | null> => {
