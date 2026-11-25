@@ -20,7 +20,7 @@ import { useSessionRows } from './hooks.ts'
 import type { Translate } from './locale.ts'
 import { TrajectoryInspector, type DetailCache, type Inspected, type InspectorTab } from './TrajectoryInspector.tsx'
 import { openLogs } from '../logs/request.ts'
-import { clock, durationText, KindCell, OpLine, usageText, Versions, type OpenVersion } from './TrajectoryParts.tsx'
+import { clock, durationText, KindCell, OpLine, toolsDelta, usageText, Versions, type OpenVersion } from './TrajectoryParts.tsx'
 import { TrajectoryTimeline } from './TrajectoryTimeline.tsx'
 import {
   checkpointVersion, filterTurns, flattenRows, focusTarget, opWrites, recentTurns, recordMatches, ROW_PAGE, SAVES, selectionTurn, timeSpan,
@@ -127,6 +127,7 @@ export function RecordText({ record, t }: { record: TrajectoryRecord, t: Transla
     return (
       <span className={css.text}>
         <span className={css.plain}>{requestLine(record, t)}</span>
+        {toolsDelta(record.toolsChanged, t)}
         {record.reason ? <span className={css.badge}>{record.reason}</span> : null}
       </span>
     )

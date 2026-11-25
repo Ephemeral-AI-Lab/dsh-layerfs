@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { buildTrajectory, summarize, trajectoryDetail, usageOf, versionBranch } from '../src/host/sessions/trace.ts'
-import { DETAIL_MAX, PREVIEW_MAX } from '../src/shared/trajectory.ts'
+import { DETAIL_MAX, PREVIEW_MAX, TOOL_DESCRIPTION_MAX } from '../src/shared/trajectory.ts'
 
 const C1 = '12' + '1'.repeat(64), C2 = '12' + '2'.repeat(64), C3 = '12' + '3'.repeat(64), L1 = '32' + '4'.repeat(64)
 const ev = (seq, type, data, time = 1000 + seq) => ({ seq, type, data, time })
@@ -367,4 +367,100 @@ test('a huge request header detail is cut at DETAIL_MAX and flagged', () => {
   assert.equal(detail.kind, 'request')
   assert.equal(detail.header.length, DETAIL_MAX)
   assert.deepEqual(detail.truncated, ['header'])
+})
+
+// A request's parsed tool catalog and what changed between two consecutive
+// requests: names, description previews, parameter counts and schemas.
+const catalogA = {
+  config: { provider: 'deepseek', model: 'deepseek-chat' },
+  tools: [
+    { name: 'bash', description: 'run a command', parameters: { type: 'object', properties: { command: { type: 'string' } } } },
+    { name: 'read', description: 'read a file', parameters: { type: 'object', properties: { path: { type: 'string' }, offset: { type: 'number' } } } },
+    { name: 'write', description: 'write a file', parameters: { type: 'object', additionalProperties: false } },
+  ],
+}
+const catalogB = {
+  config: { provider: 'deepseek', model: 'deepseek-chat' },
+  tools: [
+    { name: 'bash', description: 'run a shell command', parameters: { type: 'object', properties: { command: { type: 'string' } } } },
+    { name: 'glob', parameters: { type: 'object', properties: { pattern: { type: 'string' } } } },
+    // Same description and schema as catalogA's write, its keys in another order: no change.
+    { name: 'write', description: 'write a file', parameters: { additionalProperties: false, type: 'object' } },
+  ],
+}
+const catalogEvents = [
+  ev(200, 'turn/start', { turn: 4 }),
+  ev(201, 'step/start', { turn: 4, step: 1 }),
+  ev(202, 'request/header', { header: catalogA, reason: 'initial' }),
+  assistant(203, 4, 1, [txt('One.')]),
+  ev(204, 'step/start', { turn: 4, step: 2 }),
+  ev(205, 'request/header', { header: catalogB, reason: 'change' }),
+  assistant(206, 4, 2, [txt('Two.')]),
+  ev(207, 'turn/end', { turn: 4 }),
+]
+const buildCatalog = (events = catalogEvents) => buildTrajectory({ sessionId: 's', project: 'st/p', branch: 'dsh.s', events, invocations: [], checkpoints: [] })
+
+test('toolsChanged: added, removed and changed tools between consecutive requests', () => {
+  const requests = buildCatalog().turns[0].records.filter((r) => r.kind === 'request')
+  assert.deepEqual(requests.map((r) => [r.seq, r.tools]), [[202, 3], [205, 3]])
+  assert.equal(requests[0].toolsChanged, undefined, 'the first request has nothing to compare against')
+  assert.deepEqual(requests[1].toolsChanged, { added: ['glob'], removed: ['read'], changed: ['bash'] })
+  // The preview stays light: names only, no descriptions or schemas.
+  assert.ok(!JSON.stringify(buildCatalog()).includes('run a shell command'))
+  assert.ok(!JSON.stringify(buildCatalog()).includes('command'))
+})
+
+test('detail: a request carries its parsed tool catalog, parameters as logged', () => {
+  const detail = trajectoryDetail(catalogEvents, 205)
+  assert.equal(detail.kind, 'request')
+  assert.equal(detail.previousRequestSeq, 202)
+  assert.deepEqual(detail.tools.map((tool) => tool.name), ['bash', 'glob', 'write'])
+  const [bash, glob, write] = detail.tools
+  assert.equal(bash.description, 'run a shell command')
+  assert.equal(bash.parameterCount, 1)
+  assert.deepEqual(bash.parameters, catalogB.tools[0].parameters, 'the JSON-schema object, not a string')
+  assert.equal(glob.parameterCount, 1)
+  assert.equal(glob.description, undefined, 'a missing description is fine')
+  assert.equal(write.parameterCount, 0)
+  assert.equal(detail.truncated, undefined)
+  const first = trajectoryDetail(catalogEvents, 202)
+  assert.equal(first.previousRequestSeq, undefined)
+  assert.deepEqual(first.tools.map((tool) => tool.name), ['bash', 'read', 'write'])
+  assert.equal(first.tools[1].parameterCount, 2)
+})
+
+test('detail: tool descriptions are previews, and a catalog too big is cut and flagged', () => {
+  const long = 'word '.repeat(200)
+  const one = trajectoryDetail([ev(1, 'request/header', { header: { tools: [{ name: 't', description: long, parameters: { type: 'object' } }] } })], 1)
+  assert.equal(one.tools[0].description.length, TOOL_DESCRIPTION_MAX)
+  assert.ok(one.tools[0].description.endsWith('…'))
+  assert.equal(one.tools[0].descriptionTruncated, true)
+  assert.equal(one.truncated, undefined)
+
+  // Many tools: the catalog keeps what fits in DETAIL_MAX and says it was cut.
+  const many = Array.from({ length: 400 }, (_, i) => ({
+    name: `t${i}`, description: 'd'.repeat(300), parameters: { type: 'object', properties: { a: { type: 'string' } } },
+  }))
+  const cut = trajectoryDetail([ev(1, 'request/header', { header: { tools: many } })], 1)
+  assert.ok(cut.tools.length > 0 && cut.tools.length < many.length, `${cut.tools.length} of ${many.length}`)
+  assert.ok(cut.truncated.includes('tools'))
+  assert.ok(JSON.stringify(cut.tools).length <= DETAIL_MAX, 'the catalog stays inside the cap')
+
+  // One schema too big for the whole budget: dropped, the rest of its entry kept.
+  const huge = { type: 'object', properties: Object.fromEntries(Array.from({ length: 4000 }, (_, i) => [`p${i}`, { type: 'string', description: 'x'.repeat(20) }])) }
+  const hugeDetail = trajectoryDetail([ev(1, 'request/header', { header: { tools: [{ name: 'huge', description: 'big', parameters: huge }, { name: 'small', parameters: {} }] } })], 1)
+  assert.deepEqual(hugeDetail.tools.map((tool) => tool.name), ['huge', 'small'])
+  assert.equal(hugeDetail.tools[0].parameters, undefined, 'the schema alone is over the cap')
+  assert.equal(hugeDetail.tools[0].parameterCount, 4000)
+  assert.ok(hugeDetail.tools[1].parameters !== undefined, 'a later, small tool still fits')
+  assert.ok(hugeDetail.truncated.includes('tools'))
+})
+
+test('a request without a tool set in its header has no catalog view', () => {
+  const detail = trajectoryDetail(parityEvents, 109)
+  assert.equal(detail.kind, 'request')
+  assert.equal('tools' in detail, false)
+  assert.equal(detail.previousRequestSeq, 104)
+  assert.deepEqual(buildParity().turns[0].records.filter((r) => r.kind === 'request')[1].toolsChanged,
+    { added: [], removed: ['bash', 'read', 'write'], changed: [] })
 })

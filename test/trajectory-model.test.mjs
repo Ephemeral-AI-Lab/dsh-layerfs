@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   checkpointVersion, compactNumber, durationParts, filterTurns, flattenRows, focusTarget, laneItems, opCommand, opWrites, place,
-  prettyArgs, recentTurns, recordMatches, selectionTurn, shownHostOp, thinLane, timeSpan,
+  prettyArgs, recentTurns, recordMatches, selectionTurn, shownHostOp, thinLane, timeSpan, toolEntries,
 } from '../src/client/views/trajectory-model.ts'
 
 const T0 = 1_700_000_000_000
@@ -254,4 +254,35 @@ test('compactNumber: whole counts below 1000, one decimal below ten, k and m abo
   assert.equal(compactNumber(1_200_000), '1.2m')
   assert.equal(compactNumber(2_000_000), '2m')
   assert.equal(compactNumber(Number.NaN), '—')
+})
+
+test('toolEntries: header order with change marks, then removed tools with their previous values', () => {
+  const tools = [
+    { name: 'bash', description: 'run a shell command', parameterCount: 1 },
+    { name: 'glob', description: 'find files', parameterCount: 1 },
+    { name: 'write', description: 'write a file', parameterCount: 0 },
+  ]
+  const change = { added: ['glob'], removed: ['read'], changed: ['bash'] }
+  const previous = [
+    { name: 'bash', description: 'run a command', parameterCount: 1 },
+    { name: 'read', description: 'read a file', parameterCount: 2 },
+    { name: 'write', description: 'write a file', parameterCount: 0 },
+  ]
+  const entries = toolEntries(tools, change, previous)
+  assert.deepEqual(entries.map((entry) => [entry.name, entry.mark ?? null]), [
+    ['bash', '~'], ['glob', '+'], ['write', null], ['read', '−'],
+  ])
+  assert.equal(entries[0].previous.description, 'run a command', 'a changed tool carries its earlier value')
+  assert.equal(entries[1].previous, undefined, 'an added tool has no earlier value')
+  assert.equal(entries[3].previous.description, 'read a file', 'a removed tool comes from the previous catalog')
+
+  // Without the previous catalog (not read yet): names and marks only.
+  const bare = toolEntries(tools, change, undefined)
+  assert.deepEqual(bare.map((entry) => [entry.name, entry.mark ?? null]), [['bash', '~'], ['glob', '+'], ['write', null], ['read', '−']])
+  assert.ok(bare.every((entry) => entry.previous === undefined))
+
+  // No change: no marks, no removed entries.
+  assert.deepEqual(toolEntries(tools, { added: [], removed: [], changed: [] }, undefined).map((entry) => entry.mark ?? null), [null, null, null])
+  assert.deepEqual(toolEntries(tools, undefined, undefined).map((entry) => entry.mark ?? null), [null, null, null])
+  assert.deepEqual(toolEntries([], { added: [], removed: [], changed: [] }, undefined), [])
 })

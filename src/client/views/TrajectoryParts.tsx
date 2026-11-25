@@ -1,8 +1,8 @@
 /** Small pieces the LayerFS trajectory's table and inspector share: kind pills, version chips, LayerFS call lines, times. */
-import type { ReactNode } from 'react'
+import { Fragment, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { shortId } from '../files/format.ts'
-import type { TraceOp, TraceVersion, TrajectoryRecord, TrajectoryUsage } from '../../shared/trajectory.ts'
+import type { ToolsChange, TraceOp, TraceVersion, TrajectoryRecord, TrajectoryUsage } from '../../shared/trajectory.ts'
 import type { Translate } from './locale.ts'
 import { compactNumber, durationParts, opCommand } from './trajectory-model.ts'
 import css from './trajectory.module.css'
@@ -29,6 +29,30 @@ export function usageText(t: Translate, usage: TrajectoryUsage): string {
 }
 
 const MARK: Record<TraceVersion['effect'], string> = { created: '+', unchanged: '=', referenced: '→' }
+
+/**
+ * How a request's tool catalog changed since the previous one: `+2 −1 ~1`,
+ * in the reader's words, or nothing when it did not change. A plain function,
+ * not a component: the row and the Summary call it directly.
+ */
+export function toolsDelta(change: ToolsChange | undefined, t: Translate): ReactNode {
+  if (!change) return null
+  const parts: { key: 'added' | 'removed' | 'changed', text: string }[] = []
+  if (change.added.length) parts.push({ key: 'added', text: t('trajToolsAdded', { n: change.added.length }) })
+  if (change.removed.length) parts.push({ key: 'removed', text: t('trajToolsRemoved', { n: change.removed.length }) })
+  if (change.changed.length) parts.push({ key: 'changed', text: t('trajToolsChanged', { n: change.changed.length }) })
+  if (!parts.length) return null
+  return (
+    <span className={css.toolsDelta}>
+      {parts.map((part, i) => (
+        <Fragment key={part.key}>
+          {i ? ' ' : null}
+          <span className={css[`delta_${part.key}`]}>{part.text}</span>
+        </Fragment>
+      ))}
+    </span>
+  )
+}
 
 /** The words a version's tooltip and accessible name use. */
 export function versionTitle(t: Translate, version: TraceVersion): string {

@@ -5,7 +5,8 @@
  */
 import { isWrite, shellCommand } from '../../shared/logs.ts'
 import type {
-  ToolRecord, TraceCheckpoint, TraceOp, TraceVersion, TrajectoryAnswer, TrajectoryRecord, TrajectoryTurn,
+  ToolRecord, ToolsChange, TraceCheckpoint, TraceOp, TraceVersion, TrajectoryAnswer, TrajectoryRecord, TrajectoryTool,
+  TrajectoryTurn,
 } from '../../shared/trajectory.ts'
 
 /** Turns open by default: the newest few (older ones collapse so long sessions stay fast). */
@@ -71,6 +72,41 @@ export function checkpointVersion(checkpoint: TraceCheckpoint): TraceVersion | n
     id: checkpoint.commit, effect,
     ...(checkpoint.branch ? { branch: checkpoint.branch } : {}),
   }
+}
+
+// ---------------------------------------------------------------- a request's tools
+
+/** One line of the Tools tab: a catalog entry, its change mark and (for a change) the previous entry. */
+export interface ToolEntry {
+  name: string
+  /** `+` added, `−` removed, `~` changed since the previous request. */
+  mark?: '+' | '−' | '~'
+  /** The entry in this request's catalog; absent for a tool this request removed. */
+  tool?: TrajectoryTool
+  /** The same tool in the previous request's catalog, when that catalog was read. */
+  previous?: TrajectoryTool
+}
+
+/**
+ * The Tools tab's entries: this header's tools in header order with their
+ * marks, then the tools the change removed. `previous` (the previous request's
+ * catalog, read on demand) supplies the removed tools and a changed tool's
+ * earlier value; without it those entries carry their names only.
+ */
+export function toolEntries(tools: readonly TrajectoryTool[], change: ToolsChange | undefined, previous: readonly TrajectoryTool[] | undefined): ToolEntry[] {
+  const added = new Set(change?.added ?? [])
+  const changed = new Set(change?.changed ?? [])
+  const before = new Map((previous ?? []).map((tool) => [tool.name, tool]))
+  const out: ToolEntry[] = tools.map((tool) => ({
+    name: tool.name,
+    ...(added.has(tool.name) ? { mark: '+' as const } : changed.has(tool.name) ? { mark: '~' as const } : {}),
+    tool,
+    ...(changed.has(tool.name) && before.has(tool.name) ? { previous: before.get(tool.name) } : {}),
+  }))
+  for (const name of change?.removed ?? []) {
+    out.push({ name, mark: '−', ...(before.has(name) ? { previous: before.get(name) } : {}) })
+  }
+  return out
 }
 
 // ---------------------------------------------------------------- filters

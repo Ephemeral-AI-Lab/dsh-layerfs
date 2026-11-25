@@ -998,3 +998,165 @@
 .track { background-image: linear-gradient(to right, var(--dsw-alias-border-l2) 0.5px, transparent 0.5px); background-size: 50% 100%; background-position: 0 0; border-right: 0.5px solid var(--dsw-alias-border-l1); }
 .track + .track { box-shadow: inset 0 0.5px var(--dsw-alias-border-l1); }
 @container trajectory-controls (max-width: 720px) { .search { grid-column: 1 / -1; } }
+
+/* A request's tool catalog: the changed counts on its row and summary, and the Tools tab */
+
+.toolsDelta {
+  display: inline-flex;
+  flex: none;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.delta_added,
+.delta_removed,
+.delta_changed {
+  padding: 0 5px;
+  border-radius: 999px;
+  corner-shape: round;
+  font-weight: 550;
+  line-height: 15px;
+}
+
+.delta_added {
+  color: var(--lf-tone-success-fg);
+  background: var(--lf-tone-success-bg);
+}
+
+.delta_removed {
+  color: var(--lf-tone-danger-fg);
+  background: var(--lf-tone-danger-bg);
+}
+
+.delta_changed {
+  color: var(--lf-tone-warning-fg);
+  background: var(--lf-tone-warning-bg);
+}
+
+.toolsList {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.toolItem {
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+}
+
+.toolItem:last-child {
+  border-bottom: 0;
+}
+
+.toolDetails {
+  padding: 5px 0;
+}
+
+.toolDetails > summary {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  gap: 6px;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+  font: var(--dsw-font-xs-13);
+  list-style: none;
+}
+
+.toolDetails > summary::-webkit-details-marker {
+  display: none;
+}
+
+.toolDetails > summary::before {
+  flex: none;
+  width: 10px;
+  color: var(--dsw-alias-label-caption);
+  content: '▸';
+  font-size: 9px;
+}
+
+.toolDetails[open] > summary::before {
+  content: '▾';
+}
+
+.toolDetails > summary:focus-visible {
+  outline: 1px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 1px;
+}
+
+.toolMark,
+.toolMarkNone {
+  flex: none;
+  width: 14px;
+}
+
+.toolMark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 14px;
+  border-radius: 999px;
+  corner-shape: round;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.markAdded {
+  color: var(--lf-tone-success-fg);
+  background: var(--lf-tone-success-bg);
+}
+
+.markRemoved {
+  color: var(--lf-tone-danger-fg);
+  background: var(--lf-tone-danger-bg);
+}
+
+.markChanged {
+  color: var(--lf-tone-warning-fg);
+  background: var(--lf-tone-warning-bg);
+}
+
+.toolMeta {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.toolDescription {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolDetails > .pre {
+  margin-top: 8px;
+}
+
+.toolPrevious {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 0.5px solid var(--dsw-alias-border-l1);
+}
+
+.toolPrevious > summary {
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  font: var(--dsw-font-xs-13);
+}
+
+.toolPreviousDescription {
+  margin: 6px 0;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xs-13);
+}

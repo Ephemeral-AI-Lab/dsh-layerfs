@@ -20,7 +20,7 @@ await build({
     contents: [
       "export { mount, elements, text } from 'react'",
       "export { RecordText } from './src/client/views/TrajectoryView.tsx'",
-      "export { SystemBody, RequestBody, UnknownBody, TrajectoryInspector } from './src/client/views/TrajectoryInspector.tsx'",
+      "export { SystemBody, RequestBody, UnknownBody, TrajectoryInspector, ToolsList, ToolsBody, ToolSchema } from './src/client/views/TrajectoryInspector.tsx'",
       "export { KindCell } from './src/client/views/TrajectoryParts.tsx'",
       "export { locales } from './src/client/views/locale.ts'",
     ].join('\n'),
@@ -94,9 +94,9 @@ test('a system record opens Summary/Payload/Timing; Payload carries the full tex
   assert.match(M.text(payload), /Follow the guide\./)
 })
 
-test('a request record opens Summary/Payload/Timing; Payload is the header JSON', async () => {
+test('a request record opens Summary/Payload/Tools/Timing; Payload is the header JSON', async () => {
   const summary = await M.mount(M.TrajectoryInspector, inspector(requestRecord)).settle()
-  assert.deepEqual(tabs(summary), ['Summary', 'Payload', 'Timing'])
+  assert.deepEqual(tabs(summary), ['Summary', 'Payload', 'Tools', 'Timing'])
   const fieldsView = M.mount(M.RequestBody, { record: requestRecord, tab: 'summary', detail: detail(3), t })
   const fields = await fieldsView.settle()
   assert.deepEqual(labels(fields), ['Provider', 'Model', 'Tools', 'Reason'])
@@ -111,4 +111,120 @@ test('an unknown record kind stays safe in the inspector', async () => {
   assert.match(M.text(view.tree), /This record kind is not supported yet/)
   const tree = M.mount(M.TrajectoryInspector, inspector({ kind: 'mystery', seq: 9, turn: 1 })).tree
   assert.deepEqual(tabs(tree), ['Summary', 'Timing'])
+})
+
+// A request's tool catalog: the row's `N tools` and `+ − ~`, the Summary's
+// Tools field, and the Tools tab's list with change marks and earlier values.
+const toolRequest = {
+  ...requestRecord,
+  tools: 3,
+  toolsChanged: { added: ['glob'], removed: ['read'], changed: ['bash'] },
+}
+const toolDetail = {
+  seq: 3, kind: 'request',
+  tools: [
+    { name: 'bash', description: 'run a shell command', parameterCount: 1, parameters: { type: 'object', properties: { command: { type: 'string' } } } },
+    { name: 'glob', description: 'find files', parameterCount: 1, parameters: { type: 'object', properties: { pattern: { type: 'string' } } } },
+    { name: 'write', description: 'write a file', parameterCount: 0, parameters: { type: 'object' } },
+  ],
+  previousRequestSeq: 2,
+  truncated: ['tools'],
+}
+const toolDetailState = { detail: toolDetail }
+
+test('a REQUEST row shows N tools and its change counts; none when nothing changed', () => {
+  const changed = M.mount(M.RecordText, { record: toolRequest, t })
+  assert.match(M.text(changed.tree), /deepseek\/deepseek-chat · 3 tools/)
+  assert.match(M.text(changed.tree), /\+1 −1 ~1/)
+  const same = M.mount(M.RecordText, { record: { ...toolRequest, toolsChanged: { added: [], removed: [], changed: [] } }, t })
+  assert.match(M.text(same.tree), /3 tools/)
+  assert.doesNotMatch(M.text(same.tree), /[+−~]\d/)
+  const first = M.mount(M.RecordText, { record: { ...toolRequest, toolsChanged: undefined }, t })
+  assert.doesNotMatch(M.text(first.tree), /[+−~]\d/)
+})
+
+test('the Summary shows N tools with the change counts, and nothing without a change', async () => {
+  const view = M.mount(M.RequestBody, { record: toolRequest, tab: 'summary', detail: toolDetailState, t })
+  assert.match(M.text(view.tree), /3 tools/)
+  assert.match(M.text(view.tree), /\+1 −1 ~1/)
+  const same = M.mount(M.RequestBody, { record: { ...toolRequest, toolsChanged: { added: [], removed: [], changed: [] } }, tab: 'summary', detail: toolDetailState, t })
+  assert.match(M.text(same.tree), /3 tools/)
+  assert.doesNotMatch(M.text(same.tree), /[+−~]\d/)
+})
+
+test('the Tools tab lists the catalog, each with its schema and parameter count', () => {
+  const list = M.mount(M.ToolsList, { tools: toolDetail.tools, change: toolRequest.toolsChanged, truncated: true, t })
+  const text = M.text(list.tree)
+  assert.match(text, /bash/)
+  assert.match(text, /run a shell command/)
+  assert.match(text, /1 parameters/)
+  assert.match(text, /glob/)
+  assert.match(text, /write a file/)
+  assert.match(text, /"command"/, 'the parameter schema is shown as JSON')
+  assert.match(text, /The catalog was cut at 64 KiB\./)
+  // With the previous catalog read, changed and removed tools show their earlier value.
+  const withPrevious = M.mount(M.ToolsList, {
+    tools: toolDetail.tools, change: toolRequest.toolsChanged,
+    previous: [
+      { name: 'bash', description: 'run a command', parameterCount: 1, parameters: { type: 'object' } },
+      { name: 'read', description: 'read a file', parameterCount: 2, parameters: { type: 'object' } },
+    ], t,
+  })
+  const changed = M.text(withPrevious.tree)
+  assert.match(changed, /~/, 'a changed tool is marked')
+  assert.match(changed, /\+/, 'an added tool is marked')
+  assert.match(changed, /−/, 'a removed tool is marked')
+  assert.match(changed, /Previous/)
+  assert.match(changed, /run a command/, "the changed tool's earlier description")
+  assert.match(changed, /read a file/, "the removed tool's earlier description")
+  // The no-change case: no marks, no earlier value.
+  const plain = M.mount(M.ToolsList, { tools: [toolDetail.tools[2]], change: { added: [], removed: [], changed: [] }, t })
+  assert.doesNotMatch(M.text(plain.tree), /[+−~]/)
+})
+
+test('the Tools tab reads the previous request catalog when a tool changed', async () => {
+  const previous = [
+    { name: 'bash', description: 'run a command', parameterCount: 1, parameters: { type: 'object' } },
+    { name: 'read', description: 'read a file', parameterCount: 2, parameters: { type: 'object' } },
+  ]
+  const calls = []
+  const api = { op: async (name, args) => { calls.push([name, args.seq]); return { seq: args.seq, kind: 'request', tools: previous } } }
+  const body = M.mount(M.ToolsBody, {
+    record: toolRequest, detail: toolDetailState, source: { api, sessionId: 's', cache: new Map() }, t,
+  })
+  await body.settle()
+  assert.deepEqual(calls, [['session.trajectory.record', 2]], 'the previous request record, read once')
+  assert.equal(body.tree.type, M.ToolsList)
+  assert.deepEqual(body.tree.props.previous.map((tool) => tool.name), ['bash', 'read'])
+  // A request whose catalog did not change needs no earlier catalog read.
+  const callsFresh = []
+  const freshApi = { op: async (name, args) => { callsFresh.push([name, args.seq]); return {} } }
+  const fresh = M.mount(M.ToolsBody, {
+    record: { ...toolRequest, toolsChanged: { added: [], removed: [], changed: [] } },
+    detail: toolDetailState, source: { api: freshApi, sessionId: 's', cache: new Map() }, t,
+  })
+  await fresh.settle()
+  assert.deepEqual(callsFresh, [])
+  assert.equal(fresh.tree.type, M.ToolsList)
+})
+
+test('a request with no logged catalog says so; a tool without a schema says so', async () => {
+  const api = { op: async () => ({}) }
+  const view = M.mount(M.ToolsBody, {
+    record: toolRequest, detail: { detail: { seq: 3, kind: 'request' } }, source: { api, sessionId: 's', cache: new Map() }, t,
+  })
+  assert.match(M.text(view.tree), /tool catalog was not recorded/)
+  const schema = M.mount(M.ToolSchema, { tool: { name: 'x', parameterCount: 0 }, t })
+  assert.match(M.text(schema.tree), /No parameter schema was logged\./)
+  const empty = M.mount(M.ToolsList, { tools: [], change: undefined, t })
+  assert.match(M.text(empty.tree), /No tools in this request\./)
+})
+
+test('the Tools tab and its copy are translated', () => {
+  assert.equal(M.locales.zh.trajTab_tools, '工具')
+  assert.equal(M.locales.zh.trajToolParams, '{n} 个参数')
+  const list = M.mount(M.ToolsList, { tools: toolDetail.tools, change: toolRequest.toolsChanged, t: tZh })
+  assert.match(M.text(list.tree), /1 个参数/)
+  const tool = M.mount(M.ToolSchema, { tool: { name: 'x', parameterCount: 0 }, t: tZh })
+  assert.match(M.text(tool.tree), /未记录参数 schema/)
 })

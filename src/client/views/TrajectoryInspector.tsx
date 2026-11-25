@@ -8,12 +8,12 @@ import clsx from 'clsx'
 import { Button, IconCloseOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { ErrorState, Loading } from '../files/States.tsx'
-import { PREVIEW_MAX } from '../../shared/trajectory.ts'
-import type { TraceCheckpoint, TraceOp, TraceVersion, TrajectoryDetail, TrajectoryRecord } from '../../shared/trajectory.ts'
+import { PREVIEW_MAX, TOOL_DESCRIPTION_MAX } from '../../shared/trajectory.ts'
+import type { ToolsChange, TraceCheckpoint, TraceOp, TraceVersion, TrajectoryDetail, TrajectoryRecord, TrajectoryTool } from '../../shared/trajectory.ts'
 import { sessionTag } from '../../shared/logs.ts'
 import type { Translate } from './locale.ts'
-import { clock, durationText, KindCell, opOutcome, Version, type OpenVersion } from './TrajectoryParts.tsx'
-import { checkpointVersion, compactNumber, opCommand, prettyArgs, SAVES } from './trajectory-model.ts'
+import { clock, durationText, KindCell, opOutcome, toolsDelta, Version, type OpenVersion } from './TrajectoryParts.tsx'
+import { checkpointVersion, compactNumber, opCommand, prettyArgs, SAVES, toolEntries } from './trajectory-model.ts'
 import css from './trajectory.module.css'
 import { dateTime } from '../ui/locale-sync.ts'
 
@@ -23,7 +23,7 @@ export type Inspected =
   | { kind: 'checkpoint', turn: number, checkpoint: TraceCheckpoint }
   | { kind: 'ops', turn: number, title: string, ops: TraceOp[] }
 
-type Tab = 'summary' | 'payload' | 'result' | 'layerfs' | 'timing'
+type Tab = 'summary' | 'payload' | 'result' | 'layerfs' | 'tools' | 'timing'
 
 /** Details read once per record and result: a running call's detail is read again once it ends. */
 export type DetailCache = Map<string, TrajectoryDetail>
@@ -101,6 +101,116 @@ export function OpsList({ ops, sessionId, t, onOpen, onOpenLogs }: {
         )
       })}
     </ol>
+  )
+}
+
+/** A tool's change mark's tint and its spoken label. */
+function toolMark(mark: '+' | '−' | '~'): { className: string, label: string } {
+  if (mark === '+') return { className: css.markAdded, label: 'trajToolAdded' }
+  if (mark === '−') return { className: css.markRemoved, label: 'trajToolRemoved' }
+  return { className: css.markChanged, label: 'trajToolChanged' }
+}
+
+/** One tool's parameter schema as readable pretty JSON, or a note when the header logged none. */
+export function ToolSchema({ tool, t }: { tool: TrajectoryTool | undefined, t: Translate }): ReactNode {
+  if (tool?.parameters === undefined) return <p className={css.note}>{t('trajToolNoSchema')}</p>
+  return <pre className={css.pre}>{JSON.stringify(tool.parameters, null, 2)}</pre>
+}
+
+/**
+ * The Tools tab's list: a request's tool catalog, each tool expandable to its
+ * parameter schema, with `+`/`−`/`~` marks for what changed since the previous
+ * request and a changed or removed tool's earlier description and schema when
+ * the previous catalog was read.
+ */
+export function ToolsList({ tools, change, previous, truncated, t }: {
+  tools: readonly TrajectoryTool[]
+  change?: ToolsChange | undefined
+  previous?: readonly TrajectoryTool[] | undefined
+  /** The catalog was cut at the detail cap. */
+  truncated?: boolean | undefined
+  t: Translate
+}): ReactNode {
+  const entries = toolEntries(tools, change, previous)
+  if (!entries.length) return <p className={css.note}>{t('trajToolsEmpty')}</p>
+  return (
+    <>
+      <ul className={css.toolsList}>
+        {entries.map((entry) => {
+          const shown = entry.tool ?? entry.previous
+          const mark = entry.mark ? toolMark(entry.mark) : null
+          return (
+            <li key={`${entry.mark ?? '='}:${entry.name}`} className={css.toolItem}>
+              <details className={css.toolDetails}>
+                <summary>
+                  {mark
+                    ? <span className={clsx(css.toolMark, mark.className)} title={t(mark.label)} aria-label={t(mark.label)}>{entry.mark}</span>
+                    : <span className={css.toolMarkNone} aria-hidden="true" />}
+                  <code className={css.toolName}>{entry.name}</code>
+                  {shown?.parameterCount !== undefined ? <span className={css.toolMeta}>{t('trajToolParams', { n: shown.parameterCount })}</span> : null}
+                  {shown?.description ? <span className={css.toolDescription}>{shown.description}</span> : null}
+                </summary>
+                {entry.mark === '−'
+                  ? <p className={css.note}>{t('trajToolRemovedNote')}</p>
+                  : ToolSchema({ tool: entry.tool, t })}
+                {entry.tool?.descriptionTruncated ? <p className={css.note}>{t('trajToolDescriptionCut', { n: TOOL_DESCRIPTION_MAX })}</p> : null}
+                {entry.previous ? (
+                  <details className={css.toolPrevious}>
+                    <summary>{t('trajToolsPrevious')}</summary>
+                    {entry.previous.description ? <p className={css.toolPreviousDescription}>{entry.previous.description}</p> : null}
+                    {ToolSchema({ tool: entry.previous, t })}
+                  </details>
+                ) : null}
+              </details>
+            </li>
+          )
+        })}
+      </ul>
+      {truncated ? <p className={css.note}>{t('trajToolsTruncated')}</p> : null}
+    </>
+  )
+}
+
+/** What the Tools tab needs to read the previous request's catalog on demand. */
+export interface RequestToolsSource {
+  api: LayerfsApi
+  sessionId: string
+  cache: DetailCache
+}
+
+/**
+ * A request's Tools tab. The change marks come from the record preview; for a
+ * changed or removed tool the previous catalog is read (once, kept in the same
+ * detail cache) so its earlier description and schema can be shown.
+ */
+export function ToolsBody({ record, detail, source, t }: {
+  record: Extract<TrajectoryRecord, { kind: 'request' }>
+  detail: ReturnType<typeof useDetail>
+  source: RequestToolsSource
+  t: Translate
+}): ReactNode {
+  const change = record.toolsChanged
+  const previousSeq = detail.detail?.previousRequestSeq
+  const changed = !!change && (change.changed.length > 0 || change.removed.length > 0)
+  const [previous, setPrevious] = useState<readonly TrajectoryTool[] | undefined>(undefined)
+  useEffect(() => {
+    setPrevious(undefined)
+    if (!changed || previousSeq === undefined) return
+    const key = `${source.sessionId}:${previousSeq}:`
+    const hit = source.cache.get(key)
+    if (hit) { setPrevious(hit.tools); return }
+    let live = true
+    source.api.op<TrajectoryDetail>('session.trajectory.record', { sessionId: source.sessionId, seq: previousSeq }).then(
+      (found) => { source.cache.set(key, found); if (live) setPrevious(found.tools) },
+      () => { /* the previous value stays unavailable */ },
+    )
+    return () => { live = false }
+  }, [source.api, source.sessionId, source.cache, previousSeq, changed])
+  if (!detail.detail) return <DetailState state={detail} t={t} />
+  if (!detail.detail.tools) return <p className={css.note}>{t('trajToolsNotRecorded')}</p>
+  return (
+    <ToolsList tools={detail.detail.tools} change={change} previous={previous}
+      truncated={detail.detail.truncated?.includes('tools')} t={t} />
   )
 }
 
@@ -206,10 +316,19 @@ export function SystemBody({ record, tab, detail, t }: {
   )
 }
 
-export function RequestBody({ record, tab, detail, t }: {
+export function RequestBody({ record, tab, detail, t, tools }: {
   record: Extract<TrajectoryRecord, { kind: 'request' }>, tab: Tab, detail: ReturnType<typeof useDetail>, t: Translate
+  /** The Tools tab's read side; without it the catalog shows without earlier values. */
+  tools?: RequestToolsSource | undefined
 }): ReactNode {
   if (tab === 'timing') return <Timing t={t} start={record.at} />
+  if (tab === 'tools') {
+    return tools
+      ? <ToolsBody key={record.seq} record={record} detail={detail} source={tools} t={t} />
+      : detail.detail
+        ? <ToolsList tools={detail.detail.tools ?? []} change={record.toolsChanged} truncated={detail.detail.truncated?.includes('tools')} t={t} />
+        : <DetailState state={detail} t={t} />
+  }
   if (tab === 'payload') {
     return detail.detail
       ? <>{detail.detail.header ? <pre className={css.pre}>{detail.detail.header}</pre> : <p className={css.note}>{t('trajNoPayload')}</p>}<Truncated detail={detail.detail} field="header" t={t} /></>
@@ -219,7 +338,10 @@ export function RequestBody({ record, tab, detail, t }: {
     <dl className={css.fields}>
       {record.provider ? <Field label={t('trajRequestProvider')}>{record.provider}</Field> : null}
       {record.model ? <Field label={t('trajRequestModel')}>{record.model}</Field> : null}
-      <Field label={t('trajRequestTools')}>{record.tools}</Field>
+      <Field label={t('trajRequestTools')}>
+        <span>{t('trajRequestToolsCount', { n: record.tools })}</span>
+        {toolsDelta(record.toolsChanged, t)}
+      </Field>
       {record.reason ? <Field label={t('trajRequestReason')}>{record.reason}</Field> : null}
     </dl>
   )
@@ -229,9 +351,10 @@ export function UnknownBody({ kind, t }: { kind: string, t: Translate }): ReactN
   return <p className={css.note}>{t('trajUnknownRecord')} ({kind})</p>
 }
 
-function RecordBody({ record, tab, detail, t, onOpen, layerfs, sessionId, onOpenLogs }: {
+function RecordBody({ record, tab, detail, t, onOpen, layerfs, sessionId, onOpenLogs, tools }: {
   record: TrajectoryRecord, tab: Tab, detail: ReturnType<typeof useDetail>, t: Translate, onOpen: OpenVersion
   layerfs: boolean, sessionId: string, onOpenLogs?: ((tag: string) => void) | undefined
+  tools?: RequestToolsSource | undefined
 }): ReactNode {
   switch (record.kind) {
     case 'tool':
@@ -239,7 +362,7 @@ function RecordBody({ record, tab, detail, t, onOpen, layerfs, sessionId, onOpen
     case 'system':
       return <SystemBody record={record} tab={tab} detail={detail} t={t} />
     case 'request':
-      return <RequestBody record={record} tab={tab} detail={detail} t={t} />
+      return <RequestBody record={record} tab={tab} detail={detail} t={t} tools={tools} />
     case 'user':
     case 'context':
     case 'assistant':
@@ -270,8 +393,10 @@ function CheckpointBody({ checkpoint, tab, t, onOpen, sessionId, onOpenLogs }: {
 
 const TOOL_TABS: Tab[] = ['summary', 'payload', 'result', 'layerfs', 'timing']
 const MESSAGE_TABS: Tab[] = ['summary', 'timing']
-/** A system or request record: the summary, its full payload and when it was logged. */
+/** A system record: the summary, its full payload and when it was logged. */
 const PARITY_TABS: Tab[] = ['summary', 'payload', 'timing']
+/** A request record: also its parsed tool catalog and what changed in it. */
+const REQUEST_TABS: Tab[] = ['summary', 'payload', 'tools', 'timing']
 
 export function TrajectoryInspector({ api, sessionId, inspected, tab, onTab, onClose, onOpen, onOpenLogs, cache, t, layerfs = true }: {
   api: LayerfsApi
@@ -293,7 +418,8 @@ export function TrajectoryInspector({ api, sessionId, inspected, tab, onTab, onC
   const uid = useId()
   const tabs: Tab[] = record
     ? record.kind === 'tool' ? (layerfs ? TOOL_TABS : TOOL_TABS.filter((x) => x !== 'layerfs'))
-      : record.kind === 'system' || record.kind === 'request' ? PARITY_TABS : MESSAGE_TABS
+      : record.kind === 'system' ? PARITY_TABS
+        : record.kind === 'request' ? REQUEST_TABS : MESSAGE_TABS
     : inspected.kind === 'checkpoint' ? (inspected.checkpoint.op ? ['summary', 'layerfs', 'timing'] : MESSAGE_TABS) : ['layerfs']
   const current = tabs.includes(tab) ? tab : tabs[0]!
   const kind = record ? record.kind : inspected.kind === 'checkpoint' ? 'checkpoint' : 'layerfs'
@@ -334,7 +460,7 @@ export function TrajectoryInspector({ api, sessionId, inspected, tab, onTab, onC
         </div>
       ) : null}
       <div id={`${uid}-panel`} role={tabs.length > 1 ? 'tabpanel' : undefined} aria-labelledby={tabs.length > 1 ? tabId(current) : undefined} className={css.inspectorBody}>
-        {record ? <RecordBody record={record} tab={current} detail={detail} t={t} onOpen={onOpen} layerfs={layerfs} sessionId={sessionId} onOpenLogs={onOpenLogs} />
+        {record ? <RecordBody record={record} tab={current} detail={detail} t={t} onOpen={onOpen} layerfs={layerfs} sessionId={sessionId} onOpenLogs={onOpenLogs} tools={{ api, sessionId, cache }} />
           : inspected.kind === 'checkpoint' ? <CheckpointBody checkpoint={inspected.checkpoint} tab={current} t={t} onOpen={onOpen} sessionId={sessionId} onOpenLogs={onOpenLogs} />
           : inspected.kind === 'ops' ? <OpsList ops={inspected.ops} sessionId={sessionId} t={t} onOpen={onOpen} onOpenLogs={onOpenLogs} /> : null}
       </div>

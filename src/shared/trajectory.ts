@@ -13,8 +13,10 @@ export type { TraceCheckpoint, TraceEffect, TraceOp, TraceVersion } from './trac
 
 /** Characters kept in a record's preview. */
 export const PREVIEW_MAX = 300
-/** Characters a detail answer keeps per field (arguments, result, text, thinking). */
+/** Characters a detail answer keeps per field (arguments, result, text, thinking, a tool catalog). */
 export const DETAIL_MAX = 64 * 1024
+/** Characters a request detail keeps of one tool's description. */
+export const TOOL_DESCRIPTION_MAX = 400
 
 interface RecordBase {
   /** The record's own session event seq (a tool record: its `tool/call`). Unique; the record's id. */
@@ -68,6 +70,30 @@ export interface AssistantRecord extends RecordBase {
   usage?: TrajectoryUsage
 }
 
+/** One tool of a request header's catalog, parsed for the detail: a description preview, a parameter count and the schema. */
+export interface TrajectoryTool {
+  /** The tool's name as declared. */
+  name: string
+  /** One line, at most {@link TOOL_DESCRIPTION_MAX} characters. */
+  description?: string
+  /** The description was cut at {@link TOOL_DESCRIPTION_MAX}. */
+  descriptionTruncated?: boolean
+  /** Top-level properties its parameter schema declares. */
+  parameterCount?: number
+  /** The JSON-schema object as logged (not a string). */
+  parameters?: unknown
+}
+
+/** Tool names that differ from the session's previous request. */
+export interface ToolsChange {
+  /** In this request but not the previous one. */
+  added: string[]
+  /** In the previous request but not this one. */
+  removed: string[]
+  /** In both, with a different description or parameters (compared as sorted JSON). */
+  changed: string[]
+}
+
 /** A `system/message`: the rendered system prompt (or a later prompt change) at a step. */
 export interface SystemRecord extends RecordBase {
   kind: 'system'
@@ -87,6 +113,8 @@ export interface RequestRecord extends RecordBase {
   model?: string
   /** Assembled tool schemas in the header. */
   tools: number
+  /** What differs from the session's previous request; absent for the first one. Names only (the catalog stays in the detail). */
+  toolsChanged?: ToolsChange
   /** Why the header was logged (`initial`, `resume`, `change`, `series`). */
   reason?: string
   /** One line, at most {@link PREVIEW_MAX} characters: the model and tool count. */
@@ -157,6 +185,10 @@ export interface TrajectoryDetail {
   thinking?: string
   /** Request: the logged header, pretty-printed JSON. */
   header?: string
+  /** Request: the header's tool catalog, parsed; descriptions are previews. */
+  tools?: TrajectoryTool[]
+  /** Request: the seq of the previous request record in this session, when this one follows another. */
+  previousRequestSeq?: number
   /** Fields cut at {@link DETAIL_MAX}. */
-  truncated?: ('args' | 'result' | 'text' | 'thinking' | 'header')[]
+  truncated?: ('args' | 'result' | 'text' | 'thinking' | 'header' | 'tools')[]
 }

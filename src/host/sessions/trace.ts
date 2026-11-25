@@ -7,9 +7,9 @@
  */
 import type { TraceCheckpoint, TraceOp, TraceVersion } from '../../shared/trace.ts'
 import {
-  DETAIL_MAX, PREVIEW_MAX,
-  type AssistantRecord, type RequestRecord, type SystemRecord, type ToolRecord, type TrajectoryAnswer, type TrajectoryDetail,
-  type TrajectoryTurn, type TrajectoryUsage, type UserRecord,
+  DETAIL_MAX, PREVIEW_MAX, TOOL_DESCRIPTION_MAX,
+  type AssistantRecord, type RequestRecord, type SystemRecord, type ToolRecord, type ToolsChange, type TrajectoryAnswer,
+  type TrajectoryDetail, type TrajectoryTool, type TrajectoryTurn, type TrajectoryUsage, type UserRecord,
 } from '../../shared/trajectory.ts'
 
 export interface TrajectoryInput {
@@ -148,6 +148,114 @@ function preview(parts: readonly string[]): { text: string, truncated: boolean }
 const stepKey = (turn: unknown, step: unknown): string => `${turn}:${step}`
 const integer = (value: unknown): number | undefined => Number.isInteger(value) ? value as number : undefined
 
+// ------------------------------------------------------- a request's tool catalog
+
+/** An object's keys sorted at every level, so equal structures serialize equally. */
+function sortedValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortedValue)
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    const source = value as Record<string, unknown>
+    for (const key of Object.keys(source).sort()) out[key] = sortedValue(source[key])
+    return out
+  }
+  return value
+}
+
+/** A tool's comparable form: its description and parameters, key order ignored. */
+function toolFingerprint(tool: any): string {
+  try {
+    return JSON.stringify(sortedValue({ description: tool?.description ?? null, parameters: tool?.parameters ?? null })) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+/** One header's catalog as name → fingerprint, in header order. */
+function toolFingerprints(tools: unknown): Map<string, string> {
+  const out = new Map<string, string>()
+  if (!Array.isArray(tools)) return out
+  for (const tool of tools) {
+    const name = text(tool?.name)
+    if (name) out.set(name, toolFingerprint(tool))
+  }
+  return out
+}
+
+/** What a catalog gained, lost and kept changed from the previous request to this one. */
+function toolsChangeOf(before: Map<string, string>, after: Map<string, string>): ToolsChange {
+  const added: string[] = []
+  const removed: string[] = []
+  const changed: string[] = []
+  for (const [name, fingerprint] of after) {
+    const was = before.get(name)
+    if (was === undefined) added.push(name)
+    else if (was !== fingerprint) changed.push(name)
+  }
+  for (const name of before.keys()) if (!after.has(name)) removed.push(name)
+  return { added, removed, changed }
+}
+
+/** A tool's description as one preview line: whitespace collapsed, at most {@link TOOL_DESCRIPTION_MAX} characters. */
+function descriptionPreview(value: unknown): { text: string, truncated: boolean } | undefined {
+  if (typeof value !== 'string') return undefined
+  const line = value.replace(/\s+/g, ' ').trim()
+  if (!line) return undefined
+  if (line.length <= TOOL_DESCRIPTION_MAX) return { text: line, truncated: false }
+  return { text: `${line.slice(0, TOOL_DESCRIPTION_MAX - 1)}…`, truncated: true }
+}
+
+/** Top-level properties a parameter schema declares; 0 for a schema without any. */
+function parameterCount(parameters: unknown): number | undefined {
+  if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters)) return undefined
+  const properties = (parameters as Record<string, unknown>).properties
+  if (!properties || typeof properties !== 'object' || Array.isArray(properties)) return 0
+  return Object.keys(properties).length
+}
+
+/** Serialized size, or Infinity for a value JSON cannot hold. */
+function jsonSize(value: unknown): number {
+  try { return JSON.stringify(value)?.length ?? 0 } catch { return Number.POSITIVE_INFINITY }
+}
+
+/**
+ * A request header's parsed tool catalog for the detail, descriptions previewed
+ * and schemas kept as logged. It is packed into {@link DETAIL_MAX} serialized
+ * characters: tools are dropped from the end when they no longer fit, and a
+ * tool whose own schema is too big keeps its name, description and count
+ * without it. `cut` reports either loss so the detail can say `tools`.
+ */
+function toolCatalog(tools: unknown): { tools: TrajectoryTool[], cut: boolean } {
+  const out: TrajectoryTool[] = []
+  if (!Array.isArray(tools)) return { tools: out, cut: false }
+  const budget = DETAIL_MAX
+  let used = 2 // the array's brackets
+  let cut = false
+  for (const raw of tools) {
+    const tool = raw && typeof raw === 'object' ? raw as Record<string, unknown> : undefined
+    const description = descriptionPreview(tool?.description)
+    const parameters = tool?.parameters
+    const count = parameterCount(parameters)
+    const entry: TrajectoryTool = {
+      name: text(tool?.name) ?? '?',
+      ...(description ? { description: description.text, ...(description.truncated ? { descriptionTruncated: true } : {}) } : {}),
+      ...(count !== undefined ? { parameterCount: count } : {}),
+      ...(parameters !== undefined ? { parameters } : {}),
+    }
+    const lean: TrajectoryTool = { ...entry }
+    delete lean.parameters
+    const comma = out.length ? 1 : 0
+    const withSchema = jsonSize(entry) + comma
+    if (used + withSchema <= budget) { out.push(entry); used += withSchema; continue }
+    const without = jsonSize(lean) + comma
+    cut = true
+    if (used + without > budget || !Number.isFinite(without)) break
+    out.push(lean)
+    used += without
+  }
+  return { tools: out, cut }
+}
+
 type ToolEntry = ToolRecord & { turn: number }
 
 /**
@@ -175,6 +283,8 @@ export function buildTrajectory(input: TrajectoryInput): TrajectoryAnswer {
   const stepUsages = new Map<string, TrajectoryUsage>()
   let open: number | undefined
   let last: number | undefined
+  /** The previous request header's catalog, for this request's change marks. */
+  let previousTools: Map<string, string> | undefined
   /** The step currently open between `step/start` and `step/end`. */
   let openStep: { turn: number, step: number } | undefined
   let pending: UserRecord[] = []
@@ -260,11 +370,15 @@ export function buildTrajectory(input: TrajectoryInput): TrajectoryAnswer {
       const model = text(header?.config?.model)
       const tools = Array.isArray(header?.tools) ? header.tools.length : 0
       const reason = text(data.reason)
+      const catalog = toolFingerprints(header?.tools)
       const record: RequestRecord = {
         kind: 'request', seq, turn: n, ...(step !== undefined ? { step } : {}), ...(at !== undefined ? { at } : {}),
-        ...(provider ? { provider } : {}), ...(model ? { model } : {}), tools, ...(reason ? { reason } : {}),
+        ...(provider ? { provider } : {}), ...(model ? { model } : {}), tools,
+        ...(previousTools ? { toolsChanged: toolsChangeOf(previousTools, catalog) } : {}),
+        ...(reason ? { reason } : {}),
         summary: requestSummary(provider, model, tools),
       }
+      previousTools = catalog
       turn(n).records.push(record)
     } else if (type === 'tool/call') {
       const n = integer(data?.turn)
@@ -382,7 +496,24 @@ function full<F extends string>(value: string, field: F, cut: F[]): string {
 export function trajectoryDetail(events: readonly any[] | undefined, seq: number): TrajectoryDetail | undefined {
   if (!events || !Number.isInteger(seq)) return undefined
   let call: any
+  /** The last request header before the target: the catalog a change is read against. */
+  let previousRequestSeq: number | undefined
   for (const event of events) {
+    if (event?.type === 'request/header' && event?.data?.header && Number.isInteger(event.seq)) {
+      if (event.seq === seq) {
+        const cut: ('header' | 'tools')[] = []
+        const value = full(JSON.stringify(event.data.header, null, 2) ?? '', 'header', cut)
+        const catalog = toolCatalog(event.data.header?.tools)
+        if (catalog.cut) cut.push('tools')
+        return {
+          seq, kind: 'request', header: value,
+          ...(Array.isArray(event.data.header?.tools) ? { tools: catalog.tools } : {}),
+          ...(previousRequestSeq !== undefined ? { previousRequestSeq } : {}),
+          ...(cut.length ? { truncated: cut } : {}),
+        }
+      }
+      if (event.seq < seq) previousRequestSeq = event.seq
+    }
     if (call) {
       if (event?.type === 'tool/result' && event.data?.message?.toolCallId === call.callId) {
         const cut: ('args' | 'result')[] = []
@@ -398,11 +529,6 @@ export function trajectoryDetail(events: readonly any[] | undefined, seq: number
       const cut: 'text'[] = []
       const value = full(blocks(data.message.content, 'text').join('\n'), 'text', cut)
       return { seq, kind: 'system', text: value, ...(cut.length ? { truncated: cut } : {}) }
-    }
-    if (event.type === 'request/header' && data?.header) {
-      const cut: 'header'[] = []
-      const value = full(JSON.stringify(data.header, null, 2) ?? '', 'header', cut)
-      return { seq, kind: 'request', header: value, ...(cut.length ? { truncated: cut } : {}) }
     }
     if (event.type === 'user/message' && data) {
       const cut: 'text'[] = []
