@@ -1,8 +1,8 @@
 # Project, conversation, Sandbox and Workspace: the mapping
 
-Status: **current model recorded; the mapping decisions marked open are not made**
-(2026-11-24). The decisions that are made, and the work they unblock, live in
-`refinement-decisions.md`.
+Status: **settled** (2026-11-25). The mapping decisions below are the owner's
+calls; project-owned Sandboxes are implemented with groups 5 and 9. Broader
+decisions live in `refinement-decisions.md`.
 
 ## What exists today
 
@@ -33,53 +33,58 @@ Project  <store>/<name>                      identity branch dsh.project.<uuid>
 
 - Project ↔ Sandbox: **1 per project and machine**, sharded `<name>-2`, … when it
   reaches 16 Workspaces.
-- Conversation ↔ Workspace: **1:1 inside the project Sandbox**; the Workspace
-  name must then distinguish sessions (today's `main` cannot).
+- Conversation ↔ Workspace: **1:1 inside the project Sandbox**, named
+  `s-<compact(id)>`; one Sandbox per project and machine, sharded at 16.
 - Sandbox recreation (broken/removed) re-mounts **every** session's Workspace
   in that project, not only the one that noticed.
 - Closing a session checkpoints and unmounts its Workspace; it no longer
   removes the Sandbox.
 
-## Mapping decisions still open
+## Mapping decisions (settled 2026-11-25)
 
-1. **Workspace name inside a project Sandbox.** `main` is unique per Sandbox
-   today. Options: `s-<compact(id)>` per session, `main` for the first session
-   and named ones after it, or `session-<id>`. The choice reaches
-   `DSH_LAYERFS_WS` (the agent's working handle), the Sandbox map, the tests and
-   the guide. *Recommendation: one name per session (`s-<compact>`), no special
-   first session.*
-2. **Sandbox lifecycle.** When does a project Sandbox close: after the last
-   session is idle, on the project's Close, only explicitly? What does a
-   session's idle close do (checkpoint its Workspace, unmount it)? *Recommendation:
-   session close = checkpoint + unmount; the Sandbox closes after the last
-   session's idle timeout or on project Close.*
-3. **Failure recovery.** A broken/recreated Sandbox must remount all sessions;
-   their running commands die. Does a project-level state say "recovering", and
-   do the session rows show it? *Recommendation: yes, a project Sandbox state;
-   sessions stay `interrupted` until their next message.*
-4. **Machine changes.** A PostgreSQL project's chosen machine can change, and a
-   Store can move. Is the Sandbox recreated on the new machine, and who closes
-   the old one? *Recommendation: recreate on the new machine on next activation;
-   close the old when it has no Workspaces.*
-5. **Shards.** One project Sandbox per machine, or several on one machine? How
-   are the `-2` shards named and placed? *Recommendation: per machine; shard
-   names derive from the project Sandbox name.*
-6. **How the UI shows the mapping.** With one Sandbox hosting several sessions'
-   Workspaces, "never nest sessions under Sandboxes" still holds. Where does a
-   Workspace say which conversation it is: its name, a label, or the **Session**
-   tag (today's interim flag)? How does the conversation's Sandbox tab mark
-   "this session" among the others? *Undecided; this is part of the
-   session/project ownership design (`session-ownership-ui.md`).*
+1. **Workspace name.** One per session, `s-<compact(id)>` (the host's session-id
+   compaction, truncated safely if it is long; uniqueness inside the Sandbox is
+   checked when it mounts). No `main` special case, so a single-session project
+   also uses its session name; the UI shows the conversation's title beside it
+   and `DSH_LAYERFS_WS` is `<sandbox>:<name>`.
+2. **Sandbox lifecycle.** Closing a session checkpoints its own Workspace and
+   unmounts it. The project Sandbox closes after the last bound session's idle
+   timeout (default 30 minutes) or on the project's Close; one session ending
+   never removes the project Sandbox.
+3. **Failure recovery.** A broken or recreated Sandbox remounts every session's
+   Workspace. The project shows one **recovering** notice, each affected session
+   keeps DSH's **Interrupted** word, and the next message retries; the notice
+   says running commands were stopped, since they die with the Sandbox.
+4. **Machine changes.** A PostgreSQL placement change or a moved Store recreates
+   the project Sandbox on the new machine at the next activation; the old
+   Sandbox is closed once it holds no mounted Workspaces. Branches and commits
+   are untouched.
+5. **Shards.** One project Sandbox per machine. At 16 Workspaces the host opens
+   the next shard (`<name>-2`, …) and fills sessions in order; sharding is
+   transparent and a shard is not a separate project.
+6. **UI mapping.** A Workspace row shows its conversation's title with a short
+   id, and the conversation's Sandbox tab marks **this session**. The interim
+   **Session** tag stays until the session/project ownership design
+   (`session-ownership-ui.md`) settles the rest. Sessions are never nested under
+   a Sandbox in DSH's own list.
 7. **Import and first mount.** A stored-only conversation opened on a new
-   machine: which Sandbox does it mount into, which Workspace name, and does the
-   scratch picker run before the first mount? *Recommendation: the project
-   Sandbox, its session Workspace name, scratch first (a local choice).*
-8. **Checkpoints with a shared Sandbox.** A session's checkpoint saves its own
-   Workspace. When a project Sandbox closes, which sessions are checkpointed
-   first, and is that shown as "By DSH"? *Recommendation: checkpoint every bound
-   session, one row per session.*
-9. **Subagents.** Keep sharing the root's Workspace (no own Workspace or
-   Sandbox)? *Assumed yes; confirm with the Sandboxes design.*
+   machine first selects (or confirms) its local scratch folder, then mounts
+   into the project Sandbox as `s-<compact>`; import does not execute before the
+   folder is chosen, so the first command runs in the right directory.
+8. **Checkpoints on close.** When the project Sandbox closes, every bound
+   session is checkpointed once (one **By DSH** row per session). A refused save
+   shows **Not saved: *code*** on that session's row and keeps its Workspace.
+9. **Subagents.** The host keeps the root's binding for a subagent (`kind:
+   shared`): the same Sandbox, Workspace and Branch; it creates no per-subagent
+   Workspace or branch. Agents may still fork a branch and mount it themselves
+   (the current workflow), but that branch is outside the host's checkpoints and
+   merge: the agent must commit it, and the parent branch does not see it until
+   it is merged. Automating per-subagent branches is not part of this design;
+   revisit with an explicit merge policy if it becomes a product need.
+
+**Implementation order.** 1, 2 and 3 are prerequisites for project-owned
+Sandboxes (groups 5 and 9); 4 and 5 land with that host work; 6 belongs to the
+ownership design; 7–9 are details of the same work.
 
 ## Not mapping decisions
 
