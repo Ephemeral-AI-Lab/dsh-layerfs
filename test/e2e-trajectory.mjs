@@ -125,7 +125,8 @@ try {
   assert.equal(await page.getByRole('tab', { name: 'LayerFS', exact: true }).count(), 0, 'the old LayerFS tab is gone')
   assert.equal(await page.getByRole('tab', { name: 'Trajectory', exact: true }).count(), 1, 'one Trajectory tab in LayerFS mode')
   await page.getByText('echo plain', { exact: true }).first().waitFor({ timeout: 15000 })
-  const chip = page.locator(`button[aria-label^="New version ${version.id.slice(2, 10)}"]`).first()
+  // `shortId` keeps the 0x12/0x32 tag and 14 characters (`layerfs commit get` accepts the prefix).
+  const chip = page.locator(`button[aria-label^="New version ${version.id.slice(0, 14)}"]`).first()
   await chip.waitFor({ timeout: 5000 })
   await page.getByRole('group', { name: 'Trajectory timeline' }).first().waitFor({ timeout: 5000 })
   await page.waitForTimeout(400)
@@ -155,7 +156,8 @@ try {
   step('UI: the version chip opens History on that commit')
   await chip.click()
   await page.getByRole('tab', { name: 'History', exact: true, selected: true }).first().waitFor({ timeout: 10000 })
-  await page.locator(`code[title="${version.id}"]`).first().waitFor({ timeout: 20000 })
+  // The commit detail's id control carries the full id (`CopyId`); its <code> shows `shortId`.
+  await page.locator(`[data-copy-id="${version.id}"]`).first().waitFor({ timeout: 20000 })
   await page.waitForTimeout(600)
   await page.screenshot({ path: join(shots, 'e2e-trajectory-history.png') })
   await page.getByRole('tab', { name: 'Chat', exact: true }).first().click()
