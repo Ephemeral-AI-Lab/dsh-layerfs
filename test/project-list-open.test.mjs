@@ -105,7 +105,7 @@ const availability = (over = {}) => ({ state: 'available', machine: 'docker', ca
 const rowButton = (tree, id) => find(tree, (p) => p['data-open-session'] === id)[0]
 const actionButtons = (tree) => find(tree, (p) => 'data-session-action' in p)
 
-test('a stored-only session says "Stored elsewhere"; its one Open action imports it', async () => {
+test('a stored-only session says "Stored elsewhere"; the row itself imports it, with no action', async () => {
   const stored = { sessionId: 'stored-1', title: 'Chat', local: false, updatedAt: 1, state: 'stored' }
   const readiness = M.sessionReadiness(stored, availability(), 'demo', t)
   const asked = []
@@ -115,26 +115,23 @@ test('a stored-only session says "Stored elsewhere"; its one Open action imports
   })
   const tree = view.tree
   assert.match(M.text(tree), /Stored elsewhere/)
+  assert.match(M.text(tree), /only in LayerFS/, 'its reason is on screen')
   assert.equal(find(tree, (p) => p['data-session-state'] === 'stored').length, 1, 'the word is beside the title')
-  const actions = actionButtons(tree)
-  assert.equal(actions.length, 1, 'one readiness action')
-  assert.equal(actions[0].props['data-session-action'], 'open')
-  assert.equal(M.text(actions[0]), t('open'))
+  assert.equal(find(tree, (p) => p['data-session-reason'] === 'stored').length, 1, 'the reason is under the row')
+  assert.equal(actionButtons(tree).length, 0, 'no readiness action button')
   assert.equal(find(tree, (p) => 'data-archive-session' in p).length, 0, "not DSH's to archive")
-  actions[0].props.onClick({ stopPropagation() {} })
+  rowButton(tree, 'stored-1').props.onClick()
   await view.settle()
-  assert.deepEqual(asked, ['open'])
+  assert.deepEqual(asked, ['open'], 'the row itself opens it')
 })
 
-test('an unavailable row says why, cannot open, and offers one Start action; Archive still works', async () => {
+test('an unavailable row says why, cannot open itself and has no Start action; Archive still works', async () => {
   const local = { sessionId: 'local-1', title: 'Chat', local: true, updatedAt: 1, state: 'local', executionState: 'inactive' }
   const readiness = M.sessionReadiness(local, availability({ state: 'stopped', canRun: false, canStart: true }), 'demo', t)
-  const started = []
   const archived = []
   const view = M.mount(M.SessionLine, {
     session: local, title: 'Chat', selected: false, t, readiness,
     onOpen: () => { throw new Error('the blocked row must not open') },
-    onStart: (e) => { started.push(e) }, startDisabled: false,
     onArchive: async () => { archived.push('archive'); return null },
   })
   const tree = view.tree
@@ -144,12 +141,8 @@ test('an unavailable row says why, cannot open, and offers one Start action; Arc
   const reason = find(tree, (p) => p['data-session-reason'] === 'unavailable')
   assert.equal(reason.length, 1, 'the reason is under the row')
   assert.equal(rowButton(tree, 'local-1').props.disabled, true, 'the row itself cannot open')
-  const actions = actionButtons(tree)
-  assert.equal(actions.length, 1, 'at most one readiness action')
-  assert.equal(actions[0].props['data-session-action'], 'start')
-  assert.equal(M.text(actions[0]), 'Start docker')
-  actions[0].props.onClick({ stopPropagation() {} })
-  assert.equal(started.length, 1)
+  assert.equal(actionButtons(tree).length, 0, 'no readiness action button')
+  assert.doesNotMatch(M.text(tree), /Start docker/, 'no Start action')
   const archive = find(tree, (p) => 'data-archive-session' in p)
   assert.equal(archive.length, 1, 'Archive still renders beside it')
   archive[0].props.onClick()
@@ -157,20 +150,18 @@ test('an unavailable row says why, cannot open, and offers one Start action; Arc
   assert.deepEqual(archived, ['archive'])
 })
 
-test('a blocked row whose Store failure names it offers exactly one Open Store action', () => {
+test('a blocked row whose Store failure names it states the reason in words, with no Open Store action', () => {
   const local = { sessionId: 'local-2', title: 'Chat', local: true, updatedAt: 1, state: 'local', executionState: 'inactive' }
   const store = { name: 'pg', kind: 'postgresql', state: 'broken', reason: 'missing', message: 'Store pg names no saved login', connectedFrom: [] }
   const readiness = M.sessionReadiness(local, availability({ state: 'available', canRun: false, storageBlocked: true }), 'pg', t, store)
-  const asked = []
   const view = M.mount(M.SessionLine, {
     session: local, title: 'Chat', selected: false, t, readiness,
-    onOpen: () => {}, onOpenStore: () => { asked.push('store') }, onArchive: async () => null,
+    onOpen: () => {}, onArchive: async () => null,
   })
-  const actions = actionButtons(view.tree)
-  assert.equal(actions.length, 1, 'exactly one readiness action')
-  assert.equal(actions[0].props['data-session-action'], 'store')
-  assert.equal(M.text(actions[0]), 'Open Store')
+  assert.match(M.text(view.tree), /Unavailable/)
   assert.match(M.text(view.tree), /no saved login/, 'the Store failure is the reason')
-  actions[0].props.onClick({ stopPropagation() {} })
-  assert.deepEqual(asked, ['store'])
+  assert.equal(find(view.tree, (p) => p['data-session-reason'] === 'unavailable').length, 1)
+  assert.equal(rowButton(view.tree, 'local-2').props.disabled, true, 'the row itself cannot open')
+  assert.equal(actionButtons(view.tree).length, 0, 'no readiness action button')
+  assert.doesNotMatch(M.text(view.tree), /Open Store/, 'no Open Store action')
 })

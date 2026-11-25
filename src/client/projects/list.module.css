@@ -238,18 +238,6 @@
   padding-inline-end: 6px;
 }
 
-/* A blocked row's one action (Open, Start <machine>, Open Store), then Archive
-   (shown on hover or keyboard focus): both are siblings of the row button. */
-.sessionReadinessAction {
-  flex: none;
-  max-width: 12em;
-  height: 24px;
-  overflow: hidden;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .sessionAction {
   flex: none;
   opacity: 0;

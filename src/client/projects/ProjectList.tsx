@@ -6,7 +6,7 @@
  * Start while its machine is stopped). Also the project data the dialog's
  * picker reads (`useProjectData`, `useRecent`).
  */
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode, type SyntheticEvent } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { Button, IconArchiveOutlineRegular, IconPlusOutlineRegular, IconSettingsOutlineRegular, IconTriangleRightFillRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
@@ -138,24 +138,21 @@ export function archiveConversation(api: Pick<LayerfsApi, 'op'>, sessionId: stri
 
 /**
  * One conversation under a project: its title (a press opens it), the
- * readiness word beside it, its reason under the row and at most one action,
- * then Archive where DSH can archive it ({@link archivable}). A refused
- * Archive reads "Not archived" with DSH's message as the tip and one action,
- * Try again (RV4 FAIL 2: no refusal is dropped).
+ * readiness word beside it, its reason under the row, then Archive where DSH
+ * can archive it ({@link archivable}). A refused Archive reads "Not archived"
+ * with DSH's message as the tip and one action, Try again (RV4 FAIL 2: no
+ * refusal is dropped).
  */
-export function SessionLine({ session, title, selected, t, failure, readiness, onOpen, onArchive, onOpenStore, onStart, startDisabled }: {
+export function SessionLine({ session, title, selected, t, failure, readiness, onOpen, onArchive, onOpenStore }: {
   session: ProjectSession, title: string, selected: boolean, t: ListT
   failure?: LocalizedFailure | null
-  /** The row's word, reason and one action ({@link sessionReadiness}); the row is inert without it. */
+  /** The row's readiness word and reason ({@link sessionReadiness}). */
   readiness?: SessionReadiness | undefined
   /** Opens it; a refusal comes back as a rejected promise and is shown under this row. */
   onOpen: () => void | Promise<unknown>
   /** Archives it: null when done, else the refusal's message. */
   onArchive: () => Promise<string | null>
   onOpenStore?: (() => void) | undefined
-  /** Starts the project's machine for a row whose Start action is shown (guarded by the caller). */
-  onStart?: ((e: SyntheticEvent) => void) | undefined
-  startDisabled?: boolean | undefined
 }): ReactNode {
   const [busy, setBusy] = useState(false)
   const [refusal, setRefusal] = useState<string | null>(null)
@@ -181,21 +178,14 @@ export function SessionLine({ session, title, selected, t, failure, readiness, o
   const listed = JSON.stringify([session.local, session.state, session.executionState, session.updatedAt, session.title, session.error])
   useEffect(() => { setOpenFailure(null) }, [listed])
   const interruptedTip = failure?.message ?? session.error ?? t('interruptedHint')
-  // The readiness word, its reason and at most one action (session-readiness.ts).
-  // Without `readiness` (older callers) the row keeps the Interrupted word and
-  // failure line it had.
+  // The readiness word and its reason (session-readiness.ts). Without
+  // `readiness` (older callers) the row keeps the Interrupted word and failure
+  // line it had.
   const interruptedRow = !readiness && session.executionState === 'interrupted'
   const word = readiness?.word ?? (session.executionState === 'interrupted' ? t('interrupted') : undefined)
   const wordTip = readiness?.key === 'interrupted' || interruptedRow ? interruptedTip : readiness?.reason
-  const action = readiness?.action
   const reason = readiness?.reason ?? (interruptedRow ? failure?.message : undefined)
   const reasonFailure = readiness?.key === 'interrupted' || interruptedRow ? failure : undefined
-  const runAction = (e: SyntheticEvent) => {
-    if (!action) return
-    if (action.kind === 'open') { open(); return }
-    if (action.kind === 'start') { onStart?.(e); return }
-    onOpenStore?.()
-  }
   return <>
     <li className={css.sessionItem}>
       <button type="button" className={css.session} data-selected={selected || undefined} data-open-session={session.sessionId}
@@ -205,9 +195,6 @@ export function SessionLine({ session, title, selected, t, failure, readiness, o
         <span className={css.title}>{title}</span>
         {word ? <span className={readiness && readiness.key !== 'interrupted' ? css.word : css.interrupted} data-session-state={readiness?.key} title={wordTip}>{word}</span> : null}
       </button>
-      {/* The row's one action, a sibling of the row button so it never nests in it (never in a press) */}
-      {action ? <Button className={css.sessionReadinessAction} variant="ghost" size="sm" data-session-action={action.kind}
-        disabled={action.kind === 'start' ? startDisabled : undefined} title={action.label} onClick={runAction}>{action.label}</Button> : null}
       {/* B2 #7: the row's second action, Archive (DSH's archive set; DSH's archived list unarchives it), only where DSH can */}
       {archivable(session) ? <Button className={clsx(css.iconButton, css.sessionAction)} variant="ghost" size="sm" icon={<IconArchiveOutlineRegular size={14} />} disabled={busy}
         aria-label={t('archiveSession', { session: title })} title={t('archiveSession', { session: title })} data-archive-session={session.sessionId}
@@ -286,14 +273,11 @@ function SidebarRow({ item, showStore, api, titles, t, onChanged }: { item: Proj
         const title = titles[session.sessionId]?.title || session.title || t('untitled')
         const readiness = sessionReadiness(session, availability, storeName, t, item.store)
         const sessionFail = readiness.key === 'interrupted' ? formatSessionFailure(session.failure, session.error, t, storeName, item.store) : null
-        const starts = readiness.action?.kind === 'start'
-        const openStore = readiness.action?.kind === 'store' || sessionFail?.openStore
+        const openStore = sessionFail?.openStore
         return <SessionLine key={session.sessionId} session={session} title={title} selected={selected === session.sessionId} t={t}
           readiness={readiness}
           failure={sessionFail}
           onOpenStore={openStore ? () => openStorage(api, `store:${storeFail?.store ?? sessionFail?.store ?? storeName}`) : undefined}
-          onStart={starts ? startGuard(() => void actions.start(availability.machine!)) : undefined}
-          startDisabled={starts && (actions.busy || startGuard.settling)}
           onOpen={() => resume(session.sessionId)}
           onArchive={() => archiveConversation(api, session.sessionId).then((refusal) => { if (refusal === null) read.reload(); return refusal })} />
       }) : !read.error && !read.loading ? <li className={css.notice}>{t('noSessions')}</li> : null}
