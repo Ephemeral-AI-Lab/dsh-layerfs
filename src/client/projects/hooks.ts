@@ -41,6 +41,36 @@ const LOCAL_POLL_MS = 15_000
 /** The portable archive: a Store walk, so slow (F22). */
 const ARCHIVE_POLL_MS = 60_000
 
+/**
+ * The two reads' rows as one list. The local read paints first, then the archive
+ * read lands: a session already on screen keeps the place it painted in (its
+ * first `updatedAt` is kept for ordering), so a late answer only adds rows; its
+ * fields and a missing title fill in from the other answer. `order` is the
+ * caller's map of session id to first-seen `updatedAt`, reset when the project
+ * changes.
+ */
+export function mergeSessionRows(local: readonly ProjectSession[] | undefined, archive: readonly ProjectSession[] | undefined, order?: Map<string, number>): ProjectSession[] {
+  const rows = new Map<string, ProjectSession>()
+  for (const s of archive ?? []) rows.set(s.sessionId, s)
+  for (const s of local ?? []) {
+    const kept = rows.get(s.sessionId)
+    // The archive keeps a settled title; the local row's own fields win.
+    rows.set(s.sessionId, { ...kept, ...s, title: kept?.title ?? s.title })
+  }
+  const keyed = [...rows.values()].map((row) => {
+    let at = order?.get(row.sessionId)
+    if (at === undefined) {
+      at = row.updatedAt
+      order?.set(row.sessionId, at)
+    }
+    return { row, at }
+  })
+  // Stable: rows added by the late answer keep their sorted place below the
+  // rows already visible.
+  keyed.sort((a, b) => b.at - a.at)
+  return keyed.map(({ row }) => row)
+}
+
 /** Local logs remain visible while the portable archive loads or fails. */
 export function useProjectSessions(api: LayerfsApi, project: string, enabled = true, projectId?: string) {
   const load = (localOnly: boolean) => enabled
@@ -63,10 +93,12 @@ export function useProjectSessions(api: LayerfsApi, project: string, enabled = t
     const slow = setInterval(() => { if (visible()) archive.reload() }, ARCHIVE_POLL_MS)
     return () => { clearInterval(fast); clearInterval(slow) }
   }, [enabled, local.reload, archive.reload])
-  const rows = new Map((archive.data?.sessions ?? []).map((s) => [s.sessionId, s]))
-  for (const s of local.data?.sessions ?? []) rows.set(s.sessionId, { ...rows.get(s.sessionId), ...s, title: rows.get(s.sessionId)?.title ?? s.title })
+  // The first read to paint fixes each session's place; the other answer adds
+  // rows (and titles) without dropping or moving one already on screen.
+  const order = useRef<{ key: string, at: Map<string, number> }>({ key, at: new Map() })
+  if (order.current.key !== key) order.current = { key, at: new Map() }
   return {
-    sessions: [...rows.values()].sort((a, b) => b.updatedAt - a.updatedAt),
+    sessions: mergeSessionRows(local.data?.sessions, archive.data?.sessions, order.current.at),
     loading: local.loading || archive.loading,
     /** An answer has arrived at least once: a reload after that keeps the rows, so the loading notice is for the first read only. */
     loaded: local.data !== undefined || archive.data !== undefined,
