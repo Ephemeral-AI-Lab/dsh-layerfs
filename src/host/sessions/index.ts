@@ -443,6 +443,8 @@ export function apply(ctx: Context): void {
         const state = sessions.state.read()
         const persistence = localPersistence(ctx)
         const rows = new Map<string, any>()
+        const debug = args?.debug === true ? { t0: performance.now(), phases: {} as Record<string, number> } : undefined
+        const mark = (name: string) => { if (debug) debug.phases[name] = +(performance.now() - debug.t0).toFixed(1) }
         // One list call reads each session's log once and its sidecar once: the
         // three loops overlap (an owned session may be pending), and a sidecar
         // read used to stat the same log again to find its folder.
@@ -527,6 +529,8 @@ export function apply(ctx: Context): void {
             updatedAt: snap.header.createdAt, stored: !!sidecar?.archive && !sidecar.archive.error,
           })
         }
+        mark('owned')
+        mark('pending')
         let discoveryError: { code: string, message: string } | null = null
         const discover = async () => {
           if (identityError) throw identityError
@@ -548,11 +552,13 @@ export function apply(ctx: Context): void {
             title: s.title, stored: true,
           })
         }
+        mark('discover')
         // a conversation archived in DSH (its row's Archive, or DSH's own) leaves the project's list until it is unarchived
         const archived = new Set<string>(ctx.workspaceRegistry?.archivedSessionIds ?? [])
         const listed = [...rows.values()].filter((r) => !archived.has(r.sessionId)).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
         // The same annotation `session.state` gives: the host says which branch each row is on.
-        return { project, discoveryError, sessions: listed.map((row) => ({ ...row, ...branchFields(row.sessionId, row.branch) })) }
+        mark('rows')
+        return { project, discoveryError, ...(debug ? { timing: debug.phases } : {}), sessions: listed.map((row) => ({ ...row, ...branchFields(row.sessionId, row.branch) })) }
       },
       'sessions.open': async (args: any) => {
         const sessionId = need(args, 'sessionId')
