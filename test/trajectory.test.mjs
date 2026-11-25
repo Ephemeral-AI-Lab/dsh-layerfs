@@ -4,7 +4,7 @@
 //   node --test test/trajectory.test.mjs
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildTrajectory, summarize, trajectoryDetail, versionBranch } from '../src/host/sessions/trace.ts'
+import { buildTrajectory, summarize, trajectoryDetail, usageOf, versionBranch } from '../src/host/sessions/trace.ts'
 import { DETAIL_MAX, PREVIEW_MAX } from '../src/shared/trajectory.ts'
 
 const C1 = '12' + '1'.repeat(64), C2 = '12' + '2'.repeat(64), C3 = '12' + '3'.repeat(64), L1 = '32' + '4'.repeat(64)
@@ -54,6 +54,35 @@ const checkpoints = [
   { kind: 'turn', turn: 1, seq: 15, commit: C1, branch: 'dsh.s', changed: 0, message: 'dsh turn 1', at: 2005, receipt: 'r4' },
 ]
 const build = (over = {}) => buildTrajectory({ sessionId: 's', project: 'st/p', branch: 'dsh.s', events, invocations: receipts, checkpoints, ...over })
+
+// The parity events: the rendered system prompt, the request header and the
+// step's token usage. DSH puts usage on `assistant/message`; a `step/end`
+// stamp is accepted too (the parity note calls it step usage).
+const systemText = 'You are a careful agent.\nFollow the repository guide.'
+const header = {
+  config: { provider: 'deepseek', model: 'deepseek-chat', reasoningEffort: 'high', temperature: 0.3 },
+  tools: [
+    { name: 'bash', description: 'run a command', parameters: { type: 'object' } },
+    { name: 'read', description: 'read a file', parameters: { type: 'object' } },
+    { name: 'write', description: 'write a file', parameters: { type: 'object' } },
+  ],
+}
+const parityEvents = [
+  ev(100, 'turn/start', { turn: 3 }),
+  ev(101, 'step/start', { turn: 3, step: 1 }),
+  ev(102, 'system/message', { turn: 3, step: 1, message: { id: 'sys1', role: 'system', content: [txt(systemText)], source: { kind: 'system-prompt' } } }),
+  user(103, 'do it'),
+  ev(104, 'request/header', { header, reason: 'initial' }),
+  assistant(105, 3, 1, [txt('Working.')], { usage: { inputTokens: 1200, outputTokens: 340, cacheReadTokens: 800, cacheWriteTokens: 0 } }),
+  ev(106, 'step/end', { turn: 3, step: 1, usage: { inputTokens: 1200, outputTokens: 340, cacheReadTokens: 800, cacheWriteTokens: 0 } }),
+  ev(107, 'step/start', { turn: 3, step: 2 }),
+  ev(108, 'system/message', { turn: 3, step: 2, message: { id: 'sys2', role: 'system', content: [txt('A changed prompt')], source: { kind: 'system-prompt', name: 'repo-guide' } } }),
+  ev(109, 'request/header', { header: { config: { provider: 'deepseek', model: 'deepseek-reasoner' } }, reason: 'change' }),
+  assistant(110, 3, 2, [txt('Done.')]),
+  ev(111, 'step/end', { turn: 3, step: 2, usage: { inputTokens: 2000, outputTokens: 500 } }),
+  ev(112, 'turn/end', { turn: 3, reason: 'completed' }),
+]
+const buildParity = (events = parityEvents) => buildTrajectory({ sessionId: 's', project: 'st/p', branch: 'dsh.s', events, invocations: [], checkpoints: [] })
 
 test('records by turn in log order; a user message between turns opens the next one', () => {
   const t = build()
@@ -262,4 +291,80 @@ test('summaries are one bounded line', () => {
   assert.equal(summarize('not json'), 'not json')
   assert.equal(summarize(''), undefined)
   assert.equal(summarize(JSON.stringify({ command: 'x'.repeat(500) })).length, 200)
+})
+
+
+test('system and request records sit before the assistant step they precede; usage rides the step', () => {
+  const turns = buildParity().turns
+  assert.deepEqual(turns.map((t) => t.turn), [3])
+  const [turn] = turns
+  assert.deepEqual(turn.records.map((r) => [r.seq, r.kind, r.step ?? null]), [
+    [102, 'system', 1], [103, 'user', null], [104, 'request', 1], [105, 'assistant', 1],
+    [108, 'system', 2], [109, 'request', 2], [110, 'assistant', 2],
+  ])
+  const system = turn.records[0]
+  assert.equal(system.text, 'You are a careful agent. Follow the repository guide.', 'one-line preview')
+  assert.equal(system.source, 'system-prompt')
+  assert.equal(system.truncated, undefined)
+  assert.equal(turn.records[4].source, 'repo-guide', 'a source name when logged')
+  const request = turn.records[2]
+  assert.equal(request.provider, 'deepseek')
+  assert.equal(request.model, 'deepseek-chat')
+  assert.equal(request.tools, 3)
+  assert.equal(request.reason, 'initial')
+  assert.equal(request.summary, 'deepseek/deepseek-chat · 3 tools')
+  assert.equal(turn.records[5].summary, 'deepseek/deepseek-reasoner · 0 tools')
+  assert.deepEqual(turn.records[3].usage, { input: 1200, output: 340, cacheRead: 800, cacheWrite: 0 })
+  assert.deepEqual(turn.records[6].usage, { input: 2000, output: 500 }, 'step/end usage when the message reports none')
+  assert.equal('header' in request, false, 'the header stays out of the light answer')
+  assert.ok(!JSON.stringify(buildParity()).includes('run a command'), 'no tool schemas in the answer')
+  assert.deepEqual(buildParity().counts, { versionsCreated: 0, callsWithVersions: 0 }, 'parity records do not move the counts')
+})
+
+test('usage maps DSH TokenUsage fields and keeps absent ones absent', () => {
+  assert.deepEqual(usageOf({ inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 4 }), { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 })
+  assert.deepEqual(usageOf({ inputTokens: 1, outputTokens: 2, reasoningTokens: 9, totalTokens: 10 }), { input: 1, output: 2 })
+  assert.deepEqual(usageOf({ outputTokens: 0 }), { output: 0 })
+  assert.equal(usageOf(undefined), undefined)
+  assert.equal(usageOf({}), undefined)
+})
+
+test('detail: the full system text and the request header as pretty JSON', () => {
+  assert.deepEqual(trajectoryDetail(parityEvents, 102), { seq: 102, kind: 'system', text: systemText })
+  const request = trajectoryDetail(parityEvents, 104)
+  assert.equal(request.kind, 'request')
+  assert.equal(request.header, JSON.stringify(header, null, 2))
+  assert.equal(request.truncated, undefined)
+  // Unknown/unrelated seqs stay safe.
+  assert.equal(trajectoryDetail(parityEvents, 101), undefined)
+  assert.equal(trajectoryDetail(parityEvents, 999), undefined)
+})
+
+test('system previews and details obey the preview and detail caps', () => {
+  const long = 'word '.repeat(200)
+  const log = [
+    ev(1, 'turn/start', { turn: 1 }),
+    ev(2, 'system/message', { turn: 1, step: 1, message: { content: [txt(long)], source: { kind: 'system-prompt' } } }),
+  ]
+  const record = buildTrajectory({ sessionId: 's', project: null, branch: null, events: log, invocations: [], checkpoints: [] }).turns[0].records[0]
+  assert.equal(record.text.length, PREVIEW_MAX)
+  assert.equal(record.truncated, true)
+  const detail = trajectoryDetail(log, 2)
+  assert.ok(detail.text.length > PREVIEW_MAX)
+  assert.equal(detail.truncated, undefined, 'the full prompt fits under DETAIL_MAX')
+
+  const big = 'x'.repeat(DETAIL_MAX + 10)
+  const cutLog = [ev(1, 'system/message', { turn: 1, step: 1, message: { content: [txt(big)], source: { kind: 'system-prompt' } } })]
+  const cut = trajectoryDetail(cutLog, 1)
+  assert.equal(cut.text.length, DETAIL_MAX)
+  assert.deepEqual(cut.truncated, ['text'])
+})
+
+test('a huge request header detail is cut at DETAIL_MAX and flagged', () => {
+  const bigHeader = { config: { provider: 'deepseek', model: 'deepseek-chat' }, tools: [{ name: 't', description: 'd'.repeat(DETAIL_MAX + 100), parameters: {} }] }
+  const log = [ev(1, 'request/header', { header: bigHeader, reason: 'initial' })]
+  const detail = trajectoryDetail(log, 1)
+  assert.equal(detail.kind, 'request')
+  assert.equal(detail.header.length, DETAIL_MAX)
+  assert.deepEqual(detail.truncated, ['header'])
 })

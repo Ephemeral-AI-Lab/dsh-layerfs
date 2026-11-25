@@ -39,6 +39,18 @@ export interface UserRecord extends RecordBase {
   truncated?: boolean
 }
 
+/** A step's token accounting, mapped from DSH `TokenUsage`; absent fields were not reported. Counts are disjoint. */
+export interface TrajectoryUsage {
+  /** Uncached input tokens. */
+  input?: number
+  /** Output tokens, reasoning included. */
+  output?: number
+  /** Input tokens read from the provider cache. */
+  cacheRead?: number
+  /** Input tokens written to the provider cache. */
+  cacheWrite?: number
+}
+
 /** An `assistant/message`: one model step's output. */
 export interface AssistantRecord extends RecordBase {
   kind: 'assistant'
@@ -52,6 +64,33 @@ export interface AssistantRecord extends RecordBase {
   /** `step/start` time of this step, when logged (the model lane's start). */
   startedAt?: number
   interrupted?: boolean
+  /** The step's reported token usage; absent when the adapter reported none. */
+  usage?: TrajectoryUsage
+}
+
+/** A `system/message`: the rendered system prompt (or a later prompt change) at a step. */
+export interface SystemRecord extends RecordBase {
+  kind: 'system'
+  /** Text blocks joined, one line, at most {@link PREVIEW_MAX} characters. */
+  text: string
+  truncated?: boolean
+  /** The source's `name` when logged, else its `kind` (`system-prompt`). */
+  source?: string
+}
+
+/** A `request/header`: the resolved call config and tool set of the request before a step. */
+export interface RequestRecord extends RecordBase {
+  kind: 'request'
+  /** Provider route as logged. */
+  provider?: string
+  /** Model id as logged. */
+  model?: string
+  /** Assembled tool schemas in the header. */
+  tools: number
+  /** Why the header was logged (`initial`, `resume`, `change`, `series`). */
+  reason?: string
+  /** One line, at most {@link PREVIEW_MAX} characters: the model and tool count. */
+  summary: string
 }
 
 /** A `tool/call` and its `tool/result`, with the LayerFS calls it made. */
@@ -72,7 +111,7 @@ export interface ToolRecord extends RecordBase {
   ops: TraceOp[]
 }
 
-export type TrajectoryRecord = UserRecord | AssistantRecord | ToolRecord
+export type TrajectoryRecord = UserRecord | AssistantRecord | ToolRecord | SystemRecord | RequestRecord
 
 export interface TrajectoryTurn {
   turn: number
@@ -116,6 +155,8 @@ export interface TrajectoryDetail {
   text?: string
   /** Assistant: reasoning blocks joined. */
   thinking?: string
+  /** Request: the logged header, pretty-printed JSON. */
+  header?: string
   /** Fields cut at {@link DETAIL_MAX}. */
-  truncated?: ('args' | 'result' | 'text' | 'thinking')[]
+  truncated?: ('args' | 'result' | 'text' | 'thinking' | 'header')[]
 }

@@ -519,6 +519,16 @@
   background: var(--lf-tone-warning-bg);
 }
 
+.kind_system {
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-module-platform);
+}
+
+.kind_request {
+  color: var(--traj-model);
+  background: color-mix(in srgb, var(--traj-model) 10%, var(--dsw-alias-bg-layer-1));
+}
+
 /* checkpoint and layerfs keep the neutral platform tint */
 
 .text {
@@ -585,6 +595,14 @@
 
 .muted {
   color: var(--dsw-alias-label-tertiary);
+}
+
+.usage {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .contextRecord .rowMain {

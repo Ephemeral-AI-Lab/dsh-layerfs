@@ -2,9 +2,9 @@
 import type { ReactNode } from 'react'
 import clsx from 'clsx'
 import { shortId } from '../files/format.ts'
-import type { TraceOp, TraceVersion, TrajectoryRecord } from '../../shared/trajectory.ts'
+import type { TraceOp, TraceVersion, TrajectoryRecord, TrajectoryUsage } from '../../shared/trajectory.ts'
 import type { Translate } from './locale.ts'
-import { durationParts, opCommand } from './trajectory-model.ts'
+import { compactNumber, durationParts, opCommand } from './trajectory-model.ts'
 import css from './trajectory.module.css'
 import { clockTime } from '../ui/locale-sync.ts'
 
@@ -18,6 +18,14 @@ export const clock = (at: number | undefined): string =>
 export function durationText(t: Translate, ms: number): string {
   const d = durationParts(ms)
   return d.unit === 'ms' ? t('dur_ms', { n: d.n }) : d.unit === 's' ? t('dur_s', { n: d.n }) : t('dur_m', { m: d.m, s: d.s })
+}
+
+/** A step's usage compactly, `in 1.2k · out 340`; empty when neither count was reported. */
+export function usageText(t: Translate, usage: TrajectoryUsage): string {
+  const parts: string[] = []
+  if (usage.input !== undefined) parts.push(t('trajUsageIn', { n: compactNumber(usage.input) }))
+  if (usage.output !== undefined) parts.push(t('trajUsageOut', { n: compactNumber(usage.output) }))
+  return parts.join(' · ')
 }
 
 const MARK: Record<TraceVersion['effect'], string> = { created: '+', unchanged: '=', referenced: '→' }

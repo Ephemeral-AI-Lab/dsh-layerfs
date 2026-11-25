@@ -8,7 +8,8 @@
 import type { TraceCheckpoint, TraceOp, TraceVersion } from '../../shared/trace.ts'
 import {
   DETAIL_MAX, PREVIEW_MAX,
-  type AssistantRecord, type ToolRecord, type TrajectoryAnswer, type TrajectoryDetail, type TrajectoryTurn, type UserRecord,
+  type AssistantRecord, type RequestRecord, type SystemRecord, type ToolRecord, type TrajectoryAnswer, type TrajectoryDetail,
+  type TrajectoryTurn, type TrajectoryUsage, type UserRecord,
 } from '../../shared/trajectory.ts'
 
 export interface TrajectoryInput {
@@ -33,6 +34,24 @@ const finite = (value: unknown): number | undefined => typeof value === 'number'
 const clip = (value: string): string => {
   const line = value.replace(/\s+/g, ' ').trim()
   return line.length > SUMMARY_MAX ? `${line.slice(0, SUMMARY_MAX - 1)}…` : line
+}
+
+/** DSH's `TokenUsage` (assistant/message) under the record's compact names; absent fields stay absent. */
+export function usageOf(value: unknown): TrajectoryUsage | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const usage = value as Record<string, unknown>
+  const out: TrajectoryUsage = {}
+  if (finite(usage.inputTokens) !== undefined) out.input = usage.inputTokens as number
+  if (finite(usage.outputTokens) !== undefined) out.output = usage.outputTokens as number
+  if (finite(usage.cacheReadTokens) !== undefined) out.cacheRead = usage.cacheReadTokens as number
+  if (finite(usage.cacheWriteTokens) !== undefined) out.cacheWrite = usage.cacheWriteTokens as number
+  return Object.keys(out).length ? out : undefined
+}
+
+/** One line of a `request/header`: the model route and how many tools it declares. */
+function requestSummary(provider: string | undefined, model: string | undefined, tools: number): string {
+  const route = provider && model ? `${provider}/${model}` : model ?? provider ?? 'unknown model'
+  return clip(`${route} · ${tools} ${tools === 1 ? 'tool' : 'tools'}`)
 }
 
 /** One line of a tool call's arguments: its command, path or first text field. */
@@ -152,8 +171,12 @@ export function buildTrajectory(input: TrajectoryInput): TrajectoryAnswer {
   }
   const tools = new Map<string, ToolEntry>()
   const stepStarts = new Map<string, number>()
+  /** Usage logged on `step/end` (older fixtures and parity notes); the message's own usage wins. */
+  const stepUsages = new Map<string, TrajectoryUsage>()
   let open: number | undefined
   let last: number | undefined
+  /** The step currently open between `step/start` and `step/end`. */
+  let openStep: { turn: number, step: number } | undefined
   let pending: UserRecord[] = []
   for (const event of input.events ?? []) {
     const type = event?.type
@@ -175,7 +198,18 @@ export function buildTrajectory(input: TrajectoryInput): TrajectoryAnswer {
       if (open === n) open = undefined
       last = Math.max(last ?? n, n)
     } else if (type === 'step/start') {
-      if (at !== undefined && integer(data?.turn) !== undefined) stepStarts.set(stepKey(data.turn, data.step), at)
+      const n = integer(data?.turn)
+      const step = integer(data?.step)
+      if (at !== undefined && n !== undefined && step !== undefined) stepStarts.set(stepKey(n, step), at)
+      openStep = n !== undefined && step !== undefined ? { turn: n, step } : undefined
+    } else if (type === 'step/end') {
+      const n = integer(data?.turn)
+      const step = integer(data?.step)
+      if (n !== undefined && step !== undefined) {
+        const usage = usageOf(data?.usage)
+        if (usage) stepUsages.set(stepKey(n, step), usage)
+        if (openStep?.turn === n && openStep.step === step) openStep = undefined
+      }
     } else if (type === 'user/message') {
       if (seq === undefined || !data) continue
       const kind = text(data.source?.kind) ?? 'unknown'
@@ -194,11 +228,42 @@ export function buildTrajectory(input: TrajectoryInput): TrajectoryAnswer {
       const toolCalls = Array.isArray(content) ? content.filter((b: any) => b?.type === 'tool-call').length : 0
       const step = integer(data.step)
       const startedAt = step !== undefined ? stepStarts.get(stepKey(n, step)) : undefined
+      const usage = usageOf(data.usage)
       const record: AssistantRecord = {
         kind: 'assistant', seq, turn: n, ...(step !== undefined ? { step } : {}), ...(at !== undefined ? { at } : {}),
         text: p.text, ...(p.truncated ? { truncated: true } : {}),
         ...(blocks(content, 'reasoning').length ? { thinking: true } : {}),
         toolCalls, ...(startedAt !== undefined ? { startedAt } : {}), ...(data.interrupted === true ? { interrupted: true } : {}),
+        ...(usage ? { usage } : {}),
+      }
+      turn(n).records.push(record)
+    } else if (type === 'system/message') {
+      if (seq === undefined || !data?.message) continue
+      const n = integer(data?.turn)
+      if (n === undefined) continue
+      const step = integer(data?.step)
+      const p = preview(blocks(data.message.content, 'text'))
+      const source = text(data.message.source?.name) ?? text(data.message.source?.kind)
+      const record: SystemRecord = {
+        kind: 'system', seq, turn: n, ...(step !== undefined ? { step } : {}), ...(at !== undefined ? { at } : {}),
+        text: p.text, ...(p.truncated ? { truncated: true } : {}), ...(source ? { source } : {}),
+      }
+      turn(n).records.push(record)
+    } else if (type === 'request/header') {
+      if (seq === undefined || !data?.header) continue
+      // `request/header` names no position: the step it was logged inside is the
+      // assistant step that follows it. Without one, keep the turn it was logged in.
+      const n = openStep?.turn ?? open ?? last ?? 0
+      const step = openStep?.step
+      const header = data.header
+      const provider = text(header?.config?.provider)
+      const model = text(header?.config?.model)
+      const tools = Array.isArray(header?.tools) ? header.tools.length : 0
+      const reason = text(data.reason)
+      const record: RequestRecord = {
+        kind: 'request', seq, turn: n, ...(step !== undefined ? { step } : {}), ...(at !== undefined ? { at } : {}),
+        ...(provider ? { provider } : {}), ...(model ? { model } : {}), tools, ...(reason ? { reason } : {}),
+        summary: requestSummary(provider, model, tools),
       }
       turn(n).records.push(record)
     } else if (type === 'tool/call') {
@@ -221,6 +286,17 @@ export function buildTrajectory(input: TrajectoryInput): TrajectoryAnswer {
       if (data.message.isError === true) record.isError = true
       if (seq !== undefined) record.resultSeq = seq
       if (at !== undefined) record.endedAt = at
+    }
+  }
+  // DSH logs a step's usage on its `assistant/message`; the parity note calls it
+  // step usage. A log that also stamps `step/end` covers a message without one.
+  if (stepUsages.size) {
+    for (const t of turns.values()) {
+      for (const record of t.records) {
+        if (record.kind !== 'assistant' || record.usage || record.step === undefined) continue
+        const usage = stepUsages.get(stepKey(record.turn, record.step))
+        if (usage) record.usage = usage
+      }
     }
   }
   if (pending.length) {
@@ -318,6 +394,16 @@ export function trajectoryDetail(events: readonly any[] | undefined, seq: number
     }
     if (event?.seq !== seq) continue
     const data = event.data
+    if (event.type === 'system/message' && data?.message) {
+      const cut: 'text'[] = []
+      const value = full(blocks(data.message.content, 'text').join('\n'), 'text', cut)
+      return { seq, kind: 'system', text: value, ...(cut.length ? { truncated: cut } : {}) }
+    }
+    if (event.type === 'request/header' && data?.header) {
+      const cut: 'header'[] = []
+      const value = full(JSON.stringify(data.header, null, 2) ?? '', 'header', cut)
+      return { seq, kind: 'request', header: value, ...(cut.length ? { truncated: cut } : {}) }
+    }
     if (event.type === 'user/message' && data) {
       const cut: 'text'[] = []
       const value = full(blocks(data.content, 'text').join('\n'), 'text', cut)

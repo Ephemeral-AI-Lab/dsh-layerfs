@@ -8,11 +8,12 @@ import clsx from 'clsx'
 import { Button, IconCloseOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { ErrorState, Loading } from '../files/States.tsx'
+import { PREVIEW_MAX } from '../../shared/trajectory.ts'
 import type { TraceCheckpoint, TraceOp, TraceVersion, TrajectoryDetail, TrajectoryRecord } from '../../shared/trajectory.ts'
 import { sessionTag } from '../../shared/logs.ts'
 import type { Translate } from './locale.ts'
 import { clock, durationText, KindCell, opOutcome, Version, type OpenVersion } from './TrajectoryParts.tsx'
-import { checkpointVersion, opCommand, prettyArgs, SAVES } from './trajectory-model.ts'
+import { checkpointVersion, compactNumber, opCommand, prettyArgs, SAVES } from './trajectory-model.ts'
 import css from './trajectory.module.css'
 import { dateTime } from '../ui/locale-sync.ts'
 
@@ -54,7 +55,7 @@ function Field({ label, children }: { label: string, children: ReactNode }): Rea
   return <><dt className={css.fieldLabel}>{label}</dt><dd className={css.fieldValue}>{children}</dd></>
 }
 
-function Truncated({ detail, field, t }: { detail: TrajectoryDetail | undefined, field: 'args' | 'result' | 'text' | 'thinking', t: Translate }): ReactNode {
+function Truncated({ detail, field, t }: { detail: TrajectoryDetail | undefined, field: 'args' | 'result' | 'text' | 'thinking' | 'header', t: Translate }): ReactNode {
   return detail?.truncated?.includes(field) ? <p className={css.note}>{t('trajTruncated')}</p> : null
 }
 
@@ -157,7 +158,9 @@ function ToolBody({ record, tab, detail, t, onOpen, layerfs, sessionId, onOpenLo
   )
 }
 
-function MessageBody({ record, tab, detail, t }: { record: Exclude<TrajectoryRecord, { kind: 'tool' }>, tab: Tab, detail: ReturnType<typeof useDetail>, t: Translate }): ReactNode {
+type MessageRecord = Extract<TrajectoryRecord, { kind: 'user' | 'context' | 'assistant' }>
+
+function MessageBody({ record, tab, detail, t }: { record: MessageRecord, tab: Tab, detail: ReturnType<typeof useDetail>, t: Translate }): ReactNode {
   if (tab === 'timing') return record.kind === 'assistant' ? <Timing t={t} start={record.startedAt ?? record.at} end={record.at} /> : <Timing t={t} start={record.at} />
   const text = detail.detail?.text
   return (
@@ -166,6 +169,10 @@ function MessageBody({ record, tab, detail, t }: { record: Exclude<TrajectoryRec
         {record.kind === 'context' ? <Field label={t('trajSource')}>{record.source}</Field> : null}
         {record.kind === 'assistant' ? <Field label={t('trajToolCalls')}>{record.toolCalls}</Field> : null}
         {record.kind === 'assistant' && record.interrupted ? <Field label={t('trajStatus')}>{t('trajInterrupted')}</Field> : null}
+        {record.kind === 'assistant' && record.usage?.input !== undefined ? <Field label={t('trajUsageInput')}>{compactNumber(record.usage.input)}</Field> : null}
+        {record.kind === 'assistant' && record.usage?.output !== undefined ? <Field label={t('trajUsageOutput')}>{compactNumber(record.usage.output)}</Field> : null}
+        {record.kind === 'assistant' && record.usage?.cacheRead !== undefined ? <Field label={t('trajUsageCacheRead')}>{compactNumber(record.usage.cacheRead)}</Field> : null}
+        {record.kind === 'assistant' && record.usage?.cacheWrite !== undefined ? <Field label={t('trajUsageCacheWrite')}>{compactNumber(record.usage.cacheWrite)}</Field> : null}
       </dl>
       {record.kind === 'assistant' && detail.detail?.thinking ? (
         <details className={css.thinking}>
@@ -180,6 +187,66 @@ function MessageBody({ record, tab, detail, t }: { record: Exclude<TrajectoryRec
       <Truncated detail={detail.detail} field="text" t={t} />
     </>
   )
+}
+
+export function SystemBody({ record, tab, detail, t }: {
+  record: Extract<TrajectoryRecord, { kind: 'system' }>, tab: Tab, detail: ReturnType<typeof useDetail>, t: Translate
+}): ReactNode {
+  if (tab === 'timing') return <Timing t={t} start={record.at} />
+  if (tab === 'payload') {
+    return detail.detail
+      ? <>{detail.detail.text ? <pre className={clsx(css.pre, css.prose)}>{detail.detail.text}</pre> : <p className={css.note}>{t('trajNoText')}</p>}<Truncated detail={detail.detail} field="text" t={t} /></>
+      : <DetailState state={detail} t={t} />
+  }
+  return (
+    <dl className={css.fields}>
+      <Field label={t('trajSource')}>{record.source ?? t('trajNotRecorded')}</Field>
+      <Field label={t('trajPreview')}>{record.truncated ? t('trajPreviewCut', { n: PREVIEW_MAX }) : t('trajPreviewWhole')}</Field>
+    </dl>
+  )
+}
+
+export function RequestBody({ record, tab, detail, t }: {
+  record: Extract<TrajectoryRecord, { kind: 'request' }>, tab: Tab, detail: ReturnType<typeof useDetail>, t: Translate
+}): ReactNode {
+  if (tab === 'timing') return <Timing t={t} start={record.at} />
+  if (tab === 'payload') {
+    return detail.detail
+      ? <>{detail.detail.header ? <pre className={css.pre}>{detail.detail.header}</pre> : <p className={css.note}>{t('trajNoPayload')}</p>}<Truncated detail={detail.detail} field="header" t={t} /></>
+      : <DetailState state={detail} t={t} />
+  }
+  return (
+    <dl className={css.fields}>
+      {record.provider ? <Field label={t('trajRequestProvider')}>{record.provider}</Field> : null}
+      {record.model ? <Field label={t('trajRequestModel')}>{record.model}</Field> : null}
+      <Field label={t('trajRequestTools')}>{record.tools}</Field>
+      {record.reason ? <Field label={t('trajRequestReason')}>{record.reason}</Field> : null}
+    </dl>
+  )
+}
+
+export function UnknownBody({ kind, t }: { kind: string, t: Translate }): ReactNode {
+  return <p className={css.note}>{t('trajUnknownRecord')} ({kind})</p>
+}
+
+function RecordBody({ record, tab, detail, t, onOpen, layerfs, sessionId, onOpenLogs }: {
+  record: TrajectoryRecord, tab: Tab, detail: ReturnType<typeof useDetail>, t: Translate, onOpen: OpenVersion
+  layerfs: boolean, sessionId: string, onOpenLogs?: ((tag: string) => void) | undefined
+}): ReactNode {
+  switch (record.kind) {
+    case 'tool':
+      return <ToolBody record={record} tab={tab} detail={detail} t={t} onOpen={onOpen} layerfs={layerfs} sessionId={sessionId} onOpenLogs={onOpenLogs} />
+    case 'system':
+      return <SystemBody record={record} tab={tab} detail={detail} t={t} />
+    case 'request':
+      return <RequestBody record={record} tab={tab} detail={detail} t={t} />
+    case 'user':
+    case 'context':
+    case 'assistant':
+      return <MessageBody record={record} tab={tab} detail={detail} t={t} />
+    default:
+      return <UnknownBody kind={String((record as { kind?: unknown }).kind ?? 'unknown')} t={t} />
+  }
 }
 
 function CheckpointBody({ checkpoint, tab, t, onOpen, sessionId, onOpenLogs }: {
@@ -203,6 +270,8 @@ function CheckpointBody({ checkpoint, tab, t, onOpen, sessionId, onOpenLogs }: {
 
 const TOOL_TABS: Tab[] = ['summary', 'payload', 'result', 'layerfs', 'timing']
 const MESSAGE_TABS: Tab[] = ['summary', 'timing']
+/** A system or request record: the summary, its full payload and when it was logged. */
+const PARITY_TABS: Tab[] = ['summary', 'payload', 'timing']
 
 export function TrajectoryInspector({ api, sessionId, inspected, tab, onTab, onClose, onOpen, onOpenLogs, cache, t, layerfs = true }: {
   api: LayerfsApi
@@ -222,7 +291,9 @@ export function TrajectoryInspector({ api, sessionId, inspected, tab, onTab, onC
   const record = inspected.kind === 'record' ? inspected.record : null
   const detail = useDetail(api, sessionId, record, cache)
   const uid = useId()
-  const tabs: Tab[] = record ? (record.kind === 'tool' ? (layerfs ? TOOL_TABS : TOOL_TABS.filter((x) => x !== 'layerfs')) : MESSAGE_TABS)
+  const tabs: Tab[] = record
+    ? record.kind === 'tool' ? (layerfs ? TOOL_TABS : TOOL_TABS.filter((x) => x !== 'layerfs'))
+      : record.kind === 'system' || record.kind === 'request' ? PARITY_TABS : MESSAGE_TABS
     : inspected.kind === 'checkpoint' ? (inspected.checkpoint.op ? ['summary', 'layerfs', 'timing'] : MESSAGE_TABS) : ['layerfs']
   const current = tabs.includes(tab) ? tab : tabs[0]!
   const kind = record ? record.kind : inspected.kind === 'checkpoint' ? 'checkpoint' : 'layerfs'
@@ -230,6 +301,8 @@ export function TrajectoryInspector({ api, sessionId, inspected, tab, onTab, onC
     inspected.turn > 0 ? t('trajTurn', { n: inspected.turn }) : t('trajBeforeTurns'),
     record?.step !== undefined ? t('trajStep', { n: record.step }) : null,
     record?.kind === 'tool' ? record.name
+      : record?.kind === 'system' ? record.source ?? t('trajKind_system')
+      : record?.kind === 'request' ? record.model ?? record.provider ?? t('trajKind_request')
       : inspected.kind === 'checkpoint' ? t('trajCheckpoint', { kind: t(`trajCp_${inspected.checkpoint.kind}`) })
       : inspected.kind === 'ops' ? inspected.title : null,
   ].filter(Boolean).join(' · ')
@@ -261,8 +334,7 @@ export function TrajectoryInspector({ api, sessionId, inspected, tab, onTab, onC
         </div>
       ) : null}
       <div id={`${uid}-panel`} role={tabs.length > 1 ? 'tabpanel' : undefined} aria-labelledby={tabs.length > 1 ? tabId(current) : undefined} className={css.inspectorBody}>
-        {record?.kind === 'tool' ? <ToolBody record={record} tab={current} detail={detail} t={t} onOpen={onOpen} layerfs={layerfs} sessionId={sessionId} onOpenLogs={onOpenLogs} />
-          : record ? <MessageBody record={record} tab={current} detail={detail} t={t} />
+        {record ? <RecordBody record={record} tab={current} detail={detail} t={t} onOpen={onOpen} layerfs={layerfs} sessionId={sessionId} onOpenLogs={onOpenLogs} />
           : inspected.kind === 'checkpoint' ? <CheckpointBody checkpoint={inspected.checkpoint} tab={current} t={t} onOpen={onOpen} sessionId={sessionId} onOpenLogs={onOpenLogs} />
           : inspected.kind === 'ops' ? <OpsList ops={inspected.ops} sessionId={sessionId} t={t} onOpen={onOpen} onOpenLogs={onOpenLogs} /> : null}
       </div>

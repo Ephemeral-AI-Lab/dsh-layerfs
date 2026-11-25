@@ -14,13 +14,13 @@ import { StatusDot } from '../ui/StatusDot.tsx'
 import type { LayerfsApi } from '../api.ts'
 import { EmptyState, ErrorState, Loading } from '../files/States.tsx'
 import { useQuery } from '../files/use-query.ts'
-import type { ToolRecord, TraceVersion, TrajectoryAnswer, TrajectoryRecord, TrajectoryTurn } from '../../shared/trajectory.ts'
+import type { RequestRecord, ToolRecord, TraceVersion, TrajectoryAnswer, TrajectoryRecord, TrajectoryTurn } from '../../shared/trajectory.ts'
 import { HISTORY_VIEW, useNoComposer, type ViewProps } from './FileViews.tsx'
 import { useSessionRows } from './hooks.ts'
 import type { Translate } from './locale.ts'
 import { TrajectoryInspector, type DetailCache, type Inspected, type InspectorTab } from './TrajectoryInspector.tsx'
 import { openLogs } from '../logs/request.ts'
-import { clock, durationText, KindCell, OpLine, Versions, type OpenVersion } from './TrajectoryParts.tsx'
+import { clock, durationText, KindCell, OpLine, usageText, Versions, type OpenVersion } from './TrajectoryParts.tsx'
 import { TrajectoryTimeline } from './TrajectoryTimeline.tsx'
 import {
   checkpointVersion, filterTurns, flattenRows, focusTarget, opWrites, recentTurns, recordMatches, ROW_PAGE, SAVES, selectionTurn, timeSpan,
@@ -84,8 +84,14 @@ function inspectedOf(answer: TrajectoryAnswer, key: Selection, t: Translate): In
   return null
 }
 
+/** A request's compact line, in the reader's words: the model route and tool count. */
+export function requestLine(record: Extract<RequestRecord, { kind: 'request' }>, t: Translate): string {
+  const route = record.provider && record.model ? `${record.provider}/${record.model}` : record.model ?? record.provider ?? ''
+  return [route, t('trajRequestToolsCount', { n: record.tools })].filter(Boolean).join(' · ')
+}
+
 /** One record's line: its words, and for a tool call `name summary → result`. */
-function RecordText({ record, t }: { record: TrajectoryRecord, t: Translate }): ReactNode {
+export function RecordText({ record, t }: { record: TrajectoryRecord, t: Translate }): ReactNode {
   if (record.kind === 'tool') {
     const running = record.result === undefined && record.endedAt === undefined
     return (
@@ -99,11 +105,29 @@ function RecordText({ record, t }: { record: TrajectoryRecord, t: Translate }): 
     )
   }
   if (record.kind === 'assistant') {
+    const usage = record.usage ? usageText(t, record.usage) : ''
     return (
       <span className={css.text}>
         {record.text ? <span className={css.plain}>{record.text}</span> : <span className={css.muted}>{t('trajToolCallOnly')}</span>}
         {record.thinking ? <span className={css.badge}>{t('trajThought')}</span> : null}
         {record.interrupted ? <span className={clsx(css.badge, css.warnText)}>{t('trajInterrupted')}</span> : null}
+        {usage ? <span className={css.usage}>{usage}</span> : null}
+      </span>
+    )
+  }
+  if (record.kind === 'system') {
+    return (
+      <span className={css.text}>
+        {record.source ? <span className={css.badge}>{record.source}</span> : null}
+        {record.text ? <span className={css.plain}>{record.text}</span> : <span className={css.muted}>{t('trajNoText')}</span>}
+      </span>
+    )
+  }
+  if (record.kind === 'request') {
+    return (
+      <span className={css.text}>
+        <span className={css.plain}>{requestLine(record, t)}</span>
+        {record.reason ? <span className={css.badge}>{record.reason}</span> : null}
       </span>
     )
   }

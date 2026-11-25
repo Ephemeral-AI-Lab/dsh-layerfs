@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  checkpointVersion, durationParts, filterTurns, flattenRows, focusTarget, laneItems, opCommand, opWrites, place,
+  checkpointVersion, compactNumber, durationParts, filterTurns, flattenRows, focusTarget, laneItems, opCommand, opWrites, place,
   prettyArgs, recentTurns, recordMatches, selectionTurn, shownHostOp, thinLane, timeSpan,
 } from '../src/client/views/trajectory-model.ts'
 
@@ -39,6 +39,18 @@ const turn2 = {
   checkpoints: [],
 }
 const answer = { sessionId: 's', project: 'st/p', branch: 'b1', turns: [turn1, turn2], logLoaded: true, counts: { versionsCreated: 2, callsWithVersions: 1 } }
+
+const parityTurn = {
+  turn: 3, at: T0 + 30_000, endAt: T0 + 30_010,
+  records: [
+    { kind: 'system', seq: 20, turn: 3, step: 1, at: T0 + 30_000, text: 'You are a careful agent', source: 'system-prompt', truncated: true },
+    { kind: 'user', seq: 21, turn: 3, at: T0 + 30_001, source: 'user', text: 'go' },
+    { kind: 'request', seq: 22, turn: 3, step: 1, at: T0 + 30_002, provider: 'deepseek', model: 'deepseek-chat', tools: 3, reason: 'initial', summary: 'deepseek/deepseek-chat · 3 tools' },
+    { kind: 'assistant', seq: 23, turn: 3, step: 1, at: T0 + 30_009, startedAt: T0 + 30_002, text: 'ok', toolCalls: 0, usage: { input: 1200, output: 340 } },
+  ],
+  orphanCalls: [], hostOps: [], checkpoints: [],
+}
+const parityAnswer = { ...answer, turns: [parityTurn] }
 
 test('opWrites: writes and version-naming calls; reads without versions are not', () => {
   assert.equal(opWrites(exec), true)
@@ -186,4 +198,60 @@ test('thinLane: a crowded lane keeps one mark per bin, preferring the selected i
   const few = thinLane(items.slice(0, 50), span, null, 100)
   assert.equal(few.length, 50, 'a lane within the cap is drawn as is')
   assert.ok(few.every((m) => m.more === 0))
+})
+
+
+test('system and request records: search words, lane, rows and the only-writes filter', () => {
+  const [system, user, request] = parityTurn.records
+  assert.equal(recordMatches(system, 'careful'), true)
+  assert.equal(recordMatches(system, 'system-prompt'), true)
+  assert.equal(recordMatches(request, 'deepseek-chat'), true)
+  assert.equal(recordMatches(request, '3 tools'), true)
+  assert.equal(recordMatches(user, 'careful'), false)
+
+  // Only LayerFS writes keeps tool calls only; messages never survive it.
+  assert.deepEqual(filterTurns([parityTurn], { onlyWrites: true, query: '' }), [])
+  const found = filterTurns([parityTurn], { onlyWrites: false, query: 'deepseek' })
+  assert.deepEqual(found.map((t) => t.turn), [3])
+  assert.deepEqual(found[0].records.map((r) => r.seq), [22])
+
+  // Rows: system and request are ordinary records (not context folds).
+  const rows = flattenRows([parityTurn], { turnOpen: () => true, callOpen: () => true, contextOpen: () => false })
+  assert.deepEqual(rows.map((r) => r.type === 'record' ? [r.record.seq, r.record.kind] : r.type), [
+    'turn', [20, 'system'], [21, 'user'], [22, 'request'], [23, 'assistant'],
+  ])
+  assert.ok(!rows.some((r) => r.type === 'contextToggle'), 'system/request are not context messages')
+})
+
+test('system and request stay in the Input lane; assistant usage changes no lane', () => {
+  const items = laneItems([parityTurn], T0 + 40_000)
+  const input = items.filter((i) => i.lane === 'input')
+  assert.deepEqual(input.map((i) => [i.select, i.label]), [
+    ['r:20', 'You are a careful agent'],
+    ['r:21', 'go'],
+    ['r:22', 'deepseek/deepseek-chat · 3 tools'],
+  ])
+  assert.deepEqual(items.filter((i) => i.lane === 'model').map((i) => i.select), ['r:23'])
+  assert.ok(!items.some((i) => i.lane === 'system'), 'no new lane')
+  assert.deepEqual(timeSpan([parityTurn], T0), { start: T0 + 30_000, end: T0 + 31_000 })
+})
+
+test('selection and focus reach system/request records by their seq', () => {
+  assert.equal(focusTarget(parityAnswer, JSON.stringify({ seq: 20 })).record.kind, 'system')
+  assert.equal(focusTarget(parityAnswer, JSON.stringify({ seq: 22 })).record.kind, 'request')
+  assert.equal(selectionTurn(parityAnswer, 'r:20'), 3)
+  assert.equal(selectionTurn(parityAnswer, 'r:22'), 3)
+})
+
+test('compactNumber: whole counts below 1000, one decimal below ten, k and m above', () => {
+  assert.equal(compactNumber(0), '0')
+  assert.equal(compactNumber(340), '340')
+  assert.equal(compactNumber(999), '999')
+  assert.equal(compactNumber(1000), '1k')
+  assert.equal(compactNumber(1200), '1.2k')
+  assert.equal(compactNumber(12_345), '12k')
+  assert.equal(compactNumber(150_000), '150k')
+  assert.equal(compactNumber(1_200_000), '1.2m')
+  assert.equal(compactNumber(2_000_000), '2m')
+  assert.equal(compactNumber(Number.NaN), '—')
 })

@@ -90,6 +90,8 @@ export function recordMatches(record: TrajectoryRecord, q: string): boolean {
   const has = (s: string | undefined) => !!s && s.toLowerCase().includes(q)
   if (record.kind === 'tool') return has(record.name) || has(record.summary) || has(record.result) || has(record.callId) || record.ops.some((op) => has(opCommand(op)))
   if (record.kind === 'user' || record.kind === 'context') return has(record.text) || (record.kind === 'context' && has(record.source))
+  if (record.kind === 'system') return has(record.text) || has(record.source)
+  if (record.kind === 'request') return has(record.summary) || has(record.provider) || has(record.model) || has(record.reason)
   return has(record.text)
 }
 
@@ -166,7 +168,9 @@ export function laneItems(turns: readonly TrajectoryTurn[], now: number): LaneIt
       const select = recordKey(r.seq)
       if (r.at === undefined) continue
       if (r.kind === 'user') items.push({ lane: 'input', key: `r${r.seq}`, select, start: r.at, end: r.at, label: r.text })
-      else if (r.kind === 'assistant') items.push({ lane: 'model', key: `r${r.seq}`, select, start: Math.min(r.startedAt ?? r.at, r.at), end: r.at, label: r.text })
+      else if (r.kind === 'system' || r.kind === 'request') {
+        items.push({ lane: 'input', key: `r${r.seq}`, select, start: r.at, end: r.at, label: r.kind === 'system' ? r.text : r.summary })
+      } else if (r.kind === 'assistant') items.push({ lane: 'model', key: `r${r.seq}`, select, start: Math.min(r.startedAt ?? r.at, r.at), end: r.at, label: r.text })
       else if (r.kind === 'tool') {
         const running = r.endedAt === undefined && r.result === undefined
         const end = r.endedAt ?? (running ? Math.max(now, r.at) : r.at)
@@ -288,6 +292,21 @@ export function durationParts(ms: number): { unit: 'ms', n: number } | { unit: '
   if (v < 60_000) return { unit: 's', n: (v / 1000).toFixed(v < 10_000 ? 1 : 0) }
   const total = Math.round(v / 1000)
   return { unit: 'm', m: Math.floor(total / 60), s: total % 60 }
+}
+
+/** A token count compactly: `999`, `1.2k`, `12k`, `1.2m` (one decimal below ten). */
+export function compactNumber(value: number): string {
+  if (!Number.isFinite(value)) return '—'
+  const n = Math.max(0, Math.round(value))
+  if (n < 1000) return String(n)
+  const trim = (s: string) => s.endsWith('.0') ? s.slice(0, -2) : s
+  if (n < 1_000_000) {
+    const k = n / 1000
+    if (k >= 999.5) return '1m'
+    return `${k < 10 ? trim(k.toFixed(1)) : String(Math.round(k))}k`
+  }
+  const m = n / 1_000_000
+  return `${m < 10 ? trim(m.toFixed(1)) : String(Math.round(m))}m`
 }
 
 /** Arguments pretty-printed when they are JSON, else as sent. */
