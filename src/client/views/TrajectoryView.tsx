@@ -36,6 +36,8 @@ export const TRAJECTORY_VIEW = 'trajectory'
 const RUNNING_POLL_MS = 3000
 /** Events wait this long so a burst reads once. */
 const REFRESH_MS = 1000
+/** Older pages a focus request (Chat's inspect) reads to find a call, then it gives up. */
+const FOCUS_PAGES = 4
 /** Host events after which the trajectory may have changed (`{sessionId}` or none). */
 const EVENTS = ['layerfs-operation', 'layerfs-checkpoint', 'layerfs-session'] as const
 
@@ -407,8 +409,11 @@ export function TrajectoryView(props: ViewProps): ReactNode {
 
   // Chat's "inspect" and `openView('trajectory', callId)`: take the request once, apply it when the call is loaded.
   const [pending, setPending] = useState<{ focus: string, missedOn: TrajectoryAnswer | null } | null>(null)
+  /** Older pages read so far for the pending focus, which bounds a focus that names nothing. */
+  const focusPages = useRef(0)
   useEffect(() => {
     if (!viewRequest || viewRequest.view !== TRAJECTORY_VIEW) return
+    focusPages.current = 0
     setPending({ focus: viewRequest.focus, missedOn: null })
     completeViewRequest?.()
     reload()
@@ -417,7 +422,17 @@ export function TrajectoryView(props: ViewProps): ReactNode {
     if (!pending || !answer) return
     const target = focusTarget(answer, pending.focus)
     if (!target) {
-      // The call may be newer than this answer: wait for the reread asked above, then give up.
+      // The call may be newer than this answer (wait for the reread asked above)
+      // or older than the page: read the next older page, at most FOCUS_PAGES,
+      // then give up.
+      if (answer.hasMore && answer.olderBefore !== undefined) {
+        if (!olderBusy && focusPages.current < FOCUS_PAGES) {
+          focusPages.current++
+          if (pending.missedOn !== answer) setPending({ ...pending, missedOn: answer })
+          loadOlder()
+        }
+        return
+      }
       if (!pending.missedOn) setPending({ ...pending, missedOn: answer })
       else if (pending.missedOn !== answer) setPending(null)
       return
@@ -426,7 +441,7 @@ export function TrajectoryView(props: ViewProps): ReactNode {
     const key = `r:${target.record.seq}` as const
     select(key, 'summary')
     reveal(key, target.record)
-  }, [pending, answer, select, reveal])
+  }, [pending, answer, select, reveal, olderBusy, loadOlder])
 
   // Scroll a revealed row into view once it is rendered (raising the row cap when needed).
   useEffect(() => {

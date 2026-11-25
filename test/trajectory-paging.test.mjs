@@ -64,8 +64,8 @@ function fakeApi(replies) {
     },
   }
 }
-const mount = (api, sessionId) => M.mount(M.TrajectoryView, {
-  api, sessionId, t, sessions, hideComposer: () => () => {},
+const mount = (api, sessionId, extra = {}) => M.mount(M.TrajectoryView, {
+  api, sessionId, t, sessions, hideComposer: () => () => {}, ...extra,
 })
 const byLabel = (tree, label) => M.elements(tree).find((e) => typeof e.props?.onClick === 'function' && M.text(e).includes(label))
 /** The record rows the table would render (mini-react does not call TableRow, so read its props). */
@@ -144,5 +144,26 @@ test('a reconnect reads whole, without the revision it holds', async () => {
   assert.equal(ctx.calls.length, 2, 'the reconnect scheduled one read')
   assert.equal(ctx.calls[1].args.since, undefined, 'the feed may have missed events: read everything')
   assert.deepEqual(recordedTexts(tree), ['after reconnect'])
+  view.unmount()
+})
+
+test('Chat\'s inspect reads older pages until it finds the call', async () => {
+  const sessionId = 'session-paging-focus'
+  const tool = { kind: 'tool', seq: 5, turn: 1, at: 1005, callId: 'call-old', name: 'bash', summary: 'layerfs file list', ops: [] }
+  const first = answerOf(sessionId, 'r1', [turn(3, [record(30, 3, 'newest turn')])], { recordTotal: 2, hasMore: true, olderBefore: 10 })
+  const older = answerOf(sessionId, 'r1', [turn(1, [tool])], { recordTotal: 2 })
+  const ctx = fakeApi([(args) => args.before === 10 ? older : first])
+
+  const view = mount(ctx.api, sessionId, {
+    viewRequest: { view: 'trajectory', focus: 'call-old' },
+    completeViewRequest: () => {},
+  })
+  // Each render's effect starts the next read or selects the row: let the
+  // page land, then let the selection render.
+  await view.settle(); await view.settle(); const tree = await view.settle()
+  assert.ok(ctx.calls.some((call) => call.args.before === 10), 'the older page was read')
+  assert.deepEqual(recordRows(tree).map((record) => record.seq), [5, 30], 'the older call is on screen, under the newest turn')
+  const row = M.elements(tree).find((e) => e.props?.row?.record?.seq === 5)
+  assert.equal(row?.props.h.selected, 'r:5', 'the inspector opens on the found call')
   view.unmount()
 })
