@@ -699,8 +699,6 @@ export class LayerfsSessions extends Service {
     await this.lane(sessionId, async () => {
       try {
         await this.validateExecutionIdentity(sessionId)
-        const preparing = this.binding(sessionId)
-        if (preparing?.kind === 'project') this.save({ ...preparing, executionState: 'activating' })
         if (this.isSimulationManaged(sessionId)) return await this.bindSimulation(agent, place)
         if (place.kind === 'shared') return await this.bindShared(agent, place.parent, place.anchor, strict)
         await this.hostOperation(sessionId, place.project, undefined, () => this.bindProject(agent, place.project, place.anchor, source))
@@ -904,6 +902,17 @@ export class LayerfsSessions extends Service {
     const selected = this.selectedScratch(agent, anchor, existing)
     const { scratch } = selected
     await persistence?.migrateProject?.(agent.session, project)
+    // The row says Starting while the Sandbox is made and its Workspace mounted.
+    // This binding is replaced by the same one saved Active below; a failure
+    // leaves it Interrupted (bindAgent's catch), never stuck starting. A normal
+    // step on a live session returns from ensureBound before reaching this.
+    const usable = existing?.state === 'bound' && !!existing.ws && (!existing.mount || existsSync(existing.mount))
+    if (!usable) {
+      this.save({
+        ...(existing ?? { sessionId, kind: 'project', project, anchor, ...selected, state: 'closed', createdAt: Date.now(), updatedAt: Date.now() }),
+        executionState: 'activating',
+      })
+    }
     let binding: Binding
     let forkReceipt: string | undefined
     if (existing?.branch && existing.sandbox) {

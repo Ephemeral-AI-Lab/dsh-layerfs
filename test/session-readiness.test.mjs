@@ -83,6 +83,9 @@ test('an interrupted execution says why and offers Open', () => {
 
 test('starting, active and not started are one word each, with no reason and no action', () => {
   assert.deepEqual(sessionReadiness(session({ executionState: 'activating' }), canRun(), 'demo', en), { key: 'starting', word: 'Starting' })
+  // A session being bound is starting, not "not started", even while its placement is still pending.
+  assert.deepEqual(sessionReadiness(session({ state: 'pending', executionState: 'activating' }), canRun(), 'demo', en), { key: 'starting', word: 'Starting' })
+  assert.deepEqual(sessionReadiness(session({ state: 'closed', executionState: 'activating' }), canRun(), 'demo', en), { key: 'starting', word: 'Starting' })
   assert.deepEqual(sessionReadiness(session({ executionState: 'active' }), canRun(), 'demo', en), { key: 'active', word: 'Active' })
   for (const s of [
     session({ state: 'pending' }),
@@ -106,6 +109,7 @@ test('every word and reason resolves in en and zh', () => {
   assert.equal(stored.reason, listLocales.zh.storedWhy)
   assert.deepEqual(stored.action, { label: '打开', kind: 'open' })
   assert.equal(sessionReadiness(session({ executionState: 'activating' }), canRun(), 'demo', zh).word, '正在启动')
+  assert.equal(sessionReadiness(session({ state: 'pending', executionState: 'activating' }), canRun(), 'demo', zh).word, '正在启动')
   assert.equal(sessionReadiness(session({ executionState: 'active' }), canRun(), 'demo', zh).word, '活动中')
   assert.equal(sessionReadiness(session({ executionState: 'inactive' }), canRun(), 'demo', zh).word, '未开始')
   for (const k of ['active', 'sessionStarting', 'notStarted', 'storedElsewhere', 'storedWhy', 'unavailableWhy', 'open']) {

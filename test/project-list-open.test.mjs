@@ -150,6 +150,21 @@ test('an unavailable row says why, cannot open itself and has no Start action; A
   assert.deepEqual(archived, ['archive'])
 })
 
+test('a session being bound says Starting, with no reason, and its row can still open', () => {
+  const starting = { sessionId: 'start-1', title: 'Chat', local: true, updatedAt: 1, state: 'pending', executionState: 'activating' }
+  const readiness = M.sessionReadiness(starting, availability(), 'demo', t)
+  const view = M.mount(M.SessionLine, {
+    session: starting, title: 'Chat', selected: false, t, readiness,
+    onOpen: () => {}, onArchive: async () => null,
+  })
+  const tree = view.tree
+  assert.equal(find(tree, (p) => p['data-session-state'] === 'starting').length, 1, 'the word is beside the title')
+  assert.match(M.text(tree), /Starting/)
+  assert.equal(find(tree, (p) => 'data-session-reason' in p).length, 0, 'nothing more to say while it starts')
+  assert.equal(actionButtons(tree).length, 0, 'no readiness action button')
+  assert.ok(!rowButton(tree, 'start-1').props.disabled, 'the row is not disabled: the composer is DSH\'s')
+})
+
 test('a blocked row whose Store failure names it states the reason in words, with no Open Store action', () => {
   const local = { sessionId: 'local-2', title: 'Chat', local: true, updatedAt: 1, state: 'local', executionState: 'inactive' }
   const store = { name: 'pg', kind: 'postgresql', state: 'broken', reason: 'missing', message: 'Store pg names no saved login', connectedFrom: [] }

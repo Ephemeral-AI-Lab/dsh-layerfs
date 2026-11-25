@@ -58,6 +58,15 @@ function sessions({ state = S.initialState(), lfs = {}, layerfsRoot = '/lfs-root
 const session = (id, header, events = []) => ({ id, header: { id, ...header }, snapshotEvents: () => events })
 const ran = [{ type: 'turn/start', data: { turn: 1 } }]
 
+/** The `layerfs-session` events fired, each with the execution state saved when it fired. */
+function sessionSaves(s, state) {
+  const saves = []
+  s.ctx.layerfs.emit = (type, data) => {
+    if (type === 'layerfs-session') saves.push({ sessionId: data.sessionId, executionState: state().sessions[data.sessionId]?.executionState })
+  }
+  return saves
+}
+
 test('placeOf: only recorded legacy project anchors bind; folder paths do not create ownership', () => {
   const state = S.initialState()
   state.projects['st/app'] = { project: 'st/app', anchor: '/lfs-root/projects/st/app', workspaceId: 'legacy-workspace' }
@@ -426,6 +435,102 @@ test('ensureBound binds a remote project: Sandbox on its machine, working direct
   assert.equal(appended.find(([type]) => type === 'working-directory/change'), undefined)
   assert.deepEqual(selected, ['layerfs'], 'the session is recomposed under the layerfs preset')
   rmSync(s.ctx.layerfs.root, { recursive: true, force: true })
+})
+
+// Issue #185: a project session's first message may spend seconds making its
+// Sandbox and mounting the Workspace, and the row used to look idle throughout.
+test('a first bind says Starting while its Workspace mounts, then active', async () => {
+  let atMount, releaseMount
+  const mounting = new Promise((resolve) => { atMount = resolve })
+  const gate = new Promise((resolve) => { releaseMount = resolve })
+  const lfs = {
+    project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'native', state: 'ready' }) },
+    branch: { fork: async () => ({ commit: 'f'.repeat(66) }) },
+    sandbox: {
+      get: async () => { throw new Refusal('NotFound') },
+      create: async () => ({ ok: true }),
+    },
+    workspace: {
+      mount: async (sandbox, _branch, options) => {
+        atMount()
+        await gate
+        return { path: '/host/mount', workspace: `${sandbox}:${options.name}`, commit: 'base-1' }
+      },
+    },
+  }
+  const { s, state } = sessions({ lfs, layerfsRoot: mkdtempSync(join(tmpdir(), 'dsh-root-')) })
+  try {
+    const saves = sessionSaves(s, state)
+    s.ctx.workingDirectory = { get: () => s.ctx.layerfs.root, set: async () => {} }
+    state().pending.n1 = { project: 'st/app' }
+    const agent = { id: 'n1', session: { ...session('n1', { cwd: join(s.ctx.layerfs.root, 'projects', 'st', 'app') }), seq: 0, append: () => {} } }
+    const step = s.ensureBound(agent)
+    await mounting
+    const starting = state().sessions.n1
+    assert.equal(starting.executionState, 'activating', 'the row says Starting while the mount runs')
+    assert.equal(starting.state, 'closed', 'it is not bound yet')
+    assert.equal(starting.project, 'st/app')
+    assert.deepEqual(saves, [{ sessionId: 'n1', executionState: 'activating' }], 'one session event for the start')
+    releaseMount()
+    await step
+    assert.equal(state().sessions.n1.executionState, 'active')
+    assert.equal(state().sessions.n1.state, 'bound')
+    assert.deepEqual(saves, [{ sessionId: 'n1', executionState: 'activating' }, { sessionId: 'n1', executionState: 'active' }], 'then one for active')
+  } finally { rmSync(s.ctx.layerfs.root, { recursive: true, force: true }) }
+})
+
+test('a failed mount leaves no Starting session: it ends interrupted with the error', async () => {
+  let during
+  const lfs = {
+    project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'native', state: 'ready' }) },
+    branch: { fork: async () => ({ commit: 'f'.repeat(66) }) },
+    sandbox: {
+      get: async () => { throw new Refusal('NotFound') },
+      create: async () => ({ ok: true }),
+    },
+    workspace: { mount: async () => { during = { ...state().sessions.n1 }; throw new Refusal('Unavailable', 'worker gone') } },
+  }
+  const { s, state } = sessions({ lfs, layerfsRoot: mkdtempSync(join(tmpdir(), 'dsh-root-')) })
+  try {
+    const saves = sessionSaves(s, state)
+    s.ctx.workingDirectory = { get: () => s.ctx.layerfs.root, set: async () => {} }
+    state().pending.n1 = { project: 'st/app' }
+    const agent = { id: 'n1', session: { ...session('n1', { cwd: join(s.ctx.layerfs.root, 'projects', 'st', 'app') }), seq: 0, append: () => {} } }
+    await assert.rejects(s.ensureBound(agent), (e) => e.code === 'Unavailable' && /worker gone/.test(e.message))
+    assert.equal(during.executionState, 'activating', 'it was starting during the mount')
+    const failed = state().sessions.n1
+    assert.equal(failed.executionState, 'interrupted', 'no stuck Starting')
+    assert.equal(failed.state, 'failed')
+    assert.match(failed.error, /worker gone/)
+    assert.equal(failed.ws, undefined, 'no Workspace is claimed')
+    assert.deepEqual(saves, [{ sessionId: 'n1', executionState: 'activating' }, { sessionId: 'n1', executionState: 'interrupted' }])
+  } finally { rmSync(s.ctx.layerfs.root, { recursive: true, force: true }) }
+})
+
+test('a normal step on a bound, usable session does not show Starting', async () => {
+  const state = S.initialState()
+  state.sessions.live = { sessionId: 'live', kind: 'project', project: 'st/app', anchor: '/a', scratch: '/s', branch: 'dsh.live', sandbox: 'dsh-live', ws: 'dsh-live:main', state: 'bound', executionState: 'active', createdAt: 0, updatedAt: 0 }
+  const { s, state: now } = sessions({ state })
+  const saves = sessionSaves(s, now)
+  const agent = { id: 'live', session: { ...session('live', { cwd: '/scratch' }), seq: 0, append: () => {} } }
+  await s.ensureBound(agent)
+  await s.ensureBound(agent)
+  assert.deepEqual(saves, [], 'no save and no Starting flash')
+  assert.equal(now().sessions.live.executionState, 'active')
+})
+
+test('a subagent follows its root and never shows a Starting state of its own', async () => {
+  const state = S.initialState()
+  state.sessions.owner = { sessionId: 'owner', kind: 'project', project: 'st/app', anchor: '/a', scratch: '/s', branch: 'dsh.owner', sandbox: 'dsh-owner', ws: 'dsh-owner:main', mount: '/m', state: 'bound', executionState: 'active', createdAt: 0, updatedAt: 0 }
+  const { s, state: now } = sessions({ state })
+  const saves = sessionSaves(s, now)
+  s.ctx.workingDirectory = { get: () => '/s', set: async () => {} }
+  const child = { id: 'kid', session: { id: 'kid', header: { id: 'kid', cwd: '/a', origin: 'subagent', parentSession: 'owner' }, snapshotEvents: () => [] } }
+  await s.ensureBound(child)
+  assert.equal(now().sessions.kid.kind, 'shared')
+  assert.equal(now().sessions.kid.state, 'bound')
+  assert.equal(now().sessions.kid.executionState, 'active')
+  assert.deepEqual(saves, [{ sessionId: 'kid', executionState: 'active' }], 'one Active save, never Starting')
 })
 
 test('ensureBound runs a PostgreSQL project where the session picked, else its last machine, else one its database was reached from, else native; never a broken or stopped one (spec v23)', async () => {
