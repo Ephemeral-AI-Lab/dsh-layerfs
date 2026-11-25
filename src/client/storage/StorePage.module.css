@@ -802,3 +802,10 @@
   .partsLegend { grid-template-columns: minmax(0, 1fr); }
 }
 
+
+/* A Store that could not be read: the dot and its word (StoreUnreadSignal). */
+.unreadWord {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

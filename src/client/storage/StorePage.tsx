@@ -27,7 +27,7 @@ import { PgMachinesPanel } from './PgPanels.tsx'
 import { StoreOverview } from './StoreOverview.tsx'
 import { StoreProjects } from './StoreProjects.tsx'
 import type { TabId } from './tabs.ts'
-import { runningByProject, stillCounting, storeTabs, type StoreProjectsView, type StoreStats, type StoreTab } from './store-page.ts'
+import { runningByProject, stillCounting, storeTabs, storeUnread, type StoreProjectsView, type StoreStats, type StoreTab } from './store-page.ts'
 import type { ProjectSummary, StorageJob, StorageView, StoreRow } from './types.ts'
 import css from './Storage.module.css'
 import tabCss from './StorePage.module.css'
@@ -96,11 +96,14 @@ export function StorePage({ refreshKey = 0, name, view, t, api, doctorT, now, jo
     backups: `${t('backupsSection')} ${s.links.length}`,
     machines: `${t('spTabMachines')} ${(s.attached ?? []).length}`,
   }
+  // a Store of an older format, as its stats read found it (its records still say ready)
+  const outdated = !stats.data && storeUnread(stats.error)?.outdated
   const check = () => { if (checking) return; setChecking(true); void Promise.resolve(on.check()).finally(() => setChecking(false)) }
   return (
     <>
       <PageHead title={s.name} icon={<StoreGlyph kind={s.kind} size={22} />}
-        badge={s.state !== 'ready' ? <StateChip tone={storeTone(s.state, s.blockedBy)} label={stoppedBlock(s) ? t('stateMachineStopped') : storeStateWords(s.state, t)} live={s.state === 'busy'} /> : undefined}
+        badge={s.state !== 'ready' ? <StateChip tone={storeTone(s.state, s.blockedBy)} label={stoppedBlock(s) ? t('stateMachineStopped') : storeStateWords(s.state, t)} live={s.state === 'busy'} />
+          : outdated ? <StateChip tone="danger" label={t('spOutdated')} /> : undefined}
         intro={(
           <span className={css.cardSub}>
             <span>{pg ? t('postgresql') : t('sqlite')}</span>
@@ -133,7 +136,7 @@ export function StorePage({ refreshKey = 0, name, view, t, api, doctorT, now, jo
 
       <div className={tabCss.panelArea} role="tabpanel" id={`${ids}-${tab}-panel`} aria-labelledby={`${ids}-${tab}`}>
         {tab === 'projects' ? (
-          <StoreProjects api={api} store={{ name: s.name, kind: s.kind, state: s.state }} names={s.projects} projects={projects.data?.projects} stored={typeof stats.data?.stored_bytes === 'number' ? stats.data.stored_bytes : null}
+          <StoreProjects api={api} store={{ name: s.name, kind: s.kind, state: s.state }} names={s.projects} projects={projects.data?.projects} stored={typeof stats.data?.stored_bytes === 'number' ? stats.data.stored_bytes : null} unread={!stats.data && !!stats.error}
             stores={view.stores} fleet={machines.data?.available ? machines.data : null} t={t} now={now} tick={tick}
             canAdd={canAddProject(s) && !runningJob} addDisabledReason={addDisabledReason} onAdd={on.addProject} onOpen={(id) => (onOpen ? onOpen(id) : id.startsWith('project:') ? onOpenProject(id.slice('project:'.length)) : undefined)} />
         ) : tab === 'machines' ? (

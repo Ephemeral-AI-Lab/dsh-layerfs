@@ -101,3 +101,17 @@ test('commit totals say whether every ledger finished, and the file figure marks
   assert.equal(P.filesNumber({ files: null, complete: true }), null)
   assert.equal(P.filesNumber(null), null)
 })
+
+test('a refused Store read: an older-format Store is outdated with LayerFS’s sentence alone, anything else keeps its message', () => {
+  const said = 'SQLite Store schema version 2 (before each Commit recorded its attempt, #776): not supported by this release and not migrated; create a new Store'
+  // LayerFS with #776's code: `Unsupported`, raised `OldStore`, with its fix
+  assert.deepEqual(P.storeUnread({ code: 'Unsupported', message: said, detail: { code: 'OldStore' }, fix: 'layerfs store remove hh' }),
+    { outdated: true, message: said, fix: 'layerfs store remove hh' })
+  // a build before it: `Failed`, the sentence inside the open error's Debug text
+  const raw = `Store open: physical Store I/O: pack persistence: Refused { status: "${said}" }`
+  assert.deepEqual(P.storeUnread({ code: 'Failed', message: raw, detail: null }), { outdated: true, message: said, fix: null })
+  const pg = 'PostgreSQL Store schema version 2 (before 2.0\'s ancestor lists and pack directories, #758): not supported by this release and not migrated; create a new Store'
+  assert.equal(P.storeUnread({ code: 'Failed', message: `Store open: ${pg}` }).message, pg)
+  assert.deepEqual(P.storeUnread({ code: 'Busy', message: 'held', fix: 'layerfs store doctor s' }), { outdated: false, message: 'held', fix: 'layerfs store doctor s' })
+  assert.equal(P.storeUnread(undefined), null)
+})

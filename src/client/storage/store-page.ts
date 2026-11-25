@@ -169,6 +169,33 @@ export function commitTotalWords(c: { commits: number, complete: boolean, refuse
   return { key: 'spCommitsCounting', n }
 }
 
+/**
+ * The sentence LayerFS refuses a Store of an older format with (#776): a
+ * SQLite Store of schema version 2, a PostgreSQL Store of 2 or 3.
+ */
+const OLD_FORMAT = /(?:SQLite|PostgreSQL) Store schema version \d+ \([^)]*\): not supported by this release and not migrated; create a new Store/
+
+/** Why a Store could not be read: `outdated` for one of an older format, LayerFS's sentence, its fix line. */
+export interface StoreUnread { outdated: boolean, message: string, fix: string | null }
+
+/**
+ * A refused Store read (its stats) in the page's terms, null when there is
+ * none. LayerFS answers an older-format Store `OldStore` (public
+ * `Unsupported`, `detail.code`) with its version sentence and fix; a build
+ * before that answers `Failed` with the sentence inside its open error's
+ * text, which is read out of it, so no nested error text reaches a card.
+ */
+export function storeUnread(error: unknown): StoreUnread | null {
+  if (!error) return null
+  const e = (typeof error === 'object' ? error : {}) as { message?: unknown, detail?: unknown, fix?: unknown }
+  const message = typeof e.message === 'string' ? e.message : error instanceof Error ? error.message : String(error)
+  const detail = e.detail && typeof e.detail === 'object' ? e.detail as { code?: unknown } : null
+  const fix = typeof e.fix === 'string' && e.fix ? e.fix : null
+  const said = OLD_FORMAT.exec(message)?.[0]
+  if (said || detail?.code === 'OldStore') return { outdated: true, message: said ?? message, fix }
+  return { outdated: false, message, fix }
+}
+
 /** Whether a ledger is still being read (and the answer worth asking again): partial or building, not refused. */
 export const stillCounting = (p: StoreProject): boolean => (p.partial || p.building !== null) && !(p.error && !p.building)
 

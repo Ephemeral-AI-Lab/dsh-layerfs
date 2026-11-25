@@ -28,6 +28,8 @@ export interface StoreProjectsProps {
   projects: readonly StoreProject[] | undefined
   /** The Store's stored bytes (store.stats): a row's bar is its share of them. */
   stored: number | null
+  /** The Store could not be read (its stats were refused): no Commit total is claimed. */
+  unread?: boolean | undefined
   /** Every Store, to tell a bare project name in a Sandbox apart (HomeCards sandboxesOfProject). */
   stores: readonly StoreRow[]
   fleet: AvailableView | null
@@ -41,7 +43,7 @@ export interface StoreProjectsProps {
   onOpen: (id: TabId) => void
 }
 
-export function StoreProjects({ api, store, names, projects, stored, stores, fleet, t, now, tick, canAdd, addDisabledReason, onAdd, onOpen }: StoreProjectsProps): ReactNode {
+export function StoreProjects({ api, store, names, projects, stored, unread = false, stores, fleet, t, now, tick, canAdd, addDisabledReason, onAdd, onOpen }: StoreProjectsProps): ReactNode {
   const [query, setQuery] = useState('')
   const [order, setOrder] = useState<ProjectOrder>('session')
   // Until the host answers, a row per name with no figures.
@@ -58,7 +60,8 @@ export function StoreProjects({ api, store, names, projects, stored, stores, fle
   const runningAll = names.reduce((a, n) => a + boxesOf(n).filter(sandboxRuns).length, 0)
   const commits = commitTotal(rows)
   const summary = [
-    projects ? t(commitTotalWords(commits).key, { n: commitTotalWords(commits).n }) : null,
+    unread && !commits.commits ? t('spCommitsUnread')
+      : projects ? t(commitTotalWords(commits).key, { n: commitTotalWords(commits).n }) : null,
     stored && stored > 0 ? bytes(stored) : null,
     runningAll ? t('spRunningN', { n: String(runningAll) }) : null,
   ].filter(Boolean).join(' · ')

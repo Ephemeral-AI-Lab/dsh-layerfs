@@ -5,18 +5,21 @@
  * projects wrote it, its health, and its details with removal folded at the
  * bottom. No activity feed: a job in flight is the page's own panel.
  */
-import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useContext, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { IconChevronRightOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import { ago, bytes, when } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { useQuery } from '../ui/use-query.ts'
-import { Card, DangerButton, Fact, Facts, refusalOf } from '../ui/index.tsx'
+import { Card, DangerButton, Fact, Facts, FixAction, FixContext, resolveFix } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
 import { backupChip, overviewMachineHealth, pgStoreBytes } from './model.ts'
+import { refusalLabels } from './parts.tsx'
+import { Signal } from './Signal.tsx'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import { PgConnectionCard } from './PgPanels.tsx'
 import { latestBackupCopy, overviewBackupHealth, storeBackups } from './store-backups.ts'
-import { commitTotal, commitTotalWords, compressionOf, fileParts, growthRuns, projectShares, type ObservationJournal, type StoreProject, type StoreStats } from './store-page.ts'
+import { commitTotal, commitTotalWords, compressionOf, fileParts, growthRuns, projectShares, storeUnread, type ObservationJournal, type StoreProject, type StoreStats, type StoreUnread } from './store-page.ts'
 import { hostStatus, listWords, pgSummary, REACH_LABEL, type ReachStatus } from './store-rows.ts'
 import type { StorageView, StoreRow } from './types.ts'
 import css from './StorePage.module.css'
@@ -49,6 +52,10 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
   const journal = useQuery(() => api.call<ObservationJournal>('GET', `/api/stores/${enc(s.name)}/observations`), [api, s.name], { refresh: [stats], cache: `store-observations:${s.name}` })
   const sandboxes = [...running.values()].reduce((a, n) => a + n, 0)
   const commits = projects ? commitTotal(projects) : null
+  // a Store whose read was refused (an older format, say) claims no counts
+  const unread = stats ? null : storeUnread(statsError)
+  const commitsSub = unread && (unread.outdated || !commits?.commits) ? t('spCommitsUnread')
+    : commits ? t(commitTotalWords(commits).key, { n: commitTotalWords(commits).n }) : undefined
   const backups = pg ? [] : storeBackups(s, view.buckets)
   const latestCopy = latestBackupCopy(backups)
   const bh = overviewBackupHealth(backups)
@@ -72,7 +79,7 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
           <Tile label={t('spDatabaseFile')} value={s.size ? bytes(s.size.bytes) : t('sizeUnavailable')} sub={s.size?.stale && s.size.seen ? t('msSizeSeen', { when: ago(s.size.seen, now, tt) }) : undefined} />
         )}
         <Tile label={t('tabProjects')} value={String(s.projectsCount ?? s.projects.length)} onOpen={() => onTab('projects')}
-          sub={commits ? t(commitTotalWords(commits).key, { n: commitTotalWords(commits).n }) : undefined} />
+          sub={commitsSub} />
         <Tile label={t('spRunning')} value={t(sandboxes === 1 ? 'spSandboxOne' : 'spSandboxes', { n: String(sandboxes) })} />
         {pg ? (
           <Tile label={t('rowRunsOn')} value={t((s.attached ?? []).length === 1 ? 'spMachineOne' : 'spMachines', { n: String((s.attached ?? []).length) })} onOpen={() => onTab('machines')}
@@ -84,12 +91,12 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
       </div>
 
       {pg && onEditConnection ? <PgConnectionCard s={s} t={t} now={now} checking={checking} onEdit={onEditConnection} /> : null}
-      <FileCard stats={stats} error={stats ? undefined : statsError} pg={pg} t={t} />
+      <FileCard stats={stats} unread={unread} pg={pg} t={t} onRemove={onRemove} />
       {/* The host journals a read only when store.stats names the Store's identity
           (store_id, store_generation); a build without it records nothing, so no card. */}
       {growthRuns(journal.data).length ? <GrowthCard journal={journal.data} t={t} now={now} /> : null}
-      <WhoWroteCard projects={projects} stats={stats} t={t} />
-      <HealthCard store={s} view={view} t={t} now={now} stats={stats} machineState={machineState} checking={checking} />
+      <WhoWroteCard projects={projects} stats={stats} unread={unread} pg={pg} t={t} />
+      <HealthCard store={s} view={view} t={t} now={now} stats={stats} unread={unread} machineState={machineState} checking={checking} />
 
       <details className={storageCss.storeDetails}>
         <summary className={storageCss.storeDetailsSummary}>
@@ -130,8 +137,34 @@ function Tile({ label, value, sub, onOpen, tone, title }: { label: string, value
     : <div className={css.tile}>{body}</div>
 }
 
+/**
+ * A Store that could not be read: its word (Outdated for an older format,
+ * else Not read) with LayerFS's sentence as the tip, and one action: an
+ * outdated Store's fix (`store remove`, or `store disconnect` for a
+ * PostgreSQL one) as the page's own Remove… or Disconnect…, else its fix
+ * line where the page can run it. No nested error text on the card.
+ */
+export function StoreUnreadSignal({ unread, pg, t, onRemove }: { unread: StoreUnread, pg: boolean, t: StorageT, onRemove?: (() => void) | undefined }): ReactNode {
+  const fixes = useContext(FixContext)
+  const resolved = unread.outdated ? null : resolveFix(fixes, unread.fix)
+  const line = resolved?.line || null
+  const fix = fixes ? resolved?.fix ?? null : null
+  const word = unread.outdated ? t('spOutdated') : t('spUnread')
+  const action = unread.outdated
+    ? (onRemove ? <DangerButton appearance="outline" size="sm" onClick={onRemove}>{pg ? t('disconnect') : t('remove')}</DangerButton> : undefined)
+    : fix && fixes && line ? <FixAction line={line} fix={fix} runner={fixes} labels={refusalLabels(t)} /> : undefined
+  return (
+    <span data-store-unread={unread.outdated ? 'outdated' : 'refused'}>
+      <Signal state={unread.outdated ? 'error' : 'warning'} title={word} label={`${word}: ${unread.message}`}
+        anchorText={<span className={css.unreadWord}><StatusDot state={unread.outdated ? 'error' : 'warning'} size={8} />{word}</span>}
+        detail={<>{unread.message}{line && !fix ? <><br /><code>{fixes ? fixes.tip(line) : line}</code></> : null}</>}
+        action={action} />
+    </span>
+  )
+}
+
 /** The database file's pages by part, and unique content over its packed bytes. */
-function FileCard({ stats, error, pg, t }: { stats: StoreStats | undefined, error: unknown, pg: boolean, t: StorageT }): ReactNode {
+function FileCard({ stats, unread, pg, t, onRemove }: { stats: StoreStats | undefined, unread: StoreUnread | null, pg: boolean, t: StorageT, onRemove: () => void }): ReactNode {
   const [hovered, setHovered] = useState<string | null>(null)
   const barId = useId()
   const barRef = useRef<HTMLDivElement>(null)
@@ -231,7 +264,8 @@ function FileCard({ stats, error, pg, t }: { stats: StoreStats | undefined, erro
             </p>
           ) : null}
         </>
-      ) : <p className={css.muted}>{stats ? t('spFileUnknown') : error ? t('spNotRead', { message: refusalOf(error).message }) : t('spReading')}</p>}
+      ) : unread ? <StoreUnreadSignal unread={unread} pg={pg} t={t} onRemove={onRemove} />
+        : <p className={css.muted}>{stats ? t('spFileUnknown') : t('spReading')}</p>}
     </Card>
   )
 }
@@ -278,7 +312,7 @@ function GrowthCard({ journal, t, now }: { journal: ObservationJournal | undefin
 }
 
 /** Include bytes from before commit accounting so the shares add up to the stored content. */
-function WhoWroteCard({ projects, stats, t }: { projects: readonly StoreProject[] | undefined, stats: StoreStats | undefined, t: StorageT }): ReactNode {
+function WhoWroteCard({ projects, stats, unread, pg, t }: { projects: readonly StoreProject[] | undefined, stats: StoreStats | undefined, unread: StoreUnread | null, pg: boolean, t: StorageT }): ReactNode {
   const shares = projects ? projectShares(projects) : []
   const counted = shares.reduce((a, p) => a + p.bytes, 0)
   const stored = typeof stats?.stored_bytes === 'number' ? stats.stored_bytes : null
@@ -303,7 +337,9 @@ function WhoWroteCard({ projects, stats, t }: { projects: readonly StoreProject[
             </li>
           ) : null}
         </ul>
-      ) : <p className={css.muted}>{!projects ? t('spReading') : refused ? t('spNotRead', { message: refused }) : t('spSharesNone')}</p>}
+      ) : unread ? <StoreUnreadSignal unread={unread} pg={pg} t={t} />
+        : refused ? <StoreUnreadSignal unread={storeUnread({ message: refused })!} pg={pg} t={t} />
+          : <p className={css.muted}>{!projects ? t('spReading') : t('spSharesNone')}</p>}
     </Card>
   )
 }
@@ -312,9 +348,11 @@ type HealthTone = 'ok' | 'warning' | 'danger' | 'info'
 
 const healthTone = (tone: ReachStatus['tone']): HealthTone => (tone === 'ok' ? 'ok' : tone === 'danger' ? 'danger' : tone === 'warning' ? 'warning' : 'info')
 
-function HealthCard({ store: s, view, t, now, stats, machineState, checking }: { store: StoreRow, view: StorageView, t: StorageT, now: number, stats: StoreStats | undefined, machineState: string | null | undefined, checking: boolean }): ReactNode {
+function HealthCard({ store: s, view, t, now, stats, unread, machineState, checking }: { store: StoreRow, view: StorageView, t: StorageT, now: number, stats: StoreStats | undefined, unread: StoreUnread | null, machineState: string | null | undefined, checking: boolean }): ReactNode {
   const tt = t as Translate
   const rows: { key: string, tone: HealthTone, label: string, text: string }[] = []
+  // a Store that could not be read says so first: its file (or database) and the word
+  if (unread) rows.push({ key: 'store', tone: unread.outdated ? 'danger' : 'warning', label: s.kind === 'postgresql' ? t('spDatabasePg') : t('spDatabaseFile'), text: unread.outdated ? t('spOutdated') : t('spUnread') })
   if (s.kind === 'postgresql') {
     // the connection as this computer last saw it, then the attached machines' last checks
     const host = hostStatus(s, checking)
