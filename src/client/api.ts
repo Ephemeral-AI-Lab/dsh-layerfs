@@ -63,6 +63,13 @@ export interface Navigator {
   openPanel(id: string): void
   openWorkspace(workspaceId: string): Promise<void>
   openSession(sessionId: string): void
+  /**
+   * Whether DSH's client catalog already lists this session. `openSession` on an
+   * id the catalog does not have throws `sessions.retain: unknown session <id>`:
+   * the host can open a session that its own list has not announced yet (a closed
+   * project session, a just-imported one), so navigation waits for the catalog.
+   */
+  knowsSession?(sessionId: string): boolean
 }
 
 /** Encode one path segment. */
@@ -160,13 +167,23 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
     const off = subscribe('connection', (e) => { if (e.data?.connected) done() })
   })
 
+  /** Open a session once DSH's client catalog lists it (a short wait, then give up silently). */
+  async function reveal(sessionId: string): Promise<void> {
+    const known = () => nav.knowsSession ? nav.knowsSession(sessionId) : true
+    for (let i = 0; i < 10 && !known(); i++) await new Promise((resolve) => setTimeout(resolve, 100))
+    if (known()) nav.openSession(sessionId)
+  }
+
   async function op<T>(name: string, args?: unknown, timeout?: number): Promise<T> {
     const r: RemoteResult = await send(name, args, timeout)
     if (!r.ok) fail(r)
     const value = (r as { value: any }).value
     // A host answer may ask the client to navigate (e.g. open the new session).
+    // Wait briefly for DSH's catalog to list it: opening an id the catalog has not
+    // announced yet is refused by the client (`sessions.retain: unknown session`),
+    // which surfaced at the row that asked for the open.
     const go = value && typeof value === 'object' ? value.navigate : undefined
-    if (go?.sessionId) nav.openSession(String(go.sessionId))
+    if (go?.sessionId) await reveal(String(go.sessionId))
     else if (go?.workspaceId) await nav.openWorkspace(String(go.workspaceId))
     return value as T
   }

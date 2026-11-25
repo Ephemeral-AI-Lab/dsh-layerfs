@@ -539,7 +539,16 @@ export function apply(ctx: Context): void {
       'sessions.open': async (args: any) => {
         const sessionId = need(args, 'sessionId')
         const workspaceId = typeof args?.workspaceId === 'string' && args.workspaceId ? args.workspaceId : undefined
-        if (await localPersistence(ctx)?.stat(sessionId).catch(() => undefined)) {
+        const local = await localPersistence(ctx)?.stat(sessionId).catch(() => undefined)
+        if (local) {
+          // Opening a session DSH has not loaded (closed, or restored after a
+          // restart) must announce it to clients: navigating to an id their
+          // catalog does not list is refused (`sessions.retain: unknown session`).
+          const open = ctx.get('sessionController' as never) as any
+          const resolved = open?.resolveAgent ? await open.resolveAgent(sessionId) : undefined
+          if (resolved && 'error' in resolved && resolved.error?.code === 'session/not-found') {
+            throw new CliError('NotFound', 'This session is not stored locally or in any LayerFS project this DSH knows')
+          }
           await sessions.attach(workspaceId, sessionId)
           return { sessionId, imported: false, navigate: { sessionId } }
         }

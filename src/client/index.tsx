@@ -51,6 +51,9 @@ export function apply(ctx: any): void {
     openPanel: (id) => ctx.layout.selectPanel(id),
     openWorkspace: async (id) => { await workspace()?.openWorkspace(id) },
     openSession: (id) => { workspace()?.openSession(id) },
+    // DSH's client catalog: an id it has not announced cannot be opened
+    // (`sessions.retain: unknown session`), so a host navigation waits for it.
+    knowsSession: (id) => !!ctx.get?.('sessions')?.list?.getSnapshot?.()?.byId?.[id],
   }, workspace)
   ctx.effect(() => () => api.dispose(), 'dsh-layerfs: api')
   // Browser automation handle (tools/, test/): opt-in per browser profile.
