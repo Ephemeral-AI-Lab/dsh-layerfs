@@ -40,7 +40,7 @@ import { HomeOverview } from './HomeOverview.tsx'
 import { useHostEvents, useNow, useStorageJobs } from './hooks.ts'
 import type { StorageT } from './locale.ts'
 import { MachineStores } from './MachineStores.tsx'
-import { bucketFiles, cardJob, inHome, movePushFailed, orderStores, type Reconnect } from './model.ts'
+import { bucketFiles, cardJob, inHome, movePushFailed, orderStores, upgradeLine, type Reconnect } from './model.ts'
 import { NavBar, useNavHistory, type AddItem, type Crumb, type JumpItem, type NavPage, type Sibling } from './Nav.tsx'
 import { refusalLabels } from './parts.tsx'
 import { ProjectPage } from './ProjectPage.tsx'
@@ -127,6 +127,7 @@ function CenterFixes({ api, t, loginRef, reconnectRef, confirmRef, children }: {
         case 'doctor': return t('fixRunDoctor', { name: fix.machine })
         case 'removeMachine': return t('fixRunRemoveRecord', { name: fix.machine })
         case 'compact': return t('fixRunCompact', { name: fix.store })
+        case 'upgrade': return t('fixRunUpgrade', { name: fix.store })
         case 'removeStore': return t('fixRunRemoveRecord', { name: fix.store })
         case 'removeSandbox': return t('fixRunCloseSandbox', { name: fix.sandbox })
         case 'delete': return t('fixRunDelete', { name: fix.project })
@@ -294,6 +295,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
     if (j.kind === 'backup') return api.call('POST', `/api/stores/${enc(j.store)}/backup`, { bucket: j.target, ...(j.file ? { file: j.file } : {}) })
     // a new run: it settles what the failed one left before it marks again
     if (j.kind === 'compact') return api.call('POST', `/api/stores/${enc(j.store)}/compact`)
+    if (j.kind === 'upgrade') return api.call('POST', `/api/stores/${enc(j.store)}/upgrade`)
     return api.call('POST', `/api/buckets/${enc(j.target)}/restore`, { store: j.store, ...(j.file ? { file: j.file } : {}) })
   }
   const openMachine = (name: string) => open(`machine:${name}`)
@@ -314,6 +316,20 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
         run: () => api.call('POST', `/api/stores/${enc(s.name)}/compact`).then((job) => { if (job && typeof job === 'object' && 'id' in job && 'kind' in job) take([job as StorageJob]) }),
       }),
     } : {}),
+    // an older-format Store, when the runtime has store.upgrade (#804): the formats, then one Upgrade button
+    ...(view?.upgrade ? {
+      upgrade: () => {
+        const line = upgradeLine(s.format, t)
+        setDialog({
+          kind: 'confirm', title: t('confirmTitleUpgrade', { name: s.name }), body: line ? t('confirmUpgradeBody', { line }) : t('confirmUpgradeBodyPlain'), action: t('upgradeAction'), plain: true,
+          run: () => api.call('POST', `/api/stores/${enc(s.name)}/upgrade`).then((job) => { if (job && typeof job === 'object' && 'id' in job && 'kind' in job) take([job as StorageJob]) }),
+        })
+      },
+    } : {}),
+    // Cancel answers the job marked stopping; its CLI's reply ends it. A refusal (at commit) shows on the page.
+    stopJob: (j) => api.call<StorageJob>('POST', `/api/storage-jobs/${enc(j.id)}/stop`).then((job) => { if (job && typeof job === 'object' && 'id' in job) take([job]) }, (e: unknown) => setFailed(e)),
+    // Check: the host reads the Store's format and keeps it on the job (Upgraded or Outdated)
+    checkJob: (j) => api.call<StorageJob>('POST', `/api/storage-jobs/${enc(j.id)}/inspect`).then((job) => { if (job && typeof job === 'object' && 'id' in job) take([job]); reload() }, (e: unknown) => setFailed(e)),
     remove: () => setDialog({
       kind: 'confirm', title: t('confirmTitleRemove', { name: s.name }), body: t('confirmRemoveBody', { n: s.projects.length }), action: t('removeAction'), name: s.name,
       run: () => api.call('DELETE', `/api/stores/${enc(s.name)}?confirm=${enc(s.name)}`).then(() => closeStore(s.name)),

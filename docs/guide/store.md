@@ -147,6 +147,7 @@ reference: [Components › Store menu](components.md#store-menu).
 | **Back up to…** | SQLite | [Back up](#modals-opened-here) (no bucket: Add bucket first) | `backup create`, then `backup list` | not Ready |
 | **Back up now · *bucket*/*file*** | SQLite, one row per linked bucket | A backup job starts at once | `backup create`, then `backup list` | not Ready |
 | **Compact…** | both, when the LayerFS runtime has `store compact` | [Confirm](#modals-opened-here) → a job card | `store get`, then `store compact` | not Ready (tip: **Start machine** *m* **first**, **Repair machine** *m* **first**, **The Store is not ready**); offered on a Broken Store whose fix is the compaction |
+| **Upgrade…** | both, when the LayerFS runtime has `store upgrade` and the Store's format (`--with format`) is outdated | [Upgrade *store*?](#modals-opened-here) → an upgrade card (steps, elapsed time, **Cancel** until commit) | `store get`, then `store upgrade` (Cancel: SIGTERM to the CLI, its reply decides) | a job on the Store (tip: **Wait for the running operation to finish**) |
 | **Remove…** | SQLite | [Typed-name confirm](#modals-opened-here) | `store remove` ↻ | never |
 | **Check** | PostgreSQL | Checks from this computer and every attached machine | `store doctor`, then `store get` | |
 | **Edit connection…** | PostgreSQL | [Edit connection](#modals-opened-here) | `store connect`, then `store doctor` | |
@@ -206,6 +207,14 @@ failed. **Connect a database** and **New Store** start new ones.
   connection… / Attach a machine… / Compact… / Disconnect…. A PostgreSQL Store is on no
   machine: its Sandboxes run only on an attached machine, and each session picks one of them.
 - **Compact…** appears only when the selected LayerFS runtime has `store compact`.
+- **Formats (LayerFS #804).** With a runtime whose `store list`/`store get` take `--with format`, a row
+  shows **Outdated** (tip "Format 2 · latest 3") or **Newer format**, the page head the red dot and
+  **Outdated** with **Upgrade…**, and Store details a **Format** row ("3 (latest)", "2 · latest 3",
+  "4 · newer than this LayerFS"). An outdated Store's unread signal offers **Upgrade…** when its fix
+  names `store upgrade`, else Remove… / Disconnect…. While an upgrade runs the Store is busy (no Mount,
+  no Sandbox create); it ends **Upgraded** (green), **Cancelled** (neutral, nothing changed),
+  **Failed** (red, the check in the tip) or outcome unknown / interrupted (amber, **Check** reads the
+  format: Upgraded or Outdated). Without `store upgrade` none of this shows.
 
 ## Modals opened here
 
@@ -218,6 +227,7 @@ failed. **Connect a database** and **New Store** start new ones.
 | [Restore *bucket*/*file*](img/store-restore.png) | **Restore…** on Backups, a bucket page or the Backups dialog | **As a new Store** (with real-time name validation) or **Replace** *store* (refused with specific reasons unless the Store is on native, ready and idle, held by no running Sandbox, linked to that bucket, the bucket is listed without error, and the copy is present and verified unchanged since the last transfer; offers **List the bucket** inline when unlisted) | `backup restore <b> <file> <store>`, then `backup list` | remove the new Store |
 | [Add project to *store*](img/store-add-project.png) | Projects tab **Add project** | Name, optional absolute **Source folder**; shows **Creating** *name* · *step* and counts | `project init` (host job, `GET /api/project-inits/:id` polls) | delete the project |
 | [Compact *store*?](img/store-compact.png) | ⋯ › **Compact…** | Plain confirm; **Compact** starts a job | `store compact` | — |
+| Upgrade *store*? | ⋯ › **Upgrade…**, the Outdated tip's **Upgrade…** | Plain confirm: "Format 2 → 3", in place in one transaction; **Upgrade** starts a job | `store upgrade` | — (Cancel before commit changes nothing) |
 | [Remove *store*?](img/store-remove.png) | ⋯ › **Remove…**, Store details **Remove…** | [Typed-name confirm](components.md#confirm-dialog): **Type** *name* **to confirm** | `store remove` ↻ | none (backups stay in buckets) |
 | Disconnect the PostgreSQL Store *store*? | ⋯ › **Disconnect…** (PostgreSQL) | Confirm; the database and its data stay | `store disconnect` ↻ | Connect a database again |
 | [New Store](img/store-new.png) | Nav bar **Add › New Store**; Home › Stores **New Store**; native's **Add Store › New Store** | **SQLite** or **PostgreSQL** (that tile goes on to Connect a database); **Empty Store** or [**Restore from a backup**](img/store-new-restore.png) (auto-lists an unlisted bucket once, filters out missing files, shows list errors with **Connect again…**, offers **Add bucket…** directly when none exist, plus **List again**, file list and **New Store's name**); **Location** tiles, with **Start** *m* for a stopped one. Creates in the home, then moves | `store create` ↻ (or `backup restore`), then `store move` to another machine | Remove |

@@ -206,6 +206,7 @@ export function parseFix(line: string | null | undefined): Fix | null {
 export type RunnableFix =
   | { kind: 'start' | 'stop' | 'restart' | 'prune' | 'doctor' | 'removeMachine', machine: string }
   | { kind: 'compact' | 'removeStore', store: string }
+  | { kind: 'upgrade', store: string }
   | { kind: 'removeSandbox', sandbox: string }
   | { kind: 'delete', project: string }
   | { kind: 'backup', store: string, bucket: string }
@@ -322,6 +323,8 @@ export function runnableFix(line: string | null | undefined): RunnableFix | null
   if (words[1] === 'machine' && words[2] === 'remove' && plain(4)) return { kind: 'removeMachine', machine: words[3]! }
   if (words[1] === 'machine' && words[2] === 'stop' && plain(4)) return { kind: 'stop', machine: words[3]! }
   if (words[1] === 'store' && words[2] === 'compact' && plain(4)) return { kind: 'compact', store: words[3]! }
+  // an older-format Store's fix (LayerFS #804): the Store's own upgrade job
+  if (words[1] === 'store' && words[2] === 'upgrade' && plain(4)) return { kind: 'upgrade', store: words[3]! }
   if (words[1] === 'store' && words[2] === 'remove' && plain(4)) return { kind: 'removeStore', store: words[3]! }
   if (words[1] === 'sandbox' && words[2] === 'remove' && plain(4)) return { kind: 'removeSandbox', sandbox: words[3]! }
   if (words[1] === 'machine' && words[2] === 'prune' && words.length === 5 && words[4] === '--unused' && WORD.test(words[3]!)) return { kind: 'prune', machine: words[3]! }

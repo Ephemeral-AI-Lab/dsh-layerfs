@@ -15,6 +15,8 @@ export function fixCall(api: LayerfsApi, fix: RunnableFix): Promise<unknown> {
     // a created machine whose record has no vm_name: LayerFS removes its record alone
     case 'removeMachine': return api.call('DELETE', `/api/machines/${enc(fix.machine)}`)
     case 'compact': return api.call('POST', `/api/stores/${enc(fix.store)}/compact`, {})
+    // an older-format Store to the latest format (#804): a Storage job with its phases and Cancel
+    case 'upgrade': return api.call('POST', `/api/stores/${enc(fix.store)}/upgrade`, {})
     // a Store record LayerFS cannot place (no `kind`): its records go; the route asks the name as its confirm
     case 'removeStore': return api.call('DELETE', `/api/stores/${enc(fix.store)}?confirm=${enc(fix.store)}`)
     case 'removeSandbox': return api.call('DELETE', `/api/sandboxes/${enc(fix.sandbox)}`)

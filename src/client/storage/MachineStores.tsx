@@ -328,7 +328,7 @@ function SqliteCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor
   const machineState = view.machines.find((m) => m.name === s.machine)?.state
   // Shown only when something is happening: ready says nothing. A state word with its reason; the fix line is the tip (the one action).
   const notice = storeNotice(s, machineState, t)
-  const status = job ? <JobPanel job={job} compact t={t} onRetry={() => on.retry(job)} onDismiss={() => on.dismiss(job)} />
+  const status = job ? <JobPanel job={job} compact t={t} onRetry={() => on.retry(job)} onDismiss={() => on.dismiss(job)} onStop={on.stopJob ? () => on.stopJob!(job) : undefined} onCheck={on.checkJob ? () => on.checkJob!(job) : undefined} />
     : s.op ? <OpPanel store={s} compact t={t} />
       : notice ? <StoreStatus s={s} t={t} words={notice} onStart={on.start} machineState={machineState} />
         : null

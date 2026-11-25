@@ -1,6 +1,6 @@
 /** Storage's pure rules: placement, attention and job words. No React. */
 import type { Tone } from '../ui/index.tsx'
-import type { BackupFile, BucketRow, JobKind, StorageJob, StorageView, StoreBackupLink, StoreRow } from './types.ts'
+import type { BackupFile, BucketRow, JobKind, StorageJob, StorageView, StoreBackupLink, StoreFormat, StoreRow } from './types.ts'
 import type { StorageKey, StorageT } from './locale.ts'
 import { connectBucketFix } from '../../shared/doctor.ts'
 
@@ -394,6 +394,8 @@ export const STEPS: Record<JobKind, readonly string[]> = {
   restore: ['check', 'download', 'verify', 'install'],
   // a sqlite Store's; the host names a PostgreSQL Store's own (`steps`)
   compact: ['mark', 'build', 'verify', 'install'],
+  // a sqlite Store's; a PostgreSQL Store's (check, convert) come from the host (`steps`)
+  upgrade: ['check', 'convert', 'verify', 'commit'],
 }
 
 export type StepState = 'done' | 'now' | 'failed' | 'todo'
@@ -490,6 +492,8 @@ export function stepWords(step: string | null, t: StorageT): string {
     case 'build': return t('stepBuild')
     case 'swap': return t('stepSwap')
     case 'cleanup': return t('stepCleanup')
+    case 'convert': return t('stepConvert')
+    case 'commit': return t('stepCommit')
     case null: return t('stepStarting')
     // a step this page has no word for: a plain word, never LayerFS's step code
     default: return t('stepWorking')
@@ -505,6 +509,7 @@ export function doingWords(j: StorageJob, t: StorageT): string {
     case 'backup': return t('jobBackingUp', { place: j.target })
     case 'restore': return t('jobRestoring', { place: j.file ? `${j.target}/${j.file}` : j.target })
     case 'compact': return t('jobCompacting', { place: j.store })
+    case 'upgrade': return t('jobUpgrading', { place: j.store })
   }
 }
 
@@ -534,6 +539,7 @@ export const holderTab = (b: Holder): `sandbox:${string}` => `sandbox:${b.machin
 
 /** How a job ended, in words. `size` writes a byte count (a compaction's freed space); without it the count is left out. */
 export function endedWords(j: StorageJob, t: StorageT, size?: (n: number) => string): string {
+  if (j.kind === 'upgrade') return upgradeEnd(j, t).word
   if (j.outcome === 'unknown') return t('jobUnknown')
   if (j.outcome === 'interrupted') return t('jobInterrupted')
   const place = j.kind === 'pull' ? placeWords(j.from) : j.kind === 'backup' || j.kind === 'restore' ? j.target : j.kind === 'compact' ? j.store : placeWords(j.target)
@@ -572,6 +578,91 @@ export function endedWords(j: StorageJob, t: StorageT, size?: (n: number) => str
   }
 }
 
+// ---------- Store formats and upgrades (#804) ----------
+
+/** A Store's format in its details row: "3 (latest)", "2 · latest 3", "4 · newer than this LayerFS"; null when not reported. */
+export function formatWords(f: StoreFormat | null | undefined, t: StorageT): string | null {
+  if (!f || f.version === null) return null
+  const v = String(f.version)
+  if (f.status === 'current') return t('fmtLatest', { v })
+  if (f.status === 'newer') return t('fmtNewer', { v })
+  return f.latest !== null ? t('fmtBehind', { v, latest: String(f.latest) }) : v
+}
+
+/** A Store's format as a tip: "Format 2 · latest 3", "Format 3 (latest)", "Format 4 · newer than this LayerFS". */
+export function formatTip(f: StoreFormat | null | undefined, t: StorageT): string | null {
+  const words = formatWords(f, t)
+  return words ? t('fmtTip', { words }) : null
+}
+
+/**
+ * The chip a Store's format earns on its row and page head, or null: older
+ * (`outdated`, and `unsupported` with no upgrade path) reads Outdated in red,
+ * a newer one Newer format in amber. Only from `--with format`; no sentence parsing.
+ */
+export function formatChip(f: StoreFormat | null | undefined, t: StorageT): { tone: 'danger' | 'warning', label: string } | null {
+  if (!f) return null
+  if (f.status === 'outdated' || f.status === 'unsupported') return { tone: 'danger', label: t('spOutdated') }
+  if (f.status === 'newer') return { tone: 'warning', label: t('fmtNewerChip') }
+  return null
+}
+
+/** Whether a fix line is `layerfs store upgrade <store>` (the Store's own Upgrade… runs it, not Remove… or Disconnect…). */
+export const namesUpgrade = (fix: string | null | undefined, store?: string): boolean => {
+  const m = typeof fix === 'string' ? /^layerfs store upgrade (\S+)$/.exec(fix.trim()) : null
+  return !!m && (store === undefined || m[1] === store || m[1] === `'${store}'`)
+}
+
+/** Whether a Store offers Upgrade…: the runtime has store.upgrade and its format (or a refusal's fix) names it. */
+export function canUpgrade(s: Pick<StoreRow, 'name' | 'format'>, view: Pick<StorageView, 'upgrade'> | undefined, refusalFix?: string | null): boolean {
+  if (!view?.upgrade) return false
+  return s.format?.status === 'outdated' || namesUpgrade(s.format?.fix, s.name) || namesUpgrade(refusalFix, s.name)
+}
+
+/** The Upgrade dialog's format line, "Format 2 → 3", or null when the format is not known. */
+export function upgradeLine(f: StoreFormat | null | undefined, t: StorageT): string | null {
+  return f?.version != null && f.latest != null ? t('fmtArrow', { from: String(f.version), to: String(f.latest) }) : null
+}
+
+/** Whether a running upgrade's Cancel is refused: it reached `commit`, the point of no return. */
+export const upgradeFinishing = (j: Pick<StorageJob, 'phase' | 'ended'>): boolean => !j.ended && j.phase === 'commit'
+
+export type UpgradeEndState = 'ok' | 'idle' | 'error' | 'warning'
+
+/**
+ * How an upgrade ended, as a signal: its state, word and tip (#804 §10).
+ * Upgraded green (tip: the format it is at now); cancelled before COMMIT,
+ * nothing changed, neutral; failed red with LayerFS's words, which name the
+ * check; unknown or interrupted amber with `check` (its Check reads the
+ * format), and after a Check, Upgraded or Outdated as the format says.
+ */
+export function upgradeEnd(j: StorageJob, t: StorageT): { state: UpgradeEndState, word: string, tip: string | null, check: boolean } {
+  const place = j.store
+  const latest = (v: unknown) => (typeof v === 'number' ? t('fmtTip', { words: t('fmtLatest', { v: String(v) }) }) : null)
+  if (j.outcome === 'succeeded' || (!j.outcome && j.ended && !j.error)) {
+    const current = j.result?.outcome === 'current'
+    return { state: 'ok', word: t(current ? 'jobUpgradeCurrent' : 'jobUpgraded', { place }), tip: latest(j.result?.format_after), check: false }
+  }
+  if (j.outcome === 'stopped') return { state: 'idle', word: t('jobUpgradeStopped', { place }), tip: t('upgradeStoppedTip'), check: false }
+  if (j.outcome === 'unknown' || j.outcome === 'interrupted') {
+    const f = j.observation?.kind === 'upgrade' ? j.observation.value?.format as StoreFormat | undefined : undefined
+    if (f?.status === 'current') return { state: 'ok', word: t('jobUpgraded', { place }), tip: latest(f.version), check: true }
+    if (f?.status === 'outdated') return { state: 'error', word: t('jobUpgradeOutdated', { place }), tip: [t('upgradeOutdatedTip'), formatTip(f, t)].filter(Boolean).join('\n'), check: true }
+    return { state: 'warning', word: t(j.outcome === 'interrupted' ? 'jobUpgradeInterrupted' : 'jobUpgradeUnknown', { place }), tip: t('upgradeUnknownTip'), check: true }
+  }
+  const tip = j.error ? [`${j.error.code}: ${j.error.message}`, ...(j.error.fix ? [j.error.fix] : [])].join('\n') : null
+  const phase = j.error?.phase ?? j.phase ?? null
+  return { state: 'error', word: inUseJob(j) ? t('jobInUse', { what: kindWords(j.kind, t), place }) : t('jobFailed', { what: kindWords(j.kind, t), place, phase: phase ? stepWords(phase, t) : '—' }), tip, check: false }
+}
+
+/** Elapsed time as m:ss (h:mm:ss past an hour). */
+export function elapsedWords(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60
+  const two = (n: number) => String(n).padStart(2, '0')
+  return h ? `${h}:${two(m)}:${two(r)}` : `${m}:${two(r)}`
+}
+
 /** A job kind as a noun. */
 export function kindWords(kind: JobKind, t: StorageT): string {
   switch (kind) {
@@ -581,6 +672,7 @@ export function kindWords(kind: JobKind, t: StorageT): string {
     case 'backup': return t('kindBackup')
     case 'restore': return t('kindRestore')
     case 'compact': return t('kindCompact')
+    case 'upgrade': return t('kindUpgrade')
   }
 }
 

@@ -180,10 +180,12 @@ export interface StoreUnread { outdated: boolean, message: string, fix: string |
 
 /**
  * A refused Store read (its stats) in the page's terms, null when there is
- * none. LayerFS answers an older-format Store `OldStore` (public
- * `Unsupported`, `detail.code`) with its version sentence and fix; a build
- * before that answers `Failed` with the sentence inside its open error's
- * text, which is read out of it, so no nested error text reaches a card.
+ * none. An older-format Store is the one LayerFS answers with
+ * `detail.code: 'OldStore'` (public `Unsupported`), with its fix (`store
+ * upgrade`, else remove or disconnect); the refusal's sentence never decides
+ * it (#804 rewrites it). A build before #776 answers `Failed` with a version
+ * sentence inside its open error's text: that sentence is only cut out of it,
+ * so no nested error text reaches a card (the Store reads Not read).
  */
 export function storeUnread(error: unknown): StoreUnread | null {
   if (!error) return null
@@ -192,8 +194,7 @@ export function storeUnread(error: unknown): StoreUnread | null {
   const detail = e.detail && typeof e.detail === 'object' ? e.detail as { code?: unknown } : null
   const fix = typeof e.fix === 'string' && e.fix ? e.fix : null
   const said = OLD_FORMAT.exec(message)?.[0]
-  if (said || detail?.code === 'OldStore') return { outdated: true, message: said ?? message, fix }
-  return { outdated: false, message, fix }
+  return { outdated: detail?.code === 'OldStore', message: said ?? message, fix }
 }
 
 /** Whether a ledger is still being read (and the answer worth asking again): partial or building, not refused. */

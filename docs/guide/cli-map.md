@@ -78,6 +78,9 @@ Pages: [Store](store.md) · [Bucket](bucket.md)
 | **⋯ › Move to another machine…** → **Move** | `… › <store> ⋯` | `POST /api/stores/:id/move` | `store get`, `store move` ×2 through native |
 | **⋯ › Back up to…** → **Back up** / **Back up now** | `… › <store> ⋯`, Backups tab | `POST /api/stores/:id/backup` | `backup create`, then `backup list` |
 | **⋯ › Compact…** → **Compact** | `… › <store> ⋯` | `POST /api/stores/:id/compact` | `store get`, `store compact` |
+| **⋯ › Upgrade…** → **Upgrade** | `… › <store> ⋯`, the Outdated tip | `POST /api/stores/:id/upgrade` | `store get`, `store upgrade` |
+| Upgrade card **Cancel** | the Store page, its machine's Stores tab | `POST /api/storage-jobs/:id/stop` | none (SIGTERM to the running `store upgrade`) |
+| Upgrade card **Check** | after an unknown or interrupted upgrade | `POST /api/storage-jobs/:id/inspect` | `store get --with format` |
 | **⋯ › Remove…** → **Remove** | `… › <store> ⋯`, Store details | `DELETE /api/stores/:id?confirm=` | `store remove` ↻ |
 | **⋯ › Disconnect…** (PostgreSQL) | `… › <store> ⋯` | `POST /api/stores/:id/disconnect` | `store disconnect` ↻ |
 | **Detach** (Runs on row; a machine's Stores) | `… › <store>`, machine › Stores | `POST /api/stores/:id/detach` `{machine}` | `store detach --machine` ↻ |

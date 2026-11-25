@@ -19,7 +19,8 @@ import { StatusDot } from '../ui/StatusDot.tsx'
 import { useHostEvents } from './hooks.ts'
 import { JobPanel, OpPanel } from './JobProgress.tsx'
 import type { StorageT } from './locale.ts'
-import { brokenBlock, canAddProject, stoppedBlock, storeNoticeTone, storeStateWords, storeTone, storeWaitsFor, type Reconnect } from './model.ts'
+import { brokenBlock, canAddProject, canUpgrade, formatChip, formatTip, stoppedBlock, storeNoticeTone, storeStateWords, storeTone, storeWaitsFor, type Reconnect } from './model.ts'
+import { Signal } from './Signal.tsx'
 import { StoreGlyph } from './parts.tsx'
 import { Location, MachineStartAction, StoreAction, StoreMenu, storePageNotice, useStoreTip, type StoreActions } from './StoreCard.tsx'
 import { StoreBackups } from './StoreLinks.tsx'
@@ -60,6 +61,19 @@ function StoreNoticeWords({ s, t, notice }: { s: StoreRow, t: StorageT, notice: 
   return <span title={useStoreTip(s, t)}>{notice}</span>
 }
 
+/** The page head's format signal: the dot and word, "Format 2 · latest 3" as its tip, Upgrade… as its action when offered. */
+function FormatSignal({ s, t, chip, onUpgrade }: { s: StoreRow, t: StorageT, chip: NonNullable<ReturnType<typeof formatChip>>, onUpgrade: (() => void) | undefined }): ReactNode {
+  const state = chip.tone === 'danger' ? 'error' : 'warning'
+  return (
+    <span data-store-format={s.format?.status}>
+      <Signal state={state} title={chip.label} label={[chip.label, formatTip(s.format, t)].filter(Boolean).join(': ')}
+        anchorText={<span className={tabCss.unreadWord}><StatusDot state={state} size={8} />{chip.label}</span>}
+        detail={formatTip(s.format, t) ?? undefined}
+        action={onUpgrade ? <Button variant="outline" size="sm" onClick={onUpgrade}>{t('upgradeStore')}</Button> : undefined} />
+    </span>
+  )
+}
+
 export function StorePage({ refreshKey = 0, name, view, t, api, doctorT, now, job, on, onOpenProject, onOpen, onListBucket, listingBucket, onReconnect }: StorePageProps): ReactNode {
   const ids = useId()
   const s = view.stores.find((x) => x.name === name)
@@ -98,12 +112,15 @@ export function StorePage({ refreshKey = 0, name, view, t, api, doctorT, now, jo
   }
   // a Store of an older format, as its stats read found it (its records still say ready)
   const outdated = !stats.data && storeUnread(stats.error)?.outdated
+  // the Store's format (`--with format`, #804): Outdated in red with its tip and Upgrade…, or Newer format
+  const chip = formatChip(s.format, t)
   const check = () => { if (checking) return; setChecking(true); void Promise.resolve(on.check()).finally(() => setChecking(false)) }
   return (
     <>
       <PageHead title={s.name} icon={<StoreGlyph kind={s.kind} size={22} />}
         badge={s.state !== 'ready' ? <StateChip tone={storeTone(s.state, s.blockedBy)} label={stoppedBlock(s) ? t('stateMachineStopped') : storeStateWords(s.state, t)} live={s.state === 'busy'} />
-          : outdated ? <StateChip tone="danger" label={t('spOutdated')} /> : undefined}
+          : chip ? <FormatSignal s={s} t={t} chip={chip} onUpgrade={runningJob || !canUpgrade(s, view) ? undefined : on.upgrade} />
+            : outdated ? <StateChip tone="danger" label={t('spOutdated')} /> : undefined}
         intro={(
           <span className={css.cardSub}>
             <span>{pg ? t('postgresql') : t('sqlite')}</span>
@@ -129,7 +146,7 @@ export function StorePage({ refreshKey = 0, name, view, t, api, doctorT, now, jo
           {s.state !== 'broken' && !brokenBlock(s) && s.kind === 'sqlite' && machineState === 'stopped' ? <MachineStartAction machine={s.machine ?? ''} t={t} onStart={on.start} /> : <StoreAction store={s} t={t} onStart={on.start} machineState={machineState} />}
         </Notice>
       ) : null}
-      {current ? <JobPanel job={current} t={t} onRetry={() => on.retry(current)} onDismiss={() => on.dismiss(current)} /> : s.state === 'busy' && s.op ? <OpPanel store={s} t={t} /> : null}
+      {current ? <JobPanel job={current} t={t} onRetry={() => on.retry(current)} onDismiss={() => on.dismiss(current)} onStop={on.stopJob ? () => on.stopJob!(current) : undefined} onCheck={on.checkJob ? () => on.checkJob!(current) : undefined} /> : s.state === 'busy' && s.op ? <OpPanel store={s} t={t} /> : null}
 
       <SegmentedTabs size="sm" className={tabCss.tabs} label={t('spTabs', { name: s.name })} value={tab} onChange={(v) => setTab(v as StoreTab)}
         items={tabs.map((x) => ({ value: x, label: labels[x], id: `${ids}-${x}`, panelId: `${ids}-${x}-panel` })) as [never, ...never[]]} />
@@ -146,7 +163,7 @@ export function StorePage({ refreshKey = 0, name, view, t, api, doctorT, now, jo
             onOpen={onOpen} onListBucket={onListBucket} listingBucket={listingBucket} onReconnect={onReconnect} />
         ) : (
           <StoreOverview store={s} view={view} t={t} api={api} now={now} stats={stats.data} statsError={stats.error} projects={projects.data?.projects} running={running}
-            machineState={machineState} onTab={setTab} onRemove={pg ? on.disconnect : on.remove} checking={checking} onEditConnection={on.editConnection} />
+            machineState={machineState} onTab={setTab} onRemove={pg ? on.disconnect : on.remove} onUpgrade={runningJob ? undefined : on.upgrade} checking={checking} onEditConnection={on.editConnection} />
         )}
       </div>
     </>

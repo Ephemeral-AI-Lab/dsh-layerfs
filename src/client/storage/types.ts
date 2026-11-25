@@ -82,6 +82,17 @@ export interface StoreRow extends StateCompanions {
   postgresql?: PgServer | null
   /** PostgreSQL: the machines attached to it, as LayerFS lists them. */
   attached?: PgAttached[]
+  /** Its format (`--with format`, #804): absent or null when the pinned CLI does not report it. */
+  format?: StoreFormat | null
+}
+
+/** A Store's format: its version, the latest this LayerFS writes, the status word and its fix line. */
+export interface StoreFormat {
+  version: number | null
+  latest: number | null
+  /** `current`, `outdated` (an upgrade path exists), `unsupported` (none) or `newer` (a newer LayerFS wrote it). */
+  status: 'current' | 'outdated' | 'unsupported' | 'newer' | (string & {})
+  fix: string | null
 }
 
 /** GET /api/stores/:s/check: the reaches LayerFS recorded (host, then attached machines) and the doctor's failed checks. */
@@ -140,7 +151,7 @@ export interface BucketRow {
   stores: string[]
 }
 
-export type JobKind = 'push' | 'pull' | 'move' | 'backup' | 'restore' | 'compact'
+export type JobKind = 'push' | 'pull' | 'move' | 'backup' | 'restore' | 'compact' | 'upgrade'
 
 /** A push, pull, move, backup, restore or compaction the host started. */
 export interface StorageJob {
@@ -157,12 +168,17 @@ export interface StorageJob {
   done: number | null
   total: number | null
   error: (SdkRefusal & { phase: string | null, note?: 'pulled' }) | null
-  outcome?: 'succeeded' | 'failed' | 'interrupted' | 'unknown' | null
+  /** `stopped`: an upgrade its Cancel ended before COMMIT (nothing changed). */
+  outcome?: 'succeeded' | 'failed' | 'interrupted' | 'unknown' | 'stopped' | null
+  /** An upgrade's Cancel was asked; its CLI's reply still decides how it ends. */
+  stopping?: boolean
+  /** The host's fresh look after the job ended (`inspect`); an upgrade's is `store get --with format`. */
+  observation?: { at: number, kind: string, value: any } | null
   phases?: { phase: string, half: string | null, at: number }[]
   /** The call's phases in order, when the host knows them before the run (a compaction). */
   steps?: readonly string[]
   /** A finished compaction's report (store.compact): `compacted` or `unchanged`, and what the Store's file or database shrank by. */
-  result?: { outcome?: string | null, freed_bytes?: number | null } | null
+  result?: { outcome?: string | null, freed_bytes?: number | null, format_before?: number | null, format_after?: number | null } | null
   summary?: string | null
   /** A push placing a Store a New Store dialog just made. */
   made?: boolean
@@ -185,6 +201,12 @@ export interface StorageView {
   jobs: StorageJob[]
   /** Whether the selected LayerFS runtime has store.compact; absent from an older host. */
   compact?: boolean
+  /** Whether the selected LayerFS runtime has store.upgrade (#804); absent or false: no Upgrade… anywhere. */
+  upgrade?: boolean
+  /** Whether Store rows carry `format` (`--with format`). */
+  format?: boolean
+  /** The Store formats this LayerFS writes, by engine (`--version --json` `formats`). */
+  formats?: { sqlite: number | null, postgresql: number | null } | null
   at: number
 }
 

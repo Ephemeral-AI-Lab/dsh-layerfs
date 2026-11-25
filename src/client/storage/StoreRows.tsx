@@ -38,7 +38,8 @@ import { useQuery } from '../ui/use-query.ts'
 import { BucketMark, providerWords } from './BucketPage.tsx'
 import { JobLine } from './HomeCards.tsx'
 import type { StorageT } from './locale.ts'
-import { canAddProject, cardJob, storeWaitsFor } from './model.ts'
+import { canAddProject, cardJob, formatChip, formatTip, storeWaitsFor } from './model.ts'
+import { StateChip } from '../ui/index.tsx'
 import { StoreGlyph } from './parts.tsx'
 import { StoreMenu, type StoreActions } from './StoreCard.tsx'
 import { runningByProject, type StoreProjectsView } from './store-page.ts'
@@ -179,6 +180,7 @@ function Head({ s, open, onToggle, icon, cells, menu, onOpen, t }: {
   s: StoreRow, open: boolean, onToggle: () => void, icon: ReactNode, cells: ReactNode, menu: ReactNode, onOpen: () => void, t: StorageT
 }): ReactNode {
   const body = `lfs-row-${s.kind}-${s.name}`
+  const chip = formatChip(s.format, t)
   return (
     <div className={css.head} data-kind={s.kind} onClick={onToggle} data-open={open || undefined}>
       <button type="button" className={css.toggle} aria-expanded={open} aria-controls={body} aria-label={t('rowToggle', { name: s.name })} title={t('rowToggle', { name: s.name })}
@@ -188,6 +190,8 @@ function Head({ s, open, onToggle, icon, cells, menu, onOpen, t }: {
       <span className={css.main}>
         {icon}
         <button type="button" className={clsx(css.linkPlain, css.name)} title={t('openStore', { name: s.name })} onClick={(e) => { stop(e); onOpen() }}>{s.name}</button>
+        {/* its format (`--with format`, #804): Outdated or Newer format, "Format 2 · latest 3" as the tip */}
+        {chip ? <span data-store-format={s.format?.status}><StateChip tone={chip.tone} label={chip.label} dot title={formatTip(s.format, t) ?? undefined} /></span> : null}
       </span>
       <div className={css.cells}>{cells}</div>
       <span className={css.menuCell} onClick={stop}>{menu}</span>

@@ -6,14 +6,14 @@
  * bottom. No activity feed: a job in flight is the page's own panel.
  */
 import { useContext, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { IconChevronRightOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChevronRightOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import { ago, bytes, when } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { useQuery } from '../ui/use-query.ts'
 import { Card, DangerButton, Fact, Facts, FixAction, FixContext, resolveFix } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { backupChip, overviewMachineHealth, pgStoreBytes } from './model.ts'
+import { backupChip, formatWords, namesUpgrade, overviewMachineHealth, pgStoreBytes } from './model.ts'
 import { refusalLabels } from './parts.tsx'
 import { Signal } from './Signal.tsx'
 import { StatusDot } from '../ui/StatusDot.tsx'
@@ -40,12 +40,14 @@ export interface StoreOverviewProps {
   machineState: string | null | undefined
   onTab: (tab: 'projects' | 'backups' | 'machines') => void
   onRemove: () => void
+  /** The Upgrade dialog, when the runtime has store.upgrade and the Store's format names it (#804). */
+  onUpgrade?: (() => void) | undefined
   /** A PostgreSQL Store's Check is running (this computer, then its machines). */
   checking?: boolean
   onEditConnection?: () => void
 }
 
-export function StoreOverview({ store: s, view, t, api, now, stats, statsError, projects, running, machineState, onTab, onRemove, checking = false, onEditConnection }: StoreOverviewProps): ReactNode {
+export function StoreOverview({ store: s, view, t, api, now, stats, statsError, projects, running, machineState, onTab, onRemove, onUpgrade, checking = false, onEditConnection }: StoreOverviewProps): ReactNode {
   const pg = s.kind === 'postgresql'
   const tt = t as Translate
   // Each stats read is journaled by the host, so the journal is read again after one.
@@ -91,7 +93,7 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
       </div>
 
       {pg && onEditConnection ? <PgConnectionCard s={s} t={t} now={now} checking={checking} onEdit={onEditConnection} /> : null}
-      <FileCard stats={stats} unread={unread} pg={pg} t={t} onRemove={onRemove} />
+      <FileCard stats={stats} unread={unread} pg={pg} t={t} onRemove={onRemove} onUpgrade={view.upgrade && namesUpgrade(unread?.fix ?? s.format?.fix, s.name) ? onUpgrade : undefined} />
       {/* The host journals a read only when store.stats names the Store's identity
           (store_id, store_generation); a build without it records nothing, so no card. */}
       {growthRuns(journal.data).length ? <GrowthCard journal={journal.data} t={t} now={now} /> : null}
@@ -108,6 +110,7 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
             <Facts>
               {s.created != null ? <Fact label={t('factCreated')}>{when(s.created)}</Fact> : null}
               {!pg ? <Fact label={t('factFile')}>{s.size ? bytes(s.size.bytes) : null}</Fact> : null}
+              {formatWords(s.format, t) ? <Fact label={t('factFormat')}>{formatWords(s.format, t)}</Fact> : null}
               {pg ? <Fact label={t('factServer')} mono>{s.postgresql?.target}</Fact> : null}
             </Facts>
           </Card>
@@ -144,13 +147,15 @@ function Tile({ label, value, sub, onOpen, tone, title }: { label: string, value
  * PostgreSQL one) as the page's own Remove… or Disconnect…, else its fix
  * line where the page can run it. No nested error text on the card.
  */
-export function StoreUnreadSignal({ unread, pg, t, onRemove }: { unread: StoreUnread, pg: boolean, t: StorageT, onRemove?: (() => void) | undefined }): ReactNode {
+export function StoreUnreadSignal({ unread, pg, t, onRemove, onUpgrade }: { unread: StoreUnread, pg: boolean, t: StorageT, onRemove?: (() => void) | undefined, onUpgrade?: (() => void) | undefined }): ReactNode {
   const fixes = useContext(FixContext)
   const resolved = unread.outdated ? null : resolveFix(fixes, unread.fix)
   const line = resolved?.line || null
   const fix = fixes ? resolved?.fix ?? null : null
   const word = unread.outdated ? t('spOutdated') : t('spUnread')
-  const action = unread.outdated
+  // an outdated Store's fix: Upgrade… when it names store upgrade (#804), else the page's own Remove… or Disconnect…
+  const action = unread.outdated && onUpgrade ? <Button variant="outline" size="sm" onClick={onUpgrade}>{t('upgradeStore')}</Button>
+    : unread.outdated
     ? (onRemove ? <DangerButton appearance="outline" size="sm" onClick={onRemove}>{pg ? t('disconnect') : t('remove')}</DangerButton> : undefined)
     : fix && fixes && line ? <FixAction line={line} fix={fix} runner={fixes} labels={refusalLabels(t)} /> : undefined
   return (
@@ -164,7 +169,7 @@ export function StoreUnreadSignal({ unread, pg, t, onRemove }: { unread: StoreUn
 }
 
 /** The database file's pages by part, and unique content over its packed bytes. */
-function FileCard({ stats, unread, pg, t, onRemove }: { stats: StoreStats | undefined, unread: StoreUnread | null, pg: boolean, t: StorageT, onRemove: () => void }): ReactNode {
+function FileCard({ stats, unread, pg, t, onRemove, onUpgrade }: { stats: StoreStats | undefined, unread: StoreUnread | null, pg: boolean, t: StorageT, onRemove: () => void, onUpgrade?: (() => void) | undefined }): ReactNode {
   const [hovered, setHovered] = useState<string | null>(null)
   const barId = useId()
   const barRef = useRef<HTMLDivElement>(null)
@@ -264,7 +269,7 @@ function FileCard({ stats, unread, pg, t, onRemove }: { stats: StoreStats | unde
             </p>
           ) : null}
         </>
-      ) : unread ? <StoreUnreadSignal unread={unread} pg={pg} t={t} onRemove={onRemove} />
+      ) : unread ? <StoreUnreadSignal unread={unread} pg={pg} t={t} onRemove={onRemove} onUpgrade={onUpgrade} />
         : <p className={css.muted}>{stats ? t('spFileUnknown') : t('spReading')}</p>}
     </Card>
   )

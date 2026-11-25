@@ -8,7 +8,7 @@ import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { FixAction, FixContext, LinkButton, MoreMenu, resolveFix, usePressGuard } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { blockedWords, brokenBlock, brokenWords, compactWaitsFor, inHome, latestBackup, stoppedBlock, storeMachineStopped, storeStateWords, storeTip, storeWaitsFor } from './model.ts'
+import { blockedWords, brokenBlock, brokenWords, canUpgrade, compactWaitsFor, inHome, latestBackup, stoppedBlock, storeMachineStopped, storeStateWords, storeTip, storeWaitsFor } from './model.ts'
 export { brokenBlock, stoppedBlock }
 import { useMachinesMaybe } from '../machines/context.tsx'
 import type { MachineInfo } from '../machines/model.ts'
@@ -25,6 +25,12 @@ export interface StoreActions {
   backupTo: (link: StoreBackupLink) => void
   /** Confirm, then compact the Store; absent when the selected LayerFS runtime has no store.compact. */
   compact?: (() => void) | undefined
+  /** The Upgrade dialog (old and new formats, one Upgrade button); absent when the runtime has no store.upgrade (#804). The menu offers it only for a Store whose format names it. */
+  upgrade?: (() => void) | undefined
+  /** Cancel a running upgrade; its CLI's reply decides how it ends. */
+  stopJob?: ((job: StorageJob) => Promise<unknown>) | undefined
+  /** Check an upgrade whose outcome is unknown: the Store's format, read fresh. */
+  checkJob?: ((job: StorageJob) => Promise<unknown>) | undefined
   restore: (bucket: string, file: string) => void
   remove: () => void
   disconnect: () => void
@@ -72,6 +78,9 @@ export function StoreMenu({ store: s, on, t, runningJob, onOpen, withRestore }: 
       {(close) => {
         const run = (fn: () => void) => () => { close(); fn() }
         const compact = on.compact ? <MenuItemButton disabled={compactBlocked !== null} disabledReason={compactBlocked ?? undefined} onSelect={run(on.compact)}>{t('compactStore')}</MenuItemButton> : null
+        // an older-format Store (#804): offered when its format or fix names store upgrade, never while a job holds it
+        const upgradeBlocked = runningJob || s.job ? t('storeNeedsOpFinish') : null
+        const upgrade = on.upgrade && canUpgrade(s, { upgrade: true }) ? <MenuItemButton disabled={upgradeBlocked !== null} disabledReason={upgradeBlocked ?? undefined} onSelect={run(on.upgrade)}>{t('upgradeStore')}</MenuItemButton> : null
         const open = onOpen ? <MenuItemButton onSelect={run(onOpen)}>{t('openStore', { name: s.name })}</MenuItemButton> : null
         return pg ? (
           <>
@@ -79,6 +88,7 @@ export function StoreMenu({ store: s, on, t, runningJob, onOpen, withRestore }: 
             <MenuItemButton onSelect={run(() => { void on.check() })}>{t('pgCheck')}</MenuItemButton>
             <MenuItemButton onSelect={run(on.editConnection)}>{t('pgEditConnectionShort')}</MenuItemButton>
             <MenuItemButton onSelect={run(on.attach)}>{t('rowAttachMachineMenu')}</MenuItemButton>
+            {upgrade}
             {compact}
             <MenuItemButton danger separatorBefore onSelect={run(on.disconnect)}>{t('disconnect')}</MenuItemButton>
           </>
@@ -100,6 +110,7 @@ export function StoreMenu({ store: s, on, t, runningJob, onOpen, withRestore }: 
               </MenuItemButton>
             ))}
             {withRestore && s.links.length ? <MenuItemButton onSelect={run(on.backups)}>{t('restore')}</MenuItemButton> : null}
+            {upgrade}
             {compact}
             <MenuItemButton danger separatorBefore onSelect={run(on.remove)}>{t('remove')}</MenuItemButton>
           </>
