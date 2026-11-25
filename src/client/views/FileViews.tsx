@@ -12,6 +12,7 @@ import { unsavedCount } from './model.ts'
 import { ProjectFiles } from '../files/ProjectFiles.tsx'
 import { ProjectHistory } from '../files/ProjectHistory.tsx'
 import { parseFocus, useRootState, type SessionsSource, type SessionStateView, type ViewFocus } from './hooks.ts'
+import type { LiveStepsSource } from './live-step.ts'
 import { branchLabel } from './branch-label.ts'
 import type { Translate } from './locale.ts'
 import type { StorageT } from '../storage/locale.ts'
@@ -30,6 +31,8 @@ export interface ViewInjected {
   /** The Storage page's copy, for the views that mount its panels (Stats). */
   storageT: StorageT
   sessions: SessionsSource | undefined
+  /** The running assistant step's streamed text (client-only; absent without a live session feed). */
+  liveStep?: LiveStepsSource
   /** Hides the chat composer until the returned release runs. */
   hideComposer: () => () => void
 }

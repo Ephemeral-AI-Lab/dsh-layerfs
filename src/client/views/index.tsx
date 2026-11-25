@@ -13,6 +13,7 @@ import type { SessionsSource } from './hooks.ts'
 import { NS, locales, type Translate } from './locale.ts'
 import { SandboxView } from './SandboxView.tsx'
 import { StatsView } from './StatsView.tsx'
+import { createLiveStepSource, type LiveStepsSource } from './live-step.ts'
 import { stockTrajectory } from './stock-trajectory.ts'
 import { TRAJECTORY_VIEW, TrajectoryView } from './TrajectoryView.tsx'
 
@@ -67,8 +68,23 @@ export function registerViews(ctx: any, api: LayerfsApi): void {
     if (!hider) { hider = () => hideComposer(sessionId); hiders.set(sessionId, hider) }
     return hider
   }
+  // The running assistant step streams on the session's client event feed (the
+  // window behind `SessionBinding.eventSource`); one source per retained binding,
+  // so a tab switch or re-render keeps its place and the source goes with the binding.
+  const liveSources = new WeakMap<object, LiveStepsSource>()
+  const liveStepOf = (sessionId: string): LiveStepsSource | undefined => {
+    const binding = ctx.get?.('sessions')?.binding?.(String(sessionId))
+    if (!binding?.eventSource) return undefined
+    let source = liveSources.get(binding)
+    if (!source) {
+      source = createLiveStepSource(binding.eventSource)
+      liveSources.set(binding, source)
+    }
+    return source
+  }
   const inject = (sessionId: string): ViewInjected => ({
     sessionId: String(sessionId), api, t, storageT, sessions: sessionsSource(ctx),
+    liveStep: liveStepOf(String(sessionId)),
     hideComposer: hiderOf(String(sessionId)),
   })
   const views: { id: string, order: number, priority?: number, label: string, component: ComponentType<ViewProps> }[] = [

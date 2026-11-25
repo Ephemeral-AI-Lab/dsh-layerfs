@@ -206,7 +206,11 @@ export function laneItems(turns: readonly TrajectoryTurn[], now: number): LaneIt
       if (r.kind === 'user') items.push({ lane: 'input', key: `r${r.seq}`, select, start: r.at, end: r.at, label: r.text })
       else if (r.kind === 'system' || r.kind === 'request') {
         items.push({ lane: 'input', key: `r${r.seq}`, select, start: r.at, end: r.at, label: r.kind === 'system' ? r.text : r.summary })
-      } else if (r.kind === 'assistant') items.push({ lane: 'model', key: `r${r.seq}`, select, start: Math.min(r.startedAt ?? r.at, r.at), end: r.at, label: r.text })
+      } else if (r.kind === 'assistant') {
+        // A streamed step has no log record to select yet: its mark stays inert.
+        const streamed = (r as { live?: unknown }).live === true
+        items.push({ lane: 'model', key: `r${r.seq}`, ...(streamed ? {} : { select }), start: Math.min(r.startedAt ?? r.at, r.at), end: r.at, label: r.text })
+      }
       else if (r.kind === 'tool') {
         const running = r.endedAt === undefined && r.result === undefined
         const end = r.endedAt ?? (running ? Math.max(now, r.at) : r.at)

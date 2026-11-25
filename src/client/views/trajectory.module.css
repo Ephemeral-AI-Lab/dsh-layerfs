@@ -583,6 +583,31 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+/* A running assistant step's row is not selectable (the log has no record yet). */
+.streamRowMain {
+  cursor: default;
+}
+
+/* A running assistant step's caret; the text itself streams in place. */
+.streamCaret {
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: currentColor;
+  opacity: 0.6;
+  animation: streamCaret 1s steps(2, start) infinite;
+}
+
+@keyframes streamCaret {
+  50% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .streamCaret { animation: none; }
+}
+
 .badge {
   flex: none;
   padding: 0 5px;

@@ -17,6 +17,7 @@ import { useQuery } from '../files/use-query.ts'
 import type { RequestRecord, ToolRecord, TraceVersion, TrajectoryAnswer, TrajectoryRecord, TrajectoryTurn } from '../../shared/trajectory.ts'
 import { HISTORY_VIEW, useNoComposer, type ViewProps } from './FileViews.tsx'
 import { useSessionRows } from './hooks.ts'
+import { isStreamingAssistant, mergeLiveSteps, useLiveSteps } from './live-step.ts'
 import type { Translate } from './locale.ts'
 import { TrajectoryInspector, type DetailCache, type Inspected, type InspectorTab, type PromptDiffCache } from './TrajectoryInspector.tsx'
 import { openLogs } from '../logs/request.ts'
@@ -106,9 +107,14 @@ export function RecordText({ record, t }: { record: TrajectoryRecord, t: Transla
   }
   if (record.kind === 'assistant') {
     const usage = record.usage ? usageText(t, record.usage) : ''
+    const live = isStreamingAssistant(record)
     return (
       <span className={css.text}>
-        {record.text ? <span className={css.plain}>{record.text}</span> : <span className={css.muted}>{t('trajToolCallOnly')}</span>}
+        {record.text
+          ? <span className={css.plain}>{record.text}{live && record.streaming ? <span className={css.streamCaret} aria-hidden="true" /> : null}</span>
+          : <span className={css.muted}>{live && record.streaming ? t('trajWaitingText') : t('trajToolCallOnly')}</span>}
+        {live && record.streaming ? <span className={css.running}><StatusDot state="ongoing" size={10} />{t('trajStreaming')}</span> : null}
+        {live && record.truncated ? <span className={css.warnText}>{t('trajLiveTruncated')}</span> : null}
         {record.thinking ? <span className={css.badge}>{t('trajThought')}</span> : null}
         {record.interrupted ? <span className={clsx(css.badge, css.warnText)}>{t('trajInterrupted')}</span> : null}
         {usage ? <span className={css.usage}>{usage}</span> : null}
@@ -219,10 +225,17 @@ function TableRow({ row, h }: { row: Row, h: RowHandlers }): ReactNode {
             <button type="button" className={css.expander} aria-expanded={row.open} aria-label={row.open ? t('trajCollapseCalls') : t('trajExpandCalls')}
               onClick={() => h.onToggleCall(tool, !row.open)}><Chevron open={row.open} /></button>
           ) : <span />}
-          <button type="button" className={css.rowMain} aria-pressed={row.key === h.selected} onClick={() => h.onSelect(row.key)}>
-            <KindCell kind={record.kind} t={t} />
-            <RecordText record={record} t={t} />
-          </button>
+          {isStreamingAssistant(record) ? (
+            <div className={clsx(css.rowMain, css.streamRowMain)} aria-busy={record.streaming}>
+              <KindCell kind={record.kind} t={t} />
+              <RecordText record={record} t={t} />
+            </div>
+          ) : (
+            <button type="button" className={css.rowMain} aria-pressed={row.key === h.selected} onClick={() => h.onSelect(row.key)}>
+              <KindCell kind={record.kind} t={t} />
+              <RecordText record={record} t={t} />
+            </button>
+          )}
           {tool && tool.ops.length ? (
             <span className={clsx(css.opCount, writes && css.opCountWrites)} title={t('trajLayerfsCalls')}>{tool.ops.length}</span>
           ) : <span />}
@@ -294,6 +307,10 @@ export function TrajectoryView(props: ViewProps): ReactNode {
   const { byId } = useSessionRows(sessions)
   const running = !!byId[sessionId]?.running
   const { answer, error, reload } = useTrajectory(api, sessionId, running)
+  // The running step's text arrives on the session's live feed; the host answer
+  // gains its record only after the step's message is logged.
+  const live = useLiveSteps(props.liveStep)
+  const turns = useMemo(() => answer ? mergeLiveSteps(answer.turns, live) : [], [answer, live])
   // A project session's LayerFS tabs have no composer; a normal session shown
   // beside one (split view) keeps it here, as DSH's stock Trajectory does.
   const layerfs = !!answer?.project
@@ -321,8 +338,8 @@ export function TrajectoryView(props: ViewProps): ReactNode {
   }, [sessionId, cache, diffs])
 
   const now = useMemo(() => Date.now(), [answer]) // eslint-disable-line react-hooks/exhaustive-deps
-  const filtered = useMemo(() => answer ? filterTurns(answer.turns, { onlyWrites, query }) : [], [answer, onlyWrites, query])
-  const recent = useMemo(() => recentTurns(answer?.turns ?? []), [answer])
+  const filtered = useMemo(() => filterTurns(turns, { onlyWrites, query }), [turns, onlyWrites, query])
+  const recent = useMemo(() => recentTurns(turns), [turns])
   const searching = query.trim().length > 0
   const turnOpen = useCallback((turn: number) => turnOverride.get(turn)
     ?? (searching || turnsDefault === 'all' ? true : turnsDefault === 'none' ? false : recent.has(turn)), [turnOverride, turnsDefault, recent, searching])
@@ -401,7 +418,7 @@ export function TrajectoryView(props: ViewProps): ReactNode {
 
   if (!answer && error) return <div className={views.frame}><ErrorState title={t('readFailed')} error={error} retryLabel={t('retry')} onRetry={reload} /></div>
   if (!answer) return <div className={views.frame}><Loading label={t('loading')} /></div>
-  const empty = !answer.turns.some((turn) => turn.records.length || turn.orphanCalls.length || turn.hostOps.length || turn.checkpoints.length)
+  const empty = !turns.some((turn) => turn.records.length || turn.orphanCalls.length || turn.hostOps.length || turn.checkpoints.length)
   return (
     <div className={clsx(views.frame, css.frame)}>
       <div className={css.controlsCard}>
