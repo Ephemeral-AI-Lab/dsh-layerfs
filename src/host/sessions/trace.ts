@@ -165,8 +165,10 @@ export function trajectoryReader(memo = 8, build: (input: TrajectoryInput) => Tr
       answers.delete(input.sessionId)
       answers.set(input.sessionId, kept)
     } else {
-      answer = build(input)
+      // Drop the stale answer before building: a long session's is tens of MB,
+      // and the new one is built while the old would still be held.
       answers.delete(input.sessionId)
+      answer = build(input)
       answers.set(input.sessionId, { revision, answer })
       while (answers.size > memo) answers.delete(answers.keys().next().value!)
     }
