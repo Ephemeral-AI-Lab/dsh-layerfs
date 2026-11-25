@@ -30,6 +30,14 @@ function branchHead(branch: any): string | null {
 }
 const DIR = '/.dsh/session'
 const MISS_MS = 30_000
+/**
+ * How long a built discovery answer is reused while every Branch head still
+ * matches. The Branch list is read on every discovery (the SDK keeps that read
+ * for 2 s), so a stored session saved, added or removed by any process shows at
+ * once; this bound only refreshes a stored row's `local` flag when another
+ * process adds the log, and a write here invalidates it immediately.
+ */
+const DISCOVERY_MS = 5_000
 /** A stream with this many parts is rewritten as one base file on its next save. */
 export const PART_LIMIT = 32
 /** Parts may hold up to this many bytes, or the base's size if larger, before a rewrite. */
@@ -121,9 +129,11 @@ export class SessionStore {
 
   /** Drop a deleted session's pending mirror and discovery memo. */
   forget(sessionId: string): void {
+    const project = this.known(sessionId)
     clearTimeout(this.timers.get(sessionId))
     this.timers.delete(sessionId)
     this.found.delete(sessionId)
+    if (project) this.invalidateDiscovery(project)
   }
 
   /** Mirrors queued on their Store's lane that have not started (session id -> run). */
@@ -237,10 +247,14 @@ export class SessionStore {
       const streams = { log: log.mark, invocations: receipts.mark }
       this.sessions.state.update((s) => { s.mirror[sessionId] = { project, branch, count: at, segments: log.pieces.map(({ file, from, to }) => ({ file, from, to })), streams, updatedAt: Date.now(), digest } })
       await provider?.updateSidecar?.(sessionId, (value: any) => { value.title = sidecar.title; value.bindingKind = binding.kind; if (binding.parent) value.sharedParent = binding.parent; value.codeBranch = codeBranch; value.checkpoints = checkpoints; value.archive = sidecar.archive })
+      // This process just wrote a manifest: the next list must see it, not a memo.
+      this.invalidateDiscovery(project)
       this.ctx.layerfs.emit('layerfs-session', { sessionId })
     } catch (error: any) {
       this.sessions.state.update((s) => { s.mirror[sessionId] = { ...(state ?? { project, branch, count: from, segments: [] }), updatedAt: Date.now(), error: String(error?.message ?? error) } })
       await provider?.updateSidecar?.(sessionId, (value: any) => { value.archive = { count: from, updatedAt: Date.now(), error: String(error?.message ?? error) } })
+      // A failed save can still have created its Branch; never serve the old answer.
+      this.invalidateDiscovery(project)
       throw error
     }
   }
@@ -266,19 +280,44 @@ export class SessionStore {
   private readonly manifests = new Map<string, { head: string, manifest: any }>()
   /** Discovery walks in flight by project: concurrent callers share one walk. */
   private readonly discovering = new Map<string, Promise<StoredSession[]>>()
+  /**
+   * Recent discovery answers by `project\0identity`, each with the Branch heads
+   * it was built from: a caller still lists the Branches (one kept read) and an
+   * answer whose heads all still match is reused; any stored session saved,
+   * added or removed moves a head and rebuilds it at once. The short age bound
+   * only refreshes a stored row's `local` flag when another process adds the log.
+   */
+  private readonly discoveries = new Map<string, { at: number, heads: string, value: StoredSession[] }>()
 
-  /** The sessions stored in a project, joined with what this DSH has locally. */
-  discover(project: string): Promise<StoredSession[]> {
+  /**
+   * The sessions stored in a project, joined with what this DSH has locally.
+   * `identity` keys the short-lived answer (a listing knows the project's live
+   * identity); `fresh` skips it for reads that must find a conversation (open,
+   * sync, recovery). A local write invalidates it before it returns.
+   */
+  discover(project: string, { fresh = false, identity, local }: { fresh?: boolean, identity?: string, local?: (sessionId: string) => boolean | undefined } = {}): Promise<StoredSession[]> {
     const running = this.discovering.get(project)
     if (running) return running
-    const walk = this.discoverNow(project).finally(() => this.discovering.delete(project))
+    const key = `${project}\0${identity ?? ''}`
+    const walk = this.discoverNow(project, key, fresh, local).finally(() => this.discovering.delete(project))
     this.discovering.set(project, walk)
     return walk
   }
 
-  private async discoverNow(project: string): Promise<StoredSession[]> {
+  /** Drop the short-lived discovery answers: one project, or all when the write moved between projects. */
+  invalidateDiscovery(project?: string): void {
+    if (project === undefined) { this.discoveries.clear(); return }
+    for (const key of this.discoveries.keys()) if (key.startsWith(`${project}\0`)) this.discoveries.delete(key)
+  }
+
+  private async discoverNow(project: string, key: string, fresh: boolean, local?: (sessionId: string) => boolean | undefined): Promise<StoredSession[]> {
     const branches = (await pages((paging) => this.lfs.branch.list(project, { prefix: STORE_PREFIX, ...paging }))).map((b: any) => ({ ...b, name: b.branch }))
     const stored = branches.filter((b: any) => typeof b.name === 'string' && b.name.startsWith(STORE_PREFIX))
+    // The Branch list is the change token for every stored session: a save appends
+    // a Commit (head moves), a new session adds a Branch, a deletion removes one.
+    const heads = stored.map((b: any) => `${b.name}@${branchHead(b) ?? ''}`).join('\n')
+    const kept = fresh ? undefined : this.discoveries.get(key)
+    if (kept && kept.heads === heads && Date.now() - kept.at < DISCOVERY_MS) return kept.value.map((row) => ({ ...row }))
     const out: StoredSession[] = []
     const seen = new Set<string>()
     for (const b of stored) {
@@ -299,14 +338,18 @@ export class SessionStore {
           events: manifest.count ?? 0,
           checkpoints: (manifest.checkpoints ?? []).filter((c: any) => c.kind !== 'base' && c.kind !== 'restore' && c.commit && c.changed > 0).length,
           updatedAt: manifest.updatedAt ?? null,
-          local: !!(await localPersistence(this.ctx)?.stat(manifest.sessionId).catch(() => undefined)),
+          // A caller that already stat'ed this id (the session list's own loops) answers
+          // here, so one list call never reads the same log twice.
+          local: local?.(manifest.sessionId) ?? !!(await localPersistence(this.ctx)?.stat(manifest.sessionId).catch(() => undefined)),
           shared: manifest.bindingKind === 'shared' || manifest.header?.origin === 'subagent',
         })
         this.found.set(manifest.sessionId, project)
       } catch { /* a branch without a readable manifest is not a session */ }
     }
     // Branches gone from the project leave nothing kept.
-    for (const key of this.manifests.keys()) if (key.startsWith(`${project}\0`) && !seen.has(key)) this.manifests.delete(key)
+    for (const name of this.manifests.keys()) if (name.startsWith(`${project}\0`) && !seen.has(name)) this.manifests.delete(name)
+    this.discoveries.set(key, { at: Date.now(), heads, value: out.map((row) => ({ ...row })) })
+    while (this.discoveries.size > 64) this.discoveries.delete(this.discoveries.keys().next().value as string)
     return out
   }
 
@@ -489,6 +532,8 @@ export class SessionStore {
       }
       s.mirror[sessionId] = { project, branch, count: manifest.count ?? events.length, segments: (manifest.version === 3 ? manifest.log : manifest.segments ?? []).map(({ file, from, to }: any) => ({ file, from, to })), ...(streams ? { streams } : {}), updatedAt: Date.now(), digest: manifest.digest }
     })
+    // The stored row is local now: the next list reads its log and sidecar, not the archive row.
+    this.invalidateDiscovery(project)
     await this.sessions.attach(list, sessionId)
     return { sessionId, imported: true }
   }
@@ -503,7 +548,7 @@ export class SessionStore {
     const run = (async () => {
       let imported = 0
       const persistence = this.ctx.get('sessionPersistence') as any
-      for (const stored of await this.discover(project)) {
+      for (const stored of await this.discover(project, { fresh: true })) {
         // A conversation deleted here (Presets Reset) comes back only by an explicit import.
         if (stored.local || persistence?.isDeleted?.(stored.sessionId)) continue
         try { if ((await this.import(project, stored.sessionId)).imported) imported++ } catch (error: any) {
@@ -537,7 +582,7 @@ export class SessionStore {
     if (known) return known
     if (Date.now() - (this.missed.get(sessionId) ?? 0) < MISS_MS) return undefined
     for (const project of Object.keys(this.sessions.state.read().projects)) {
-      await this.discover(project).catch(() => [])
+      await this.discover(project, { fresh: true }).catch(() => [])
       if (this.found.has(sessionId)) return this.found.get(sessionId)
     }
     this.missed.set(sessionId, Date.now())

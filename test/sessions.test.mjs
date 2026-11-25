@@ -1495,3 +1495,89 @@ test('sessions.places: one read-only batch over placeOfId and projectIdOf; bad i
     assert.throws(() => ops['sessions.places'](bad), (error) => error.code === 'InvalidInput')
   }
 })
+
+test('sessions.list reads each session\'s log and sidecar once per call', async () => {
+  const state = S.initialState()
+  const row = (sessionId, updatedAt) => ({ sessionId, kind: 'project', project: 'st/app', anchor: '/a', scratch: '/s', state: 'closed', createdAt: 0, updatedAt })
+  state.sessions.local1 = row('local1', 4)
+  state.sessions.local2 = row('local2', 3)
+  state.pending.pend1 = { project: 'st/app' }
+  const stats = new Map(), sidecars = new Map()
+  const persistence = {
+    local: { stat: async (id) => { stats.set(id, (stats.get(id) ?? 0) + 1); return { header: { id, createdAt: 1 } } } },
+    stat: async (id) => { stats.set(id, (stats.get(id) ?? 0) + 1); return { header: { id, createdAt: 1 } } },
+    readSidecar: async (id) => { sidecars.set(id, (sidecars.get(id) ?? 0) + 1); return { title: `sidecar ${id}`, checkpoints: [{ commit: 'c', changed: 1 }] } },
+    ownedSessionIds: () => ['local1', 'local2', 'pend1', 'owned1'],
+    projectIdOf: () => 'pid-1',
+    catalog: { assert: async () => ({ projectId: 'pid-1' }) },
+  }
+  const ops = {}
+  const ctx = {
+    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: { branch: { list: async () => ({ items: [] }) } }, emit() {}, callLog: {} },
+    layerfsSessions: sessions({ state }).s,
+    layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
+    plugin() {}, inject: (deps, callback) => { if (deps.includes('layerfsSessions')) callback(ctx) }, on() {}, effect() {},
+    get: (name) => name === 'sessionPersistence' ? persistence : undefined,
+    logger: () => ({ warn() {}, info() {} }),
+    workspaceRegistry: { archivedSessionIds: [] },
+  }
+  S.applySessionsIndex(ctx)
+  const { sessions: listed } = await ops['sessions.list']({ project: 'st/app', projectId: 'pid-1', localOnly: false })
+  assert.deepEqual(listed.map((r) => r.sessionId).sort(), ['local1', 'local2', 'owned1', 'pend1'])
+  for (const id of ['local1', 'local2', 'pend1', 'owned1']) {
+    assert.equal(stats.get(id), 1, `${id}: one log stat`)
+    assert.equal(sidecars.get(id), 1, `${id}: one sidecar read`)
+  }
+  // The already-read sidecar feeds the title and the checkpoint/stored fields.
+  const owned = listed.find((r) => r.sessionId === 'owned1')
+  assert.equal(owned.title, 'sidecar owned1')
+  assert.equal(owned.checkpoints, 1)
+})
+
+test('a second sessions.list inside the discovery window walks no stored session; a change invalidates it', async () => {
+  let branchLists = 0, manifestReads = 0, head = 'c1'
+  const manifest = {
+    version: 3, kind: 'dsh-session', sessionId: 'stored1', projectId: 'pid-1', title: 'Stored one',
+    count: 1, checkpoints: [], updatedAt: 10, bindingKind: 'project',
+    header: { version: 4, id: 'stored1', createdAt: 10, isSeeded: false, delegationDepth: 0 },
+  }
+  const lfs = {
+    branch: { list: async () => { branchLists++; return { items: [{ branch: 'dsh.session.stored1', commit: head }] } } },
+    file: { read: async () => { manifestReads++; const text = `${JSON.stringify(manifest)}\n`; return { text, size: Buffer.byteLength(text), start_line: 1, line_truncated: false, next_line: null } } },
+  }
+  const persistence = {
+    stat: async () => undefined,
+    readSidecar: async () => undefined,
+    ownedSessionIds: () => [],
+    projectIdOf: () => undefined,
+    catalog: { assert: async () => ({ projectId: 'pid-1' }) },
+  }
+  const state = S.initialState()
+  const f = sessions({ state })
+  const ops = {}
+  const ctx = {
+    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs, emit() {}, callLog: {} },
+    layerfsSessions: f.s,
+    layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
+    plugin() {}, inject: (deps, callback) => { if (deps.includes('layerfsSessions')) callback(ctx) }, on() {}, effect() {},
+    get: (name) => name === 'sessionPersistence' ? persistence : undefined,
+    logger: () => ({ warn() {}, info() {} }),
+    workspaceRegistry: { archivedSessionIds: [] },
+  }
+  S.applySessionsIndex(ctx)
+  const first = await ops['sessions.list']({ project: 'st/app', projectId: 'pid-1', localOnly: false })
+  assert.deepEqual(first.sessions.map((r) => r.sessionId), ['stored1'])
+  assert.equal(branchLists, 1, 'one Branch list')
+  assert.equal(manifestReads, 1, 'one manifest read')
+  const second = await ops['sessions.list']({ project: 'st/app', projectId: 'pid-1', localOnly: false })
+  assert.deepEqual(second.sessions, first.sessions, 'the same payload')
+  assert.equal(branchLists, 2, 'every discovery lists the Branches: that is its change token (and the SDK keeps the read)')
+  assert.equal(manifestReads, 1, 'unchanged heads: no stored manifest is read again')
+  // A stored session saved by another process moves its Branch head: the next
+  // read sees it at once (no TTL), and only that manifest is read again.
+  head = 'c2'
+  f.s.store.forget('stored1')
+  await ops['sessions.list']({ project: 'st/app', projectId: 'pid-1', localOnly: false })
+  assert.equal(branchLists, 3, 'a moved head re-walks the Store')
+  assert.equal(manifestReads, 2)
+})

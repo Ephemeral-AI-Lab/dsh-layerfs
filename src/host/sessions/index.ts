@@ -441,16 +441,50 @@ export function apply(ctx: Context): void {
         const state = sessions.state.read()
         const persistence = localPersistence(ctx)
         const rows = new Map<string, any>()
-        const localTitle = async (id: string) => {
+        // One list call reads each session's log once and its sidecar once: the
+        // three loops overlap (an owned session may be pending), and a sidecar
+        // read used to stat the same log again to find its folder.
+        const snapshots = new Map<string, Promise<any>>()
+        const statted = new Set<string>()
+        const localIds = new Set<string>()
+        const snapshotOf = (id: string) => {
+          let snapshot = snapshots.get(id)
+          if (!snapshot) {
+            snapshot = Promise.resolve(persistence?.stat(id))
+            snapshots.set(id, snapshot)
+            statted.add(id)
+            void snapshot.then((snap) => { if (snap) localIds.add(id) }, () => {})
+          }
+          return snapshot
+        }
+        /** A stored row the list already stat'ed answers locally; an id it never saw is left to discovery. */
+        const knownLocal = (id: string): boolean | undefined => statted.has(id) ? localIds.has(id) : undefined
+        const sidecars = new Map<string, Promise<any>>()
+        const sidecarOf = (id: string) => {
+          let sidecar = sidecars.get(id)
+          if (!sidecar) {
+            sidecar = snapshotOf(id).then((snap) => provider?.readSidecar?.(id, { snapshot: snap }))
+            sidecars.set(id, sidecar)
+          }
+          return sidecar
+        }
+        const liveTitle = (id: string): string | null => {
           const live = (ctx.get('sessions' as never) as any)?.get(id as never) as any
           const titles = live?.snapshotEvents(0).filter((event: any) => event.type === 'session/title' && typeof event.data?.title === 'string') ?? []
-          return titles.at(-1)?.data.title ?? (await provider?.readSidecar?.(id).catch(() => undefined))?.title ?? null
+          return titles.at(-1)?.data.title ?? null
+        }
+        /** A loaded session's title, else its sidecar's; `sidecar` when the caller already read one. */
+        const titleOf = async (id: string, sidecar?: any): Promise<string | null> => {
+          const live = liveTitle(id)
+          if (typeof live === 'string') return live
+          const value = sidecar !== undefined ? sidecar : await sidecarOf(id).catch(() => undefined)
+          return value?.title ?? null
         }
         for (const b of Object.values(state.sessions)) {
           if (b.project !== project || b.kind === 'shared' || !belongs(b.sessionId)) continue
-          const snap = await persistence?.stat(b.sessionId).catch(() => undefined)
+          const snap = await snapshotOf(b.sessionId).catch(() => undefined)
           rows.set(b.sessionId, {
-            sessionId: b.sessionId, title: snap ? await localTitle(b.sessionId) : null, branch: b.branch ?? null, state: b.state, local: !!snap,
+            sessionId: b.sessionId, title: snap ? await titleOf(b.sessionId) : null, branch: b.branch ?? null, state: b.state, local: !!snap,
             executionState: b.executionState ?? (b.state === 'bound' ? 'active' : 'inactive'), error: b.error ?? null, failure: b.failure ?? null,
             checkpoints: (state.checkpoints[b.sessionId] ?? []).filter((c) => c.commit && c.changed > 0).length,
             updatedAt: b.updatedAt, stored: !!state.mirror[b.sessionId] && !state.mirror[b.sessionId].error,
@@ -458,17 +492,19 @@ export function apply(ctx: Context): void {
         }
         for (const [id, pending] of Object.entries(state.pending)) {
           if (pending.project !== project || rows.has(id) || !belongs(id)) continue
-          const snap = await persistence?.stat(id)
-          if (snap) rows.set(id, { sessionId: id, title: await localTitle(id), state: 'pending', local: true, checkpoints: 0, updatedAt: snap.header.createdAt, stored: false })
+          const snap = await snapshotOf(id)
+          if (!snap) continue
+          const sidecar = await sidecarOf(id).catch(() => undefined)
+          rows.set(id, { sessionId: id, title: await titleOf(id, sidecar), state: 'pending', local: true, checkpoints: 0, updatedAt: snap.header.createdAt, stored: false })
         }
         for (const id of provider?.ownedSessionIds?.(project, unclaimed ? undefined : liveId) ?? []) {
           if (rows.has(id) || !belongs(id)) continue
-          const snap = await persistence?.stat(id)
+          const snap = await snapshotOf(id)
           if (!snap || snap.header.origin === 'subagent') continue
-          const sidecar = await provider.readSidecar(id)
+          const sidecar = await sidecarOf(id)
           if (sidecar?.bindingKind === 'shared') continue
           rows.set(id, {
-            sessionId: id, title: await localTitle(id), state: 'local', local: true,
+            sessionId: id, title: await titleOf(id, sidecar), state: 'local', local: true,
             checkpoints: (sidecar?.checkpoints ?? []).filter((c: any) => c.commit && c.changed > 0).length,
             updatedAt: snap.header.createdAt, stored: !!sidecar?.archive && !sidecar.archive.error,
           })
@@ -476,7 +512,7 @@ export function apply(ctx: Context): void {
         let discoveryError: { code: string, message: string } | null = null
         const discover = async () => {
           if (identityError) throw identityError
-          return store.discover(project)
+          return store.discover(project, { identity: liveId, local: knownLocal })
         }
         const discovered = args?.localOnly ? [] : await discover().catch((error: any) => {
           discoveryError = { code: error?.code ?? 'Unavailable', message: String(error?.message ?? error) }
