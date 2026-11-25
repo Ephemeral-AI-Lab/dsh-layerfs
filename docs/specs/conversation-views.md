@@ -74,8 +74,7 @@ Constraints of the seam (reported, not worked around):
   The accepted deviation is therefore the five tabs and the audit Trajectory
   only, not the composer. The faithful fix is a DSH seam (a per-session view
   registration or a tab row filter), recorded as a request in
-  `docs/specs/refinement-decisions.md` §2 and written up in
-  `docs/specs/dsh-seam-requests.md`.
+  `docs/specs/refinement-decisions.md` §2.
 - Only an entry of `conversation.view` receives `openView`; nothing outside the
   tabs (Chat's messages, the header, the sidebar) can select one. Linking from
   Chat to a tab needs a public "select view" call on the conversation service.

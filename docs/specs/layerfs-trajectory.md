@@ -70,8 +70,7 @@ already reads, so no DSH change is needed for parity.
 Seam request: the stock trajectory exposes no inner slot
 (`@deepseek-ai/dsh-client-ui-trajectory` registers only `conversation.view`), so
 inline LayerFS rows force this whole view. A public tool-call-level slot in the
-stock Trajectory would let those rows move there and retire this view; the
-request is written in `docs/specs/dsh-seam-requests.md`.
+stock Trajectory would let those rows move there and retire this view.
 
 ## 3. Data
 
