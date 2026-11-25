@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { LayerfsApi } from '../api.ts'
 import type { SessionFailure } from '../../shared/pg-failure.ts'
 import { useQuery } from '../files/use-query.ts'
@@ -38,6 +38,8 @@ interface SessionList { sessions: ProjectSession[], discoveryError?: { code: str
 
 /** The local session list (this DSH's own logs, no Store walk). */
 const LOCAL_POLL_MS = 15_000
+/** Delay before an expand asks the Store for stored sessions (the local rows paint first). */
+const ARCHIVE_DEFER_MS = 400
 /** The portable archive: a Store walk, so slow (F22). */
 const ARCHIVE_POLL_MS = 60_000
 
@@ -78,7 +80,22 @@ export function useProjectSessions(api: LayerfsApi, project: string, enabled = t
     : Promise.resolve<SessionList>({ sessions: [] })
   const key = `${project}:${projectId ?? ''}:${enabled}`
   const local = useQuery(() => load(true), [api, project, projectId, enabled], { cache: `sessions-local:${key}` })
-  const archive = useQuery(() => load(false), [api, project, projectId, enabled], { cache: `sessions-archive:${key}` })
+  // The archive read is a Store walk (a Branch list plus a manifest per stored
+  // session) and it competes with the local read that must paint the list: let
+  // the local paint go first, then ask for the stored rows. A later expand inside
+  // the window finds the answer in the query cache, so the deferral costs one
+  // frame, not a second walk.
+  const [archiveArmed, setArchiveArmed] = useState(enabled)
+  useEffect(() => {
+    if (!enabled) return
+    setArchiveArmed(false)
+    const timer = setTimeout(() => setArchiveArmed(true), ARCHIVE_DEFER_MS)
+    return () => clearTimeout(timer)
+  }, [enabled, project, projectId])
+  const archive = useQuery(
+    () => archiveArmed ? load(false) : Promise.resolve<SessionList>({ sessions: [] }),
+    [api, project, projectId, enabled, archiveArmed],
+    { cache: `sessions-archive:${key}` })
   const reload = () => { local.reload(); archive.reload() }
   // Session, storage and machine events come many a second during a run: they reread the
   // local list only. The portable archive (a Store walk: a Branch list plus one manifest
