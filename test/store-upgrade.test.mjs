@@ -273,8 +273,34 @@ test('host restart: a running upgrade reads interrupted, and its Check reads `st
   assert.deepEqual(seen.observation.value.format, { version: 3, latest: 3, status: 'current' })
   const read = first.ctl.calls.filter((c) => c[0] === 'store.get' && c[2]?.with?.includes('format'))
   assert.ok(read.length >= 1 && read.every((c) => c[2].timeout_ms > 0), 'the Check asks afresh (its own budget skips kept answers)')
-  // and in words: the format says it was upgraded
-  assert.equal(M.upgradeEnd(seen, t).state, 'ok')
+  // the restart's own look settles nothing (#804 §6/§10): amber interrupted, the format read in its tip, Check offered
+  assert.equal(seen.observation.auto, true)
+  const restarted = M.upgradeEnd(seen, t)
+  assert.deepEqual([restarted.state, restarted.word, restarted.check], ['warning', 'jobUpgradeInterrupted {"place":"old"}', true])
+  assert.match(restarted.tip, /fmtLatest/)
+  // also when that read finds the old format: never "Outdated · not upgraded" before a person checks
+  first.ctl.get = { store: 'old', engine: 'sqlite', state: 'ready', format: { version: 2, latest: 3, status: 'outdated' } }
+  const third = new H.Storage({ ...first.host }, () => {})
+  await third.reconciled
+  assert.equal(M.upgradeEnd(third.job(job.id), t).word, 'jobUpgradeInterrupted {"place":"old"}')
+  // a person's Check settles it, and is not offered again
+  const checked = await third.inspect(job.id)
+  assert.equal(checked.observation.auto, undefined)
+  const end = M.upgradeEnd(checked, t)
+  assert.deepEqual([end.state, end.word, end.check], ['error', 'jobUpgradeOutdated {"place":"old"}', false])
+  first.ctl.get = { store: 'old', engine: 'sqlite', state: 'ready', format: { version: 3, latest: 3, status: 'current' } }
+  const ok = M.upgradeEnd(await third.inspect(job.id), t)
+  assert.deepEqual([ok.state, ok.check], ['ok', false])
+})
+
+test('client merge: the stop reply and event make the card Stopping…, and a stale poll never undoes it', () => {
+  const running = { id: 'u', kind: 'upgrade', store: 'old', target: 'old', file: null, started: 1, ended: null, phase: 'convert', done: null, total: null, error: null, half: null, phases: [{ phase: 'check', half: null, at: 1 }, { phase: 'convert', half: null, at: 2 }], steps: ['check', 'convert', 'verify', 'commit'] }
+  const shown = M.mergeJob(undefined, running)
+  const stopped = M.mergeJob(shown, { ...running, stopping: true })
+  assert.equal(stopped.stopping, true, 'the same job with stopping is taken, not dropped')
+  assert.equal(M.mergeJob(stopped, { ...running }).stopping, true, 'a poll from before the stop keeps Stopping…')
+  const done = M.mergeJob(stopped, { ...running, ended: 9, outcome: 'stopped' })
+  assert.equal(done.outcome, 'stopped')
 })
 
 test('view: --with format joins the one store list read only when the CLI has it; rows carry format and a running upgrade is busy', async () => {

@@ -173,7 +173,7 @@ export interface StorageJob {
   /** An upgrade's Cancel was asked; its CLI's reply still decides how it ends. */
   stopping?: boolean
   /** The host's fresh look after the job ended (`inspect`); an upgrade's is `store get --with format`. */
-  observation?: { at: number, kind: string, value: any } | null
+  observation?: { at: number, kind: string, value: any, auto?: boolean } | null
   phases?: { phase: string, half: string | null, at: number }[]
   /** The call's phases in order, when the host knows them before the run (a compaction). */
   steps?: readonly string[]

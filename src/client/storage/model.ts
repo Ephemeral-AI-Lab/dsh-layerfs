@@ -449,8 +449,10 @@ export function mergeJob(old: StorageJob | undefined, incoming: StorageJob): Sto
   if (nextHalf === oldHalf && nextPhases < oldPhases) return old
   if (nextHalf === oldHalf && nextPhases === oldPhases && incoming.phase === old.phase && (incoming.done ?? -1) < (old.done ?? -1)) return old
   const maxShare = Math.min(0.99, Math.max(oldShare, nextRaw, incoming.maxShare ?? 0))
-  if (old.ended === incoming.ended && old.phase === incoming.phase && old.done === incoming.done && old.total === incoming.total && old.half === incoming.half && old.maxShare === maxShare) return old
-  return { ...incoming, maxShare }
+  // an upgrade's Cancel is sticky: once the host says stopping, a stale poll never turns it back into Cancel
+  const stopping = !!(old.stopping || incoming.stopping)
+  if (old.ended === incoming.ended && old.phase === incoming.phase && old.done === incoming.done && old.total === incoming.total && old.half === incoming.half && old.maxShare === maxShare && !!old.stopping === stopping) return old
+  return { ...incoming, maxShare, ...(stopping ? { stopping } : {}) }
 }
 
 export function movePushFailed(j: Pick<StorageJob, 'kind' | 'half' | 'phase' | 'outcome' | 'error'>): boolean {
@@ -656,11 +658,15 @@ export function upgradeEnd(j: StorageJob, t: StorageT): { state: UpgradeEndState
   if (j.outcome === 'stopped') return { state: 'idle', word: t('jobUpgradeStopped', { place }), tip: t('upgradeStoppedTip'), check: false }
   if (j.outcome === 'unknown' || j.outcome === 'interrupted') {
     const f = j.observation?.kind === 'upgrade' ? j.observation.value?.format as StoreFormat | undefined : undefined
-    if (f?.status === 'current') return { state: 'ok', word: t('jobUpgraded', { place }), tip: latest(f.version), check: true }
-    if (f?.status === 'outdated') return { state: 'error', word: t('jobUpgradeOutdated', { place }), tip: [t('upgradeOutdatedTip'), formatTip(f, t)].filter(Boolean).join('\n'), check: true }
+    const amber = t(j.outcome === 'interrupted' ? 'jobUpgradeInterrupted' : 'jobUpgradeUnknown', { place })
+    // the host's own look at a restart (`auto`) settles nothing: still interrupted, its read only in the tip, Check offered
+    if (j.observation?.auto) return { state: 'warning', word: amber, tip: [t('upgradeUnknownTip'), formatTip(f, t)].filter(Boolean).join('\n'), check: true }
+    // a person's Check that read the format settles it: no Check again
+    if (f?.status === 'current') return { state: 'ok', word: t('jobUpgraded', { place }), tip: latest(f.version), check: false }
+    if (f?.status === 'outdated') return { state: 'error', word: t('jobUpgradeOutdated', { place }), tip: [t('upgradeOutdatedTip'), formatTip(f, t)].filter(Boolean).join('\n'), check: false }
     // the Check could not read the format (no `--with format`, a stopped machine, an unreachable server): still unknown
-    if (f?.status === 'unknown') return { state: 'warning', word: t(j.outcome === 'interrupted' ? 'jobUpgradeInterrupted' : 'jobUpgradeUnknown', { place }), tip: [t('upgradeFormatUnknownTip'), formatTip(f, t)].filter(Boolean).join('\n'), check: true }
-    return { state: 'warning', word: t(j.outcome === 'interrupted' ? 'jobUpgradeInterrupted' : 'jobUpgradeUnknown', { place }), tip: t('upgradeUnknownTip'), check: true }
+    if (f?.status === 'unknown') return { state: 'warning', word: amber, tip: [t('upgradeFormatUnknownTip'), formatTip(f, t)].filter(Boolean).join('\n'), check: true }
+    return { state: 'warning', word: amber, tip: t('upgradeUnknownTip'), check: true }
   }
   const tip = j.error ? [`${j.error.code}: ${j.error.message}`, ...(j.error.fix ? [j.error.fix] : [])].join('\n') : null
   const phase = j.error?.phase ?? j.phase ?? null

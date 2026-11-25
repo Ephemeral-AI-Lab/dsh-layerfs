@@ -314,7 +314,8 @@ export class Storage {
     this.jobs = this.jobStore.jobs
     this.reconciled = Promise.resolve().then(async () => {
       for (const job of this.jobs.values()) if (job.outcome === 'interrupted') {
-        try { await this.inspect(job.id) } catch (error: any) { job.reconcileError = { code: error?.code ?? 'Failed', message: error?.message }; this.jobStore.save() }
+        // the restart's own look (`auto`): an upgrade keeps reading interrupted, with Check, until someone checks
+        try { await this.inspect(job.id, true) } catch (error: any) { job.reconcileError = { code: error?.code ?? 'Failed', message: error?.message }; this.jobStore.save() }
       }
     })
   }
@@ -940,10 +941,11 @@ export class Storage {
     }
   }
 
-  async inspect(id: string) {
+  /** @param auto - the host's own look at startup (marked `auto`), not a person's Check. */
+  async inspect(id: string, auto = false) {
     const job = this.jobs.get(id)
     if (!job || !job.ended) throw refuse(409, 'ConnectBusy', 'Wait for a completed job before inspecting recovery')
-    job.observation = await inspectJob(this.lfs, job, (await cliFeatures(this.host)).storeFormat)
+    job.observation = { ...await inspectJob(this.lfs, job, (await cliFeatures(this.host)).storeFormat), ...(auto ? { auto: true } : {}) }
     const value = job.observation.value
     if (value?.state === 'broken' && value?.reason === 'unresolved') job.outcome = 'unknown'
     // an upgrade's Check reads its format (the client words it Upgraded or Outdated); its outcome stays as its reply left it
