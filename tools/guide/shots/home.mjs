@@ -61,7 +61,7 @@ export default [
       (p) => bar(p).getByRole('button', { name: 'Back' }),
       (p) => bar(p).getByRole('button', { name: 'Forward' }),
       (p) => bar(p).getByRole('navigation', { name: 'Location' }).getByRole('button', { name: 'Stores', exact: true }),
-      (p) => bar(p).getByRole('button', { name: 'Switch from demo-starter' }),
+      (p) => bar(p).getByRole('button', { name: 'bookshelf', exact: true }),
       (p) => bar(p).getByRole('button', { name: /Jump to/ }),
       (p) => bar(p).getByRole('button', { name: 'Refresh' }),
       (p) => bar(p).getByRole('button', { name: 'Add' }),
@@ -90,7 +90,7 @@ export default [
     file: 'home-crumb-switcher',
     run: async (page, h) => {
       await h.home(); await h.jump('bookshelf', 'bookshelf'); await h.wait(1200)
-      await bar(page).getByRole('button', { name: 'Switch from demo-starter' }).click(); await h.wait(600)
+      await bar(page).getByRole('button', { name: 'bookshelf', exact: true }).click(); await h.wait(600)
     },
     callouts: [(p) => p.getByRole('menu').first()],
   },
@@ -117,7 +117,7 @@ export default [
     callouts: [
       (p) => p.getByRole('button', { name: "Hide handbook's sessions and Sandboxes" }),
       (p) => p.getByRole('tabpanel').getByRole('button', { name: 'handbook', exact: true }),
-      (p) => p.getByRole('tabpanel').getByRole('button', { name: 'guide-notes', exact: true }),
+      (p) => p.getByRole('tabpanel').getByRole('button', { name: /^(guide-notes|demo-starter)$/ }).first(),
       (p) => p.locator('[data-session]').first(),
       (p) => p.locator('[data-list-switch]').first(),
       (p) => p.getByRole('button', { name: 'handbook actions' }),
@@ -157,7 +157,7 @@ export default [
     run: async (page, h) => { await storesOn(page, h, 'postgresql'); await h.wait(800) },
     callouts: [
       (p) => p.locator('[data-store-kind=postgresql]'),
-      (p) => p.getByRole('tabpanel').getByRole('button', { name: 'Connect a database' }),
+      (p) => p.getByRole('button', { name: 'Connect a database', exact: true }),
       (p) => p.getByText('No PostgreSQL database connected yet.'),
     ],
   },
@@ -169,7 +169,7 @@ export default [
     },
     callouts: [
       (p) => p.getByRole('button', { name: 'New machine' }),
-      (p) => p.getByRole('button', { name: 'More machine actions' }),
+      (p) => p.getByRole('button', { name: 'Diagnose this host' }),
       (p) => p.getByRole('button', { name: 'Hide what docker holds' }),
       (p) => p.getByRole('button', { name: 'docker', exact: true }),
       (p) => p.locator('[data-machine="docker"] button[data-machine="docker"]'),
@@ -177,10 +177,5 @@ export default [
       (p) => p.getByRole('button', { name: 'Add Store' }),
       (p) => p.getByRole('button', { name: 'New Sandbox' }),
     ],
-  },
-  {
-    file: 'home-machines-more',
-    run: async (page, h) => { await homeOn(page, h, 'Machines'); await page.getByRole('button', { name: 'More machine actions' }).click(); await h.wait(600) },
-    callouts: [(p) => p.getByRole('menu').first()],
   },
 ]

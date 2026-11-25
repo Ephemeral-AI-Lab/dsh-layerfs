@@ -1,6 +1,6 @@
 // Shots for docs/guide/conversation.md: the guide fixture's project conversation and its LayerFS tabs.
 // Read only: nothing here sends a message, restores or saves.
-const SESSION = 'session-ef98eca3-a037-47dd-801a-4eb84d21d36b'
+const SESSION = 'session-20482a39-f9ec-4e77-9aa1-f36f3f11d239'
 
 /** Open the fixture conversation on one of its tabs. */
 async function open(page, h, tab, ready) {
@@ -36,7 +36,7 @@ export default [
       (p) => p.getByRole('toolbar', { name: 'Trajectory toolbar' }).locator('button').first(),
       (p) => p.getByRole('toolbar', { name: 'Trajectory toolbar' }).getByRole('button', { name: /LayerFS calls$/ }),
       (p) => p.getByRole('checkbox', { name: 'Only LayerFS writes' }),
-      (p) => p.getByRole('toolbar', { name: 'Trajectory toolbar' }).locator('[class*=counts]'),
+      (p) => p.locator('[class*=timelineHead] [class*=counts]').first(),
       (p) => p.getByRole('searchbox', { name: 'Search trajectory' }),
       (p) => p.locator('[class*=timeline]').first(),
       (p) => p.locator('[data-row^="h:"]').first(),
