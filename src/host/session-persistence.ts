@@ -39,6 +39,69 @@ function signatureOf(path: string): string {
   try { const s = statSync(path); return `${s.ino}:${s.size}:${s.mtimeMs}` } catch { return 'missing' }
 }
 
+/** One session's header snapshot, reusable while its log keeps the same identity. */
+interface CachedHeader {
+  id: string
+  /** The routed backend that produced it: an ownership move must miss. */
+  backend: unknown
+  snapshot: any
+  path: string
+  /** The stock backend's own change token: device, inode, size, mtime and ctime. */
+  identity: string
+  bytes: number
+}
+
+const HEADER_CACHE_LIMIT = 1024
+/** Headers stay small; this caps a pathological header or a long-lived process. */
+const HEADER_CACHE_BUDGET = 4 * 1024 * 1024
+
+/** Bounded LRU of session headers, keyed by id and guarded by the log's identity. */
+class HeaderCache {
+  /** Insertion order is recency: `get` re-inserts, `set` trims from the front. */
+  readonly entries = new Map<string, CachedHeader>()
+  bytes = 0
+  constructor(readonly limit = HEADER_CACHE_LIMIT, readonly budget = HEADER_CACHE_BUDGET) {}
+  get(id: string): CachedHeader | undefined {
+    const entry = this.entries.get(id)
+    if (entry === undefined) return undefined
+    this.entries.delete(id)
+    this.entries.set(id, entry)
+    return entry
+  }
+  set(entry: CachedHeader): void {
+    this.delete(entry.id)
+    if (entry.bytes > this.budget) return
+    this.entries.set(entry.id, entry)
+    this.bytes += entry.bytes
+    while (this.entries.size > this.limit || this.bytes > this.budget) {
+      const oldest = this.entries.keys().next().value
+      if (oldest === undefined) break
+      this.delete(oldest)
+    }
+  }
+  delete(id: string): void {
+    const entry = this.entries.get(id)
+    if (entry === undefined) return
+    this.entries.delete(id)
+    this.bytes = Math.max(0, this.bytes - entry.bytes)
+  }
+}
+
+/** The identity of one log file, or undefined when it cannot be read. */
+function logIdentity(path: string): string | undefined {
+  try {
+    const s = statSync(path, { bigint: true })
+    return `${s.dev}:${s.ino}:${s.size}:${s.mtimeNs}:${s.ctimeNs}`
+  } catch { return undefined }
+}
+
+/** A snapshot the caller can treat as its own, as the stock backend returns one. */
+function copySnapshot(snapshot: any): any {
+  const copy: any = { ...snapshot, header: { ...snapshot.header } }
+  if (snapshot.location) copy.location = { ...snapshot.location }
+  return copy
+}
+
 /** A storage key: the project UUID, or the 64-hex key of an owner recorded before project UUIDs. */
 const OWNER_KEY = /^(?:[a-f0-9]{64}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/
 /** A damaged routing index must not silently turn project sessions normal. */
@@ -113,6 +176,7 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
   private routesPath?: string
   private routesSignature?: string
   private readonly stock: any
+  private headerCache?: HeaderCache
   /** Non-importing facade for the archive store; routes to the owner's backend. */
   readonly local: any
 
@@ -127,6 +191,10 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
       flush: () => this.flush(),
     }
   }
+
+  private get headers(): HeaderCache { return (this.headerCache ??= new HeaderCache()) }
+  /** Drop one session's cached header after its log or its route changed. */
+  private invalidateHeader(id: string): void { this.headerCache?.delete(String(id)) }
 
   private get service(): any { return (this as any).ctx.get('layerfs') }
   private get sessions(): any { return (this as any).ctx.get('layerfsSessions') }
@@ -150,6 +218,8 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
   }
   /** Set (or with `undefined`, remove) one session's owner route. */
   private setOwner(id: string, owner: Owner | undefined): void {
+    // A route change can point the id at another backend with its own log.
+    this.invalidateHeader(id)
     const path = join(this.projectHome, 'owners.json')
     withFileLock(`${path}.lock`, () => {
       const routes = readRoutes(path)
@@ -160,6 +230,7 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
       this.routesPath = path
       this.routesSignature = signatureOf(path)
     })
+    this.invalidateHeader(id)
   }
   /** Ownership is local durable metadata, readable without reaching LayerFS. */
   ownerOf(id: string): { project: string } | undefined {
@@ -246,9 +317,21 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     if (!this.stock) return handle
     const wrapped = new RoutedHandle(handle)
     if (handle.access === 'write') {
-      this.handles.set(String(handle.id), wrapped)
+      const id = String(handle.id)
+      // Delegate through the facade: a migration swaps `current` under it.
+      const write = (name: 'append' | 'flush'): any => {
+        const inner = (wrapped as any)[name].bind(wrapped)
+        return (...args: any[]) => { this.invalidateHeader(id); return inner(...args) }
+      }
+      wrapped.append = write('append')
+      wrapped.flush = write('flush')
+      this.handles.set(id, wrapped)
       const close = wrapped.close.bind(wrapped)
-      wrapped.close = () => { if (this.handles.get(String(handle.id)) === wrapped) this.handles.delete(String(handle.id)); return close() }
+      wrapped.close = () => {
+        this.invalidateHeader(id)
+        if (this.handles.get(id) === wrapped) this.handles.delete(id)
+        return close()
+      }
     }
     return wrapped
   }
@@ -283,6 +366,7 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     const records: Deleted['sessions'] = {}
     for (const id of ids) {
       const owner = this.owners.sessions[id]
+      this.invalidateHeader(id)
       if (!owner) continue
       records[id] = { project: owner.project, at: Date.now() }
       const writer = this.handles.get(id)
@@ -300,6 +384,7 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
       const inside = dir ? relative(root, dir) : ''
       if (dir && inside && !inside.startsWith('..') && !inside.startsWith(sep)) rmSync(dir, { recursive: true, force: true })
       this.setOwner(id, undefined)
+      this.invalidateHeader(id)
       removed.push(id)
     }
     if (Object.keys(records).length) {
@@ -316,7 +401,11 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     const previous = this.migrations.get(id) ?? Promise.resolve()
     const run = previous.then(() => this.migrateNow(id, project))
     this.migrations.set(id, run)
-    try { await run } finally { if (this.migrations.get(id) === run) this.migrations.delete(id) }
+    this.invalidateHeader(id)
+    try { await run } finally {
+      if (this.migrations.get(id) === run) this.migrations.delete(id)
+      this.invalidateHeader(id)
+    }
   }
   private async migrateNow(id: string, project: string | null): Promise<void> {
     const oldOwner = this.owners.sessions[id]
@@ -394,7 +483,11 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     if (project) await this.updateSidecar(id, () => {})
   }
 
-  async create(header: any, options?: any) { return this.wrap(await (await this.target(String(header.id), header)).create(header, options)) }
+  async create(header: any, options?: any) {
+    const id = String(header.id)
+    this.invalidateHeader(id)
+    try { return this.wrap(await (await this.target(id, header)).create(header, options)) } finally { this.invalidateHeader(id) }
+  }
   async flush() {
     if (!this.stock) return this.local.flush()
     await this.stock.flush()
@@ -412,7 +505,30 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     }
     return [...all.values()]
   }
-  private async statLocal(id: string, options?: any) { return (await this.target(id)).stat(id, options) }
+  private async statLocal(id: string, options?: any) {
+    const backend = await this.target(id)
+    const cache = this.headers
+    const cached = cache.get(id)
+    if (cached && cached.backend === backend && cached.snapshot.formatStatus !== 'migration-required') {
+      options?.signal?.throwIfAborted()
+      // One metadata read is the whole freshness check: this backend only appends
+      // to a log, and the header is its first line. A rewrite replaces the inode or
+      // bumps size/mtime (the stock revision names exactly these fields), so an
+      // unchanged identity means an unchanged header.
+      if (logIdentity(cached.path) === cached.identity) return copySnapshot(cached.snapshot)
+      cache.delete(id)
+    }
+    const snapshot = await backend.stat(id, options)
+    const path = snapshot?.location?.path
+    // A versioned (historical) header's revision also covers the historical
+    // corpus, which can move without this file changing: keep re-reading it.
+    if (path && snapshot.formatStatus !== 'migration-required') {
+      const identity = logIdentity(path)
+      // The cache keeps its own copy: the caller owns the snapshot it was handed.
+      if (identity !== undefined) cache.set({ id, backend, snapshot: copySnapshot(snapshot), path, identity, bytes: path.length + JSON.stringify(snapshot.header).length + 128 })
+    }
+    return snapshot
+  }
   private async openLocal(id: string, access: any, options?: any) { return this.wrap(await (await this.target(id)).open(id, access, options)) }
   private async restore(id: string): Promise<boolean> {
     if (!this.store || (this.stock && this.service && this.isDeleted(id))) return false
