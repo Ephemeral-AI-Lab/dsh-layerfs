@@ -34,6 +34,13 @@ import { machineRows } from '../layerfs/machine-records.ts'
 /** How long a passed identity and readiness check stands for pre-step checks. */
 const IDENTITY_FRESH_MS = 15_000
 
+/**
+ * How long a successful identity+readiness read stands for an observed read
+ * (session.state with observe, the views' polls). Failures never enter it:
+ * only a refusal-free pass is remembered.
+ */
+const OBSERVED_READY_MS = 10_000
+
 /** A Store of this LayerFS home; `id` when the CLI reports Store identity. */
 export interface HomeStore { name: string, id?: string }
 
@@ -92,6 +99,14 @@ export class LayerfsSessions extends Service {
   /** When each PostgreSQL Store's server was last asked (one connection per ask). */
   private readonly serverChecked = new Map<string, number>()
   private availabilityRun: Promise<void> | undefined
+  /**
+   * Successful identity+readiness checks by owner, and the binding they were
+   * made for: observed reads reuse them for OBSERVED_READY_MS. A failure never
+   * enters this map.
+   */
+  private freshReady?: Map<string, { at: number, project: string, machine?: string }>
+  /** Project ids read for sessions.places, reused for the same window. */
+  private freshProjectIds?: Map<string, { at: number, id?: string }>
 
   constructor(ctx: Context) {
     super(ctx, 'layerfsSessions')
@@ -286,6 +301,8 @@ export class LayerfsSessions extends Service {
     }
     await persistence?.migrateProject?.(live ?? sessionId, project)
     const written = project ? { project, ...(machine ? { machine } : {}) } : undefined
+    // A placement change can change the place (and with it identity/readiness).
+    this.forgetFreshReads(sessionId)
     this.state.update((s) => {
       if (written) s.pending[sessionId] = written
       else delete s.pending[sessionId]
@@ -390,6 +407,16 @@ export class LayerfsSessions extends Service {
   // ------------------------------------------------------------- binding
 
   binding(sessionId: string): Binding | undefined { return this.state.read().sessions[sessionId] }
+
+  /**
+   * Whether an in-memory record (a binding, a pending choice, a live session)
+   * names this id. `sessions.places` uses it to skip ids no session can know
+   * before asking the ownership index.
+   */
+  knows(sessionId: string): boolean {
+    const state = this.state.read()
+    return !!state.sessions[sessionId] || !!state.pending[sessionId] || !!this.ctx.sessions?.get?.(sessionId as never)
+  }
   checkpoints(sessionId: string): Checkpoint[] { return this.state.read().checkpoints[sessionId] ?? [] }
 
   simulationOf(sessionId: string): SimulationBinding | undefined {
@@ -406,6 +433,7 @@ export class LayerfsSessions extends Service {
     }
     this.ensureAnchor(project)
     const simulation: SimulationBinding = { ...metadata, state: metadata.state ?? 'running', handoffReady: false }
+    this.forgetFreshReads(sessionId)
     this.state.update((s) => {
       s.pending[sessionId] = { project, simulation }
       if (s.sessions[sessionId]) s.sessions[sessionId].simulation = simulation
@@ -442,6 +470,48 @@ export class LayerfsSessions extends Service {
     return (this.ctx.get?.('layerfsSimulations' as never) as any)?.isActive?.(sessionId) === true
   }
 
+  /**
+   * Clear an owner's remembered reads: a saved binding (a mount, an interrupt,
+   * an activation) can change what identity+readiness would answer.
+   */
+  private forgetFreshReads(sessionId: string): void {
+    this.freshReady?.delete(sessionId)
+    this.freshProjectIds?.delete(sessionId)
+  }
+
+  /** Clear remembered reads whose project or machine a transition may have invalidated. */
+  private clearFreshReads(test: (entry: { project: string, machine?: string }) => boolean): void {
+    for (const [sessionId, entry] of this.freshReady ?? []) if (test(entry)) this.forgetFreshReads(sessionId)
+  }
+
+  /** A successful observed identity+readiness pass for this binding, still inside its window. */
+  private observedReady(ownerId: string, binding: Binding | null | undefined): boolean {
+    const entry = (this.freshReady ??= new Map()).get(ownerId)
+    if (!entry) return false
+    if (Date.now() - entry.at >= OBSERVED_READY_MS) { this.freshReady.delete(ownerId); return false }
+    return !!binding?.project && entry.project === binding.project && entry.machine === binding.machine
+  }
+
+  /** Remember a successful observed pass; a refused pass never reaches here. */
+  private rememberObservedReady(ownerId: string, binding: Binding | null | undefined): void {
+    if (binding?.project) (this.freshReady ??= new Map()).set(ownerId, { at: Date.now(), project: binding.project, machine: binding.machine })
+  }
+
+  /**
+   * The project id recorded for a session, for sessions.places. It is local
+   * routing metadata (no CLI call), but a batch asks for many at once and each
+   * lookup re-reads the ownership index, so a second batch inside the window
+   * reuses it. A missing id is remembered as missing.
+   */
+  projectIdFor(sessionId: string): string | undefined {
+    const cache = (this.freshProjectIds ??= new Map())
+    const entry = cache.get(sessionId)
+    if (entry && Date.now() - entry.at < OBSERVED_READY_MS) return entry.id
+    const id = (this.ctx.get?.('sessionPersistence' as never) as any)?.projectIdOf?.(sessionId) as string | undefined
+    cache.set(sessionId, { at: Date.now(), id })
+    return id
+  }
+
   private save(binding: Binding): Binding {
     // a classified failure belongs to the error it was read from: a binding saved with another error (or none)
     // drops the failure it carried over (`...binding`), unless the caller set a new one with it
@@ -450,6 +520,7 @@ export class LayerfsSessions extends Service {
     if (!binding.error) delete binding.failure
     binding.updatedAt = Date.now()
     this.state.update((s) => { s.sessions[binding.sessionId] = binding })
+    this.forgetFreshReads(binding.sessionId)
     this.ctx.layerfs.emit('layerfs-session', { sessionId: binding.sessionId })
     return binding
   }
@@ -1117,6 +1188,9 @@ export class LayerfsSessions extends Service {
    * No checkpoint or worker call is possible after its machine has stopped. */
   machinesStopped(machines: readonly string[]): void {
     const stopped = new Set(machines)
+    // A stopped machine changes readiness even for a session whose binding is
+    // already closed (no save would clear its entry).
+    this.clearFreshReads((entry) => stopped.has(entry.machine ?? 'native'))
     for (const owner of this.owners((b) => !!b.sandbox && stopped.has(b.machine ?? 'native') && (b.state === 'bound' || !!b.ws))) {
       this.interrupt(owner.sessionId, `Machine ${owner.machine ?? 'native'} was stopped. Execution was interrupted; send a new message after it is started again.`, 'availability')
     }
@@ -1174,7 +1248,11 @@ export class LayerfsSessions extends Service {
       let health = classifyStore(row, live)
       // A PostgreSQL verdict holds until the server is asked again.
       if (row?.engine === 'postgresql' && !askServer && previous?.state === 'unavailable' && health.state === 'available') health = previous
-      if (previous?.state !== health.state || previous?.reason !== health.reason) changed = true
+      if (previous?.state !== health.state || previous?.reason !== health.reason) {
+        changed = true
+        // A Store transition invalidates observed readiness for its projects.
+        this.clearFreshReads((entry) => storeOf(entry.project) === name)
+      }
       this.storeHealth.set(name, health)
       for (const owner of watched) {
         if (storeOf(owner.project) !== name) continue
@@ -1232,6 +1310,7 @@ export class LayerfsSessions extends Service {
     // Scratch is a user-selected folder and may be shared with normal sessions.
     // Even legacy generated scratch can hold evidence; release it separately.
     this.state.update((s) => { delete s.sessions[sessionId]; delete s.pending[sessionId] })
+    this.forgetFreshReads(sessionId)
   }
 
   /** Save and close every session Sandbox of a project (before the project is removed). */
@@ -1310,6 +1389,7 @@ export class LayerfsSessions extends Service {
     const persistence = this.ctx.get?.('sessionPersistence' as never) as any
     await persistence?.deleteSessions?.(ids)
     this.state.update((s) => { for (const id of ids) { delete s.sessions[id]; delete s.checkpoints[id]; delete s.mirror[id]; delete s.pending[id] } })
+    for (const id of ids) this.forgetFreshReads(id)
     for (const id of ids) this.ctx.layerfs.emit('layerfs-session', { sessionId: id, deleted: true })
     for (const project of new Set(targets.map((t) => t.project))) this.ctx.layerfs.emit('layerfs-workspaces-changed', { project })
     return ids
@@ -1329,7 +1409,9 @@ export class LayerfsSessions extends Service {
    * effect-driven read from the views) changes nothing: a refused machine,
    * Store or Workspace check is answered as unavailable, but the binding is
    * neither interrupted nor saved; that stays with an explicit action or the
-   * host's own availability poll.
+   * host's own availability poll. An observed read also reuses a successful
+   * identity+readiness check for a few seconds (the views poll often); the
+   * Workspace status, and so the unsaved count, is always read fresh.
    */
   async view(sessionId: string, options: { observe?: boolean } = {}): Promise<SessionView> {
     let binding = this.binding(sessionId) ?? null
@@ -1351,8 +1433,13 @@ export class LayerfsSessions extends Service {
     const ownerId = effective?.sessionId ?? sessionId
     let refusal: string | undefined
     try {
-      const row = await persistence?.assertSessionIdentity?.(ownerId)
-      if (row) await this.assertReady(row, effective?.machine)
+      // Observed reads (the views' polls) reuse a successful pass; a refusal is
+      // never cached, and the non-observe path always reads afresh.
+      if (!(options.observe === true && this.observedReady(ownerId, effective))) {
+        const row = await persistence?.assertSessionIdentity?.(ownerId)
+        if (row) await this.assertReady(row, effective?.machine)
+        if (row && options.observe === true) this.rememberObservedReady(ownerId, effective)
+      }
     } catch (error: any) { available = false; reason = String(error?.message ?? error); refusal = error?.code }
     let status: unknown = null
     if (available && effective?.kind === 'project' && effective.state === 'bound' && effective.ws) {

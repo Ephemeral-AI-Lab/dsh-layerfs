@@ -722,6 +722,106 @@ test('an observed session.state (the views\' poll) changes nothing: a refused ma
   }
 })
 
+test('observed reads check identity and readiness once per short window, but read workspace status every time', async () => {
+  const state = S.initialState()
+  state.sessions.live = { sessionId: 'live', kind: 'project', project: 'store/app', machine: 'vm', anchor: '/anchor', scratch: '/scratch', state: 'bound', ws: 'box:main', sandbox: 'box', branch: 'retained', executionState: 'active' }
+  state.checkpoints.live = [{ commit: 'saved' }]
+  const calls = []
+  const f = sessions({ state, lfs: {
+    machine: { get: async () => { calls.push('machine'); return { machine: 'vm', state: 'ready' } } },
+    store: { get: async () => { calls.push('store'); return { store: 'store', engine: 'sqlite', state: 'ready' } } },
+    workspace: { status: async (_ws, options) => { calls.push(`status:${options?.detail === true}`); return { overlay: { inode_count: 2 } } } },
+  } })
+  f.s.ctx.get = (name) => name === 'sessionPersistence' ? {
+    assertSessionIdentity: async () => { calls.push('identity'); return { key: 'store/app', store: 'store', machine: 'vm' } },
+    projectIdOf: () => 'permanent-id', local: { stat: async () => ({ eventCount: 5 }) },
+  } : undefined
+  for (let i = 0; i < 3; i++) {
+    const view = await f.s.view('live', { observe: true })
+    assert.equal(view.execution.available, true)
+    assert.equal(view.execution.reason, undefined)
+    assert.deepEqual(view.status?.overlay, { inode_count: 2 }, 'status stays live inside the window')
+    assert.equal(view.binding.state, 'bound')
+  }
+  assert.deepEqual(calls, ['identity', 'machine', 'store', 'status:true', 'status:true', 'status:true'],
+    'identity and readiness read once; workspace status --detail on every observed read')
+  // Without observe (an explicit read) the check always runs, window or not.
+  calls.length = 0
+  await f.s.view('live')
+  assert.deepEqual(calls, ['identity', 'machine', 'store', 'status:true'])
+})
+
+test('an observed read never caches a refused machine, Store or identity: the next read asks again', async () => {
+  for (const refused of ['machine', 'store', 'identity']) {
+    const state = S.initialState()
+    state.sessions.live = { sessionId: 'live', kind: 'project', project: 'store/app', machine: 'vm', anchor: '/anchor', scratch: '/scratch', state: 'bound', ws: 'box:main', sandbox: 'box', branch: 'retained', executionState: 'active' }
+    const calls = []
+    const f = sessions({ state, lfs: {
+      machine: { get: async () => { calls.push('machine'); if (refused === 'machine') throw new Refusal('Unavailable', 'machine vm is stopped'); return { machine: 'vm', state: 'ready' } } },
+      store: { get: async () => { calls.push('store'); if (refused === 'store') throw new Refusal('Unavailable', 'store is blocked'); return { store: 'store', engine: 'sqlite', state: 'ready' } } },
+      workspace: { status: async () => { calls.push('status'); return {} } },
+    } })
+    f.s.ctx.get = (name) => name === 'sessionPersistence' ? {
+      assertSessionIdentity: async () => { calls.push('identity'); if (refused === 'identity') throw new Refusal('ProjectIdentityChanged'); return { key: 'store/app', store: 'store', machine: 'vm' } },
+      projectIdOf: () => 'permanent-id', local: { stat: async () => ({ eventCount: 5 }) },
+    } : undefined
+    const first = await f.s.view('live', { observe: true })
+    assert.equal(first.execution.available, false, refused)
+    assert.ok(first.execution.reason, refused)
+    const second = await f.s.view('live', { observe: true })
+    assert.equal(second.execution.available, false, refused)
+    assert.equal(calls.filter((call) => call === 'identity').length, 2, `${refused}: identity is read again`)
+    if (refused !== 'identity') assert.equal(calls.filter((call) => call === 'machine').length, 2, `${refused}: readiness is read again`)
+    assert.equal(f.state().sessions.live.state, 'bound', `${refused}: an observed refusal changes nothing`)
+  }
+})
+
+test('save and interrupt invalidate the observed readiness window for that session', async () => {
+  const state = S.initialState()
+  state.sessions.live = { sessionId: 'live', kind: 'project', project: 'store/app', machine: 'vm', anchor: '/anchor', scratch: '/scratch', state: 'bound', ws: 'box:main', sandbox: 'box', branch: 'retained', executionState: 'active' }
+  const calls = []
+  const f = sessions({ state, lfs: {
+    machine: { get: async () => { calls.push('machine'); return { machine: 'vm', state: 'ready' } } },
+    store: { get: async () => { calls.push('store'); return { store: 'store', engine: 'sqlite', state: 'ready' } } },
+    workspace: { status: async () => { calls.push('status'); return {} } },
+  } })
+  f.s.ctx.get = (name) => name === 'sessionPersistence' ? {
+    assertSessionIdentity: async () => { calls.push('identity'); return { key: 'store/app', store: 'store', machine: 'vm' } },
+    projectIdOf: () => 'permanent-id', local: { stat: async () => ({ eventCount: 5 }) },
+  } : undefined
+  const once = () => calls.filter((call) => call === 'identity').length
+  await f.s.view('live', { observe: true })
+  await f.s.view('live', { observe: true })
+  assert.equal(once(), 1)
+  f.s.save({ ...f.state().sessions.live })
+  await f.s.view('live', { observe: true })
+  assert.equal(once(), 2, 'save clears the entry')
+  f.s.interrupt('live', 'A test interruption', 'blocked')
+  await f.s.view('live', { observe: true })
+  assert.equal(once(), 3, 'interrupt clears the entry (through its save)')
+})
+
+test('a stopped machine clears observed readiness even with no binding save', async () => {
+  const state = S.initialState()
+  state.sessions.held = { sessionId: 'held', kind: 'project', project: 'store/app', machine: 'vm', anchor: '/anchor', scratch: '/scratch', state: 'closed', executionState: 'interrupted', error: 'Store down', interruption: { kind: 'availability', at: 1 }, branch: 'retained' }
+  const calls = []
+  const f = sessions({ state, lfs: {
+    machine: { get: async () => { calls.push('machine'); return { machine: 'vm', state: 'ready' } } },
+    store: { get: async () => { calls.push('store'); return { store: 'store', engine: 'sqlite', state: 'ready' } } },
+    workspace: { status: async () => { calls.push('status'); return {} } },
+  } })
+  f.s.ctx.get = (name) => name === 'sessionPersistence' ? {
+    assertSessionIdentity: async () => { calls.push('identity'); return { key: 'store/app', store: 'store', machine: 'vm' } },
+    projectIdOf: () => 'permanent-id', local: { stat: async () => ({ eventCount: 5 }) },
+  } : undefined
+  await f.s.view('held', { observe: true })
+  await f.s.view('held', { observe: true })
+  assert.equal(calls.filter((call) => call === 'identity').length, 1)
+  f.s.machinesStopped(['vm'])
+  await f.s.view('held', { observe: true })
+  assert.equal(calls.filter((call) => call === 'identity').length, 2, 'a machine transition clears the entry without a save')
+})
+
 test('an observed read never clears an availability error either; the explicit read does', async () => {
   const state = S.initialState()
   state.sessions.held = { sessionId: 'held', kind: 'project', project: 'store/app', machine: 'vm', anchor: '/anchor', scratch: '/scratch', state: 'closed', executionState: 'interrupted', error: 'Store down', interruption: { kind: 'availability', at: 1 }, branch: 'retained' }
@@ -1217,6 +1317,48 @@ test('sessions.list rows carry the branch kind too, from the row\'s branch and i
   assert.equal(byId.plain.branchKind, 'other')
   assert.equal('restore' in byId.own, false)
   for (const id of Object.keys(byId)) assert.equal(state.sessions[id].branchKind, undefined, id)
+})
+
+test('sessions.places: a second batch in the window reuses project ids, and ids no session knows do no lookup', () => {
+  const state = S.initialState()
+  state.sessions.live = { sessionId: 'live', kind: 'project', project: 'st/app', anchor: '/a', scratch: '/scratch', state: 'bound' }
+  const f = sessions({ state })
+  let projectIdCalls = 0, ownedCalls = 0
+  const persistence = {
+    projectIdOf: (id) => { projectIdCalls++; return id === 'live' ? 'pid-1' : undefined },
+    ownedSessionIds: () => { ownedCalls++; return ['live'] },
+  }
+  f.s.ctx.get = (name) => name === 'sessionPersistence' ? persistence : undefined
+  const ops = {}
+  const ctx = {
+    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
+    layerfsSessions: f.s,
+    layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
+    plugin() {},
+    inject: (deps, callback) => { if (deps.includes('layerfsSessions')) callback(ctx) },
+    on() {},
+    effect() {},
+    get: (name) => name === 'sessionPersistence' ? persistence : undefined,
+    logger: () => ({ warn() {}, info() {} }),
+    workspaceRegistry: { archivedSessionIds: [] },
+  }
+  S.applySessionsIndex(ctx)
+  const placeCalls = []
+  const placeOfId = f.s.placeOfId.bind(f.s)
+  f.s.placeOfId = (id) => { placeCalls.push(id); return placeOfId(id) }
+  const first = ops['sessions.places']({ sessionIds: ['live', 'unknown', 'unknown-too'] })
+  assert.deepEqual(first, {
+    places: {
+      live: { project: 'st/app', projectId: 'pid-1', scratch: '/scratch' },
+      unknown: null,
+      'unknown-too': null,
+    },
+  })
+  const second = ops['sessions.places']({ sessionIds: ['live', 'unknown', 'unknown-too'] })
+  assert.deepEqual(second, first, 'the payload is identical')
+  assert.equal(projectIdCalls, 1, 'the project id is read once inside the window')
+  assert.equal(ownedCalls, 2, 'the ownership index is read once per batch, never per unknown id')
+  assert.deepEqual(placeCalls, ['live', 'live'], 'ids no binding, pending choice, live session or route names never reach placeOfId')
 })
 
 test('sessions.places: one read-only batch over placeOfId and projectIdOf; bad ids and oversize batches are refused', () => {

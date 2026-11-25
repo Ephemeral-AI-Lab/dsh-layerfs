@@ -558,11 +558,25 @@ export function apply(ctx: Context): void {
           return id
         }))]
         const persistence = ctx.get('sessionPersistence' as never) as any
+        const known = new Set<string>()
+        let allKnown = true
+        if (typeof sessions.knows === 'function') for (const id of values) {
+          if (sessions.knows(id)) known.add(id)
+          else allKnown = false
+        }
+        // Only when an id is not known in memory is the ownership index read, once
+        // for the whole batch: an id no binding, pending choice, live session or
+        // route names has no place and is answered null without a per-id read.
+        const owned = !allKnown && typeof persistence?.ownedSessionIds === 'function'
+          ? new Set<string>(persistence.ownedSessionIds()) : undefined
         const places: Record<string, { project: string, projectId?: string, scratch?: string } | null> = {}
         for (const id of values) {
+          if (owned && !known.has(id) && !owned.has(id)) { places[id] = null; continue }
           const place = sessions.placeOfId(id)
           if (!place?.project) { places[id] = null; continue }
-          const projectId = persistence?.projectIdOf?.(id) as string | undefined
+          // The project id is local routing metadata; a second batch inside the
+          // service's window reuses it instead of re-reading the owner index per id.
+          const projectId = typeof sessions.projectIdFor === 'function' ? sessions.projectIdFor(id) : persistence?.projectIdOf?.(id) as string | undefined
           places[id] = { project: place.project, ...(projectId ? { projectId } : {}), ...(place.scratch ? { scratch: place.scratch } : {}) }
         }
         return { places }
