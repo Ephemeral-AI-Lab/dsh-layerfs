@@ -4,7 +4,7 @@
 //   node --test test/history-graph.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -17,7 +17,7 @@ await build({
   bundle: true, format: 'esm', platform: 'node', target: 'node24', logLevel: 'warning', outExtension: { '.js': '.mjs' },
 })
 const { extendPage, movedCount, countedTotal } = await import(pathToFileURL(join(out, 'graph.mjs')).href)
-const { treeLayout, branchParents } = await import(pathToFileURL(join(out, 'tree.mjs')).href)
+const { treeLayout, branchParents, forkBaseOf } = await import(pathToFileURL(join(out, 'tree.mjs')).href)
 process.on('exit', () => rmSync(out, { recursive: true, force: true }))
 
 const branch = (name, head, forkedFrom = null, base = 'main') => ({ name, head, base, forkedFrom })
@@ -25,6 +25,41 @@ const commit = (id, branchName, parent, extra = {}) => ({ id, branch: branchName
 const page = (items, next = null, head = null) => ({ items, next, head })
 /** A Branch's page from its Commits oldest first. */
 const run = (name, ids, from, extra = {}) => page(ids.map((id, i) => commit(id, name, i ? ids[i - 1] : from, extra[id])).reverse(), null, ids.at(-1))
+
+test('forkBaseOf: a Branch still at its fork point names the version it started from; one with Commits does not', () => {
+  const branches = [branch('main', '32b'), branch('empty', '32a', '32a'), branch('own', 'a2', '32a')]
+  const pages = {
+    main: page([commit('32b', 'main', '32a', { at: null }), commit('32a', 'main', null, { at: null })], null, '32b'),
+    empty: page([], null, '32a'),
+    own: run('own', ['a1', 'a2'], '32a'),
+  }
+  const parents = branchParents(branches, pages)
+  assert.deepEqual(forkBaseOf(branches, parents, 'empty'), { base: '32a', source: 'main' })
+  assert.equal(forkBaseOf(branches, parents, 'own'), null, 'a Branch with its own Commits keeps the plain graph')
+  assert.equal(forkBaseOf(branches, parents, 'main'), null, 'main is never a fork row')
+  assert.equal(forkBaseOf(branches, parents, 'missing'), null)
+  // a Branch forked off another Branch: the Branch that owns the base is the source
+  const nested = [branch('main', '32b'), branch('parent', 'p2', '32a'), branch('child', 'p2', 'p2')]
+  const nestedPages = {
+    main: page([commit('32b', 'main', '32a', { at: null }), commit('32a', 'main', null, { at: null })], null, '32b'),
+    parent: run('parent', ['p1', 'p2'], '32a'),
+    child: page([], null, 'p2'),
+  }
+  assert.deepEqual(forkBaseOf(nested, branchParents(nested, nestedPages), 'child'), { base: 'p2', source: 'parent' })
+})
+
+test('ProjectHistory: the fork-base row is read-only, selected by initialCommit, and absent once the Branch has Commits', () => {
+  const tsx = readFileSync(join(root, 'src/client/files/ProjectHistory.tsx'), 'utf8')
+  assert.match(tsx, /const forkBase = forkBaseOf\(branches, parents, view\.branch\)/)
+  assert.match(tsx, /\{forkBase \? \([\s\S]*?css\.forkBaseRow[\s\S]*?files_forkBase[\s\S]*?forkBaseNote/)
+  assert.match(tsx, /data-selected=\{view\.selected === forkBase\.base \|\| initialCommit === forkBase\.base/)
+  assert.match(tsx, /onClick=\{\(\) => writeView\(\{ selected: forkBase\.base, branch: view\.branch \}\)\}/, 'read-only selection, never a diff')
+  assert.match(tsx, /filesApi\.commit\(api, project, forkBaseSource, forkBaseId\)/, 'the base commit names its source branch')
+  const locale = readFileSync(join(root, 'src/client/files/locale.ts'), 'utf8')
+  assert.match(locale, /files_forkBase: 'Started from \{branch\} · \{id\}'/)
+  assert.match(locale, /files_forkBaseNote: 'No changes since the fork\.'/)
+  assert.match(locale, /files_forkBase: '开始于 \{branch\} · \{id\}'/)
+})
 
 test('treeLayout: every saved thing takes one step, in saved order, never before its parent', () => {
   const branches = [branch('main', '32b'), branch('a', 'a5', '32a'), branch('b', 'b6', '32a')]

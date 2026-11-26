@@ -71,6 +71,81 @@
 
 /* ---------- stage and canvas ---------- */
 
+/* A Branch with nothing saved of its own: the version it started from, as one
+   read-only row above the graph (never a Commit, so it has no diff to open). */
+.forkBase {
+  flex: none;
+  padding: 6px 0 8px;
+}
+
+.forkBaseRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 18px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.forkBaseRow > svg {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+@media (hover: hover) {
+  .forkBaseRow:hover {
+    color: var(--dsw-alias-label-primary);
+  }
+}
+
+.forkBaseRow[data-selected] {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.forkBaseRow:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
+  outline-offset: 1px;
+}
+
+.forkBaseText {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.forkBaseNote {
+  margin-left: auto;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+@media (max-width: 1180px), (pointer: coarse) {
+  .forkBaseRow {
+    min-height: var(--lfs-tap, 44px);
+  }
+}
+
+@media (max-width: 640px) {
+  .forkBaseNote {
+    flex: 1 1 100%;
+    margin-left: 22px;
+  }
+}
+
 .stage {
   position: relative;
   display: flex;

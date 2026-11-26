@@ -15,7 +15,7 @@ import { BranchCompare, type CompareEnd } from './BranchCompare.tsx'
 import { changeKind, CommitDiff } from './CommitDiff.tsx'
 import { shortId, when } from './format.ts'
 import { countedTotal, extendPage, movedCount } from './graph-model.ts'
-import { branchParents, treeLayout } from './tree-model.ts'
+import { branchParents, forkBaseOf, treeLayout } from './tree-model.ts'
 import { HistoryGraph } from './HistoryGraph.tsx'
 import { branchLabel } from './labels.ts'
 import { EmptyState, Loading } from './States.tsx'
@@ -379,6 +379,33 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
   useEffect(() => () => { allGen.current++ }, [project])
 
   const parents = useMemo(() => branchParents(branches, pages), [branches, pages])
+  // A Branch whose head is still its fork point has nothing saved of its own:
+  // one read-only row names the version it started from, above the graph.
+  const forkBase = forkBaseOf(branches, parents, view.branch)
+  const forkBaseId = forkBase?.base
+  const forkBaseSource = forkBase?.source
+  const [forkSource, setForkSource] = useState<string | null>(null)
+  const forkRow = useRef<HTMLButtonElement>(null)
+  const focusedFork = useRef<string | null>(null)
+  useEffect(() => {
+    setForkSource(null)
+    if (!forkBaseId || !forkBaseSource) return
+    let live = true
+    // The base's own `source_branch` names the Branch it was published from;
+    // the Branch list's parent is the fallback when the read gives none.
+    void filesApi.commit(api, project, forkBaseSource, forkBaseId)
+      .then((r) => { if (live) setForkSource(r.item.sourceBranch || null) }, () => {})
+    return () => { live = false }
+  }, [api, project, forkBaseId, forkBaseSource])
+  // A deep link at the fork point lands on its row (never on a Commit it is not).
+  useEffect(() => {
+    if (!forkBaseId || initialCommit !== forkBaseId || focusedFork.current === forkBaseId) return
+    const row = forkRow.current
+    if (!row) return
+    focusedFork.current = forkBaseId
+    row.focus({ preventScroll: true })
+    row.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [forkBaseId, initialCommit])
   // A collapsed family hides descendants, never its own fork/head or the selected branch's ancestry.
   const forced = new Set<string>()
   for (let b: string | null = view.branch; b && !forced.has(b); b = parents.get(b) ?? null) forced.add(b)
@@ -550,6 +577,18 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
         </div>
       ) : null}
       {error ? <div role="alert" className={css.alert}>{error instanceof Error ? error.message : String(error)} <button type="button" onClick={() => setRevision((n) => n + 1)}>{t('files_retry')}</button></div> : null}
+      {forkBase ? (
+        <div className={css.forkBase}>
+          <button ref={forkRow} type="button" className={css.forkBaseRow} data-selected={view.selected === forkBase.base || initialCommit === forkBase.base || undefined}
+            aria-current={view.selected === forkBase.base || initialCommit === forkBase.base ? 'true' : undefined}
+            title={`${forkSource ?? forkBase.source} · ${forkBase.base}`}
+            onClick={() => writeView({ selected: forkBase.base, branch: view.branch })}>
+            <IconBranchOutlineRegular size={14} aria-hidden="true" />
+            <span className={css.forkBaseText}>{t('files_forkBase', { branch: branchLabel(forkSource ?? forkBase.source, t), id: forkBase.base.slice(0, 8) })}</span>
+            <span className={css.forkBaseNote}>{t('files_forkBaseNote')}</span>
+          </button>
+        </div>
+      ) : null}
       <div className={css.stage}>
         {busy === 'initial' && !Object.keys(pages).length
           ? <Loading label={t('files_historyReading')} className={css.center} />
