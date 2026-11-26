@@ -4,3 +4,6 @@ lib/
 *.log
 .dev*.log
 .layerfs-sdk/
+
+# impeccable design tooling (installed locally, not product code)
+.claude/

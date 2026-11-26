@@ -29,6 +29,18 @@ export interface HostEvent {
   readonly data?: any
 }
 
+/**
+ * A `sessions.open` the client is waiting on: DSH resolves the conversation
+ * (log, preset, agent) before it can select it, so the conversation area has
+ * nothing to show meanwhile. The views derive one honest opening state from
+ * this, never a made-up progress value.
+ */
+export interface OpeningSession {
+  readonly sessionId: string
+  readonly project?: string
+  readonly startedAt: number
+}
+
 /** What every page receives. */
 export interface LayerfsApi {
   /** Connect's host API: resolves the 2xx body, throws {@link HostError} otherwise. */
@@ -54,6 +66,10 @@ export interface LayerfsApi {
   /** Open a project-owned session using the selected local workspace as scratch. */
   /** `machine`: where a PostgreSQL project's Sandbox runs (the person's pick; else the host's default, placement.ts). */
   openProjectSession(project: string, workspaceId?: string, projectId?: string, machine?: string): Promise<{ sessionId: string, workspaceId: string }>
+  /** The conversation a `sessions.open` is resolving now, if any. */
+  openingSession(): OpeningSession | undefined
+  /** Observe pending opens (start and settle). Returns an unsubscribe. */
+  onOpening(listener: (opening: OpeningSession | undefined) => void): () => void
 }
 
 /** Navigation the host may ask for in an operation result (`navigate`). */
@@ -112,6 +128,28 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
   const listeners = new Map<string, Set<(e: HostEvent) => void>>()
   /** Calls waiting on an answer: each fails when the event stream drops (its connection is gone). */
   const inFlight = new Set<(e: LostCall) => void>()
+  /** Pending `sessions.open` calls, oldest first; listeners hear the newest one. */
+  const openings: OpeningSession[] = []
+  const openingListeners = new Set<(opening: OpeningSession | undefined) => void>()
+  const announceOpening = () => {
+    const top = openings.at(-1)
+    for (const listener of openingListeners) {
+      try { listener(top) } catch (error) { console.error('[dsh-layerfs] opening listener failed', error) }
+    }
+  }
+  const beginOpening = (sessionId: string, project: string | undefined): (() => void) => {
+    const entry: OpeningSession = { sessionId, ...(project ? { project } : {}), startedAt: Date.now() }
+    openings.push(entry)
+    announceOpening()
+    let done = false
+    return () => {
+      if (done) return
+      done = true
+      const at = openings.indexOf(entry)
+      if (at >= 0) openings.splice(at, 1)
+      announceOpening()
+    }
+  }
   let live = false
   let disposed = false
   let handle: any
@@ -251,10 +289,18 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
   return {
     call,
     // A named operation's lost answer reads like any lost send: no host, outcome unknown.
-    op: <T>(name: string, args?: unknown) => op<T>(name, args).catch((error: unknown) => {
-      if (error instanceof LostCall) throw new HostError('no-host', error.message, 0, null, false, 'transport-unknown')
-      throw error
-    }),
+    // `sessions.open` is also tracked while it runs: its caller gets the promise,
+    // and any view can say the conversation is opening (the smallest honest state).
+    op: <T>(name: string, args?: unknown) => {
+      const request = name === 'sessions.open' ? (args as { sessionId?: unknown, project?: unknown } | undefined) : undefined
+      const settle = typeof request?.sessionId === 'string' && request.sessionId
+        ? beginOpening(request.sessionId, typeof request.project === 'string' && request.project ? request.project : undefined)
+        : undefined
+      return op<T>(name, args).catch((error: unknown) => {
+        if (error instanceof LostCall) throw new HostError('no-host', error.message, 0, null, false, 'transport-unknown')
+        throw error
+      }).finally(() => { settle?.() })
+    },
     openPanel: (id) => nav.openPanel(id),
     openWorkspace: (id) => nav.openWorkspace(id),
     openSession: (id) => nav.openSession(id),
@@ -293,8 +339,15 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
     },
     connected: () => live,
     onEvent: subscribe,
+    openingSession: () => openings.at(-1),
+    onOpening(listener) {
+      openingListeners.add(listener)
+      return () => { openingListeners.delete(listener) }
+    },
     dispose() {
       disposed = true
+      openingListeners.clear()
+      openings.length = 0
       try { handle?.dispose?.() } catch { /* already closed */ }
     },
   }

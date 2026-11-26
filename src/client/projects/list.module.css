@@ -362,3 +362,34 @@
   gap: 6px;
   padding: 2px var(--dsh-sidebar-row-padding, 12px) 4px;
 }
+
+/* B2: the pending-open status. A small pill over the conversation's top edge,
+   never a backdrop: it has no size but its own and takes no pointer events, so
+   the composer, the tab row and the Chat below stay exactly as they were. */
+.opening {
+  position: fixed;
+  top: calc(var(--dsh-frame-overlay-top, 20px) + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 21;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(320px, calc(100vw - 32px));
+  padding: 4px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.12));
+  border-radius: 999px;
+  corner-shape: round;
+  background: var(--dsw-alias-bg-base, #fff);
+  color: var(--dsw-alias-label-secondary, #666);
+  font-size: 12px;
+  line-height: 18px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  pointer-events: none;
+}
+
+.openingMark {
+  display: inline-flex;
+  flex: none;
+  color: var(--dsw-alias-label-caption, #888);
+}

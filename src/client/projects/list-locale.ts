@@ -21,7 +21,7 @@ const en = {
   unavailableWhy: 'This conversation can’t run: {reason}', open: 'Open',
   machineStopped: 'Machine stopped', machineUnavailable: 'Machine unavailable', storeUnavailable: 'Store unavailable',
   notVerified: 'Not verified', removed: 'Removed', replaced: 'Replaced',
-  foldCenter: 'Fold sidebar with LayerFS Center open', reviewStart: 'Review the machine before starting it.', openingSession: 'Opening a session…',
+  foldCenter: 'Fold sidebar with LayerFS Center open', reviewStart: 'Review the machine before starting it.', openingSession: 'Opening a session…', openingConversation: 'Opening the conversation…',
   start: 'Start', startNamed: 'Start {machine}', startFailed: 'Could not start the project’s machine.', startMachineFor: 'Start machine {machine} for {project}',
 }
 const zh: typeof en = {
@@ -43,7 +43,7 @@ const zh: typeof en = {
   unavailableWhy: '此对话无法运行：{reason}', open: '打开',
   machineStopped: '机器已停止', machineUnavailable: '机器不可用', storeUnavailable: '存储不可用',
   notVerified: '未验证', removed: '已移除', replaced: '已被替换',
-  foldCenter: '保持 LayerFS 中心打开并折叠侧栏', reviewStart: '请先核对要启动的机器。', openingSession: '正在打开会话…',
+  foldCenter: '保持 LayerFS 中心打开并折叠侧栏', reviewStart: '请先核对要启动的机器。', openingSession: '正在打开会话…', openingConversation: '正在打开对话…',
   start: '启动', startNamed: '启动 {machine}', startFailed: '无法启动项目所在的机器。', startMachineFor: '为 {project} 启动机器 {machine}',
 }
 export const locales = { en, zh }

@@ -104,6 +104,12 @@ export function useProjectSessions(api: LayerfsApi, project: string, enabled = t
   // read per stored session) is reread on reconnect and by its own slow poll; under a team
   // run a 15 s archive poll per open project stalled host reads (Quarry v2 FIX-LOG F22).
   useHostEvents(api, ['layerfs-session', 'layerfs-workspaces-changed', 'layerfs-availability', 'storage', 'machine-progress'], () => { if (enabled) local.reload() }, { coalesceMs: 1_000 })
+  // A background Store walk that finished (`discovery: true`) changes the
+  // archive rows, so that read follows it too; a plain save still reloads the
+  // local rows only, keeping the F22 rule (no Store walk per save). No
+  // coalescing here: the coalescer keeps only a burst's last event, and an
+  // ordinary save right after the walk would drop the one archive read needed.
+  useHostEvents(api, ['layerfs-session'], (event) => { if (enabled && event.data?.discovery === true) archive.reload() })
   useHostEvents(api, ['connection'], () => { if (enabled) reload() })
   useEffect(() => {
     if (!enabled) return

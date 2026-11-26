@@ -41,6 +41,7 @@
 import { projectContext } from './prompt.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import { existsSync, statSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { CliError, pages } from '../layerfs/cli.ts'
 import { notifyCallLog } from '../layerfs/call-log.ts'
@@ -83,6 +84,40 @@ const AVAILABILITY_POLL_MS = 10_000
 
 /** The most session ids one `sessions.places` batch accepts. */
 const PLACES_MAX = 200
+
+/**
+ * One recent-project row's per-session facts, kept while every value they were
+ * read from holds: the log's stat identity, its sidecar's identity and the
+ * binding activity. Any save, receipt, create, delete, import or migrate moves
+ * one of those, so the next `projects.recent` recomputes that session instead
+ * of answering a stale `lastActivity`.
+ */
+interface RecentFact {
+  /** The values read for this row; a changed one is a miss. */
+  key: string
+  project: string
+  projectId?: string
+  lastActivity: number
+  created: number
+  /** When the facts were read: the memo is short-lived, never authoritative. */
+  at: number
+}
+
+/** How long a recent-project fact may answer without re-reading its sidecar. */
+const RECENT_FACT_MS = 10_000
+/** The memo's bound: a long-lived host can see many project sessions. */
+const RECENT_FACTS_MAX = 4096
+
+/**
+ * A session sidecar's file identity, as the persistence row computes it: the
+ * same file, replaced by an atomic write, changes inode, size or times.
+ */
+function sidecarIdentity(path: string): string | undefined {
+  try {
+    const s = statSync(join(dirname(path), 'layerfs.json'), { bigint: true })
+    return `${s.dev}:${s.ino}:${s.size}:${s.mtimeNs}:${s.ctimeNs}`
+  } catch { return undefined }
+}
 
 const turnOf = (session: any): number | undefined => {
   const events = session?.snapshotEvents(0) ?? []
@@ -306,6 +341,13 @@ export function apply(ctx: Context): void {
      */
     const readTrajectory = trajectoryReader()
     /**
+     * Recent-project facts, one per session, keyed by the log and sidecar
+     * identities and the binding activity the row reads. A hit skips the
+     * sidecar read; a miss (or a fact older than {@link RECENT_FACT_MS}) reads
+     * it again, so a changed session shows its new row on the very next call.
+     */
+    const recentFacts = new Map<string, RecentFact>()
+    /**
      * A session's DSH log: the loaded session's, else its stored log (a finished
      * subagent is unloaded, but its log stays on disk). Undefined when neither exists.
      */
@@ -369,9 +411,8 @@ export function apply(ctx: Context): void {
         const state = sessions.state.read()
         const scratch = ctx.layerfs.scratchProject
         const rows = new Map<string, { project: string, projectId?: string, lastActivity: number, newestSession: number, sessionIds: string[] }>()
-        const add = (id: string, project: string | undefined, at: number, created = at) => {
+        const add = (id: string, project: string | undefined, at: number, created = at, projectId = provider?.projectIdOf?.(id) as string | undefined) => {
           if (!project || project === scratch) return
-          const projectId = provider?.projectIdOf?.(id) as string | undefined
           const key = projectId ?? project
           const row = rows.get(key) ?? { project, ...(projectId ? { projectId } : {}), lastActivity: 0, newestSession: 0, sessionIds: [] }
           if (!row.sessionIds.includes(id)) row.sessionIds.push(id)
@@ -379,29 +420,55 @@ export function apply(ctx: Context): void {
           row.newestSession = Math.max(row.newestSession, created || 0)
           rows.set(key, row)
         }
+        /**
+         * What one session's row reads, from its log, its sidecar and the owner
+         * index. The sidecar is read only on a memo miss: its identity is part of
+         * the key, so a rewrite (a save, a receipt, a migrate) is a miss and an
+         * unchanged one costs one stat, not a parse of a long session's sidecar.
+         */
+        const factsOf = async (id: string, hinted: string | undefined): Promise<RecentFact | undefined> => {
+          const snap = await persistence?.stat(id).catch(() => undefined)
+          if (!snap || snap.header?.origin === 'subagent') { recentFacts.delete(id); return undefined }
+          const project = hinted ?? provider?.ownerOf?.(id)?.project as string | undefined
+          if (!project) { recentFacts.delete(id); return undefined }
+          const projectId = provider?.projectIdOf?.(id) as string | undefined
+          const path = snap.location?.path as string | undefined
+          const sidecar = path ? sidecarIdentity(path) : undefined
+          const createdAt = Number(snap.header?.createdAt ?? 0)
+          const stat = typeof snap.revision === 'string' && snap.revision ? snap.revision : `${snap.sizeBytes ?? ''}:${createdAt}`
+          const key = `${stat}|${sidecar ?? ''}|${projectId ?? ''}|${project}|${createdAt}`
+          const kept = recentFacts.get(id)
+          if (kept && kept.key === key && Date.now() - kept.at < RECENT_FACT_MS) return kept
+          const value = await provider?.readSidecar?.(id, { cached: true, snapshot: snap }).catch(() => undefined)
+          if (value?.bindingKind === 'shared') { recentFacts.delete(id); return undefined }
+          const fact: RecentFact = { key, project, ...(projectId ? { projectId } : {}), lastActivity: createdAt, created: createdAt, at: Date.now() }
+          // Without a sidecar file there is no identity to trust: no memo, so a
+          // sidecar written later is read on the very next call.
+          if (path && sidecar) {
+            recentFacts.delete(id)
+            recentFacts.set(id, fact)
+            while (recentFacts.size > RECENT_FACTS_MAX) recentFacts.delete(recentFacts.keys().next().value!)
+          } else recentFacts.delete(id)
+          return fact
+        }
         const seen = new Set<string>()
         for (const b of Object.values(state.sessions)) {
           if (b.kind === 'shared' || !b.project) continue
           seen.add(b.sessionId)
+          // A binding's activity is in memory: read it fresh every call, so a
+          // save's new `updatedAt` orders the rows on the very next read.
           add(b.sessionId, b.project, b.updatedAt ?? b.createdAt, b.createdAt)
-        }
-        const local = async (id: string) => {
-          const snap = await persistence?.stat(id).catch(() => undefined)
-          return snap && snap.header?.origin !== 'subagent' ? snap : undefined
         }
         for (const [id, pending] of Object.entries(state.pending)) {
           if (seen.has(id)) continue
           seen.add(id)
-          const snap = await local(id)
-          if (snap) add(id, pending.project, snap.header.createdAt)
+          const fact = await factsOf(id, pending.project)
+          if (fact) add(id, fact.project, fact.lastActivity, fact.created, fact.projectId)
         }
         for (const id of provider?.ownedSessionIds?.() ?? []) {
           if (seen.has(id)) continue
-          const snap = await local(id)
-          if (!snap) continue
-          const sidecar = await provider.readSidecar?.(id, { cached: true }).catch(() => undefined)
-          if (sidecar?.bindingKind === 'shared') continue
-          add(id, provider.ownerOf?.(id)?.project, snap.header.createdAt)
+          const fact = await factsOf(id, provider.ownerOf?.(id)?.project)
+          if (fact) add(id, fact.project, fact.lastActivity, fact.created, fact.projectId)
         }
         return { projects: [...rows.values()].sort((a, b) => b.lastActivity - a.lastActivity) }
       },

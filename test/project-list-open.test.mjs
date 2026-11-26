@@ -22,6 +22,8 @@ await build({
       "export { SessionLine } from './src/client/projects/ProjectList.tsx'",
       "export { sessionReadiness } from './src/client/projects/session-readiness.ts'",
       "export { locales as listLocales } from './src/client/projects/list-locale.ts'",
+      "export { createApi } from './src/client/api.ts'",
+      "export { OpeningConversation } from './src/client/projects/opening.tsx'",
     ].join('\n'),
     resolveDir: root, loader: 'tsx',
   },
@@ -181,4 +183,83 @@ test('a blocked row whose Store failure names it states the reason in words, wit
   assert.equal(rowButton(view.tree, 'local-2').props.disabled, true, 'the row itself cannot open')
   assert.equal(actionButtons(view.tree).length, 0, 'no readiness action button')
   assert.doesNotMatch(M.text(view.tree), /Open Store/, 'no Open Store action')
+})
+
+// ---------------------------------------------------------------- B2: opening
+
+/** An API whose host answers stay pending until the test resolves them. */
+function openingApi() {
+  const answers = []
+  const opened = []
+  const web = {
+    call: (request) => new Promise((resolve) => answers.push({ request, resolve })),
+    events: async function* () { yield { type: 'ready' }; await new Promise(() => {}) },
+  }
+  const nav = {
+    createSession: async () => 'new',
+    openPanel() {},
+    openWorkspace: async () => {},
+    openSession: (id) => opened.push(id),
+    knowsSession: () => true,
+    currentSessionId: () => undefined,
+  }
+  return { api: M.createApi(() => web, nav, () => undefined), answers, opened }
+}
+const flush = async () => { for (let i = 0; i < 3; i++) await new Promise((resolve) => setTimeout(resolve, 0)) }
+const openingPill = (tree) => find(tree, (p) => 'data-opening-conversation' in p)
+
+test('B2: the conversation says it is opening while sessions.open runs, and is gone on success', async () => {
+  const { api, answers, opened } = openingApi()
+  const seen = []
+  const off = api.onOpening((opening) => seen.push(opening?.sessionId ?? null))
+  const view = M.mount(M.OpeningConversation, { api, t })
+  assert.equal(openingPill(view.tree).length, 0, 'nothing is opening at rest')
+  // An ordinary op is not an opening.
+  const catalog = api.op('projects.catalog')
+  await flush()
+  assert.equal(api.openingSession(), undefined)
+  answers.shift().resolve({ ok: true, value: { rows: [] } })
+  await catalog
+  const open = api.op('sessions.open', { sessionId: 'stored-1', project: 'demo/app' })
+  await flush()
+  assert.equal(api.openingSession().sessionId, 'stored-1')
+  assert.equal(api.openingSession().project, 'demo/app')
+  const tree = await view.settle()
+  const pill = openingPill(tree)
+  assert.equal(pill.length, 1, 'the pending open is on screen')
+  assert.equal(pill[0].props['data-opening-conversation'], 'stored-1')
+  assert.equal(pill[0].props['data-opening-project'], 'demo/app')
+  assert.equal(pill[0].props.role, 'status', 'it is a status, not a dialog')
+  assert.equal(pill[0].props['aria-live'], 'polite')
+  assert.match(M.text(pill[0]), /Opening the conversation/)
+  assert.equal(find(pill[0], (p) => typeof p.onClick === 'function').length, 0, 'it offers no action and covers nothing')
+  answers[0].resolve({ ok: true, value: { sessionId: 'stored-1', navigate: { sessionId: 'stored-1' } } })
+  await open
+  await flush()
+  assert.equal(api.openingSession(), undefined, 'the answer settles the state')
+  assert.equal(openingPill(await view.settle()).length, 0, 'the pill is gone once the conversation is selected')
+  assert.deepEqual(opened, ['stored-1'], 'the session is selected after the state clears')
+  assert.deepEqual(seen, ['stored-1', null])
+  off()
+})
+
+test('B2: a refused open clears the opening state too', async () => {
+  const { api, answers } = openingApi()
+  const view = M.mount(M.OpeningConversation, { api, t })
+  const open = api.op('sessions.open', { sessionId: 'stored-2' })
+  await flush()
+  assert.equal(openingPill(await view.settle()).length, 1, 'it is shown while the refusal is pending')
+  answers[0].resolve({ ok: false, error: { code: 'NotFound', message: 'This session is gone' } })
+  await assert.rejects(open, /gone/)
+  await flush()
+  assert.equal(api.openingSession(), undefined)
+  assert.equal(openingPill(await view.settle()).length, 0, 'a refusal leaves no opening pill behind')
+})
+
+test('B2: the pill takes no pointer events and never covers the composer or tabs', () => {
+  const css = readFileSync(join(root, 'src/client/projects/list.module.css'), 'utf8')
+  const rule = /\.opening\s*\{[^}]*\}/.exec(css)?.[0] ?? ''
+  assert.match(rule, /pointer-events:\s*none/, 'the status does not take the click')
+  assert.doesNotMatch(rule, /inset:\s*0/, 'it is a pill, not a full-frame backdrop')
+  for (const lang of ['en', 'zh']) assert.ok(M.listLocales[lang].openingConversation, `${lang}.openingConversation`)
 })
