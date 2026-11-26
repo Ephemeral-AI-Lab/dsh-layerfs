@@ -281,19 +281,19 @@ export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api:
             ) : <Empty title={t('empty')}>{t('emptyBody')}</Empty>
       ) : (
         <Card className={css.tableCard}>
-          <table className={css.table} aria-busy={loading || more} aria-label={t('tableLabel')}>
-            <thead>
-              <tr>
-                <th className={css.wTime}>{t('colTime')}</th>
-                <th className={css.wClient}>{t('colClient')}</th>
-                <th>{t('colCommand')}</th>
-                <th className={css.wOutcome}>{t('colOutcome')}</th>
-                <th className={clsx(css.wMs, css.num)}>{t('colMs')}</th>
-                <th className={css.wSaved}>{t('colSaved')}</th>
-                <th className={css.wSession}>{t('colSession')}</th>
+          <table role="table" className={css.table} aria-busy={loading || more} aria-label={t('tableLabel')}>
+            <thead role="rowgroup">
+              <tr role="row">
+                <th role="columnheader" className={css.wTime}>{t('colTime')}</th>
+                <th role="columnheader" className={css.wClient}>{t('colClient')}</th>
+                <th role="columnheader">{t('colCommand')}</th>
+                <th role="columnheader" className={css.wOutcome}>{t('colOutcome')}</th>
+                <th role="columnheader" className={clsx(css.wMs, css.num)}>{t('colMs')}</th>
+                <th role="columnheader" className={css.wSaved}>{t('colSaved')}</th>
+                <th role="columnheader" className={css.wSession}>{t('colSession')}</th>
               </tr>
             </thead>
-            <tbody ref={tbody}>
+            <tbody role="rowgroup" ref={tbody}>
               {shown.map((line) => {
                 const key = lineKey(line)
                 return <Row key={key} rowKey={key} api={api} t={t} line={line} now={now} detailOpen={detail !== undefined}
@@ -386,23 +386,23 @@ function Row({ api, t, line, now, rowKey, detailOpen, onOpen, onKeyDown }: {
   const [focused, setFocused] = useState(false)
   const popoverId = useId()
   return (
-    <tr className={css.row} tabIndex={0} data-key={rowKey} aria-describedby={focused ? popoverId : undefined}
+    <tr role="row" className={css.row} tabIndex={0} data-key={rowKey} aria-describedby={focused ? popoverId : undefined}
       onClick={(e) => { if (opensDetail(e)) onOpen() }} onKeyDown={onKeyDown}
       onFocus={(e) => { if (e.target === e.currentTarget && e.currentTarget.matches(':focus-visible')) setFocused(true) }}
       onBlur={(e) => { if (e.target === e.currentTarget) setFocused(false) }}>
-      <td>
+      <td role="cell">
         <Tooltip label={absoluteTime(line.at)} side="top" portal delayMs={400}>
           <span className={css.time}>{when(line.at, now, t)}</span>
         </Tooltip>
       </td>
-      <td className={clsx(css.muted, css.wClient)}>{line.client}</td>
-      <td className={css.commandCell}><CommandCell parts={parts} focusOpen={focused} popoverId={popoverId} disabled={detailOpen} /></td>
-      <td title={ok ? undefined : line.outcome}>{ok ? <span className={css.ok}>{t('outcomeOk')}</span> : <Tag tone="danger" className={css.codeTag}>{line.outcome}</Tag>}</td>
-      <td className={clsx(css.num, css.duration)}>{duration(line.ms, t)}</td>
-      <td className={clsx(css.saved, css.wSaved)}>
+      <td role="cell" className={clsx(css.muted, css.wClient)}>{line.client}</td>
+      <td role="cell" className={css.commandCell}><CommandCell parts={parts} focusOpen={focused} popoverId={popoverId} disabled={detailOpen} /></td>
+      <td role="cell" title={ok ? undefined : line.outcome}>{ok ? <span className={css.ok}>{t('outcomeOk')}</span> : <Tag tone="danger" className={css.codeTag}>{line.outcome}</Tag>}</td>
+      <td role="cell" className={clsx(css.num, css.duration)}>{duration(line.ms, t)}</td>
+      <td role="cell" className={clsx(css.saved, css.wSaved)}>
         {version ? <>{line.kind && <span className={css.kind} title={line.kind}>{kindWords(line.kind, t)}</span>}<code className={css.hex} title={version}>{shortHex(version)}</code></> : <span className={css.muted}>—</span>}
       </td>
-      <td>{line.dsh ? <SessionLabel api={api} t={t} label={line.dsh} /> : <span className={css.muted}>—</span>}</td>
+      <td role="cell">{line.dsh ? <SessionLabel api={api} t={t} label={line.dsh} /> : <span className={css.muted}>—</span>}</td>
     </tr>
   )
 }

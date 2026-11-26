@@ -240,6 +240,85 @@
   font-size: 13px;
 }
 
+/* ---------- a phone: one call per stacked card ----------
+   The table keeps its header for assistive technology (role=table is explicit),
+   but on a phone the seven columns cannot share 350px: the row becomes three
+   lines — when/outcome/duration, the command, then what it saved and whose
+   session it was. The command keeps one line and scrolls sideways rather than
+   being squeezed to a few characters. */
+@container (max-width: 900px) {
+  .table thead {
+    display: none;
+  }
+
+  .table,
+  .table tbody {
+    display: block;
+    width: 100%;
+  }
+
+  .table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas:
+      'time outcome duration'
+      'command command command'
+      'saved session session';
+    align-items: center;
+    gap: 6px 10px;
+    box-sizing: border-box;
+    min-height: var(--lfs-tap, 44px);
+    padding: 12px;
+  }
+
+  .table tbody tr + tr {
+    border-top: 0.5px solid var(--dsw-alias-border-l2);
+  }
+
+  .table tbody tr + tr td {
+    border-top: 0;
+  }
+
+  .table td {
+    display: block;
+    padding: 0;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .table td:nth-child(1) { grid-area: time; }
+  .table td:nth-child(2) { display: none; }
+  .table td:nth-child(3) { grid-area: command; min-width: 0; }
+  .table td:nth-child(4) { grid-area: outcome; justify-self: end; }
+  .table td:nth-child(5) { grid-area: duration; justify-self: end; }
+  .table td:nth-child(6) { grid-area: saved; display: block; min-width: 0; }
+  .table td:nth-child(7) { grid-area: session; min-width: 0; }
+
+  .commandCell {
+    max-width: none;
+  }
+
+  /* code keeps its line: swipe it, don't hyphenate it into a column of stubs */
+  .command {
+    overflow-x: auto;
+    padding-bottom: 2px;
+    text-overflow: clip;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .saved {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sessionLabel {
+    width: 100%;
+  }
+}
+
 /* ---------- full command popover (body-portaled, placed by useAnchoredPosition) ---------- */
 
 .popover {
@@ -338,11 +417,13 @@ div.detailModal {
 
 .detailBody {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: var(--lfs-section-gap);
   min-height: 0;
   overflow: auto;
-  padding: var(--lfs-section-gap) 24px;
+  overscroll-behavior: contain;
+  padding: var(--lfs-section-gap) 24px calc(var(--lfs-section-gap) + var(--lfs-safe-bottom));
 }
 
 .detailSection {
@@ -388,6 +469,12 @@ div.detailModal {
   color: var(--dsw-alias-label-primary);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* The command is one shell line: keep its words whole and let the block scroll. */
+.commandBlock {
+  white-space: pre;
+  overflow-wrap: normal;
 }
 
 .codeBlock:focus-visible {
@@ -504,6 +591,66 @@ div.detailModal {
   color: var(--dsw-alias-label-secondary);
 }
 
+/* ---------- phone: the call detail is a sheet ----------
+   Full width and full height, the head's controls stay at the top and the body
+   scrolls under them; the bottom pad clears the home indicator. */
+@media (max-width: 640px) {
+  div.detailModal {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100%;
+    margin: 0;
+    border-radius: 0;
+  }
+
+  .detailHead {
+    padding: 12px 8px 10px 16px;
+  }
+
+  .detailBody {
+    padding: 16px 16px calc(20px + var(--lfs-safe-bottom));
+  }
+
+  .detailActions {
+    gap: 8px 12px;
+  }
+
+  .codeBlock {
+    max-height: 40vh;
+  }
+}
+
+@media (max-width: 1180px), (pointer: coarse) {
+  .iconOnly {
+    width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+  }
+
+  .copyButton {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .detailActions > button,
+  .detailActions > a {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .disclosure > summary {
+    display: flex;
+    align-items: center;
+    min-height: var(--lfs-tap, 44px);
+  }
+}
+
+/* A tag's word is text like any other on the page: no smaller than 12px. */
+.table span[class*='tag'],
+.detailModal span[class*='tag'] {
+  font-size: 12px;
+}
+
 /* Touch: the filter row's inputs, selects and buttons are thumb targets. */
 @media (max-width: 1180px), (pointer: coarse) {
   .filters input,
@@ -514,6 +661,12 @@ div.detailModal {
 
   .filters > button,
   .filters button {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .filters label {
+    display: inline-flex;
+    align-items: center;
     min-height: var(--lfs-tap, 44px);
   }
 }

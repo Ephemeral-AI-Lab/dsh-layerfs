@@ -116,7 +116,7 @@ function DetailBody({ api, t, line, labels, onCalls }: { api: LayerfsApi, t: Log
           <h3 className={css.sectionTitle}>{t('secCommand')}</h3>
           <CopyButton text={parts.full} t={t} label={t('copyCommand')} />
         </div>
-        <pre className={css.codeBlock} data-testid="logs-detail-command"><code><CommandWords parts={parts} /></code></pre>
+        <pre className={clsx(css.codeBlock, css.commandBlock)} data-testid="logs-detail-command"><code><CommandWords parts={parts} /></code></pre>
       </section>
 
       <section className={css.detailSection} aria-label={t('secFacts')}>
