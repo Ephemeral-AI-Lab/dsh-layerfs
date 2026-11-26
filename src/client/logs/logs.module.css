@@ -246,7 +246,7 @@
    lines — when/outcome/duration, the command, then what it saved and whose
    session it was. The command keeps one line and scrolls sideways rather than
    being squeezed to a few characters. */
-@container (max-width: 900px) {
+@container (max-width: 834px) {
   .table thead {
     display: none;
   }
