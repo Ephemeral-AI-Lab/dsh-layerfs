@@ -953,3 +953,99 @@
   color: var(--dsw-alias-label-secondary);
   font-variant-numeric: tabular-nums;
 }
+
+/* Touch: the Stores board's kinds, view switch, names, place chips, project
+   rows and foot actions are thumb targets. A fine pointer keeps Home's
+   compact board (the phone keeps the card layout already in place). */
+@media (max-width: 1180px), (pointer: coarse) {
+  .tile,
+  .view {
+    height: var(--lfs-tap, 44px);
+  }
+
+  .barAction :global(button) {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .card button {
+    min-width: var(--lfs-tap, 44px);
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .card .name {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .card .chip {
+    height: var(--lfs-tap, 44px);
+  }
+
+  .card .machines {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .card .project {
+    height: var(--lfs-tap, 44px);
+  }
+
+  .card .slot {
+    min-height: calc(3 * var(--lfs-tap, 44px));
+  }
+
+  .pgServer :global(button),
+  .db :global(button),
+  .addRow {
+    min-height: var(--lfs-tap, 44px);
+  }
+}
+
+/* A phone: a database row wraps its actions under the name instead of
+   squeezing them, and the server header may break anywhere. */
+@media (max-width: 640px) {
+  .db {
+    flex-wrap: wrap;
+  }
+
+  .dbActions {
+    margin-inline-start: auto;
+  }
+
+  .serverHead {
+    flex-wrap: wrap;
+  }
+
+  .serverName {
+    overflow-wrap: anywhere;
+  }
+}
+
+/* A phone: the kind tiles stack their figure under the label instead of
+   clipping it, so "SQLite · 1 Store · 1.7 GB" is readable at 390. */
+@media (max-width: 480px) {
+  .tile {
+    flex-wrap: wrap;
+    row-gap: 1px;
+    height: auto;
+    min-height: var(--lfs-tap, 44px);
+    padding-block: 6px;
+  }
+
+  .tileFigure {
+    flex-basis: 100%;
+    overflow: visible;
+    white-space: normal;
+    text-align: center;
+    text-overflow: clip;
+  }
+}
+
+/* A phone: a very long Store name wraps in its card instead of clipping. */
+@media (max-width: 640px) {
+  .card .name {
+    overflow: visible;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+  }
+}
