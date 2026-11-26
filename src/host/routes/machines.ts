@@ -12,22 +12,28 @@
  *
  * The 2.0 machine family (call-surface-2-0 `machine` rows): `machine list
  * --detail` (records only: each machine's six-state `state` with its
- * companion `op`, `reason` and `fix`, never guessed here), then `machine get
- * <m> --detail --with live` for each machine whose record LayerFS can read
- * (the live probe: the state it finds, free disk, tool version, worker;
- * native's is its free disk), with store.list() and
- * sandbox.list(): one read for the page, and none of it starts a machine.
- * The platforms come from `home get --with platforms`. One answer serves
- * every tab for {@link VIEW_KEEP_MS}. Whether a
- * listed Sandbox's daemon runs (`live`, layerfs-project#164) comes from the
- * metrics sampler's newest point (metrics.ts, #182 D2): the sampler reads
- * each machine once per 15 s, whoever looks.
+ * companion `op`, `reason` and `fix`, never guessed here), with
+ * store.list() and sandbox.list(): one read for the page, and none of it
+ * starts a machine. The platforms come from `home get --with platforms`.
+ * One answer serves every tab for {@link VIEW_KEEP_MS}.
+ *
+ * Liveness is sampled, not awaited (layerfs-project#B4). The live probe
+ * (`machine get <m> --detail --with live`: the state it finds, free disk, tool
+ * version, worker; native's is its free disk) runs in the metrics sampler's
+ * machine turns (metrics.ts), which is also where a Docker machine that died
+ * is noticed. `GET /api/machines` answers from the last probe with its
+ * timestamp, so the read no longer pays the 200+ ms probe; `?fresh=1` (the
+ * page's Refresh and Check again, the user's explicit ask) probes every
+ * readable machine now. Whether a listed Sandbox's daemon runs (`live`,
+ * layerfs-project#164) comes from the same sampler's newest stats point
+ * (metrics.ts, #182 D2): the sampler reads each machine once per 15 s,
+ * whoever looks.
  */
 import { join } from 'node:path'
 import { computer } from './computer.ts'
 import { readArchive, type ImageProblem } from '../images/archive.ts'
 import { InspectReads, filesQuery, logQuery, refusalOf, type FilesView, type LogView } from './inspect.ts'
-import { MetricsSampler, STOPPED } from './metrics.ts'
+import { MetricsSampler, STOPPED, type Clock } from './metrics.ts'
 import { liveOf, spaceAnswer, type MachineSpace, type MachineSpaceView, type MachineStatsView } from './observed.ts'
 import { Answer, cliFeatures, featuresOf, fixOf, pages, refuse, type CliFeatures, type RouteHost } from './util.ts'
 import { ImageLoads, type LoadReport } from './image-loads.ts'
@@ -212,6 +218,31 @@ export function dockerOf(answer: any): SandboxImagesView['docker'] {
   return { available: true, images }
 }
 
+/** An ISO time as epoch ms, or null; the record's and the probe's `observed_at` are compared this way. */
+const isoMs = (value: unknown): number | null => {
+  if (typeof value !== 'string') return null
+  const at = Date.parse(value)
+  return Number.isFinite(at) ? at : null
+}
+
+/**
+ * Whether a probe's answer predates the record read beside it: a Stop or a
+ * Start since the probe means the record's state is the newer word, and the
+ * probe must not overwrite it. Either side without a time cannot tell, so the
+ * probe stands (as before timestamps were compared).
+ */
+const probeOlderThan = (got: any, record: any): boolean => {
+  const probed = isoMs(got?.observed_at), saw = isoMs(record?.observed_at)
+  return probed !== null && saw !== null && probed < saw
+}
+
+/** The timestamp of the last known liveness: the probe's own `observed_at`, else when this host got the answer. */
+const livenessAt = (probe: { at: number, got?: any } | undefined): string | null => {
+  const seen = isoMs(probe?.got?.observed_at)
+  if (seen !== null) return new Date(seen).toISOString()
+  return probe?.at ? new Date(probe.at).toISOString() : null
+}
+
 /** A machine's `--with live` section (`machine get`): free disk, the provider tool's version, its worker; or why the probe was not made. */
 export function machineLive(name: string, got: any, error?: any) {
   const live = got?.live && typeof got.live === 'object' ? got.live : null
@@ -296,12 +327,34 @@ export class Machines {
   private lastViewAt: { at: number, generation: number } | null = null
   private platformAnswer: { at: number, value: PlatformsView } | null = null
   private platformRead: Promise<PlatformsView> | null = null
+  /** Each machine's last live probe (the sampler's, or a fresh read's): the view's last known liveness, never waited on for a plain read. */
+  private readonly lastProbe = new Map<string, { at: number, got?: any, error?: any }>()
+  /** A live probe under way, by machine: the sampler and a fresh read share it. */
+  private readonly probing = new Map<string, Promise<void>>()
 
   /**
    * @param host - the route dependencies.
    * @param place - puts a Store on a machine as a job in Storage's table (push, pull, or pull then push).
+   * @param options.clock - the sampler's clock (tests); the real one when absent.
    */
-  constructor(private readonly host: RouteHost, private readonly place: ((store: string, machine: string, made?: boolean) => Promise<unknown>) | null = null) {}
+  constructor(private readonly host: RouteHost, private readonly place: ((store: string, machine: string, made?: boolean) => Promise<unknown>) | null = null, options: { clock?: Clock } = {}) {
+    this.metrics = new MetricsSampler({
+      // the native daemon is recorded once before the first call, as the router does before every route
+      list: async () => {
+        await this.host.ensureNative()
+        return list((await this.lfs.machine.list({ detail: true })).items).map((m: any) => ({
+          name: String(m?.machine ?? ''), state: text(m?.state) ?? 'ready',
+          readable: !unreadableRecord({ state: m?.state, reason: m?.reason, platform: m?.platform }),
+        }))
+      },
+      // the abort signal is an SDK-side option of monitoring reads (cli.ts), never a CLI flag
+      stats: (name, signal) => { const stats = { signal, detail: true }; return this.lfs.machine.stats(name, stats) },
+      // the only read that notices a Docker machine died: sampled in the machine's turns, never waited on by a page read
+      probe: (name) => this.probeNow(name),
+      offered: async () => (await cliFeatures(this.host)).inspect.machineStats,
+      ...(options.clock ? { clock: options.clock } : {}),
+    })
+  }
 
   get lfs() { return this.host.lfs() }
 
@@ -317,22 +370,30 @@ export class Machines {
   changed(): void { this.generation++ }
 
   /**
-   * The metrics sampler (metrics.ts, layerfs-project#182 D1): one
-   * `machine.stats` at a time across the machines that run, each once per
-   * 15 s, kept as an hour of history in memory. Started by the routes plugin
-   * (index.ts) for as long as dsh runs; `GET /api/metrics` and the stats route
-   * answer from it without a LayerFS call.
+   * The metrics sampler (metrics.ts, layerfs-project#182 D1, #B4): one
+   * `machine.stats` and one live probe at a time across the machines, each
+   * once per 15 s, kept as an hour of history in memory. Started by the routes
+   * plugin (index.ts) for as long as dsh runs; `GET /api/metrics` and the
+   * stats route answer from it without a LayerFS call, and the machines view
+   * answers its liveness from the probes it took.
    */
-  readonly metrics = new MetricsSampler({
-    // the native daemon is recorded once before the first call, as the router does before every route
-    list: async () => {
-      await this.host.ensureNative()
-      return list((await this.lfs.machine.list({ detail: true })).items).map((m: any) => ({ name: String(m?.machine ?? ''), state: text(m?.state) ?? 'ready' }))
-    },
-    // the abort signal is an SDK-side option of monitoring reads (cli.ts), never a CLI flag
-    stats: (name, signal) => { const options = { signal, detail: true }; return this.lfs.machine.stats(name, options) },
-    offered: async () => (await cliFeatures(this.host)).inspect.machineStats,
-  })
+  readonly metrics: MetricsSampler
+
+  /**
+   * One machine's live probe, shared while it runs: its answer, or its
+   * refusal, is the view's last known liveness from then on. The sampler
+   * calls it on its turns; only `fresh=1` awaits it on a read.
+   */
+  private probeNow(name: string): Promise<void> {
+    const running = this.probing.get(name)
+    if (running) return running
+    const run = this.lfs.machine.get(name, { detail: true, with: ['live'] }).then(
+      (got: any) => { this.lastProbe.set(name, { at: Date.now(), got }) },
+      (error: any) => { this.lastProbe.set(name, { at: Date.now(), error }) },
+    ).finally(() => { this.probing.delete(name) })
+    this.probing.set(name, run)
+    return run
+  }
 
   /** The view with each Sandbox's `live` from the sampler's newest point (absent where it has none). */
   private withLive(answer: any): any {
@@ -341,8 +402,11 @@ export class Machines {
   }
 
   /**
-   * MachinesView: concurrent GETs (the sidebar, the machines store, a dialog) share one read.
-   * `fresh`: probe the platforms again now (Check again after an install), not within 30 s.
+   * MachinesView: concurrent GETs (the sidebar, the machines store, a dialog)
+   * share one read. `fresh`: probe every readable machine now (the page's
+   * Refresh and Check again, the user's explicit ask) and the platforms
+   * again, not within their caches; a plain read never waits on a probe and
+   * answers from the sampler's last answer.
    */
   async view(fresh = false): Promise<any> {
     if (fresh) { this.platformAnswer = null; this.generation++ }
@@ -350,38 +414,57 @@ export class Machines {
     if (kept && kept.generation === this.generation && Date.now() - kept.at < VIEW_KEEP_MS && this.lastView) return this.withLive(this.lastView)
     if (this.viewing && this.viewing.generation === this.generation) return this.withLive(await this.viewing.promise)
     const generation = this.generation
-    const promise = this.readView().finally(() => { if (this.viewing?.promise === promise) this.viewing = null })
+    const promise = this.readView(fresh).finally(() => { if (this.viewing?.promise === promise) this.viewing = null })
     this.viewing = { promise, generation }
     const answer = await promise
     this.lastViewAt = { at: Date.now(), generation }
     return this.withLive(answer)
   }
 
-  private async readView() {
+  private async readView(fresh = false) {
     const lfs = this.lfs
     const rows = list((await lfs.machine.list({ detail: true })).items)
     const readErrors: Record<string, unknown> = {}
     const failed = (name: string) => (e: any) => { readErrors[name] = { error: { code: e?.code ?? 'Unknown', message: e?.message ?? String(e), ...fixOf(e) }, at: Date.now() }; return [] as any[] }
     let host: string | null = null
     const { version, features } = await this.identity()
+    const readable = (m: any) => !unreadableRecord({ state: m?.state, reason: m?.reason, platform: m?.platform })
+    // A fresh read (the page's Refresh / Check again) asks each readable machine now. A plain read
+    // never waits on the probe: the sampler's last answer is the liveness it reports (with its timestamp).
+    const probing = fresh ? Promise.all(rows.filter(readable).map((m: any) => this.probeNow(String(m.machine)))) : Promise.resolve()
     // whether each daemon runs is the metrics sampler's (withLive), one machine.stats per machine per 15 s
     const listSandboxes = (p: { limit: number, cursor?: string }) => lfs.sandbox.list({ ...p, detail: true })
-    const [platforms, listedStores, sandboxes, probes] = await Promise.all([
+    const [platforms, listedStores, sandboxes] = await Promise.all([
       this.platforms().then((p) => { host = p.host || null; return p.platforms }, failed('platforms')),
       lfs.store.list({ detail: true }).then((a: any) => list(a?.items), failed('stores')),
       // records only: a row's Workspaces where the home keeps them
       pages(listSandboxes).then((rows) => rows.map(sandboxOf), failed('sandboxes')),
-      // the live probe of each machine (native's answers its free disk): starts nothing; its answer is the machine's current state.
-      // A record LayerFS cannot read is not probed: `machine get` refuses it `Failed` with the same fix its list row carries.
-      // (a probe that throws at once is a failed probe like any other: the record's row stands)
-      Promise.all(rows.filter((m: any) => !unreadableRecord({ state: m?.state, reason: m?.reason, platform: m?.platform })).map((m: any) => Promise.resolve().then(() => lfs.machine.get(String(m.machine), { detail: true, with: ['live'] }))
-        .then((got: any) => ({ name: String(m.machine), got }), (error: any) => ({ name: String(m.machine), error })))),
     ])
-    const probed = new Map<string, { got?: any, error?: any }>(probes.map((p: any) => [p.name, p]))
+    await probing
+    const probed = new Map<string, { at: number, got?: any, error?: any }>()
+    for (const m of rows) {
+      const name = String(m.machine)
+      const probe = this.lastProbe.get(name)
+      if (probe) probed.set(name, probe)
+    }
+    // a machine removed since its last probe: its liveness goes with it
+    const names = new Set(rows.map((m: any) => String(m.machine)))
+    for (const name of [...this.lastProbe.keys()]) if (!names.has(name)) this.lastProbe.delete(name)
     // a probe that answered is the newer word on the machine; one that failed leaves its record's;
+    // a probe older than the record (a Stop or a Start since) must not overwrite its newer state;
     // a record that is broken itself (outdated, unreadable…) keeps its state, reason and fix over any probe
-    const machines = rows.map((m: any) => machineOf(probedRecord(m, probed.get(String(m.machine))?.got)))
-    const live = Object.fromEntries([...probed].map(([name, p]) => [name, machineLive(name, p.got, p.error)]))
+    const machines = rows.map((m: any) => {
+      const probe = probed.get(String(m.machine))
+      const merged = machineOf(probedRecord(m, probe?.got && !probeOlderThan(probe.got, m) ? probe.got : undefined))
+      // the timestamp of the last known liveness, not of this read
+      const at = livenessAt(probe)
+      return at ? { ...merged, observedAt: at } : merged
+    })
+    // every readable machine has a `live` section, the last probe's or an unobserved one (the same fields)
+    const live = Object.fromEntries(rows.filter(readable).map((m: any) => {
+      const name = String(m.machine), probe = probed.get(name)
+      return [name, machineLive(name, probe?.got, probe?.error)]
+    }))
     const stores = listedStores.map(storeOf).filter(Boolean)
     const postgresql = listedStores.map(pgStoreOf).filter(Boolean)
     // features: what the pinned CLI can do (force stop, the image stage and its parts); the page offers only those

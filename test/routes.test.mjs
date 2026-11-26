@@ -84,7 +84,11 @@ test('dispatch: machines view, platforms filter, unknown route 404', async () =>
     assert.equal(m.status, 200)
     assert.deepEqual(m.body.machines.map((x) => x.name), ['native', 'lima1'])
     assert.equal(m.body.layerfs, '2.0.0-test')
-    assert.equal(m.body.live.lima1.freeDisk, 10)
+    // B4: a plain read is records only and never waits on the live probe; the
+    // page's Check again (`?fresh=1`) probes now and its answer is the liveness
+    assert.equal(m.body.live.lima1.freeDisk, null)
+    const again = await http('GET', '/api/machines?fresh=1')
+    assert.equal(again.body.live.lima1.freeDisk, 10)
     assert.deepEqual(m.body.stores.map((s) => s.name), ['s1'])
     const p = await http('GET', '/api/platforms')
     assert.deepEqual(p.body.platforms.map((x) => x.platform), ['lima'])
