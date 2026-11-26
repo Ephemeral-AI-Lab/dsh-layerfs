@@ -363,19 +363,28 @@
   padding: 2px var(--dsh-sidebar-row-padding, 12px) 4px;
 }
 
-/* B2: the pending-open status. A small pill over the conversation's top edge,
-   never a backdrop: it has no size but its own and takes no pointer events, so
-   the composer, the tab row and the Chat below stay exactly as they were. */
+/* B2: the pending-open status at the centre of the conversation pane. The
+   page-wide overlay cannot inherit the pane's box, so opening.tsx measures the
+   pane into --lfs-opening-x/-y; the 50% fallbacks keep a centred pill if the
+   measure has not run. Never a backdrop: it has no size but its own and takes
+   no pointer events, so the composer, the tab row and the Chat stay as they
+   were. */
 .opening {
   position: fixed;
-  top: calc(var(--dsh-frame-overlay-top, 20px) + 8px);
-  left: 50%;
-  transform: translateX(-50%);
+  top: var(--lfs-opening-y, 50%);
+  left: var(--lfs-opening-x, 50%);
+  transform: translate(-50%, -50%);
   z-index: 21;
   display: flex;
   align-items: center;
   gap: 6px;
-  max-width: min(320px, calc(100vw - 32px));
+  /* `left` at the pane centre leaves only the right half as the shrink-to-fit
+     space at 390/430, so an auto width would wrap the one-line status there.
+     The pill takes its own content width and stays one line; the cap still
+     keeps it inside a narrow phone with the safe-area insets. */
+  width: max-content;
+  max-width: min(320px, calc(100vw - 32px - var(--lfs-safe-left, 0px) - var(--lfs-safe-right, 0px)));
+  white-space: nowrap;
   padding: 4px 12px;
   border: 0.5px solid var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.12));
   border-radius: 999px;

@@ -231,6 +231,7 @@ test('B2: the conversation says it is opening while sessions.open runs, and is g
   assert.equal(pill.length, 1, 'the pending open is on screen')
   assert.equal(pill[0].props['data-opening-conversation'], 'stored-1')
   assert.equal(pill[0].props['data-opening-project'], 'demo/app')
+  assert.equal(pill[0].props['data-opening-pane'], 'conversation', 'it is anchored to the conversation pane, not the window')
   assert.equal(pill[0].props.role, 'status', 'it is a status, not a dialog')
   assert.equal(pill[0].props['aria-live'], 'polite')
   assert.match(M.text(pill[0]), /Opening the conversation/)
@@ -263,6 +264,12 @@ test('B2: the pill takes no pointer events and never covers the composer or tabs
   const rule = /\.opening\s*\{[^}]*\}/.exec(css)?.[0] ?? ''
   assert.match(rule, /pointer-events:\s*none/, 'the status does not take the click')
   assert.doesNotMatch(rule, /inset:\s*0/, 'it is a pill, not a full-frame backdrop')
+  assert.match(rule, /top:\s*var\(--lfs-opening-y, 50%\)/, 'the pane measure centres it vertically')
+  assert.match(rule, /left:\s*var\(--lfs-opening-x, 50%\)/, 'the pane measure centres it horizontally')
+  assert.match(rule, /translate\(-50%, -50%\)/, 'the pill, not its top-left corner, sits at the centre')
+  assert.match(rule, /width:\s*max-content/, 'the centred left edge does not squeeze the status into a wrap')
+  assert.match(rule, /white-space:\s*nowrap/, 'the status stays one line on a phone')
+  assert.doesNotMatch(rule, /--dsh-frame-overlay-top/, 'it no longer hugs the top of the window')
   for (const lang of ['en', 'zh']) assert.ok(M.listLocales[lang].openingConversation, `${lang}.openingConversation`)
 })
 
