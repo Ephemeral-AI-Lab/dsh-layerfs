@@ -24,6 +24,9 @@ import { registerViews } from './views/index.tsx'
 import { registerSetup } from './setup/index.tsx'
 import { syncLocale } from './ui/locale-sync.ts'
 import './ui/tones.module.css'
+// Responsive scale: the one place the plugin's touch sizes and safe-area
+// tokens live (ui/responsive.css). Loaded once for every plugin surface.
+import './ui/responsive.css'
 
 export const inject = ['slots', 'locale', 'remote', 'layout']
 
