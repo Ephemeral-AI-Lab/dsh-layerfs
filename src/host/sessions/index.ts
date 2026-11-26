@@ -56,7 +56,7 @@ import { callsSince } from '../logs/source.ts'
 import { parseTag, TAG_PREFIX } from '../../shared/logs.ts'
 import { branchFields } from '../../shared/session-branch.ts'
 import { UNCLAIMED } from './catalog.ts'
-import { LayerfsSessions } from './service.ts'
+import { LayerfsSessions, realSessionTitle } from './service.ts'
 import { localPersistence, SessionStore } from './store.ts'
 import { sidecarMetadata } from './annotations.ts'
 import { promptDiff } from './prompt-diff.ts'
@@ -687,7 +687,7 @@ export function apply(ctx: Context): void {
           let title: string | null = null
           for (let i = events.length - 1; i >= 0; i--) {
             const event = events[i]
-            if (event?.type === 'session/title' && typeof event.data?.title === 'string') { title = event.data.title; break }
+            if (event?.type === 'session/title' && typeof event.data?.title === 'string') { title = realSessionTitle(event.data.title); break }
           }
           add('title.scan', performance.now() - tScan)
           titles.set(id, { seq, title })
@@ -699,7 +699,7 @@ export function apply(ctx: Context): void {
           const live = liveTitle(id)
           if (typeof live === 'string') return live
           const value = sidecar !== undefined ? sidecar : await sidecarOf(id).catch(() => undefined)
-          return value?.title ?? null
+          return realSessionTitle(value?.title)
         }
         /** Time one awaited step into the opt-in phase totals. */
         const timed = async <T,>(name: string, run: () => Promise<T> | T): Promise<T> => {

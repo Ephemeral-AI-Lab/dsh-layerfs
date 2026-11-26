@@ -156,6 +156,11 @@ export function neverStartedLog(events: readonly any[]): boolean {
   return true
 }
 
+/** A real title: a non-empty string. "New session" is a client display fallback, never a stored title. */
+export function realSessionTitle(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() !== '' ? value : null
+}
+
 /**
  * What {@link LayerfsSessions.neverStarted} was given by a caller that already
  * read the snapshot and sidecar (a list reads both anyway).
@@ -1570,6 +1575,12 @@ export class LayerfsSessions extends Service {
    * choice), so a caller may only ever delete what this proves blank.
    * `known` lets a caller that already read the snapshot and sidecar pass them
    * in (sessions.list does); without it they are read here.
+   *
+   * A read is not usage: the sidecar's receipt counter also folds the draft's
+   * own placement/identity reads (`project.get`, `branch.list`, `machine.get`,
+   * `store.get`), so it is deliberately not consulted. Content in the log (a
+   * message, turn or title event) or a title/checkpoint/archive record starts
+   * the conversation and keeps it.
    */
   async neverStarted(sessionId: string, known: NeverStartedKnown = {}): Promise<boolean> {
     const state = this.state.read()
@@ -1582,12 +1593,19 @@ export class LayerfsSessions extends Service {
     const snapshot = 'snapshot' in known ? known.snapshot : await local?.stat?.(sessionId).catch(() => undefined)
     if (snapshot?.header?.origin === 'subagent' || snapshot?.header?.isSeeded === true) return false
     const sidecar = 'sidecar' in known ? known.sidecar : await persistence?.readSidecar?.(sessionId, { cached: true }).catch(() => undefined)
-    if (sidecar?.title || sidecar?.archive?.count || sidecar?.checkpoints?.length || sidecar?.invocations?.length || sidecar?.receipts?.readsTotal) return false
+    // Receipts are not consulted: `sidecar.receipts.readsTotal` counts the
+    // draft's own placement reads and is kept for the trajectory's OBSERVATION.
+    if (realSessionTitle(sidecar?.title) !== null || sidecar?.archive?.count || sidecar?.checkpoints?.length || sidecar?.invocations?.length) return false
     // A pending choice with no log yet has nothing to keep; any other missing
     // log cannot be verified and stays (when in doubt, skip).
     if (!snapshot) return state.pending[sessionId] !== undefined
+    // The header cache's event count is a cheap reject: a log past the blank
+    // bound is a conversation, and is not opened here.
+    if (Number(snapshot.eventCount) > BLANK_EVENTS_MAX) return false
     const live = (this.ctx.get?.('sessions' as never) as any)?.get?.(sessionId as never) as any
     if (live) return neverStartedLog(live.snapshotEvents?.(0) ?? [])
+    // A draft's log is a handful of metadata lines: read only the short prefix
+    // that can still prove blank (the list already has the snapshot/sidecar).
     const reader = await local?.open?.(sessionId, 'read').catch(() => undefined)
     if (!reader) return false
     try {

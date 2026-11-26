@@ -171,6 +171,56 @@ test('pruneNeverStarted deletes exactly the candidates, keeps used/titled/checkp
   assert.equal(f.events.filter((e) => e.type === 'layerfs-session' && e.data?.deleted).length, 4)
 })
 
+test('a draft whose only activity is its folded placement reads is still never started', async () => {
+  // Regression (d681957): a draft's own placement reads (project.get,
+  // branch.list, machine.get, store.get) fold into sidecar.receipts.readsTotal.
+  // The receipt counter is not usage: the draft stays hidden and prunable.
+  const state = S.initialState()
+  state.pending.draft = { project }
+  state.sessions.boundDraft = binding('boundDraft')
+  const folded = { receipts: { version: 1, reads: { 'project.get': { count: 1, lastOutcome: 'success' } }, readsTotal: 4, dropped: 0, cap: 5000, truncated: false } }
+  const polled = { receipts: { version: 1, reads: { 'workspace.status': { count: 8, lastOutcome: 'success' } }, readsTotal: 8, dropped: 0, cap: 5000, truncated: false } }
+  const f = harness({ state, logs: { draft: blankLog(6), boundDraft: blankLog(5) }, sidecars: { draft: folded, boundDraft: polled } })
+
+  assert.deepEqual(await listIds(f), [], 'a metadata-only draft with folded reads is not listed')
+  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, dryRun: true }), { candidates: ['boundDraft', 'draft'], deleted: [] })
+  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, dryRun: false }), { candidates: ['boundDraft', 'draft'], deleted: ['boundDraft', 'draft'] })
+  assert.equal(folded.receipts.readsTotal, 4, 'the folded counter is not cleared or changed by the predicate')
+  assert.equal(polled.receipts.readsTotal, 8, 'and the same for a bound draft')
+  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, dryRun: false }), { candidates: [], deleted: [] }, 'a second run is empty')
+})
+
+test('a conversation is started by content — a message, a title or a checkpoint — not by reads', async () => {
+  const state = S.initialState()
+  state.sessions.system = binding('system')
+  state.sessions.titled = binding('titled')
+  state.sessions.checkpointed = binding('checkpointed')
+  state.checkpoints.checkpointed = [{ kind: 'turn', turn: 1, seq: 5, commit: 'c1', branch: 'b', changed: 2, message: 'Turn 1', at: 1 }]
+  const logs = {
+    // One system message is content (the acceptance rule's first message event).
+    system: [{ type: 'session', data: {} }, { type: 'system/message', data: {} }],
+    titled: blankLog(),
+    checkpointed: blankLog(),
+  }
+  // The message has folded reads and is still started; the titled and
+  // checkpointed ones have no message events and are still started.
+  const sidecars = {
+    titled: { title: 'A named conversation' },
+    system: { receipts: { version: 1, reads: {}, readsTotal: 12, dropped: 0, cap: 5000, truncated: false } },
+  }
+  const f = harness({ state, logs, sidecars })
+  assert.deepEqual(await listIds(f), ['checkpointed', 'system', 'titled'].sort(), 'all three are conversations')
+  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, dryRun: true }), { candidates: [], deleted: [] }, 'prune keeps a message, a title and a checkpoint')
+})
+
+test('a whitespace title is the placeholder, not a title', async () => {
+  const state = S.initialState()
+  state.pending.blank = { project }
+  const f = harness({ state, logs: { blank: blankLog() }, sidecars: { blank: { title: '   ' } } })
+  assert.deepEqual(await listIds(f), [], 'the placeholder title does not list the draft')
+  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, dryRun: true }), { candidates: ['blank'], deleted: [] })
+})
+
 test('pruneNeverStarted keeps the current conversation and everything of another project', async () => {
   const state = S.initialState()
   state.pending.mine = { project }
