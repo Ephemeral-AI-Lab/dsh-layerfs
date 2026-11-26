@@ -15,6 +15,8 @@ test('the page opens on all calls, not the client-side writes scan', () => {
 test('an empty view asks the whole-log question only when it has to', () => {
   assert.equal(emptyAction({ lines: 3, hasMore: false, unfiltered: false, tag: false, known: undefined }), 'nonempty')
   assert.equal(emptyAction({ lines: 0, hasMore: true, unfiltered: true, tag: false, known: undefined }), 'skip')
+  // A filtered scan stopped at its page budget is not an empty log: `hasMore` keeps the empty state away.
+  assert.equal(emptyAction({ lines: 0, hasMore: true, unfiltered: false, tag: false, known: undefined }), 'skip')
   assert.equal(emptyAction({ lines: 0, hasMore: false, unfiltered: true, tag: false, known: undefined }), 'empty')
   // The empty session filter: a tag has its own empty state, so no probe (the old page made this two reads per event).
   assert.equal(emptyAction({ lines: 0, hasMore: false, unfiltered: false, tag: true, known: undefined }), 'skip')

@@ -48,6 +48,17 @@ export function lineOfItem(item: any): CallLine | null {
 const FILTER_SCAN = 1000
 
 /**
+ * Native pages one filtered request scans at most. A match can be anywhere in
+ * the log, so a filtered request cannot stop at a line count (B1: a rare write
+ * had to be walked to). It stops at this page budget instead: the matches so
+ * far, `has_more: true` and a cursor after the last scanned page carry on, with
+ * `partial: true` saying the scan did not reach the end. An empty filtered
+ * answer is therefore only returned once the log itself ended, and one request
+ * stays bounded (8 × 1000 lines) however large the log is.
+ */
+export const FILTER_BUDGET = 8
+
+/**
  * A filtered page's own cursor: the native cursor its scan started at, and how
  * many matching lines of that scan were already returned. A filtered page hands
  * over at most `limit` matching lines; the rest of the scan (when a page holds
@@ -75,10 +86,12 @@ function readFilteredCursor(cursor: string | undefined): { native?: string, skip
  * A local filter (`writes`, or a filter the pinned CLI's `home log` has no
  * option for) cannot be pushed into the CLI. It is applied to native pages of
  * `FILTER_SCAN` lines, scanned until the page holds one more matching line than
- * asked for (so `has_more` is a fact) or the log ends (so an empty filtered
- * view really has no such lines). `next` then continues over the filtered set:
- * a native cursor after the scanned pages, or a cursor into the page that held
- * the next matching line, so "More" has no gap and no repeat.
+ * asked for (so `has_more` is a fact), the log ends (so an empty filtered view
+ * really has no such lines), or `FILTER_BUDGET` pages were read (so one request
+ * stays bounded: then `partial` is set and `next` carries on). `next` continues
+ * over the filtered set: a native cursor after the scanned pages, or a cursor
+ * into the page that held the next matching line, so "More" has no gap and no
+ * repeat.
  */
 export async function readCalls(layerfs: LayerfsService, args: LogsListArgs): Promise<CallPage> {
   if (!(await layerfs.nativeLogs())) return { ...listCalls(layerfs.callLog, args), source: 'plugin' }
@@ -120,14 +133,17 @@ export async function readCalls(layerfs: LayerfsService, args: LogsListArgs): Pr
     const { lines, skipped, next } = parse(page)
     return { lines, ...(next ? { next } : {}), has_more: !!next, skipped, source: 'layerfs' }
   }
-  // Filtered: scan native pages until one line more than `limit` matches (or the
-  // log ends). A resumed cursor re-reads the page it names and drops the matches
-  // this page already handed out.
+  // Filtered: scan native pages until one line more than `limit` matches, the
+  // log ends, or FILTER_BUDGET pages are read. A resumed cursor re-reads the page
+  // it names and drops the matches this page already handed out.
   const from = readFilteredCursor(args.cursor)
   const pages: { start?: string, skippedMatches: number, lines: CallLine[] }[] = []
-  let cursor = from.native, drop = from.skip, skipped = 0, total = 0, more = false
+  let cursor = from.native, drop = from.skip, skipped = 0, total = 0, more = false, scan = 0
   while (total <= limit) {
+    // The budget bounds one request, not the search: a resumed cursor keeps scanning.
+    if (scan >= FILTER_BUDGET) break
     const page = await read(cursor, FILTER_SCAN)
+    scan++
     if (!page) break
     const parsed = parse(page)
     skipped += parsed.skipped
@@ -149,7 +165,10 @@ export async function readCalls(layerfs: LayerfsService, args: LogsListArgs): Pr
   const next = after
     ? filteredCursor(pages[after.page]!.start, pages[after.page]!.skippedMatches + after.index)
     : more ? filteredCursor(cursor, 0) : undefined
-  return { lines, ...(next ? { next } : {}), has_more: !!next, skipped, source: 'layerfs' }
+  // The budget stopped the scan before the log ended: older lines are unscanned,
+  // so `has_more` is "not proven empty", never "there is another match".
+  const partial = !after && more
+  return { lines, ...(next ? { next } : {}), has_more: !!next, ...(partial ? { partial: true } : {}), skipped, source: 'layerfs' }
 }
 
 /** Clears the active source (`home clear-log`, else the stand-in); the stored outputs (`trace/outputs/`) go too, in both modes. */

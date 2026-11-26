@@ -36,6 +36,8 @@ interface Loaded {
   lines: LabeledLine[]
   next?: string | undefined
   hasMore: boolean
+  /** The filtered scan stopped at its page budget; `hasMore` is "not proven empty", not a match. */
+  partial: boolean
   skipped: number
   source: LogsListAnswer['source']
   /** Pages appended through More; a background reload keeps them. */
@@ -96,6 +98,7 @@ export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api:
         lines: keep ? merge(answer.lines, before.lines) : answer.lines,
         next: keep ? before.next : answer.next,
         hasMore: keep ? before.hasMore : answer.has_more,
+        partial: keep ? before.partial : answer.partial === true,
         skipped: answer.skipped,
         source: answer.source,
         pages: keep ? before.pages : 1,
@@ -122,7 +125,7 @@ export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api:
       const answer = await api.op<LogsListAnswer>('logs.list', { ...argsOf(current.current.filters), cursor: before.next })
       // A reload or filter change since makes this page stale.
       if (mine !== generation.current) return
-      setData({ lines: merge(before.lines, answer.lines), next: answer.next, hasMore: answer.has_more, skipped: before.skipped + answer.skipped, source: answer.source, pages: before.pages + 1 })
+      setData({ lines: merge(before.lines, answer.lines), next: answer.next, hasMore: answer.has_more, partial: answer.partial === true, skipped: before.skipped + answer.skipped, source: answer.source, pages: before.pages + 1 })
     } catch (e) {
       if (mine === generation.current) setError(e)
     } finally { setMore(false) }
@@ -277,6 +280,7 @@ export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api:
             </tbody>
           </table>
           <div className={css.moreRow}>
+            {data.partial && <p className={css.note} role="status">{t('partialScan')}</p>}
             {data.next && data.hasMore
               ? <Button variant="outline" size="sm" disabled={more} aria-busy={more} onClick={() => { void loadMore() }}>{more ? t('loadingMore') : t('more')}</Button>
               : <p className={css.note}>{t('allLoaded')}</p>}

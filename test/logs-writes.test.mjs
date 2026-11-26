@@ -1,10 +1,12 @@
 // The Logs page over the native call log: the default read asks for one page,
 // "Only writes" finds every write (wherever it is in the log) with a cursor
-// over the filtered set, and "More" neither skips nor repeats.
+// over the filtered set, "More" neither skips nor repeats, and one filtered
+// request never scans more than FILTER_BUDGET native pages (a partial scan says
+// so and carries on from a cursor instead of truncating or claiming empty).
 //   node --test test/logs-writes.test.mjs
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { readCalls } from '../src/host/logs/source.ts'
+import { FILTER_BUDGET, readCalls } from '../src/host/logs/source.ts'
 import { isWrite } from '../src/shared/logs.ts'
 
 const line = (at, argv, outcome = 'ok') => ({ v: 1, at, ms: 2, client: 'cli', argv, outcome, tag: 'dsh:-:x' })
@@ -88,6 +90,72 @@ test('Only writes returns the same set as isWrite, refusals included, over the f
   assert.equal(calls(), 3, 'three native pages of 1000 over 2168 lines')
 })
 
+test('Only writes stops at its page budget, and its cursor resumes after the last scanned page', async () => {
+  const lines = Array.from({ length: 12_000 }, (_, i) => read(i))
+  lines[lines.length - 1] = write(11_999, ['file', 'write', 'demo/app', 'main', 'the-only-one'])
+  const { lfs, calls } = nativeHome(lines)
+  const first = await readCalls(lfs, { limit: 100, writes: true })
+  assert.ok(calls() <= FILTER_BUDGET, `one request reads at most ${FILTER_BUDGET} native pages`)
+  assert.equal(calls(), FILTER_BUDGET, 'the only write is not in the newest pages, so the budget is used')
+  assert.deepEqual(first.lines, [], 'nothing matched in the scanned part')
+  assert.equal(first.has_more, true, 'older lines are unscanned')
+  assert.equal(first.partial, true, 'the page says its scan stopped at the budget')
+  assert.ok(first.next, 'a cursor resuming after the last scanned page')
+  const second = await readCalls(lfs, { limit: 100, writes: true, cursor: first.next })
+  assert.ok(calls() - FILTER_BUDGET <= FILTER_BUDGET, 'the follow-up is bounded too')
+  assert.deepEqual(second.lines.map((entry) => entry.argv.at(-1)), ['the-only-one'], 'the write at the end is reached')
+  assert.equal(second.has_more, false)
+  assert.equal(second.partial, undefined, 'the scan reached the end')
+  assert.equal(second.next, undefined)
+  assert.equal(calls(), FILTER_BUDGET + 4, 'the remaining 4000 lines are four native pages')
+})
+
+test('an empty filtered answer means the scan reached the log end, not the budget', async () => {
+  const lines = Array.from({ length: 21_000 }, (_, i) => read(i))
+  const { lfs, calls } = nativeHome(lines)
+  let page = await readCalls(lfs, { limit: 100, writes: true })
+  let requests = 1
+  assert.equal(page.lines.length, 0)
+  assert.equal(page.has_more, true, 'a budgeted, unmatched scan proves nothing about older lines')
+  assert.equal(page.partial, true)
+  assert.equal(calls(), FILTER_BUDGET)
+  while (page.partial && page.next) {
+    page = await readCalls(lfs, { limit: 100, writes: true, cursor: page.next })
+    requests++
+    assert.ok(requests <= 4, 'the walk ends')
+  }
+  assert.deepEqual(page.lines, [], 'no write exists')
+  assert.equal(page.has_more, false, 'the whole log was scanned before saying so')
+  assert.equal(page.partial, undefined)
+  assert.equal(page.next, undefined)
+  assert.equal(calls(), 21, '21 native pages over 21000 lines')
+  assert.equal(requests, 3, 'ceil(21 / 8) bounded requests')
+})
+
+test('a walk across several budgeted scans has no gap and no repeat', async () => {
+  // 30000 lines, four writes spread further apart than one budget covers.
+  const lines = Array.from({ length: 30_000 }, (_, i) => read(i))
+  const at = [500, 9_000, 17_000, 29_999]
+  for (const i of at) lines[i] = write(i, ['file', 'write', 'demo/app', 'main', `w${i}`])
+  const { lfs, calls } = nativeHome(lines)
+  const got = []
+  let page = await readCalls(lfs, { limit: 100, writes: true })
+  got.push(...page.lines.map((entry) => entry.at))
+  let requests = 1
+  while (page.partial && page.next) {
+    assert.equal(page.partial, true)
+    page = await readCalls(lfs, { limit: 100, writes: true, cursor: page.next })
+    got.push(...page.lines.map((entry) => entry.at))
+    requests++
+    assert.ok(requests <= 6, 'the walk ends')
+  }
+  assert.deepEqual([...got].sort((a, b) => a - b), at, 'every write exactly once, in order')
+  assert.equal(new Set(got).size, got.length, 'no repeated line')
+  assert.equal(page.has_more, false)
+  assert.equal(calls(), 30, '30000 lines / 1000 per native page, spread over the walk')
+  assert.equal(requests, 4, 'four bounded requests')
+})
+
 test('a write past the old 5000-line cap is found; has_more is then false', async () => {
   const lines = fixture(6218)
   // Only one write, at the very end of the log.
@@ -98,7 +166,8 @@ test('a write past the old 5000-line cap is found; has_more is then false', asyn
   assert.deepEqual(page.lines.map((entry) => entry.argv.at(-1)), ['the-only-one'], 'the only write, at line 6218, is on page 1')
   assert.equal(page.has_more, false, 'nothing more to find')
   assert.equal(page.next, undefined)
-  assert.equal(calls(), 7, '6218 lines / 1000 per native page')
+  assert.equal(calls(), 7, '6218 lines / 1000 per native page, inside the budget')
+  assert.equal(page.partial, undefined, 'the scan reached the end')
 })
 
 test('has_more says there is another matching write, not that a page was full', async () => {

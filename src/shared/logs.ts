@@ -86,7 +86,19 @@ export interface LogsListAnswer {
   /** Newest first. */
   lines: LabeledLine[]
   next?: string
+  /**
+   * `next` continues the list. For a filtered scan stopped by its page budget
+   * (`partial`), true only means older lines were not scanned yet: they may or
+   * may not hold another match.
+   */
   has_more: boolean
+  /**
+   * True when a filtered scan stopped at its page budget before the log ended:
+   * `next` continues exactly after the last scanned page, and neither an empty
+   * `lines` nor `has_more` proves anything about the older calls. Absent when
+   * the scan reached the end (or the page is unfiltered).
+   */
+  partial?: boolean
   /** Lines that did not parse. */
   skipped: number
   /** `layerfs`: the pinned CLI's native log (every client of the home); `plugin`: this plugin's stand-in. */
