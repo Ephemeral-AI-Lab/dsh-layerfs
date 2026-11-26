@@ -742,6 +742,16 @@
     font-size: 12px;
   }
 
+  /* a phone card is not a column: the save's line wraps instead of ending in
+     an ellipsis that hides the rest of the message */
+  .commitLine .ellipsis,
+  .commitLine .branch {
+    overflow: visible;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+  }
+
   .actions {
     align-self: center;
     justify-content: flex-end;

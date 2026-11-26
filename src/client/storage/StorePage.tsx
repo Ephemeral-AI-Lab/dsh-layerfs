@@ -96,18 +96,18 @@ export function StorePage({ refreshKey = 0, name, view, t, api, doctorT, now, jo
       <PageHead title={s.name} icon={<StoreGlyph kind={s.kind} size={22} />}
         badge={s.state !== 'ready' ? <StateChip tone={storeTone(s.state, s.blockedBy)} label={stoppedBlock(s) ? t('stateMachineStopped') : storeStateWords(s.state, t)} live={s.state === 'busy'} /> : undefined}
         intro={(
-          <span className={css.cardSub}>
+          <span className={`${css.cardSub} ${tabCss.storeMeta}`}>
             <span>{pg ? t('postgresql') : t('sqlite')}</span>
             <span className={css.dotSep} aria-hidden="true">·</span>
             <Location store={s} t={t} onMachine={on.openMachine} />
           </span>
         )}
         actions={(
-          <>
+          <span className={tabCss.headActions}>
             <DoctorAction api={api} t={doctorT} target="store.integrity" name={s.name} label={doctorT('checkIntegrity')} />
             {pg ? <DoctorAction api={api} t={doctorT} target="store.connection" name={s.name} label={doctorT('testConnection')} /> : null}
             <StoreMenu store={s} on={on} t={t} runningJob={runningJob} />
-          </>
+          </span>
         )} />
 
       {notice ? (

@@ -884,3 +884,113 @@
   align-items: center;
   gap: 2px;
 }
+
+/* ---------- the Store page on touch ---------- */
+
+/* The head's own actions (Check integrity, the Store menu) and the place link
+   in its intro: thumb targets, without changing the desktop bar. */
+.headActions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 1180px), (pointer: coarse) {
+  .headActions :global(button) {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .storeMeta > button,
+  .storeMeta > button * {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .storeMeta > button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: var(--lfs-tap, 44px);
+  }
+
+  /* DSH's small segmented tab fixes 30px; the coarse pointer keeps it a
+     thumb target without touching the fine-pointer density. */
+  .tabs [role='tab'] {
+    height: var(--lfs-tap, 44px) !important;
+  }
+
+  .linkActions > button,
+  .linkActions > a {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .projectRow {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .storeDetailsSummary {
+    min-height: var(--lfs-tap, 44px);
+    padding-block: 8px;
+  }
+
+  .dangerRow :global(button) {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .toolbar :global(button) {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .toolbar :global([class*='_wrap_']) {
+    height: var(--lfs-tap, 44px);
+  }
+
+  .shareBlock {
+    padding-block: 8px;
+  }
+
+  /* the small state words reach the 12px floor on touch */
+  .runningPill,
+  .statePill,
+  .axis {
+    font-size: 12px;
+  }
+}
+
+/* A phone: a tile's figure wraps instead of clipping ("No backup yet"), and a
+   long store name or id may wrap anywhere in the page's cards. */
+@container (max-width: 520px) {
+  .tileValue {
+    overflow: visible;
+    font-size: 18px;
+    line-height: 24px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+  }
+
+  .tileSub {
+    overflow: visible;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+  }
+
+  .mono {
+    overflow: visible;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+  }
+
+  .healthLabel {
+    width: 96px;
+  }
+
+  .healthText {
+    overflow: visible;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+  }
+}
