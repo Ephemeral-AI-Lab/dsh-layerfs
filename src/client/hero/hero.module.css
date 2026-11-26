@@ -300,3 +300,49 @@
     min-height: var(--lfs-tap, 44px);
   }
 }
+
+/* A phone's New Session hero. The title is scaled so the mark, the title and
+   its Preview badge share one line (a longer title wraps, the badge under it
+   when it must), and the chip row wraps instead of running past the column. */
+@media (max-width: 480px) {
+  :global([data-layerfs-hero-headline]) {
+    gap: 6px;
+    font-size: clamp(20px, 6.1vw, 24px);
+    line-height: 30px;
+  }
+
+  :global([data-layerfs-hero-title]) {
+    max-width: 100%;
+    min-width: 0;
+    gap: 2px 5px;
+  }
+
+  :global([data-layerfs-hero-title] > :first-child) {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  :global([data-layerfs-hero-row]) {
+    flex-wrap: wrap;
+    row-gap: 4px;
+    align-items: center;
+  }
+
+  .root,
+  .folderChip {
+    max-width: 100%;
+  }
+}
+
+/* Touch: every control in the row — including the workspace and preset chips
+   we do not draw — is a thumb target. */
+@media (max-width: 1180px), (pointer: coarse) {
+  :global([data-layerfs-hero-row]) button {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .retry {
+    min-height: var(--lfs-tap, 44px);
+    padding: 0 8px;
+  }
+}

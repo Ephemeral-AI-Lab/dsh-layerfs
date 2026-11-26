@@ -181,10 +181,19 @@ export function HeroProjectControl({ sessionId, api, t, imports, ownership, retr
       const options = [...row.children].find((child) => child.contains(root.current))
       row.setAttribute('data-layerfs-hero-row', sessionId)
       options?.setAttribute('data-layerfs-hero-options', '')
+      // The row's title sits above it, outside our slot: mark it through the
+      // hero's own brand-mark slot so the phone rules can scale it and let a
+      // long title (with its Preview badge) wrap instead of leaving the column.
+      const headline = row.parentElement?.querySelector('[data-slot="conversation.hero.brand.mark"]')?.parentElement?.parentElement
+      const title = headline && headline !== row.parentElement ? headline.lastElementChild : null
+      headline?.setAttribute('data-layerfs-hero-headline', '')
+      title?.setAttribute('data-layerfs-hero-title', '')
       if (project) row.setAttribute('data-layerfs-scratch-picker', sessionId)
       return () => {
         if (row.getAttribute('data-layerfs-hero-row') === sessionId) { row.removeAttribute('data-layerfs-hero-row'); options?.removeAttribute('data-layerfs-hero-options') }
         if (row.getAttribute('data-layerfs-scratch-picker') === sessionId) row.removeAttribute('data-layerfs-scratch-picker')
+        headline?.removeAttribute('data-layerfs-hero-headline')
+        title?.removeAttribute('data-layerfs-hero-title')
       }
     }
   }, [project, sessionId])
