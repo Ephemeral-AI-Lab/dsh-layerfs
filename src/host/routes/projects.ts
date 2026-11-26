@@ -1112,7 +1112,20 @@ export class Projects {
 
   async branches(key: string, q: URLSearchParams) {
     const project = projectRef(key).key
-    if (q.get('branch')) return this.lfs.branch.get(project, q.get('branch'), { detail: true })
+    if (q.get('branch')) {
+      const branch = q.get('branch')!
+      const info: any = await this.lfs.branch.get(project, branch, { detail: true })
+      // `with=commit`: the head's header (message, time) in the same answer. The Export
+      // dialog needs both and used to read the Commit detail in a second round trip.
+      if (q.get('with') !== 'commit') return info
+      const head = typeof info?.commit === 'string' ? info.commit : null
+      // A header that cannot be read leaves the Branch answer intact (the dialog then
+      // reads the Commit itself, as it always did).
+      const item = head
+        ? await this.lfs.commit.get(project, head, { branch, detail: true }).then((c: any) => commitInfo({ ...c, commit: head }, branch), () => null)
+        : null
+      return { ...info, item }
+    }
     const page = await this.branchPage(project, q.get('pos'))
     return { items: page.items.map((b: any) => ({ name: String(b.branch), head: pinOf(b), parent: null, forkedFrom: b.forked_from ?? null, state: 'open', commits: null })), next: page.next }
   }

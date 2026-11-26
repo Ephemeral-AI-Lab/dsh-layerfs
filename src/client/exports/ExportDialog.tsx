@@ -30,16 +30,22 @@ type Mode = 'form' | 'map' | 'files'
 const errorText = (e: unknown): string => String((e as { message?: string })?.message ?? e)
 const same = (a: HistorySelection | null, b: HistorySelection) => !!a && a.branch === b.branch && a.commit === b.commit && a.head === b.head
 
-/** One version's Commit (its message and time), read once per version shown. */
-function useCommit(api: LayerfsApi, project: string, sel: HistorySelection | null): CommitInfo | null {
+/**
+ * One version's Commit (its message and time), read once per version shown.
+ * `seed` is the head's header that came with the Branch read: showing it costs
+ * no second read when the dialog opens.
+ */
+function useCommit(api: LayerfsApi, project: string, sel: HistorySelection | null, seed: { key: string, item: CommitInfo } | null): CommitInfo | null {
   const [info, setInfo] = useState<{ key: string, item: CommitInfo } | null>(null)
   const key = sel ? `${sel.branch}\u0000${sel.commit}` : ''
+  const seedKey = seed?.key
   useEffect(() => {
     if (!sel) return
+    if (seed && seed.key === key) { setInfo(seed); return }
     let live = true
     void filesApi.commit(api, project, sel.branch, sel.commit).then((d) => { if (live && d?.item) setInfo({ key, item: d.item }) }, () => {})
     return () => { live = false }
-  }, [api, project, key])
+  }, [api, project, key, seedKey])
   return info?.key === key ? info.item : null
 }
 
@@ -57,13 +63,21 @@ export function ExportDialog({ api, t, project, onClose }: { api: LayerfsApi, t:
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
+  // main's head and its header, from the one read the dialog opens with
+  const [head, setHead] = useState<{ key: string, item: CommitInfo } | null>(null)
   const job = useExport(api, jobId)
-  const commit = useCommit(api, project, chosen)
+  const commit = useCommit(api, project, chosen, head)
 
   useEffect(() => {
     let live = true
-    void api.call<{ commit?: string }>('GET', `/api/projects/${enc(project)}/branches?branch=main`).then(
-      (b) => { if (live && typeof b?.commit === 'string') setChosen((s) => s ?? { branch: 'main', commit: b.commit!, head: true }) },
+    // One round trip: the Branch's head and that Commit's header (`with=commit`).
+    // The version list is read only when "Choose version…" opens its picker.
+    void api.call<{ commit?: string, item?: CommitInfo }>('GET', `/api/projects/${enc(project)}/branches?branch=main&with=commit`).then(
+      (b) => {
+        if (!live || typeof b?.commit !== 'string') return
+        setChosen((s) => s ?? { branch: 'main', commit: b.commit!, head: true })
+        if (b.item) setHead({ key: `main\u0000${b.commit}`, item: b.item })
+      },
       (e) => { if (live) setReadError(errorText(e)) },
     )
     return () => { live = false }
