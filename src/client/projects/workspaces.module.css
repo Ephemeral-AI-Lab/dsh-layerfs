@@ -75,3 +75,17 @@
   color: var(--lf-tone-danger-fg);
   overflow-wrap: anywhere;
 }
+
+/* The footer switches are icon-only: a full 44 px target at every pointer
+   (the audit measured 36x28 at fine), without changing the icon's look. */
+.switch,
+.newMenu {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.switchRail {
+  width: 44px;
+  height: 44px;
+}
+

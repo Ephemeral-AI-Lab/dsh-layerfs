@@ -735,3 +735,16 @@
     font-size: 12px;
   }
 }
+
+/* Coarse: the scrub bar keeps its 14 px look but a finger gets a 44 px tall
+   transparent hit band (it is absolutely placed, so the map does not move). */
+@media (max-width: 1180px), (pointer: coarse) {
+  .scrub {
+    height: var(--lfs-tap, 44px);
+  }
+
+  .replay {
+    min-width: var(--lfs-tap, 44px);
+  }
+}
+

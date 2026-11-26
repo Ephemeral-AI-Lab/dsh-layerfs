@@ -860,7 +860,7 @@
 .lineMenu {
   display: inline-flex;
   flex: none;
-  margin-left: 2px;
+  margin-left: var(--lfs-gap-control, 4px);
 }
 
 @media (hover: hover) {
@@ -2895,7 +2895,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 4px;
+  gap: var(--lfs-gap-control, 4px);
   font-size: 12.5px;
 }
 

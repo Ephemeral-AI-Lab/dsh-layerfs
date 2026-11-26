@@ -856,7 +856,7 @@
   align-items: center;
   box-sizing: border-box;
   height: max(42px, calc(var(--lfs-tap, 30px) + 8px));
-  padding: 0 8px 0 12px;
+  padding: 0 12px;
   gap: 8px;
   border-bottom: 0.5px solid var(--dsw-alias-border-l2);
 }
@@ -1437,3 +1437,18 @@
   .timelineBlock[data-open] { display: block; }
   .timelineBlock[data-open] .timelineHead { display: none; }
 }
+
+/* Coarse: our filter chips and the timeline's row targets reach the same
+   8 px / 44 px floor as the rest of the plugin. The stock chips (host
+   dsh-client-ui-trajectory .actions) remain 2 px; only our row widens. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .actions {
+    gap: var(--lfs-gap-control, 8px);
+  }
+
+  .rowMain,
+  .opMain {
+    min-height: var(--lfs-tap, 44px);
+  }
+}
+

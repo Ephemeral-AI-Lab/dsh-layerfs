@@ -65,7 +65,9 @@
 .section {
   display: flex;
   flex-direction: column;
-  gap: var(--lfs-content-gap);
+  /* the same section rhythm the page uses between hero/toolbar/content, so
+     the finder-to-card run matches the toolbar-to-content run */
+  gap: var(--lfs-section-gap);
   min-width: 0;
 }
 

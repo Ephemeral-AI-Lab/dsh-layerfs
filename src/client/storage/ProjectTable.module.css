@@ -80,6 +80,7 @@
 }
 
 .toggle {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -283,6 +284,7 @@
 /* A cell that opens something (the Store, a list): quiet text, no chrome. */
 .store,
 .cellLink {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -308,6 +310,20 @@
   .cellLink:hover {
     color: var(--dsw-alias-label-primary);
   }
+}
+
+/* The chevron stays 12x20 and a count stays 8x20, but the button around
+   them offers a 44x44 target at every pointer: the box is drawn by a pseudo
+   element, so the table's columns do not move. */
+.toggle::after,
+.cellLink::after {
+  content: '';
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 0;
+  width: max(44px, 100%);
+  height: max(44px, 100%);
+  transform: translateY(-50%);
 }
 
 .ellipsis {

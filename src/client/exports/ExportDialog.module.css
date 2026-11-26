@@ -207,6 +207,12 @@
   .head button {
     min-width: var(--lfs-tap, 44px);
   }
+
+  /* The folder path is a field, not a 42 px inner input. */
+  .folderRow input,
+  .dialog input {
+    min-height: var(--lfs-tap, 44px);
+  }
 }
 
 /* A tablet's height is free: the version map gets the room the phone sheet

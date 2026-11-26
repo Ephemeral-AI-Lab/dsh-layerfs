@@ -133,5 +133,8 @@
 
   .finderSearch input {
     height: 100%;
+    /* DSH's Input puts a 1 px border inside the 44 px wrapper; the input
+       itself is the hit target, so keep it at least 44 px tall too. */
+    min-height: var(--lfs-tap, 44px);
   }
 }

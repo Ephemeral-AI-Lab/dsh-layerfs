@@ -31,7 +31,8 @@
 
 @media (max-width: 480px) {
   .hero {
-    padding: 14px 16px;
+    /* the card's phone inset: 16 px on both sides (never a flush status row) */
+    padding: 14px var(--lfs-space-4, 16px);
   }
 }
 
@@ -533,3 +534,13 @@
     padding-bottom: 0;
   }
 }
+
+/* Coarse: the hero's two icon tools and the status actions get the coarse
+   control gap; fine keeps its deliberate 6 px cluster. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .tools,
+  .actions {
+    gap: var(--lfs-gap-control, 8px);
+  }
+}
+

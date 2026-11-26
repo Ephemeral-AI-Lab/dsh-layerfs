@@ -17,6 +17,13 @@
   --lfs-tap: 30px;
   --lfs-control-h: 30px;
   --lfs-row-h: 30px;
+  /* The gap between two controls that share a row. Micro-spacing (4 px) is
+     fine for a mouse; a finger gets 8 px. */
+  --lfs-gap-control: 4px;
+  --lfs-space-3: 12px;
+  --lfs-space-4: 16px;
+  --lfs-space-5: 24px;
+  --lfs-space-6: 32px;
   --lfs-safe-bottom: env(safe-area-inset-bottom, 0px);
   --lfs-safe-left: env(safe-area-inset-left, 0px);
   --lfs-safe-right: env(safe-area-inset-right, 0px);
@@ -27,5 +34,6 @@
     --lfs-tap: 44px;
     --lfs-control-h: 44px;
     --lfs-row-h: 44px;
+    --lfs-gap-control: 8px;
   }
 }

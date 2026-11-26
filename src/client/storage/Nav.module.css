@@ -17,7 +17,7 @@
 .history {
   display: inline-flex;
   flex: none;
-  gap: 2px;
+  gap: var(--lfs-gap-control, 4px);
 }
 
 .bar button {
@@ -82,6 +82,7 @@
 .crumbPair {
   display: inline-flex;
   align-items: center;
+  gap: var(--lfs-gap-control, 4px);
   min-width: 0;
 }
 
@@ -136,7 +137,7 @@ span.crumb {
   justify-content: center;
   width: 20px;
   height: 28px;
-  margin-left: -4px;
+  margin-left: 0;
   padding: 0;
   border: 0;
   border-radius: var(--dsw-radius-md);
@@ -572,7 +573,7 @@ button.crumb[aria-expanded='true'],
   }
 
   .history {
-    gap: 0;
+    gap: var(--lfs-gap-control, 4px);
   }
 
   .crumbs {
@@ -597,7 +598,7 @@ button.crumb[aria-expanded='true'],
   .tools {
     flex: 0 0 auto;
     flex-wrap: nowrap;
-    gap: 4px;
+    gap: var(--lfs-gap-control, 4px);
     margin-left: auto;
   }
 
@@ -629,6 +630,11 @@ button.crumb[aria-expanded='true'],
    keeps its natural width; the ancestors shrink or scroll away, and the list
    is scrolled to the current page when it changes (NavBar's effect). */
 @media (max-width: 1180px), (pointer: coarse) {
+  /* A tablet-or-phone tool cluster: no cluster narrower than 8 px. */
+  .tools {
+    gap: var(--lfs-gap-control, 8px);
+  }
+
   .crumbItem:has(.crumbCurrent) {
     flex: 0 0 auto;
   }

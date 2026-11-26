@@ -794,7 +794,7 @@ export function SandboxMap({ api, t, project, agents, calls, loaded, binding, li
           icon={clock.playing ? <IconPauseOutlineRegular size={14} /> : <IconPlayOutlineRegular size={14} />}>
           {clock.playing ? t('pause') : now >= model.duration && !disabled ? t('playAgain') : t('play')}
         </Button>
-        <Button variant="ghost" size="sm" disabled={disabled} onClick={clock.replay} aria-label={t('replay')} title={t('replay')} icon={<IconRefreshOutlineRegular size={14} />} />
+        <Button variant="ghost" size="sm" className={css.replay} disabled={disabled} onClick={clock.replay} aria-label={t('replay')} title={t('replay')} icon={<IconRefreshOutlineRegular size={14} />} />
         <SegmentedControl<ReplaySpeed> id={`${speedId}-speed`} className={css.speed} value={clock.speed} label={t('replaySpeed')}
           disabled={disabled} onChange={clock.setSpeed} options={REPLAY_SPEEDS.map((v) => ({ value: v, label: `${v}×` }))} />
         <Button variant={clock.live ? 'outline' : 'ghost'} size="sm" disabled={disabled} onClick={clock.goLive} aria-pressed={clock.live}>
