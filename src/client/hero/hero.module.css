@@ -237,6 +237,22 @@
 }
 
 /* A project row's ⚙: opens its Setup card (docs/specs/layerfs-workspaces.md §5); shown on hover. */
+/* Our rows draw the selected check beside the name (before the gear), so hide the
+   menu's trailing check for exactly those rows — scoped by the gear they carry. */
+:global([role="menuitem"]:has([data-layerfs-configure]) > svg:last-child),
+:global([role="menuitemradio"]:has([data-layerfs-configure]) > svg:last-child) {
+  display: none;
+}
+
+.optionCheck {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  margin-left: auto;
+  color: var(--dsw-alias-label-primary);
+}
+
 .optionGear {
   display: inline-flex;
   align-items: center;

@@ -9,7 +9,7 @@
  * progress.
  */
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Button, IconChevronDownOutlineRegular, IconFolderOpenOutlineRegular, IconPlusOutlineRegular, IconSettingsOutlineRegular, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChevronDownOutlineRegular, IconFolderOpenOutlineRegular, IconCheckOutlineRegular, IconPlusOutlineRegular, IconSettingsOutlineRegular, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
@@ -237,11 +237,16 @@ export function HeroProjectControl({ sessionId, api, t, imports, ownership, retr
       const where = runsOn(storage?.stores.find((s) => s.name === store))
       const note = (where.length ? where : [p.machine ?? '']).filter(Boolean).map((m) => (m === 'native' ? t('home') : m)).join(', ')
       const configure = t('configure', { project: name })
+      const id = p.projectId ?? p.key
+      const isCurrent = id === current
       return {
-        id: p.projectId ?? p.key,
+        id,
         icon: <LayerfsGlyph size={14} />,
         label: <span className={css.option} title={`${name} · ${store}${note ? ` · ${note}` : ''}`}>
           <span className={css.optionName}>{name}</span><span className={css.optionNote}>{note}</span>
+          {/* The selected mark sits with the name, before the settings action;
+              DSH's own trailing check is hidden for these rows in the CSS. */}
+          {isCurrent ? <span className={css.optionCheck} aria-hidden="true"><IconCheckOutlineRegular size={14} /></span> : null}
           <span role="button" className={css.optionGear} aria-label={configure} title={configure} data-layerfs-configure=""
             onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(false); projectDialog.open({ mode: 'configure', project: { key: p.key, projectId: p.projectId, name, store } }) }}>
