@@ -3,11 +3,11 @@
  * LayerFS) across the session's time span, drawn like DSH's stock strip
  * (8px spans on a 14px lane pitch). A mark selects its record.
  */
-import { memo, useMemo, type ReactNode } from 'react'
+import { memo, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import type { TraceCheckpointRow, TrajectoryTurn } from '../../shared/trajectory.ts'
 import type { Translate } from './locale.ts'
-import { LANES, laneItems, place, thinLane, type Selection } from './trajectory-model.ts'
+import { LANES, MARK_MIN_PX, drawLaneMarks, laneItems, thinLane, type Selection } from './trajectory-model.ts'
 import { durationText } from './TrajectoryParts.tsx'
 import css from './trajectory.module.css'
 
@@ -29,7 +29,22 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({ turns, now,
   // Each lane at most LANE_BINS marks: nearby items share one (the selected one always shows).
   const marks = useMemo(() => new Map(lanes.map((lane) => [lane, span ? thinLane(items.filter((item) => item.lane === lane), span, selected) : []])),
     [items, span?.start, span?.end, selected, layerfs]) // eslint-disable-line react-hooks/exhaustive-deps
+  // The lanes' drawn width, so marks that would land on each other (a point mark
+  // is 5 px wide at least) collapse into one instead of painting over each other.
+  const lanesRef = useRef<HTMLDivElement | null>(null)
+  const [laneWidth, setLaneWidth] = useState(0)
+  useLayoutEffect(() => {
+    const el = lanesRef.current
+    if (!el) return
+    const read = () => setLaneWidth(Math.max(0, el.clientWidth - (parseFloat(getComputedStyle(el).paddingRight) || 0)))
+    read()
+    if (typeof ResizeObserver !== 'function') return
+    const watch = new ResizeObserver(read)
+    watch.observe(el)
+    return () => watch.disconnect()
+  }, [])
   if (!span) return <div className={css.timeline}><p className={css.timelineEmpty}>{t('trajNoTiming')}</p></div>
+  const minWidth = laneWidth > 0 ? (MARK_MIN_PX / laneWidth) * 100 : 0
   return (
     <div className={css.timeline} role="group" aria-label={t('trajTimeline')}>
       <div className={css.axis} aria-hidden="true">
@@ -38,18 +53,17 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({ turns, now,
       <div className={css.laneLabels} aria-hidden="true">
         {lanes.map((lane) => <span key={lane} className={css.laneLabel}>{t(`trajLane_${lane}`)}</span>)}
       </div>
-      <div className={css.lanes}>
+      <div className={css.lanes} ref={lanesRef}>
         {lanes.map((lane) => (
           <div key={lane} className={css.track}>
-            {(marks.get(lane) ?? []).map((item) => {
-              const { left, width } = place(item, span)
+            {drawLaneMarks(marks.get(lane) ?? [], span, minWidth, selected).map((item) => {
               const tick = lane === 'layerfs'
               const label = item.more ? t('trajMarkMore', { label: item.label || t(`trajLane_${lane}`), n: item.more }) : item.label
               return (
                 <button key={item.key} type="button" tabIndex={-1} data-mark={item.key}
                   className={clsx(tick ? css.tick : css.bar, css[`lane_${lane}`],
                     item.tone && css[`tone_${item.tone}`], item.select && item.select === selected && css.markSelected)}
-                  style={tick ? { left: `${left}%` } : { left: `${left}%`, width: `${width}%` }}
+                  style={tick ? { left: `${item.left}%` } : { left: `${item.left}%`, width: `${item.width}%` }}
                   title={label || undefined} aria-label={label || t(`trajLane_${lane}`)}
                   disabled={!item.select} onClick={() => item.select && onSelect(item.select)} />
               )

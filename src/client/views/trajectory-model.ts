@@ -345,6 +345,10 @@ export function place(item: { start: number, end: number }, span: { start: numbe
 /** Marks a lane draws at most: about one per 2 px of the strip. */
 export const LANE_BINS = 600
 
+/** The narrowest mark the strip draws, in px (`.bar`'s min-width): two marks
+ *  closer than this cannot be told apart. */
+export const MARK_MIN_PX = 5
+
 const TONE_RANK: Record<string, number> = { refused: 3, running: 2, created: 1 }
 
 /**
@@ -366,6 +370,45 @@ export function thinLane<I extends Pick<LaneItem, 'start' | 'select' | 'tone'>>(
     else { had.n++; if (rank(item) > rank(had.item)) had.item = item }
   }
   return [...best.entries()].sort((a, b) => a[0] - b[0]).map(([, { item, n }]) => ({ ...item, more: n - 1 }))
+}
+
+/**
+ * The marks one lane actually draws: ones landing on each other (a point mark
+ * within `minWidth` of the previous, or inside a longer bar) collapse into one,
+ * so the strip never paints a mark over another. A checkpoint mark always
+ * survives — the session's checkpoint count is what the strip states — and two
+ * checkpoints never collapse into each other. The mark kept is the checkpoint,
+ * else the selected item, else the strongest tone, else the first; `more`
+ * counts every mark it stands for. `minWidth` is the mark's width in percent of
+ * the span (`MARK_MIN_PX / lane width`).
+ */
+export function drawLaneMarks<I extends Pick<LaneItem, 'start' | 'end' | 'key' | 'select' | 'tone'>>(
+  items: readonly (I & { more: number })[],
+  span: { start: number, end: number },
+  minWidth: number,
+  selected: Selection | null = null,
+): (I & { more: number, left: number, width: number })[] {
+  const rank = (m: I) => (m.select && m.select === selected ? 10 : 0) + (TONE_RANK[m.tone ?? ''] ?? 0)
+  const checkpoint = (m: I) => m.key.startsWith('cp')
+  const out: (I & { more: number, left: number, width: number })[] = []
+  for (const item of items) {
+    const placed = { ...item, ...place(item, span) }
+    const last = out[out.length - 1]
+    // Overlap, not just touch: the later mark's left sits inside the drawn box.
+    if (!last || placed.left - last.left >= Math.max(minWidth, last.width, placed.width)) {
+      out.push(placed)
+      continue
+    }
+    if (checkpoint(last) && checkpoint(item)) { out.push(placed); continue }
+    if (checkpoint(item) || (!checkpoint(last) && rank(item) > rank(last))) {
+      // The union of both drawn boxes, so a kept mark covers what it replaces.
+      const left = Math.min(last.left, placed.left)
+      out[out.length - 1] = { ...placed, left, width: Math.max(last.left + last.width, placed.left + placed.width) - left, more: last.more + item.more + 1 }
+    } else {
+      last.more += item.more + 1
+    }
+  }
+  return out
 }
 
 // ---------------------------------------------------------------- rows

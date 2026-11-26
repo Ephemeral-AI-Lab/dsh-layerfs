@@ -516,6 +516,9 @@
 @media (max-width: 640px) {
   .toolbar {
     align-items: stretch;
+    /* The tabs' -0.5 px margin (their underline meets the bar's rule) eats half
+       a pixel of the row gap: the actions keep the coarse control gap, 8 px. */
+    row-gap: calc(var(--lfs-gap-control, 8px) + 0.5px);
   }
 
   .tabList {

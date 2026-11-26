@@ -83,3 +83,30 @@ test('sidebars and call sheet: coarse switches are thumb targets; the call-sheet
   assert.match(ws, /\.switchRail\s*\{[^}]*width:\s*44px/)
   assert.match(block(src('logs/logs.module.css'), '.detailNav'), /gap:\s*8px/)
 })
+
+test('text floor: our 11 px labels read at 12 px (DSH chrome excluded)', () => {
+  // The audit's A2.text counts every text under 12 px in our views at coarse.
+  const sandbox = src('views/sandbox.module.css')
+  assert.doesNotMatch(sandbox, /font-size:\s*(?:10|10\.5|11|11\.5)px/, 'no text under 12 px in the sandbox map')
+  const stats = src('storage/StorageVisuals.module.css')
+  assert.doesNotMatch(stats, /font-size:\s*(?:10|10\.5|11|11\.5)px/, 'no text under 12 px in Stats')
+})
+
+test('home: the phone tab row keeps the control gap to its actions', () => {
+  const css = src('storage/HomeHero.module.css')
+  const phone = css.slice(css.indexOf('@media (max-width: 640px)'))
+  // The tab's -0.5 px margin eats half a pixel of the row gap; coarse still gets 8.
+  assert.match(block(phone, '.toolbar'), /row-gap:\s*calc\(var\(--lfs-gap-control, 8px\) \+ 0\.5px\)/)
+})
+
+test('history: the branch finder and Refresh are separate controls', () => {
+  const css = src('files/History.module.css')
+  assert.match(block(css, '.dock {'), /gap:\s*max\(6px, var\(--lfs-gap-control, 6px\)\)/)
+  assert.match(block(css, '.dock .mapControls {'), /gap:\s*var\(--lfs-gap-control, 4px\)/)
+})
+
+test('machine images: the build hint sits above the scrolling list', () => {
+  const tsx = src('machines/MachineImages.tsx')
+  assert.ok(tsx.indexOf('<BuildHint />') < tsx.indexOf('css.imgList'), 'the hint comes before the list')
+  assert.match(block(src('machines/machines.module.css'), '.imgHint {'), /margin-bottom:\s*10px/)
+})

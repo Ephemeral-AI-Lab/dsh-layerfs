@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  checkpointKey, checkpointVersion, compactNumber, durationParts, filterTurns, flattenRows, focusTarget, laneItems, loadedRecords, mergeOlder, opCommand,
+  checkpointKey, drawLaneMarks, checkpointVersion, compactNumber, durationParts, filterTurns, flattenRows, focusTarget, laneItems, loadedRecords, mergeOlder, opCommand,
   opWrites, place, prettyArgs, recentTurns, recordMatches, selectionTurn, shownHostOp, thinLane, timeSpan, toolEntries,
 } from '../src/client/views/trajectory-model.ts'
 
@@ -200,6 +200,36 @@ test('thinLane: a crowded lane keeps one mark per bin, preferring the selected i
   assert.ok(few.every((m) => m.more === 0))
 })
 
+
+test('drawLaneMarks: marks landing on each other draw once; a checkpoint always survives', () => {
+  const span = { start: 0, end: 1000 }
+  const at = (start, key, select, tone) => ({ start, end: start, key, select, tone, more: 0 })
+  // Two records at (almost) the same instant, as two assistant steps seconds apart in a long session are.
+  const merged = drawLaneMarks([at(0, 'r1', 'r:1'), at(0.1, 'r2', 'r:2'), at(500, 'r3', 'r:3')], span, 5, null)
+  assert.equal(merged.length, 2, 'the pair at 0/0.1 collapses')
+  assert.equal(merged[0].select, 'r:1', 'the first of a point group keeps the mark')
+  assert.equal(merged[0].more, 1, 'and counts the record it stands for')
+  assert.equal(merged[1].select, 'r:3')
+  // The selected item wins the group.
+  const picked = drawLaneMarks([at(0, 'r1', 'r:1'), at(0.1, 'r2', 'r:2')], span, 5, 'r:2')
+  assert.equal(picked.length, 1)
+  assert.equal(picked[0].select, 'r:2')
+  assert.equal(picked[0].more, 1)
+  // A checkpoint is never hidden by a nearby op, and two checkpoints never merge.
+  const cp = at(0, 'cp1:0', 'c:1:0')
+  const withOp = drawLaneMarks([cp, at(0.2, 'op1', 'c:1:0')], span, 5, null)
+  assert.equal(withOp.length, 1)
+  assert.equal(withOp[0].key, 'cp1:0')
+  assert.equal(withOp[0].more, 1)
+  const twoCps = drawLaneMarks([cp, { ...at(0.1, 'cp1:1', 'c:1:1') }], span, 5, null)
+  assert.equal(twoCps.length, 2, 'both checkpoints keep their mark')
+  // A mark whose box overlaps a long bar collapses into it; a clear one does not.
+  const bar = { start: 0, end: 50, key: 'r9', select: 'r:9', more: 0 }
+  const inside = drawLaneMarks([bar, at(10, 'r10', 'r:10')], span, 0, null)
+  assert.equal(inside.length, 1, 'a point inside a bar is not painted over it')
+  const clear = drawLaneMarks([bar, at(60, 'r10', 'r:10')], span, 0, null)
+  assert.equal(clear.length, 2, 'a mark past the bar keeps its own')
+})
 
 test('system and request records: search words, lane, rows and the only-writes filter', () => {
   const [system, user, request] = parityTurn.records

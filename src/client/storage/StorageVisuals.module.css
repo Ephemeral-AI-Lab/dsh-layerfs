@@ -255,7 +255,7 @@
   justify-content: space-between;
   gap: 12px;
   margin-top: 6px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--dsw-alias-label-tertiary);
 }
 
@@ -405,7 +405,7 @@
 }
 
 .flowLabels small {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--dsw-alias-label-tertiary);
 }
 
@@ -525,16 +525,16 @@
   }
 
   .flowLabels > div > span {
-    font-size: 11px;
+    font-size: 12px;
   }
 
   .flowLabels small {
-    font-size: 10px;
+    font-size: 12px;
   }
 
   .flowSteps {
     margin-inline: 0 !important;
-    font-size: 11px;
+    font-size: 12px;
   }
 
   .flowSvg {

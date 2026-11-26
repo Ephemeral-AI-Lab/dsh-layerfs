@@ -414,11 +414,16 @@
   bottom: 6px;
   display: flex;
   align-items: center;
-  gap: 6px;
+  /* Its controls are separate (not one segmented group): a finger gets the
+     coarse control gap, a mouse the deliberate 6 px. */
+  gap: max(6px, var(--lfs-gap-control, 6px));
 }
 
 .dock .mapControls {
   position: static;
+  /* The branch finder and Refresh are separate controls, not one segmented
+     group: they take the control gap (4 px fine, 8 px coarse). */
+  gap: var(--lfs-gap-control, 4px);
 }
 
 .dock .mapControls button {
@@ -985,7 +990,6 @@
     left: max(8px, var(--lfs-safe-left, 0px));
     flex-wrap: wrap;
     justify-content: flex-end;
-    row-gap: 6px;
   }
 
   .legend {
