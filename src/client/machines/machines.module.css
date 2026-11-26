@@ -3196,6 +3196,12 @@
     height: var(--lfs-tap, 44px);
   }
 
+  .dialogContent :global(label:has(> input[type='checkbox'])) {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--lfs-tap, 44px);
+  }
+
   /* the dialog's last action keeps the device's bottom inset, at a tablet's
      coarse pointer as much as on a phone */
   .dialogContent {
