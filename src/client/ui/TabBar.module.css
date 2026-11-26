@@ -52,7 +52,7 @@
   flex: none;
   align-items: center;
   gap: 7px;
-  height: 40px;
+  height: max(40px, var(--lfs-tap, 40px));
   padding: 0 12px;
   border: 0;
   background: none;
@@ -107,7 +107,7 @@
   border-radius: 9px;
   corner-shape: round;
   background: var(--dsw-alias-interactive-bg-hover);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 18px;
   font-weight: 400;
   color: var(--dsw-alias-label-secondary);
