@@ -471,13 +471,16 @@ export function compactSidecarFile(path: string, options: { cap?: number, backup
 }
 
 /**
- * The persistence-side counter sink: `session-persistence.ts` registers
- * `aggregateInvocation`, so every folded read lands in the sidecar even though
- * `traceInvocation` cannot reach the persistence service itself.
+ * An in-process counter sink for a trace context that provides no `aggregate`
+ * of its own. It only reaches calls that share this module instance: the
+ * persistence plugin runs as a separate bundle with its own copy of this file,
+ * so production contexts (`hostOperation` and the tool-call hook) hand their
+ * folded reads to `aggregateInvocation` explicitly through the context, and a
+ * registration made by another bundle could not reach them.
  */
 type ReceiptAggregate = (invocation: Invocation) => void | Promise<void>
 let registeredAggregate: ReceiptAggregate | undefined
-/** Register (or clear) the process-wide counter sink; a trace context's own `aggregate` wins. */
+/** Register (or clear) the in-process counter sink; a trace context's own `aggregate` wins. */
 export function setReceiptAggregate(aggregate: ReceiptAggregate | undefined): void { registeredAggregate = aggregate }
 
 /** In-process counters for sessions whose persistence has not adopted {@link compactSidecarFile} yet. */

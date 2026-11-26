@@ -10,7 +10,7 @@ import { homedir } from 'node:os'
 import { ProjectCatalog, type ProjectIdentity, type CatalogProject } from './sessions/catalog.ts'
 import { CliError } from './layerfs/cli.ts'
 import {
-  compactInvocations, foldRead, RECEIPT_CAP, RECEIPT_META, receiptDisposition, readOnlyOperation, setReceiptAggregate, withReceiptMeta,
+  compactInvocations, foldRead, RECEIPT_CAP, RECEIPT_META, receiptDisposition, readOnlyOperation, withReceiptMeta,
   type Invocation, type ReceiptMeta,
 } from './layerfs/tracing.ts'
 
@@ -1210,10 +1210,11 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   await ctx.plugin({
     name: 'dsh-layerfs-session-persistence-service',
     apply(serviceCtx: Context) {
-      const service = new LayerfsSessionPersistence(serviceCtx, local)
-      // The receipt policy folds host reads here, without tracing.ts knowing
-      // the persistence service (it only exposes the sink).
-      setReceiptAggregate((invocation) => service.aggregateInvocation(invocation))
+      new LayerfsSessionPersistence(serviceCtx, local)
+      // The traced host calls live in the main plugin bundle, whose tracing.ts
+      // is a different module instance than this one: its contexts hand each
+      // folded read to `aggregateInvocation` through the context, so no
+      // process-wide registration from this bundle could reach them.
     },
   }).await()
   ctx.logger('layerfs').info('session persistence: stock JSONL at %s; project conversations use owner-routed unpacked JSONL', config.root)

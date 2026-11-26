@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { Context } from '@deepseek-ai/cordis'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 // Inside the checkout, so the external DSH packages resolve from node_modules.
@@ -18,7 +19,7 @@ const out = mkdtempSync(join(root, 'lib', '.test-sessions-'))
 await build({
   absWorkingDir: root,
   stdin: {
-    contents: "export * from './src/host/sessions/service.ts'\nexport * from './src/host/placement.ts'\nexport * as persistence from './src/host/session-persistence.ts'\nexport { initialState } from './src/host/sessions/state.ts'\nexport * from './src/host/sessions/availability.ts'\nexport * as tracing from './src/host/layerfs/tracing.ts'\nexport { apply as applySessionsIndex } from './src/host/sessions/index.ts'\n",
+    contents: "export * from './src/host/sessions/service.ts'\nexport * from './src/host/placement.ts'\nexport * as persistence from './src/host/session-persistence.ts'\nexport { initialState } from './src/host/sessions/state.ts'\nexport * from './src/host/sessions/availability.ts'\nexport * as tracing from './src/host/layerfs/tracing.ts'\nexport { apply as applySessionsIndex } from './src/host/sessions/index.ts'\nexport { buildTrajectory, trajectoryRevision } from './src/host/sessions/trace.ts'\n",
     resolveDir: root,
     loader: 'ts',
   },
@@ -1249,6 +1250,122 @@ test('archive writes stay untagged and record no receipt', async () => {
   await S.tracing.withTraceContext({ origin: 'host', sessionId: 'a', project: 'st/app', record: async (row) => { recorded.push(row) } }, () =>
     S.tracing.withoutTraceContext(() => S.tracing.traceInvocation('file.apply', async (tag) => { tags.push(tag); return { commit: hex('e') } })))
   assert.deepEqual(tags, [undefined]); assert.deepEqual(recorded, [])
+})
+
+// A session's own host reads (the panel's polls and the pre-step check) run in
+// its trace context: a successful read folds into the sidecar counter before the
+// next annotation or trajectory read, while a tool read and a write keep their
+// receipts. This is the live wiring the receipt policy needs; the policy itself
+// is covered in test/receipt-policy.test.mjs.
+test('a session\'s host reads fold into its sidecar; a tool read and a write keep receipts', async () => {
+  const dir = mkdtempSync(join(root, '.dev-test-receipt-wiring-'))
+  const tags = []
+  const info = { project: 'store/app', store: 'store', engine: 'sqlite', machine: 'vm', created_at: '1970-01-01T00:00:00.100Z' }
+  const branches = []
+  const lfs = {
+    project: { get: traced('project.get', () => info, tags), list: async () => ({ items: [info] }) },
+    branch: { list: traced('branch.list', () => ({ items: branches.map((branch) => ({ branch })) }), tags), fork: async (_, branch) => { branches.push(branch); return { commit: hex('a') } } },
+    machine: { get: traced('machine.get', () => ({ machine: 'vm', state: 'ready' }), tags), list: async () => ({ items: [] }) },
+    store: { get: traced('store.get', () => ({ store: 'store', engine: 'sqlite', state: 'ready' }), tags), list: async () => ({ items: [] }) },
+    workspace: { status: traced('workspace.status', () => ({ changes_count: 0 }), tags) },
+  }
+  const ctx = new Context()
+  ctx.provide('layerfs', { root: join(dir, 'plugin'), projectSessionHome: join(dir, 'project-home'), home: join(dir, 'layerfs-home'), lfs })
+  const fork = ctx.plugin(S.persistence, { root: join(dir, 'normal') })
+  const header = (id) => ({ version: 4, id, createdAt: 1, cwd: '/scratch', isSeeded: false })
+  const binding = (id) => ({ sessionId: id, kind: 'project', project: 'store/app', machine: 'vm', anchor: '/anchor', scratch: '/scratch',
+    sandbox: 'box', ws: 'box:main', branch: 'internal', state: 'bound', executionState: 'active', createdAt: 1, updatedAt: 1 })
+  try {
+    await fork.await()
+    const p = ctx.get('sessionPersistence')
+    for (const id of ['live', 'fresh']) {
+      const writer = await p.create(header(id))
+      await writer.flush(); await writer.close()
+      await p.migrateProject(id, 'store/app')
+    }
+    // Migration reads identity Branches without a session context; start counting here.
+    tags.length = 0
+    const attached = (state) => {
+      const f = sessions({ state, lfs })
+      f.s.ctx.get = (name) => name === 'sessionPersistence' ? p : name === 'layerfsSessions' ? f.s : undefined
+      return f.s
+    }
+    const liveState = S.initialState()
+    liveState.sessions.live = binding('live')
+    const live = attached(liveState)
+    // The panel's poll: identity, readiness and Workspace status are host calls.
+    const view = await live.view('live', { observe: true })
+    assert.equal(view.execution.available, true)
+    const observed = tags.filter((tag) => tag !== undefined)
+    assert.ok(observed.length >= 3, 'the poll made its host reads')
+    assert.ok(observed.every((tag) => tag.startsWith('dsh:live:')), 'each call carries the session id, never dsh:-')
+    const annotations = await p.readSidecar('live')
+    assert.ok(annotations.receipts, 'the next annotations read carries the counter')
+    assert.ok(annotations.receipts.readsTotal >= 3, 'successful host reads folded')
+    assert.equal(annotations.receipts.reads['workspace.status'].count, 1)
+    assert.deepEqual(annotations.invocations, [], 'a folded read writes no receipt')
+
+    const events = [
+      { type: 'turn/start', seq: 1, time: 10, data: { turn: 1 } },
+      { type: 'user/message', seq: 2, time: 11, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'go' }] } },
+      { type: 'turn/end', seq: 3, time: 12, data: { turn: 1 } },
+    ]
+    const input = { sessionId: 'live', project: 'store/app', branch: 'internal', events, invocations: annotations.invocations, checkpoints: [], receipts: annotations.receipts }
+    const revision = S.trajectoryRevision(input)
+    const observation = S.buildTrajectory(input).turns.flatMap((turn) => turn.records).find((record) => record.kind === 'observation')
+    assert.ok(observation, 'the trajectory carries the observation record')
+    assert.equal(observation.text, `polled ${annotations.receipts.readsTotal.toLocaleString('en-US')} times across ${Object.keys(annotations.receipts.reads).length} read-only operations`)
+    assert.equal(observation.reads, annotations.receipts.readsTotal)
+    assert.ok(observation.top.some((line) => line.startsWith('workspace status: ')))
+
+    // A second read (no memo) moves the counter and so the revision, with no new receipt.
+    await live.view('live')
+    const moved = await p.readSidecar('live')
+    assert.ok(moved.receipts.readsTotal > annotations.receipts.readsTotal)
+    assert.notEqual(S.trajectoryRevision({ ...input, receipts: moved.receipts, invocations: moved.invocations }), revision)
+
+    // Many host reads stay one counter: no receipt per poll, however many.
+    const beforeLoop = moved.receipts.readsTotal
+    for (let i = 0; i < 20; i++) await live.view('live')
+    const polled = await p.readSidecar('live')
+    assert.ok(polled.receipts.readsTotal >= beforeLoop + 20, 'every poll folded')
+    assert.deepEqual(polled.invocations, [], 'a poll loop writes no receipts')
+
+    // The pre-step check folds as well.
+    const beforeStep = polled.receipts.readsTotal
+    await live.ensureBound({ id: 'live', session: { id: 'live', cwd: '/scratch', snapshotEvents: () => [] } })
+    const stepped = await p.readSidecar('live')
+    assert.ok(stepped.receipts.readsTotal > beforeStep)
+    assert.ok(tags.filter((tag) => tag !== undefined).every((tag) => tag.startsWith('dsh:live:')), 'no untagged session call')
+
+    // An agent's own read is a command: one receipt, no fold.
+    await p.recordInvocation({ id: 'tool-read', origin: 'tool', sessionId: 'live', project: 'store/app', operation: 'file.read',
+      outcome: 'success', versions: [], at: 2, argv: ['file', 'read', 'store/app', 'internal', '/README.md'] })
+    const commanded = await p.readSidecar('live')
+    assert.deepEqual(commanded.invocations.map((row) => row.id), ['tool-read'], 'the tool read kept its receipt')
+    assert.equal(commanded.receipts.readsTotal, stepped.receipts.readsTotal, 'and bumped nothing')
+    // A write is history too.
+    await p.recordInvocation({ id: 'write', origin: 'host', sessionId: 'live', project: 'store/app', operation: 'file.write',
+      outcome: 'success', versions: [{ kind: 'Commit', id: hex('b'), effect: 'created' }], at: 3, argv: ['file', 'write', 'store/app', 'internal', '/README.md'] })
+    const written = await p.readSidecar('live')
+    assert.deepEqual(written.invocations.map((row) => row.id), ['tool-read', 'write'])
+    assert.equal(written.receipts.readsTotal, stepped.receipts.readsTotal, 'a write bumps no read')
+
+    // A session whose sidecar does not exist yet gets its first folded read.
+    const freshState = S.initialState()
+    freshState.sessions.fresh = binding('fresh')
+    const fresh = attached(freshState)
+    await fresh.view('fresh', { observe: true })
+    const first = await p.readSidecar('fresh')
+    assert.ok(first, 'the observation created the sidecar')
+    assert.ok(first.receipts.readsTotal >= 3, 'its first reads folded')
+    assert.deepEqual(first.invocations, [])
+    assert.ok(tags.filter((tag) => tag !== undefined).some((tag) => tag.startsWith('dsh:fresh:')), 'the fresh session\'s reads carry its own tag')
+    assert.equal(tags.filter((tag) => tag === undefined).length, 0, 'no host read of a session is untagged')
+  } finally {
+    await fork.dispose().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 // ---------------------------------------------------------------- review fixes

@@ -136,6 +136,14 @@ export function apply(ctx: Context): void {
       await persistence.recordInvocation(invocation)
       ctx.layerfs.emit('layerfs-operation', { sessionId: invocation.sessionId })
     }
+    // A successful host read inside a tool call folds into the session's counter.
+    // Resolve the persistence service through this context: it is a separate
+    // bundle with its own tracing module, so its `setReceiptAggregate` cannot
+    // reach the calls traced here.
+    const aggregate = async (invocation: Invocation): Promise<void> => {
+      const persistence = ctx.get('sessionPersistence' as never) as any
+      if (persistence?.aggregateInvocation) await persistence.aggregateInvocation(invocation)
+    }
     /**
      * Receipts of calls the host did not see itself (agent shells' managed CLI):
      * the call log lines tagged `dsh:<sessionId>:<scope>.…` since each tool call
@@ -189,7 +197,7 @@ export function apply(ctx: Context): void {
       calls.push(call)
       turnCalls.set(id, calls)
       try {
-        return await withTraceContext({ ...identity, record, onError: (e) => ctx.logger('layerfs').warn('record invocation: %s', String(e)) }, next)
+        return await withTraceContext({ ...identity, record, aggregate, onError: (e) => ctx.logger('layerfs').warn('record invocation: %s', String(e)) }, next)
       } finally {
         await collect(id, [call]).catch((e) => ctx.logger('layerfs').warn('collect invocations: %s', String(e)))
         // Agent shells' wrappers append stand-in lines in their own processes.

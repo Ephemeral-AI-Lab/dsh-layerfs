@@ -668,6 +668,14 @@ export class LayerfsSessions extends Service {
           this.ctx.layerfs.emit('layerfs-operation', { sessionId })
         }
       },
+      // The counter sink is resolved here, through the context, not through
+      // tracing.ts's process-wide registration: the persistence plugin is a
+      // separate bundle with its own copy of that module, so a registration
+      // made there never reaches the CLI calls this plugin makes.
+      aggregate: async (invocation) => {
+        const persistence = this.ctx.get?.('sessionPersistence' as never) as any
+        if (persistence?.aggregateInvocation) await persistence.aggregateInvocation(invocation)
+      },
       onError: (e) => this.ctx.logger('layerfs').warn('record host operation: %s', String(e)),
     }, run)
   }
@@ -840,10 +848,23 @@ export class LayerfsSessions extends Service {
     const sessionId = String(agent.id)
     // An owner choice in flight decides this step's place; wait for it.
     await this.settled(sessionId)
+    const place = this.placeOf(agent.session ?? { id: sessionId })
     // Normal sessions are stock DSH: no LayerFS lock, identity or binding applies.
-    if (this.placeOf(agent.session ?? { id: sessionId }).kind === 'folder' && !this.simulationOf(sessionId)) return
+    if (place.kind === 'folder' && !this.simulationOf(sessionId)) return
     const held = this.ctx.layerfs.exclusive?.()
     if (held) throw new CliError('ConnectBusy', held)
+    // From here on every LayerFS call is this session's host work, so run it in
+    // the session's trace context: successful reads fold into its receipt
+    // counter (no receipt), writes and refusals keep theirs, and each call
+    // carries `dsh:<sessionId>:` rather than the session-less `dsh:-:` tag.
+    const project = this.binding(sessionId)?.project ?? (place.kind === 'project' ? place.project : undefined)
+    if (!project) return await this.ensureBoundNow(agent, options)
+    await this.hostOperation(sessionId, project, undefined, () => this.ensureBoundNow(agent, options))
+  }
+
+  /** {@link ensureBound} once the session's place and project are known. */
+  private async ensureBoundNow(agent: any, options: { rebind?: boolean } = {}): Promise<void> {
+    const sessionId = String(agent.id)
     await this.validateExecutionIdentity(sessionId, { recent: true })
     if (this.isSimulationManaged(sessionId)) {
       if (agent.model?.current?.()?.provider !== 'simulation') throw new CliError('Busy', 'Stop the active project script before changing its model')
@@ -1119,10 +1140,15 @@ export class LayerfsSessions extends Service {
     const seq = session?.seq ?? 0
     let checkpoint: Checkpoint
     let receipt: string | undefined
+    let status: any
     try {
-      await (this.ctx.get?.('sessionPersistence' as never) as any)?.assertSessionIdentity?.(sessionId)
-      // 2.0 `workspace status --detail`: `changes` (the first 20) and `changes_count`, `branch_moved`, `pending_merge`
-      const status = await this.lfs.workspace.status(binding.ws, { detail: true })
+      // The identity and status reads are this session's host reads: fold them
+      // into its counter even though the save itself writes a receipt.
+      await this.hostOperation(sessionId, binding.project!, turn, async () => {
+        await (this.ctx.get?.('sessionPersistence' as never) as any)?.assertSessionIdentity?.(sessionId)
+        // 2.0 `workspace status --detail`: `changes` (the first 20) and `changes_count`, `branch_moved`, `pending_merge`
+        status = await this.lfs.workspace.status(binding.ws, { detail: true })
+      })
       const entries = Number(status?.changes_count ?? (Array.isArray(status?.changes) ? status.changes.length : 0)) || 0
       if (!entries && !status?.pending_merge && !status?.branch_moved && kind === 'turn') return undefined
       // Tagged with this session's own id: the session that owns the checkpoint.
@@ -1131,7 +1157,7 @@ export class LayerfsSessions extends Service {
       // Agents change files with `file` calls and their own Workspaces' Commits, so the
       // session Branch often moved while this Workspace changed nothing: count what moved.
       const changed = result?.unchanged !== true ? Math.max(entries, 1)
-        : status?.branch_moved && commit ? await this.pathsChanged(binding.project!, status.commit ?? status.base_layer, commit) : 0
+        : status?.branch_moved && commit ? await this.hostOperation(sessionId, binding.project!, turn, () => this.pathsChanged(binding.project!, status.commit ?? status.base_layer, commit)) : 0
       checkpoint = { kind, turn, seq, commit, branch: binding.branch!, changed, message, at: Date.now(), ...(receipt ? { receipt } : {}) }
       if (commit && binding.simulation?.handoffReady) {
         this.state.update((s) => {
@@ -1636,6 +1662,20 @@ export class LayerfsSessions extends Service {
    * and a lost mount stay current. `debug` adds `timing`, the per-step split.
    */
   async view(sessionId: string, options: { observe?: boolean, debug?: boolean } = {}): Promise<SessionView> {
+    // The panel polls and effect reads are the session's own host work: every
+    // LayerFS call below runs in its trace context, so a successful poll folds
+    // into that session's counter (and carries its `dsh:<sessionId>:` tag)
+    // instead of disappearing as an untagged host call. A session with no
+    // project (a plain folder or a not-yet-placed draft) makes no project call.
+    const binding = this.binding(sessionId)
+    const effective = binding?.kind === 'shared' && binding.parent ? this.binding(binding.parent) ?? binding : binding
+    const project = effective?.project ?? this.placeOfId(sessionId)?.project
+    if (!project) return this.viewNow(sessionId, options)
+    return this.hostOperation(sessionId, project, undefined, () => this.viewNow(sessionId, options))
+  }
+
+  /** {@link view} in the session's trace context (see there). */
+  private async viewNow(sessionId: string, options: { observe?: boolean, debug?: boolean } = {}): Promise<SessionView> {
     const observe = options.observe === true
     const profile = options.debug === true
       ? { at: performance.now(), phases: {} as Record<string, number>, calls: { identity: 0, readiness: 0, status: 0 }, memo: false }
