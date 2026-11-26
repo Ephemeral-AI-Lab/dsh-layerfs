@@ -74,12 +74,18 @@ export function mergeSessionRows(local: readonly ProjectSession[] | undefined, a
 }
 
 /** Local logs remain visible while the portable archive loads or fails. */
-export function useProjectSessions(api: LayerfsApi, project: string, enabled = true, projectId?: string) {
+export function useProjectSessions(api: LayerfsApi, project: string, enabled = true, projectId?: string, seed?: readonly ProjectSession[]) {
   const load = (localOnly: boolean) => enabled
-    ? readWithDeadline(api.op<SessionList>('sessions.list', { project, projectId, localOnly }))
+    ? readWithDeadline(api.op<SessionList>('sessions.list', { project, projectId, localOnly }, localOnly ? undefined : { priority: 'background' }))
     : Promise.resolve<SessionList>({ sessions: [] })
   const key = `${project}:${projectId ?? ''}:${enabled}`
-  const local = useQuery(() => load(true), [api, project, projectId, enabled], { cache: `sessions-local:${key}` })
+  // The Home table already reads the local list for every row (`useSessionLists`).
+  // A row's expanded list reuses that answer instead of asking again: the one
+  // duplicate `sessions.list` the two views would otherwise both send on open.
+  const local = useQuery(
+    () => (seed !== undefined ? Promise.resolve<SessionList>({ sessions: [...seed] }) : load(true)),
+    [api, project, projectId, enabled, seed],
+    { cache: `sessions-local:${key}` })
   // The archive read is a Store walk (a Branch list plus a manifest per stored
   // session) and it competes with the local read that must paint the list: let
   // the local paint go first, then ask for the stored rows. A later expand inside

@@ -110,7 +110,9 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
   const fleetRead = mc.useMachines((s) => s)
   const startups = mc.useStartups((s) => s)
   const fleet: AvailableView | null = fleetRead.data?.available ? fleetRead.data : null
-  const setupRead = useSetupStatus(mc.api)
+  // The boot mount (`setup/index.tsx`) already read the setup check to decide whether
+  // to open the modal; Home's copy only decorates the first card, so it reads after paint.
+  const setupRead = useSetupStatus(mc.api, false, true)
   const setup = setupRead.data
   const startDoctor = useStartDoctor(mc.api)
   const dockerDetailsId = useId()

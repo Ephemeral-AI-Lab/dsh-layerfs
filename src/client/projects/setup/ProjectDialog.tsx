@@ -47,7 +47,7 @@ const storeUsable = (s: StoreRow): boolean => s.state === 'ready' || (s.kind ===
 
 /** `/api/storage`, refreshed on storage and machine events. */
 export function useStorage(api: LayerfsApi) {
-  const read = useQuery(() => api.call<StorageView>('GET', '/api/storage'), [api], { cache: 'GET /api/storage' })
+  const read = useQuery(() => api.call<StorageView>('GET', '/api/storage', undefined, { share: true }), [api], { cache: 'GET /api/storage' })
   useHostEvents(api, ['storage', 'storage-job', 'machine-progress', 'connection', 'layerfs-availability'], read.reload)
   return read
 }

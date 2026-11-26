@@ -6,6 +6,7 @@
  */
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { LayerfsApi } from '../api.ts'
+import { afterFirstPaint } from '../ui/first-paint.ts'
 import { useQuery } from '../ui/use-query.ts'
 
 /** A piece's verdict against the CLI's build. */
@@ -140,10 +141,18 @@ const EVENTS = ['setup-changed', 'runtime-changed', 'connection']
 /**
  * `setup.status`, kept across remounts and reread on setup events; `visible`
  * also rereads every 5 s while the page is visible (the modal, Settings).
+ * `afterPaint` holds the first read for {@link afterFirstPaint}: Home's second
+ * mount decorates the first card, while the boot mount decides whether the
+ * setup modal opens at once, so only one of them may run at first paint. The
+ * read is shared while in flight, and it still starts on mount and is fresh.
  */
-export function useSetupStatus(api: LayerfsApi, visible = false) {
+export function useSetupStatus(api: LayerfsApi, visible = false, afterPaint = false) {
   const [tick, bump] = useTick()
-  const read = useQuery(() => api.op<SetupStatus>('setup.status'), [api], { refresh: [tick], cache: 'op setup.status' })
+  const read = useQuery(
+    () => (afterPaint ? afterFirstPaint().then(() => api.op<SetupStatus>('setup.status', undefined, { share: true })) : api.op<SetupStatus>('setup.status', undefined, { share: true })),
+    [api, afterPaint],
+    { refresh: [tick], cache: 'op setup.status' },
+  )
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined
     // coalesced: a save emits runtime-changed and setup-changed together

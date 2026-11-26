@@ -81,8 +81,8 @@ export interface ProjectItem { row: ProjectRow, store: StoreRow | undefined, run
 /** Catalog, machines and Stores, joined per project (§8: readiness follows the machine it runs on). */
 export function useProjectData(api: LayerfsApi) {
   const machines = useProjectMachines(api)
-  const catalog = useSteady(api, 'projects.catalog', () => listProjects(api), ['storage', 'layerfs-availability', 'layerfs-workspaces-changed', 'machine-progress', 'connection'])
-  const storage = useSteady(api, 'GET /api/storage', () => api.call<StorageView>('GET', '/api/storage'), ['storage', 'storage-job', 'machine-progress', 'connection'])
+  const catalog = useSteady(api, 'projects.catalog', () => listProjects(api, { share: true }), ['storage', 'layerfs-availability', 'layerfs-workspaces-changed', 'machine-progress', 'connection'])
+  const storage = useSteady(api, 'GET /api/storage', () => api.call<StorageView>('GET', '/api/storage', undefined, { share: true }), ['storage', 'storage-job', 'machine-progress', 'connection'])
   const item = (row: ProjectRow): ProjectItem => {
     const store = storage.data?.stores.find((s) => s.name === storeOf(row))
     const machine = primaryMachine(store, storage.data?.machines) ?? row.machine ?? null

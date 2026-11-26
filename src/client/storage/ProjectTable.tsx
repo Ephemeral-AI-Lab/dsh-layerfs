@@ -34,7 +34,7 @@ import { sandboxRuns } from '../machines/stats.ts'
 import { useProjectSessions, type ProjectSession } from '../projects/hooks.ts'
 import { formatSessionFailure } from '../projects/session-failure.ts'
 import { Card, FixAction, FixContext, MoreMenu, resolveFix } from '../ui/index.tsx'
-import { useQuery } from '../ui/use-query.ts'
+import { useDeferredQuery, useQuery } from '../ui/use-query.ts'
 import { enc, type LayerfsApi } from '../api.ts'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import type { TabId } from './tabs.ts'
@@ -453,7 +453,7 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
         <div className={css.detail} id={detailId}>
           <div className={css.panel}>
             {open === 'sessions'
-              ? <SessionList api={api} project={key} kind={store.kind} t={t} other={boxes.length} onSwitch={() => onSetOpen('sandboxes')} down={sessionsUnavailable(store)} />
+              ? <SessionList api={api} project={key} kind={store.kind} t={t} other={boxes.length} onSwitch={() => onSetOpen('sandboxes')} down={sessionsUnavailable(store)} seed={local ?? undefined} />
               : <SandboxList boxes={boxes} fleet={fleet} place={place} t={t} other={local?.length ?? null} onSwitch={() => onSetOpen('sessions')} onOpen={onOpen} />}
           </div>
         </div>
@@ -486,7 +486,9 @@ function HistoryUnread({ error, t }: { error: { code: string, message: string, f
 
 /** A project's size, from the route the finder sorts by: the last answer at once, polled while its first count runs. Nothing is read unless `enabled`. */
 function useProjectSize(api: LayerfsApi, key: string, alone: boolean, tick: number, enabled: boolean): { stored: number | undefined, files: number | null, counting: boolean } {
-  const q = useQuery<ProjectSize | null>(() => (enabled ? api.call<ProjectSize>('GET', `/api/projects/${enc(key)}/size${alone ? '?alone=1' : ''}`) : Promise.resolve(null)), [api, key, alone, enabled],
+  // A size decorates the row: it reads after the first card paints, and only
+  // when the host queue has no interactive read waiting.
+  const q = useDeferredQuery<ProjectSize | null>(() => (enabled ? api.call<ProjectSize>('GET', `/api/projects/${enc(key)}/size${alone ? '?alone=1' : ''}`, undefined, { priority: 'background' }) : Promise.resolve(null)), [api, key, alone, enabled],
     { refresh: [tick], cache: enabled ? sizeCacheKey(key) : `pt-size-off:${key}`, persist: enabled })
   const z = q.data
   const waiting = !!z && z.stored === null && z.counting
@@ -524,8 +526,9 @@ function SwapGlyph(): ReactNode {
 
 /** A project's sessions, newest first: this DSH's own and those only in the Store. */
 /** `down`: its Store is broken or blocked, so its sessions are listed but neither open nor start (owner Q-R3). */
-function SessionList({ api, project, kind, t, other, onSwitch, down }: { api: LayerfsApi, project: string, kind: string, t: StorageT, other: number, onSwitch: () => void, down: boolean }): ReactNode {
-  const { sessions, loading, error } = useProjectSessions(api, project)
+function SessionList({ api, project, kind, t, other, onSwitch, down, seed }: { api: LayerfsApi, project: string, kind: string, t: StorageT, other: number, onSwitch: () => void, down: boolean, seed?: readonly ProjectSession[] }): ReactNode {
+  // `seed` is the row's list the table already read: the local read is no longer repeated.
+  const { sessions, loading, error } = useProjectSessions(api, project, true, undefined, seed)
   const [failed, setFailed] = useState<string | null>(null)
   const now = Date.now()
   const state = (x: ProjectSession): { words: string, live: boolean, quiet?: boolean } =>

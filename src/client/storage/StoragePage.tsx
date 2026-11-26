@@ -183,12 +183,12 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
   const storage = useQuery(() => {
     const path = freshInventory.current ? '/api/storage?fresh=1' : '/api/storage'
     freshInventory.current = false
-    return api.call<StorageView>('GET', path)
+    return api.call<StorageView>('GET', path, undefined, { share: true })
   }, [api], { cache: 'GET /api/storage' })
   const catalogRead = useQuery(() => {
     const path = freshCatalog.current ? '/api/projects?fresh=1' : '/api/projects'
     freshCatalog.current = false
-    return api.call<ProjectSummary[]>('GET', path)
+    return api.call<ProjectSummary[]>('GET', path, undefined, { share: true })
   }, [api], { cache: 'GET /api/projects' })
   const doctor = useDoctorCount(api, checks)
   const { jobs, dismissed, dismiss, take } = useStorageJobs(api, storage.data?.jobs)

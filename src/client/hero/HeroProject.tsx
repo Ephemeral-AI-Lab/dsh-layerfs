@@ -112,9 +112,9 @@ export function HeroProjectControl({ sessionId, api, t, imports, ownership, retr
 
   const loadProjects = () => {
     setLoadError(false)
-    listProjects(api).then(({ rows: list, scratchKey: key }) => { setRows(list); setScratchKey(key) }, () => setLoadError(true))
+    listProjects(api, { share: true }).then(({ rows: list, scratchKey: key }) => { setRows(list); setScratchKey(key) }, () => setLoadError(true))
     // Where each project runs (its SQLite Store's machine, or the machine its PostgreSQL Store's sessions run on).
-    api.call<StorageView>('GET', '/api/storage').then(setStorage, () => {})
+    api.call<StorageView>('GET', '/api/storage', undefined, { share: true }).then(setStorage, () => {})
   }
   useEffect(loadProjects, [api])
   // Store health and project changes reach an open picker too (it never polls).

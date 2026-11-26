@@ -7,6 +7,7 @@
  */
 import { useEffect, useSyncExternalStore } from 'react'
 import type { HostEvent, LayerfsApi } from '../api.ts'
+import { afterFirstPaint } from '../ui/first-paint.ts'
 
 export type ExportPhase = 'queued' | 'prepare' | 'export' | 'finalize' | 'stopping' | 'done' | 'stopped' | 'failed'
 
@@ -75,6 +76,8 @@ class Store {
   private off: (() => void) | null = null
   private reading = false
   private again = false
+  /** A first-screen read already scheduled by a mount (subscribe and its effect both ask). */
+  private scheduled = false
 
   constructor(private readonly api: LayerfsApi) {}
 
@@ -82,7 +85,7 @@ class Store {
     this.listeners.add(listener)
     if (!this.off) {
       this.off = this.api.onEvent('project-export', (e) => this.event(e))
-      this.read()
+      this.scheduleRead()
     }
     return () => {
       this.listeners.delete(listener)
@@ -92,11 +95,26 @@ class Store {
 
   snapshot = (): ReadonlyMap<string, ProjectExport> => this.jobs
 
+  /**
+   * The first read of a page waits for first paint: the export list decorates
+   * Home's project rows. Later mounts (a dialog, History) find the frame already
+   * painted and read at once. Both the subscription and the mounting view ask,
+   * so one schedule serves both.
+   */
+  scheduleRead(): void {
+    if (this.scheduled) return
+    this.scheduled = true
+    void afterFirstPaint().then(() => {
+      this.scheduled = false
+      if (this.listeners.size) this.read()
+    })
+  }
+
   /** Reads the list again; a read asked for while one runs queues one more after it. */
   read(): void {
     if (this.reading) { this.again = true; return }
     this.reading = true
-    void this.api.call<{ exports: ProjectExport[] }>('GET', '/api/project-exports').then((r) => {
+    void this.api.call<{ exports: ProjectExport[] }>('GET', '/api/project-exports', undefined, { priority: 'background' }).then((r) => {
       const next = new Map<string, ProjectExport>()
       for (const job of r.exports ?? []) {
         if (this.dismissed.has(job.id)) continue
@@ -148,7 +166,7 @@ const storeOf = (api: LayerfsApi): Store => {
 export function useExports(api: LayerfsApi, project?: string | null): ProjectExport[] {
   const store = storeOf(api)
   const jobs = useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot)
-  useEffect(() => { store.read() }, [store])
+  useEffect(() => { store.scheduleRead() }, [store])
   return [...jobs.values()].filter((j) => !project || j.project === project).sort((a, b) => b.startedAt - a.startedAt)
 }
 

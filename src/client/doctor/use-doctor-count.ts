@@ -6,6 +6,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { LayerfsApi } from '../api.ts'
+import { afterFirstPaint } from '../ui/first-paint.ts'
 import { useHostEvents } from '../storage/hooks.ts'
 import type { Query } from '../ui/use-query.ts'
 import { openFindings, type DoctorCount, type DoctorResults, type DoctorRun } from '../../shared/doctor.ts'
@@ -27,7 +28,7 @@ export function useDoctorCount(api: LayerfsApi, checks: number): Query<DoctorCou
   const read = useCallback(async (): Promise<DoctorResults | null> => {
     setReading(true)
     try {
-      const held = await api.call<DoctorResults>('GET', '/api/doctor/results')
+      const held = await api.call<DoctorResults>('GET', '/api/doctor/results', undefined, { priority: 'background' })
       setData(openFindings(held.last ?? []))
       setHomeRunning((held.running ?? []).some((r) => r.kind === 'home'))
       setError(undefined)
@@ -37,17 +38,26 @@ export function useDoctorCount(api: LayerfsApi, checks: number): Query<DoctorCou
 
   const runHome = useCallback(async () => {
     setHomeRunning(true)
-    try { await api.call('POST', '/api/doctor/runs', { runs: [{ id: newId(), kind: 'home' }] }) } catch (e) { setError(e); setHomeRunning(false) }
+    try { await api.call('POST', '/api/doctor/runs', { runs: [{ id: newId(), kind: 'home' }] }, { priority: 'background' }) } catch (e) { setError(e); setHomeRunning(false) }
   }, [api])
 
   useEffect(() => {
+    let live = true
     const again = !first.current
     first.current = false
-    void read().then((held) => {
-      if (!held) return
-      const homeHeld = held.last.some((r) => r.kind === 'home') || held.running.some((r) => r.kind === 'home')
-      if (again || !homeHeld) void runHome()
-    })
+    const run = () => {
+      if (!live) return
+      void read().then((held) => {
+        if (!live || !held) return
+        const homeHeld = held.last.some((r) => r.kind === 'home') || held.running.some((r) => r.kind === 'home')
+        if (again || !homeHeld) void runHome()
+      })
+    }
+    // Home's doctor count decorates the first card: read after its frame. A
+    // person's Check again (`again`) is their own action and runs at once.
+    if (again) run()
+    else void afterFirstPaint().then(run)
+    return () => { live = false }
   }, [read, runHome, checks])
 
   useHostEvents(api, ['doctor-run'], (e) => {

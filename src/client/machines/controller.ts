@@ -11,7 +11,8 @@
  * read starts one. A Start, Stop, Create or Remove re-reads the view after
  * success and after refusal (a refusal can follow a real side effect).
  */
-import { HostError, enc, q, type HostEvent, type LayerfsApi } from '../api.ts'
+import { HostError, enc, q, type HostEvent, type HostPriority, type LayerfsApi } from '../api.ts'
+import { afterFirstPaint } from '../ui/first-paint.ts'
 import {
   mergeStage, staleView, startupFailure,
   type Creation, type MachineStartup, type MachinesView, type NewMachine, type PruneAnswer, type ProjectSummary, type RuntimeStatus, type SandboxImagesView, type SandboxInfo,
@@ -133,6 +134,8 @@ export class MachinesController {
   private again = false
   private readonly off: (() => void)[] = []
   private seq = 0
+  /** A first-screen activation's deferred reads are dropped if the page went away first. */
+  private paintEpoch = 0
   /** The sampler's metrics for the machines a page watches; polls only while the window is visible and a reading page is the one shown. */
   readonly metrics: MetricsPoller
 
@@ -143,7 +146,7 @@ export class MachinesController {
   constructor(private readonly api: LayerfsApi, private readonly shown: () => boolean = () => true) {
     this.connected = new Cell(api.connected())
     const onScreen = () => (typeof document === 'undefined' || document.visibilityState === 'visible') && this.shown()
-    this.metrics = new MetricsPoller((query) => this.api.call<MetricsView>('GET', `/api/metrics${query}`), onScreen)
+    this.metrics = new MetricsPoller((query) => this.api.call<MetricsView>('GET', `/api/metrics${query}`, undefined, { priority: 'background' }), onScreen)
     if (typeof document !== 'undefined') {
       const seen = () => { if (onScreen()) this.metrics.wake() }
       document.addEventListener('visibilitychange', seen)
@@ -223,8 +226,15 @@ export class MachinesController {
     this.active++
     if (this.active === 1) {
       this.reload()
-      this.reloadRuntime()
-      this.readCreations()
+      // The pinned runtime and the background-creates list decorate the first
+      // screen; the machines view itself draws it. A later page (after paint)
+      // finds `afterFirstPaint` settled and reads at once.
+      const epoch = ++this.paintEpoch
+      void afterFirstPaint().then(() => {
+        if (this.active === 0 || this.paintEpoch !== epoch) return
+        this.reloadRuntime('background')
+        this.readCreations()
+      })
       this.timer = setInterval(() => {
         if ((typeof document === 'undefined' || document.visibilityState === 'visible') && this.shown()) this.reload()
       }, POLL_MS)
@@ -260,10 +270,10 @@ export class MachinesController {
     })()
   }
 
-  reloadRuntime(): void {
+  reloadRuntime(priority: HostPriority = 'interactive'): void {
     const prev = this.runtime.getSnapshot()
     if (prev.status === 'idle') this.runtime.set({ ...prev, status: 'loading' })
-    this.api.op<RuntimeStatus>('runtime.status').then(
+    this.api.op<RuntimeStatus>('runtime.status', undefined, { priority }).then(
       (data) => this.runtime.set({ status: 'ready', data, error: null, observedAt: Date.now() }),
       (error) => { const p = this.runtime.getSnapshot(); this.runtime.set({ status: p.data ? 'ready' : 'error', data: p.data, error, observedAt: p.observedAt }) },
     )
@@ -367,7 +377,7 @@ export class MachinesController {
 
   /** GET /api/sandbox-creates: the host's running and failed creates replace what this page knew. */
   private readCreations(): void {
-    this.api.call<{ creations?: Creation[] }>('GET', '/api/sandbox-creates').then((answer) => {
+    this.api.call<{ creations?: Creation[] }>('GET', '/api/sandbox-creates', undefined, { priority: 'background' }).then((answer) => {
       const list = Array.isArray(answer?.creations) ? answer.creations : []
       const next: Record<string, Creation> = {}
       for (const c of list) if (c && typeof c.id === 'string' && c.phase !== 'done') next[c.id] = c

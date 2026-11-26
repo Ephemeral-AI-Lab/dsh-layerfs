@@ -43,10 +43,14 @@ export interface OpeningSession {
 
 /** What every page receives. */
 export interface LayerfsApi {
-  /** Connect's host API: resolves the 2xx body, throws {@link HostError} otherwise. */
-  call<T = any>(method: string, path: string, body?: unknown): Promise<T>
+  /**
+   * Connect's host API: resolves the 2xx body, throws {@link HostError} otherwise.
+   * `options.share` coalesces an identical GET already in flight; `options.priority`
+   * queues it as decoration after the first screen's reads.
+   */
+  call<T = any>(method: string, path: string, body?: unknown, options?: HostCallOptions): Promise<T>
   /** A named host operation (e.g. `runtime.status`, `session.state`). */
-  op<T = any>(name: string, args?: unknown): Promise<T>
+  op<T = any>(name: string, args?: unknown, options?: HostCallOptions): Promise<T>
   /** Observe host events; `type` `*` receives all. Returns an unsubscribe. */
   onEvent(type: string, listener: (event: HostEvent) => void): () => void
   /** Whether the host event stream is connected. */
@@ -118,6 +122,108 @@ export const GET_TIMEOUT_MS = 180_000
 /** How long a GET whose connection dropped waits for the host to come back before it is sent again. */
 export const RECONNECT_WAIT_MS = 30_000
 
+/** Which queued host operation goes first: what the first screen reads, or what only decorates it. */
+export type HostPriority = 'interactive' | 'background'
+
+/** Per-call admission choices. */
+export interface HostCallOptions {
+  /**
+   * `interactive` (the default) is what the person is waiting for: the open
+   * view's reads and every write. `background` is prefetch and decoration
+   * (doctor, metrics, exports, sandbox-create history, per-row sizes): it runs
+   * only while no interactive op waits, and a waiting background op takes a
+   * turn after {@link BACKGROUND_TURN_EVERY} admitted interactive ops, so it
+   * cannot starve.
+   */
+  priority?: HostPriority
+  /**
+   * Read-only calls only: an identical call already in flight answers this one
+   * too. Nothing is reused after it settles, so a mount still starts its own
+   * read: a call that begins while another identical read is in flight joins
+   * that read, and a call after it has settled sends its own.
+   */
+  share?: boolean
+}
+
+/**
+ * At most this many host operations in flight from one page. The host nearly
+ * serialises (32 concurrent calls made per-op p50 88–110 ms and bought only
+ * 1.38–1.60x throughput), so more in flight only lengthens the queue. On a
+ * page-side 21-request mixed Home set (3194 rig, 7 batches):
+ * unbounded per-op p50 89 ms / p95 301 ms and wall p50 127 / p95 355; cap4
+ * 23 / 46 and wall 120 / 248; cap6 30 / 50 and wall 112 / 135. Cap 6 keeps the
+ * per-op p95 about 3x under the 150 ms budget and takes the mount's wall tail
+ * from 248 to 135 ms; cap 4's 7 ms p50 edge is not worth that wall tail. One
+ * constant, so the live A/B can change one number.
+ */
+export const HOST_IN_FLIGHT_LIMIT = 6
+
+/** A waiting background op goes first after this many consecutive interactive admissions. */
+export const BACKGROUND_TURN_EVERY = 4
+
+interface Waiting {
+  readonly task: () => Promise<unknown>
+  readonly priority: HostPriority
+  readonly resolve: (value: any) => void
+  readonly reject: (error: unknown) => void
+}
+
+/**
+ * A small FIFO admission scheduler with two priorities. `active` never exceeds
+ * `limit`; a task releases its slot when it settles, rejected or not. There is
+ * no re-entrancy: an admitted task is one host send (see `send`), and a send
+ * never waits on another send, so a queued op cannot hold a slot for an op
+ * behind it.
+ */
+export class HostAdmission {
+  private active = 0
+  /** Consecutive interactive admissions, for the background turn. */
+  private streak = 0
+  private readonly queues: Record<HostPriority, Waiting[]> = { interactive: [], background: [] }
+  constructor(readonly limit = HOST_IN_FLIGHT_LIMIT) {}
+
+  /** Operations admitted and not settled. */
+  get inFlight(): number { return this.active }
+  /** Operations waiting for a slot. */
+  get waiting(): number { return this.queues.interactive.length + this.queues.background.length }
+
+  run<T>(priority: HostPriority, task: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      this.queues[priority].push({ task, priority, resolve, reject })
+      this.pump()
+    })
+  }
+
+  private next(): Waiting | undefined {
+    const { interactive, background } = this.queues
+    if (background.length && (interactive.length === 0 || this.streak >= BACKGROUND_TURN_EVERY)) return background.shift()
+    return interactive.shift() ?? background.shift()
+  }
+
+  private pump(): void {
+    while (this.active < this.limit) {
+      const next = this.next()
+      if (!next) return
+      this.active++
+      this.streak = next.priority === 'interactive' ? this.streak + 1 : 0
+      // The admission is decided here; the send starts on the next microtask so a
+      // synchronous burst queues in call order instead of re-entering this loop.
+      void Promise.resolve().then(next.task).then(next.resolve, next.reject).finally(() => {
+        this.active--
+        this.pump()
+      })
+    }
+  }
+}
+
+/** A stable JSON key: calls share only when their name and arguments agree. */
+function callKey(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null'
+  if (Array.isArray(value)) return `[${value.map(callKey).join(',')}]`
+  const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b))
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${callKey(v)}`).join(',')}}`
+}
+
 /** A call whose answer cannot arrive: its connection dropped, or it outlived its budget. */
 class LostCall extends Error {
   constructor(readonly why: 'dropped' | 'timeout') {
@@ -135,6 +241,19 @@ class LostCall extends Error {
  */
 export function createApi(remote: () => any, nav: Navigator, workspace: () => any): LayerfsApi & { dispose(): void } {
   const listeners = new Map<string, Set<(e: HostEvent) => void>>()
+  /** Admission: at most {@link HOST_IN_FLIGHT_LIMIT} sends, interactive before background. */
+  const admission = new HostAdmission()
+  /** Identical reads already in flight; a joiner gets that answer and takes no slot of its own. */
+  const sharedSends = new Map<string, Promise<any>>()
+  const shared = <T>(key: string, start: () => Promise<T>): Promise<T> => {
+    const held = sharedSends.get(key)
+    if (held) return held as Promise<T>
+    const promise = start()
+    sharedSends.set(key, promise)
+    const forget = () => { if (sharedSends.get(key) === promise) sharedSends.delete(key) }
+    promise.then(forget, forget)
+    return promise
+  }
   /** Calls waiting on an answer: each fails when the event stream drops (its connection is gone). */
   const inFlight = new Set<(e: LostCall) => void>()
   /** Pending `sessions.open` calls, oldest first; listeners hear the newest one. */
@@ -188,22 +307,28 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
     }
   }
 
-  /** One remote call that fails with {@link LostCall} when the connection drops under it or `timeout` passes. */
-  async function send(name: string, args: unknown, timeout?: number): Promise<RemoteResult> {
-    const ns = await namespace()
-    let drop: ((e: LostCall) => void) | undefined
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const lost = new Promise<never>((_resolve, reject) => {
-      drop = reject
-      inFlight.add(reject)
-      if (timeout) timer = setTimeout(() => reject(new LostCall('timeout')), timeout)
+  /**
+   * One remote call that fails with {@link LostCall} when the connection drops
+   * under it or `timeout` passes. It takes an admission slot for the host round
+   * trip only: the timeout starts when the send starts, never while it queues.
+   */
+  async function send(name: string, args: unknown, timeout?: number, options: HostCallOptions = {}): Promise<RemoteResult> {
+    return admission.run(options.priority ?? 'interactive', async () => {
+      const ns = await namespace()
+      let drop: ((e: LostCall) => void) | undefined
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const lost = new Promise<never>((_resolve, reject) => {
+        drop = reject
+        inFlight.add(reject)
+        if (timeout) timer = setTimeout(() => reject(new LostCall('timeout')), timeout)
+      })
+      try {
+        return await Promise.race([ns.call({ op: name, args: args ?? {} }) as Promise<RemoteResult>, lost])
+      } finally {
+        inFlight.delete(drop!)
+        if (timer) clearTimeout(timer)
+      }
     })
-    try {
-      return await Promise.race([ns.call({ op: name, args: args ?? {} }) as Promise<RemoteResult>, lost])
-    } finally {
-      inFlight.delete(drop!)
-      if (timer) clearTimeout(timer)
-    }
   }
 
   /** Resolves once the event stream is connected again, or after `ms`. */
@@ -236,8 +361,8 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
     throw new HostError('session/not-listed', 'This conversation is not in this window\'s session list yet — Retry', 0)
   }
 
-  async function op<T>(name: string, args?: unknown, timeout?: number): Promise<T> {
-    const r: RemoteResult = await send(name, args, timeout)
+  async function op<T>(name: string, args?: unknown, timeout?: number, options: HostCallOptions = {}): Promise<T> {
+    const r: RemoteResult = await send(name, args, timeout, options)
     if (!r.ok) fail(r)
     const value = (r as { value: any }).value
     // A host answer may ask the client to navigate (e.g. open the new session).
@@ -250,31 +375,36 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
     return value as T
   }
 
-  async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
-    let reply: { status: number, body: any }
-    const get = method.toUpperCase() === 'GET'
-    const args = { method, path, ...(body === undefined ? {} : { body }) }
-    try {
+  async function call<T>(method: string, path: string, body?: unknown, options: HostCallOptions = {}): Promise<T> {
+    const run = async (): Promise<T> => {
+      let reply: { status: number, body: any }
+      const get = method.toUpperCase() === 'GET'
+      const args = { method, path, ...(body === undefined ? {} : { body }) }
       try {
-        reply = await op('http', args, get ? GET_TIMEOUT_MS : undefined)
+        try {
+          reply = await op('http', args, get ? GET_TIMEOUT_MS : undefined)
+        } catch (error) {
+          // A read whose connection dropped (the host restarted) is sent once more when it is back.
+          // A write never is: it may already have happened.
+          if (!(get && error instanceof LostCall && error.why === 'dropped')) throw error
+          await reconnected(RECONNECT_WAIT_MS)
+          reply = await op('http', args, get ? GET_TIMEOUT_MS : undefined)
+        }
       } catch (error) {
-        // A read whose connection dropped (the host restarted) is sent once more when it is back.
-        // A write never is: it may already have happened.
-        if (!(get && error instanceof LostCall && error.why === 'dropped')) throw error
-        await reconnected(RECONNECT_WAIT_MS)
-        reply = await op('http', args, GET_TIMEOUT_MS)
+        if (error instanceof HostError) throw error
+        if (error instanceof LostCall && error.why === 'timeout') throw new HostError('timeout', error.message, 0, null, false, 'transport-unknown')
+        // The request was sent and its reply lost: a write may or may not have happened.
+        throw new HostError('no-host', error instanceof Error ? error.message : String(error), 0, null, false, 'transport-unknown')
       }
-    } catch (error) {
-      if (error instanceof HostError) throw error
-      if (error instanceof LostCall && error.why === 'timeout') throw new HostError('timeout', error.message, 0, null, false, 'transport-unknown')
-      // The request was sent and its reply lost: a write may or may not have happened.
-      throw new HostError('no-host', error instanceof Error ? error.message : String(error), 0, null, false, 'transport-unknown')
+      const value = reply?.body ?? {}
+      if (!reply || reply.status < 200 || reply.status >= 300) {
+        throw new HostError(value.code ?? 'failed', value.message ?? `${method} ${path}: ${reply?.status}`, reply?.status ?? 0, value.detail ?? null, value.conversion === true, value.transport, typeof value.fix === 'string' && value.fix ? value.fix : undefined)
+      }
+      return value as T
     }
-    const value = reply?.body ?? {}
-    if (!reply || reply.status < 200 || reply.status >= 300) {
-      throw new HostError(value.code ?? 'failed', value.message ?? `${method} ${path}: ${reply?.status}`, reply?.status ?? 0, value.detail ?? null, value.conversion === true, value.transport, typeof value.fix === 'string' && value.fix ? value.fix : undefined)
-    }
-    return value as T
+    // An identical GET already in flight answers both callers; its answer is read
+    // once and never kept past its settle.
+    return options.share && method.toUpperCase() === 'GET' ? shared(`GET ${path} ${callKey(body)}`, run) : run()
   }
 
   // One logical event stream, reopened after a drop until disposal.
@@ -315,15 +445,16 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
     // A named operation's lost answer reads like any lost send: no host, outcome unknown.
     // `sessions.open` is also tracked while it runs: its caller gets the promise,
     // and any view can say the conversation is opening (the smallest honest state).
-    op: <T>(name: string, args?: unknown) => {
+    op: <T>(name: string, args?: unknown, options?: HostCallOptions) => {
       const request = name === 'sessions.open' ? (args as { sessionId?: unknown, project?: unknown } | undefined) : undefined
       const settle = typeof request?.sessionId === 'string' && request.sessionId
         ? beginOpening(request.sessionId, typeof request.project === 'string' && request.project ? request.project : undefined)
         : undefined
-      return op<T>(name, args).catch((error: unknown) => {
+      const run = () => op<T>(name, args, undefined, options).catch((error: unknown) => {
         if (error instanceof LostCall) throw new HostError('no-host', error.message, 0, null, false, 'transport-unknown')
         throw error
       }).finally(() => { settle?.() })
+      return options?.share ? shared(`op ${name} ${callKey(args)}`, run) : run()
     },
     openPanel: (id) => nav.openPanel(id),
     openWorkspace: (id) => nav.openWorkspace(id),

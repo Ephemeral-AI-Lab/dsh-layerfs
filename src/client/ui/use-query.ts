@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { afterFirstPaint } from './first-paint.ts'
 
 /** One host read: its last answer (kept while a reload runs), its refusal, and whether it runs now. */
 export interface Query<T> {
@@ -119,6 +120,21 @@ export function useQuery<T>(load: () => Promise<T>, deps: readonly unknown[], op
   }, [...refresh, bump])
   const reload = useCallback(() => setBump((n) => n + 1), [])
   return { data, error, loading, reload }
+}
+
+/**
+ * `useQuery` whose first read starts after {@link afterFirstPaint}: for the
+ * reads that only decorate the first card or row (sizes, exports, the second
+ * setup check). Freshness is exactly `useQuery`'s: the read still starts on
+ * mount and reads the host once; only its start waits for the frame. Later
+ * reloads are immediate, and no answer is reused or kept by time.
+ * @param load - the read.
+ * @param deps - what the read depends on.
+ * @param options - refresh values, cache key and persistence, as `useQuery`.
+ * @returns the read's state.
+ */
+export function useDeferredQuery<T>(load: () => Promise<T>, deps: readonly unknown[], options: QueryOptions = {}): Query<T> {
+  return useQuery<T>(() => afterFirstPaint().then(load), deps, options)
 }
 
 /** A refusal's words: a HostError's message, else the thrown value. */

@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useId, useState, type ReactNode } from 'react'
 import { Button, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { StatusDot } from '../ui/StatusDot.tsx'
-import type { LayerfsApi } from '../api.ts'
+import type { HostCallOptions, LayerfsApi } from '../api.ts'
 import { Field, MenuSelect } from '../ui/index.tsx'
 import type { PickerKey } from './locale.ts'
 import { defaultStoreName, lastStore, locationsOf, preferredStore, rememberStore, slugify, type Location } from './location.ts'
@@ -34,8 +34,8 @@ export const NAME = /^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/
 export const messageOf = (e: unknown) => String((e as any)?.message ?? e)
 
 /** Projects and the Scratch project's key. */
-export async function listProjects(api: LayerfsApi): Promise<{ rows: ProjectRow[], scratchKey: string | null }> {
-  return api.op<{ rows: ProjectRow[], scratchKey: string | null }>('projects.catalog')
+export async function listProjects(api: LayerfsApi, options?: HostCallOptions): Promise<{ rows: ProjectRow[], scratchKey: string | null }> {
+  return api.op<{ rows: ProjectRow[], scratchKey: string | null }>('projects.catalog', undefined, options)
 }
 
 /** The machine a project's SQLite Store lives on when it is not this host (its Sandboxes run there), else null. */
@@ -94,7 +94,7 @@ export function NewProjectForm({ api, t, scratchKey, withSource, optionalSource 
   const loadStores = useCallback(() => {
     setLocations(null)
     setStoresError(null)
-    api.call<any>('GET', '/api/storage').then((view) => {
+    api.call<any>('GET', '/api/storage', undefined, { share: true }).then((view) => {
       const found = locationsOf(view, scratchStore)
       setLocations(found)
       setFreshStore(defaultStoreName(view))

@@ -67,7 +67,7 @@ const testPlugin = {
 
     const stubModules = {
       'machines/context.tsx': `export const useMachinesContext = () => ({ api: { call: async () => ({}) }, useMachines: (s) => s({ data: null, loading: false, error: null }), useCreations: (s) => s([]), t: (k) => k, tw: (k) => k, stateWord: (l) => String(l?.key ?? ''), go: () => {}, openStorageTab: () => {}, retryCreation: async () => {}, dismissCreation: async () => {} }); export const useMachinesMaybe = () => null`,
-      'ui/use-query.ts': `export const useQuery = () => ({ data: undefined, loading: false, error: null, reload: () => {} }); export const cachedAnswer = () => undefined; export const errorText = (e) => String(e?.message ?? e); export const errorCode = (e) => e?.code`,
+      'ui/use-query.ts': `export const useQuery = () => ({ data: undefined, loading: false, error: null, reload: () => {} }); export const useDeferredQuery = useQuery; export const cachedAnswer = () => undefined; export const errorText = (e) => String(e?.message ?? e); export const errorCode = (e) => e?.code`,
       'storage/hooks.ts': `export const useHostEvents = () => {}`,
       'storage/PaneBar.tsx': `export const PaneBar = ({ title, children, actions }) => null; export const usePageReading = () => {}`,
       'projects/hooks.ts': `export const useProjectSessions = () => ({ sessions: [], loading: false, error: null })`,
