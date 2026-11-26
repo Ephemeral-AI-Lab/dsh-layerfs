@@ -4,7 +4,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import * as jsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { SessionPersistence, SessionPersistenceNotFoundError } from '@deepseek-ai/dsh-session-persistence'
 import { randomUUID } from 'node:crypto'
-import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { closeSync, cpSync, existsSync, fsyncSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync, writeSync } from 'node:fs'
 import { dirname, join, relative, sep } from 'node:path'
 import { homedir } from 'node:os'
 import { ProjectCatalog, type ProjectIdentity, type CatalogProject } from './sessions/catalog.ts'
@@ -18,6 +18,133 @@ type Owner = { project: string, key: string, identity?: ProjectIdentity }
 type Routes = { version: 1, sessions: Record<string, Owner> }
 /** Conversations deleted on purpose: never imported back implicitly. */
 type Deleted = { version: 1, sessions: Record<string, { project: string, at: number }> }
+
+/**
+ * Receipts live beside their session's `layerfs.json`, one JSON object per
+ * line, so a metadata read never parses a long session's history:
+ *
+ * - `layerfs.json` keeps annotations only (`version`, `sessionId`, `project`,
+ *   `title`, `checkpoints`, `archive`, `bindingKind`, `codeBranch`, ...).
+ * - `receipts.jsonl` keeps `invocations`, append-only. A write is one
+ *   `writeSync` on a descriptor opened `a+` (`O_APPEND`) and no fsync per line:
+ *   the tool call already ran and its tagged call-log line rebuilds the receipt
+ *   (see tracing.ts), so a crash losing the unsynced tail does not lose a call.
+ *   Migration and compaction fsync because they move data.
+ *
+ * A legacy sidecar with `invocations` inside is still read, and is migrated to
+ * this layout on its first write. Migration writes and fsyncs the receipts
+ * file first, then rewrites the metadata, keeping the original as `.bak`; a
+ * crash in between leaves the old combined file authoritative, so a retry
+ * reproduces the same receipts and never loses one.
+ *
+ * The byte budget bounds an outlier session (83k receipts is ~55 MB). When the
+ * file would exceed it, compaction keeps the newest complete lines and puts a
+ * marker at the top recording how many older receipts were dropped.
+ */
+const RECEIPTS_FILE = 'receipts.jsonl'
+/** Receipts bytes retained per session; past this the oldest lines are dropped. */
+const RECEIPT_BYTE_BUDGET = 32 * 1024 * 1024
+/** First line of a compacted receipts file; it is not a receipt. */
+const RECEIPTS_MARKER = '$layerfsReceipts'
+/** Parsed receipts files kept hot: the trajectory rereads one session. */
+const RECEIPT_CACHE_ENTRIES = 8
+const RECEIPT_CACHE_BYTES = 64 * 1024 * 1024
+
+/** A page of a session's retained receipts, oldest first unless `from` is negative. */
+export interface ReceiptPage {
+  /** The receipts in the requested window. Rows are shared cached objects: read, do not mutate. */
+  invocations: any[]
+  /** Retained receipts after id de-duplication. */
+  total: number
+  /** Index of the first returned receipt in retained order. */
+  from: number
+  /** Older receipts were dropped by the byte budget, or this page is not the whole set. */
+  truncated: boolean
+  /** Receipts permanently dropped by the byte budget (from the compaction marker). */
+  dropped: number
+  /** Unparseable lines skipped (a crashed final line is one). */
+  skipped: number
+  /** Bytes read from the receipts file when this page was loaded (0 on a cache hit). */
+  bytes: number
+}
+
+/** One parsed receipts file, before paging. */
+interface ReceiptLoad { receipts: any[], dropped: number, skipped: number, bytes: number }
+
+/** The receipts sibling of a sidecar path. */
+function receiptsPathOf(sidecar: string): string { return join(dirname(sidecar), RECEIPTS_FILE) }
+
+/** Device, inode, size and nanosecond times: an append or replacement changes it. */
+function fileIdentity(path: string): { key: string, bytes: number } | undefined {
+  try {
+    const s = statSync(path, { bigint: true })
+    return { key: `${s.dev}:${s.ino}:${s.size}:${s.mtimeNs}:${s.ctimeNs}`, bytes: Number(s.size) }
+  } catch { return undefined }
+}
+
+/** Write a whole file durably, then rename it into place (atomic replacement). */
+function atomicBytes(path: string, data: Buffer | string): void {
+  mkdirSync(dirname(path), { recursive: true })
+  const tmp = `${path}.${randomUUID()}.tmp`
+  const fd = openSync(tmp, 'w', 0o600)
+  try { writeSync(fd, typeof data === 'string' ? Buffer.from(data) : data); fsyncSync(fd) } finally { closeSync(fd) }
+  renameSync(tmp, path)
+}
+
+/** Receipts merged by id: the first occurrence keeps its place, the last value wins. */
+function dedupeReceipts(rows: readonly any[]): any[] {
+  const out: any[] = []
+  const byId = new Map<string, number>()
+  for (const row of rows) {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) continue
+    if (typeof row.id === 'string') {
+      const at = byId.get(row.id)
+      if (at !== undefined) { out[at] = row; continue }
+      byId.set(row.id, out.length)
+    }
+    out.push(row)
+  }
+  return out
+}
+
+/** Parse one receipts file. A partial or corrupt line is skipped, never fatal. */
+function receiptLoadOf(buffer: Buffer): ReceiptLoad {
+  const receipts: any[] = []
+  const byId = new Map<string, number>()
+  let dropped = 0, skipped = 0
+  for (const line of buffer.toString('utf8').split('\n')) {
+    if (!line) continue
+    let row: any
+    try { row = JSON.parse(line) } catch { skipped++; continue }
+    if (row && typeof row === 'object' && !Array.isArray(row) && row[RECEIPTS_MARKER]) {
+      const count = Number(row[RECEIPTS_MARKER]?.dropped)
+      if (Number.isFinite(count) && count > 0) dropped = Math.max(dropped, count)
+      continue
+    }
+    if (!row || typeof row !== 'object' || Array.isArray(row)) { skipped++; continue }
+    if (typeof row.id === 'string') {
+      const at = byId.get(row.id)
+      if (at !== undefined) { receipts[at] = row; continue }
+      byId.set(row.id, receipts.length)
+    }
+    receipts.push(row)
+  }
+  return { receipts, dropped, skipped, bytes: buffer.byteLength }
+}
+
+/** Page a parsed file. A negative `from` counts back from the newest receipt. */
+function pageOf(load: ReceiptLoad, from?: number, limit?: number): ReceiptPage {
+  const total = load.receipts.length
+  let start = from === undefined || !Number.isFinite(from) ? 0 : Math.trunc(from)
+  if (start < 0) start = Math.max(0, total + start)
+  start = Math.min(Math.max(0, start), total)
+  const count = limit === undefined || !Number.isFinite(limit) ? total - start : Math.max(0, Math.trunc(limit))
+  const invocations = load.receipts.slice(start, start + count)
+  return { invocations, total, from: start, truncated: load.dropped > 0 || start > 0 || start + invocations.length < total, dropped: load.dropped, skipped: load.skipped, bytes: load.bytes }
+}
+
+/** The value a caller sees. `invocations` is lazy when receipts live beside the
+ * file: it is empty-cost until read, and is not part of the on-disk metadata. */
 export interface SessionSidecar {
   version: 1
   sessionId: string
@@ -187,10 +314,18 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
    * (`logIdentity`): a rewrite replaces the inode, so a hit is a fresh read.
    * Bounded by count and source bytes.
    */
-  private readonly sidecars = new Map<string, { id: string, key: string, bytes: number, value: SessionSidecar | undefined }>()
+  private readonly sidecars = new Map<string, { id: string, key: string, bytes: number, meta: any, legacy?: any[], value: SessionSidecar }>()
   /** Session id -> its sidecar path, so a write can drop exactly that entry. */
   private readonly sidecarPaths = new Map<string, string>()
   private sidecarBytes = 0
+  /** Parsed receipts files, kept apart from metadata so one never pays for the other. */
+  private receiptCache?: { entries: Map<string, { key: string, load: ReceiptLoad }>, bytes: number }
+  private get receiptsCache(): { entries: Map<string, { key: string, load: ReceiptLoad }>, bytes: number } {
+    return (this.receiptCache ??= { entries: new Map(), bytes: 0 })
+  }
+  /** Tests may lower the cap; production uses {@link RECEIPT_BYTE_BUDGET}. */
+  private receiptBudget?: number
+  private get receiptBudgetBytes(): number { return this.receiptBudget ?? RECEIPT_BYTE_BUDGET }
   /** Non-importing facade for the archive store; routes to the owner's backend. */
   readonly local: any
 
@@ -497,10 +632,7 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
       const sourceDir = dirname(sourceStat.location.path)
       const sourceSidecar = join(sourceDir, 'layerfs.json')
       if (target?.location?.path) this.forgetSidecar(join(dirname(target.location.path), 'layerfs.json'))
-      if (target?.location?.path && existsSync(sourceSidecar)) {
-        const sidecar = JSON.parse(readFileSync(sourceSidecar, 'utf8'))
-        atomicJson(join(dirname(target.location.path), 'layerfs.json'), { ...sidecar, ...(project ? { project } : {}) })
-      }
+      if (target?.location?.path && existsSync(sourceSidecar)) this.copySidecar(sourceSidecar, join(dirname(target.location.path), 'layerfs.json'), project)
       this.forgetSidecar(sourceSidecar)
       const backup = join(this.projectHome, 'migration-backups', randomUUID())
       mkdirSync(dirname(backup), { recursive: true })
@@ -513,6 +645,24 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
       }
     }
     if (project) await this.updateSidecar(id, () => {})
+  }
+  /** Carry a sidecar and its receipts to the session's new folder, receipts first. */
+  private copySidecar(source: string, target: string, project: string | null): void {
+    const raw = JSON.parse(readFileSync(source, 'utf8'))
+    const legacy = Array.isArray(raw.invocations) ? raw.invocations : undefined
+    const meta: any = { ...raw }
+    delete meta.invocations
+    if (project) meta.project = project
+    const sourceReceipts = receiptsPathOf(source)
+    if (legacy !== undefined) {
+      if (legacy.length) this.writeReceipts(target, legacy)
+    } else if (existsSync(sourceReceipts)) {
+      // Receipts are durable beside the metadata before it names them; the
+      // source folder is retained until the move finishes, so nothing is lost.
+      atomicBytes(receiptsPathOf(target), readFileSync(sourceReceipts))
+    }
+    atomicJson(target, meta)
+    this.forgetSidecar(target)
   }
 
   async create(header: any, options?: any) {
@@ -618,18 +768,45 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     return join(dirname(current.location.path), 'layerfs.json')
   }
   /** The sidecar file's identity (as {@link logIdentity}) and its size in bytes. */
-  private sidecarIdentity(path: string): { key: string, bytes: number } | undefined {
-    try {
-      const s = statSync(path, { bigint: true })
-      return { key: `${s.dev}:${s.ino}:${s.size}:${s.mtimeNs}:${s.ctimeNs}`, bytes: Number(s.size) }
-    } catch { return undefined }
-  }
-  private forgetSidecar(path: string): void {
+  private sidecarIdentity(path: string): { key: string, bytes: number } | undefined { return fileIdentity(path) }
+  /** Drop only the sidecar entry: its receipts file did not change with the metadata. */
+  private forgetSidecarEntry(path: string): void {
     const kept = this.sidecars.get(path)
     if (!kept) return
     this.sidecars.delete(path)
     this.sidecarBytes -= kept.bytes
     if (this.sidecarPaths.get(kept.id) === path) this.sidecarPaths.delete(kept.id)
+  }
+  private forgetSidecar(path: string): void {
+    this.forgetReceipts(receiptsPathOf(path))
+    this.forgetSidecarEntry(path)
+  }
+  private forgetReceipts(path: string): void {
+    const kept = this.receiptsCache.entries.get(path)
+    if (!kept) return
+    this.receiptsCache.entries.delete(path)
+    this.receiptsCache.bytes -= kept.load.bytes
+  }
+  private rememberReceipts(path: string, key: string, load: ReceiptLoad): void {
+    this.forgetReceipts(path)
+    this.receiptsCache.entries.set(path, { key, load })
+    this.receiptsCache.bytes += load.bytes
+    while (this.receiptsCache.entries.size > RECEIPT_CACHE_ENTRIES || (this.receiptsCache.bytes > RECEIPT_CACHE_BYTES && this.receiptsCache.entries.size > 1)) {
+      const oldest = this.receiptsCache.entries.keys().next().value
+      if (oldest === undefined) break
+      this.forgetReceipts(oldest)
+    }
+  }
+  private rememberSidecar(path: string, id: string, key: string, bytes: number, meta: any, legacy?: any[]): void {
+    // Replacing the metadata does not touch receipts.jsonl; keep its parsed cache.
+    this.forgetSidecarEntry(path)
+    this.sidecars.set(path, { id, key, bytes, meta, legacy, value: this.sidecarValue(path, meta, legacy) })
+    this.sidecarPaths.set(id, path)
+    this.sidecarBytes += bytes
+    while (this.sidecars.size > 1024 || (this.sidecarBytes > 64 * 1024 * 1024 && this.sidecars.size > 1)) {
+      const oldest = this.sidecars.keys().next().value as string
+      this.forgetSidecar(oldest)
+    }
   }
   /** Drop one session's cached sidecar after its file, its log or its route changed. */
   private invalidateSidecar(id: string): void {
@@ -641,28 +818,78 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
   private invalidateDiscovery(project: string | undefined): void {
     try { this.store?.invalidateDiscovery?.(project) } catch { /* the discovery memo is best effort */ }
   }
-  private rememberSidecar(path: string, id: string, key: string, bytes: number, value: SessionSidecar | undefined): void {
-    this.forgetSidecar(path)
-    this.sidecars.set(path, { id, key, bytes, value })
-    this.sidecarPaths.set(id, path)
-    this.sidecarBytes += bytes
-    while (this.sidecars.size > 1024 || (this.sidecarBytes > 64 * 1024 * 1024 && this.sidecars.size > 1)) {
-      const oldest = this.sidecars.keys().next().value as string
-      this.forgetSidecar(oldest)
-    }
-  }
-  /**
-   * The session's `layerfs.json`, kept while the file's identity holds. `cached`
-   * shares the parsed value (the Trajectory tab rereads on every event and a
-   * long session's receipts are too big to parse or copy each time); every other
-   * caller gets a copy, so it can keep or mutate it freely. A sidecar passed in
-   * by a caller that has already stat'ed the log (`snapshot`) avoids that stat.
-   * An absent sidecar is never cached, so one written later shows next read.
-   */
   /** Read one sidecar file; overridable so a test can count real file reads. */
   private readSidecarFile(path: string): SessionSidecar | undefined {
     return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) as SessionSidecar : undefined
   }
+  /** Read one receipts file; overridable so a test can count real receipts reads. */
+  private readReceiptsFile(path: string): Buffer | undefined {
+    try { return readFileSync(path) } catch (error: any) {
+      if (error?.code === 'ENOENT') return undefined
+      throw error
+    }
+  }
+  /** One parsed receipts file while its identity holds (an append moves size/mtime). */
+  private receiptLoadAt(sidecarPath: string): ReceiptLoad | undefined {
+    const path = receiptsPathOf(sidecarPath)
+    const identity = fileIdentity(path)
+    if (identity === undefined) { this.forgetReceipts(path); return undefined }
+    const kept = this.receiptsCache.entries.get(path)
+    if (kept?.key === identity.key) {
+      // Keep it hot for the next read.
+      this.receiptsCache.entries.delete(path)
+      this.receiptsCache.entries.set(path, kept)
+      return kept.load
+    }
+    const buffer = this.readReceiptsFile(path)
+    if (buffer === undefined) { this.forgetReceipts(path); return undefined }
+    const load = receiptLoadOf(buffer)
+    this.rememberReceipts(path, identity.key, load)
+    return load
+  }
+  /** Receipts for a sidecar: its sibling file, else a not-yet-migrated in-file array. */
+  private receiptsFor(sidecarPath: string): ReceiptLoad {
+    const kept = this.receiptLoadAt(sidecarPath)
+    if (kept) return kept
+    const sidecar = this.readSidecarFile(sidecarPath)
+    if (sidecar && Array.isArray(sidecar.invocations)) return { receipts: dedupeReceipts(sidecar.invocations), dropped: 0, skipped: 0, bytes: 0 }
+    return { receipts: [], dropped: 0, skipped: 0, bytes: 0 }
+  }
+  /** What a `cached: true` read shares: metadata plus a lazy receipts property. */
+  private sidecarValue(path: string, meta: any, legacy?: any[]): SessionSidecar {
+    const value: any = { ...meta }
+    if (legacy !== undefined) value.invocations = legacy
+    else Object.defineProperty(value, 'invocations', {
+      enumerable: true, configurable: true,
+      // Metadata consumers (sessions.list) never pay for this; receipt readers do.
+      get: () => this.receiptsFor(path).receipts,
+    })
+    return value
+  }
+  /** What an ordinary read returns: metadata deep-copied, receipts copied on access. */
+  private sidecarCopy(path: string, meta: any, legacy?: any[]): SessionSidecar {
+    const copy: any = structuredClone(meta)
+    if (legacy !== undefined) copy.invocations = structuredClone(legacy)
+    else {
+      let memo: any[] | undefined
+      Object.defineProperty(copy, 'invocations', {
+        enumerable: true, configurable: true,
+        get: () => (memo ??= structuredClone(this.receiptsFor(path).receipts)),
+      })
+    }
+    return copy
+  }
+  /**
+   * The session's `layerfs.json`, kept while the file's identity holds. `cached`
+   * shares the value (the Trajectory tab rereads on every event); every other
+   * caller gets a copy, so it can keep or mutate it freely. A sidecar passed in
+   * by a caller that has already stat'ed the log (`snapshot`) avoids that stat.
+   * An absent sidecar is never cached, so one written later shows next read.
+   *
+   * A metadata read never opens `receipts.jsonl`: `invocations` is lazy. A caller
+   * that touches it pays for the retained receipts (or the legacy in-file array
+   * until the first write migrates it); paged readers use {@link readReceipts}.
+   */
   async readSidecar(id: string, options: { cached?: boolean, snapshot?: any } = {}): Promise<SessionSidecar | undefined> {
     const path = await this.sidecarPath(id, options.snapshot)
     const identity = this.sidecarIdentity(path)
@@ -672,39 +899,205 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
       // Keep it hot for the next read.
       this.sidecars.delete(path)
       this.sidecars.set(path, kept)
-      return options.cached ? kept.value : structuredClone(kept.value)
+      return options.cached ? kept.value : this.sidecarCopy(path, kept.meta, kept.legacy)
     }
     const value = this.readSidecarFile(path)
     if (value === undefined) { this.invalidateSidecar(id); return undefined }
-    this.rememberSidecar(path, id, identity.key, identity.bytes, value)
-    return options.cached ? value : structuredClone(value)
+    const legacy = Array.isArray(value.invocations) ? value.invocations : undefined
+    const meta: any = { ...value }
+    delete meta.invocations
+    this.rememberSidecar(path, id, identity.key, identity.bytes, meta, legacy)
+    const entry = this.sidecars.get(path)!
+    return options.cached ? entry.value : this.sidecarCopy(path, entry.meta, entry.legacy)
+  }
+  /**
+   * One session's receipts, paged: `from` indexes retained order, oldest first
+   * (a negative value counts back from the newest, so `{ from: -50 }` is the
+   * newest page), and `limit` bounds the result. The file is streamed from disk
+   * once per identity; stale entries are never served after a write. A legacy
+   * combined sidecar is read from its metadata until the first write migrates.
+   */
+  async readReceipts(id: string, options: { from?: number, limit?: number, snapshot?: any } = {}): Promise<ReceiptPage> {
+    const path = await this.sidecarPath(id, options.snapshot)
+    return pageOf(this.receiptsFor(path), options.from, options.limit)
+  }
+  /** The original combined sidecar, kept for recovery the one time it is rewritten. */
+  private backupSidecar(path: string, text: string): void {
+    const backup = `${path}.bak`
+    if (existsSync(backup)) return
+    atomicBytes(backup, text)
+  }
+  /** Write all receipts (migration and import merge), atomically and durably. */
+  private writeReceipts(sidecarPath: string, rows: readonly any[]): void {
+    let text = ''
+    for (const row of rows) text += `${JSON.stringify(row)}\n`
+    const path = receiptsPathOf(sidecarPath)
+    atomicBytes(path, text)
+    // The rows are already in memory: seed the parsed cache instead of making
+    // the next trajectory read parse them back off disk.
+    const identity = fileIdentity(path)
+    if (identity) this.rememberReceipts(path, identity.key, { receipts: dedupeReceipts(rows), dropped: 0, skipped: 0, bytes: identity.bytes })
+    else this.forgetReceipts(path)
+  }
+  /**
+   * Fold one append into the parsed cache, but only when that cache was current
+   * right before the write (same identity): otherwise a foreign append would be
+   * hidden. A metadata rewrite alone no longer drops this cache.
+   */
+  private noteReceiptAppend(sidecarPath: string, receipt: any, previousKey: string | undefined): void {
+    const path = receiptsPathOf(sidecarPath)
+    const kept = this.receiptsCache.entries.get(path)
+    if (!kept) return
+    if (previousKey === undefined || kept.key !== previousKey) { this.forgetReceipts(path); return }
+    const rows = kept.load.receipts
+    if (receipt && typeof receipt === 'object' && typeof receipt.id === 'string') {
+      const at = rows.findIndex((row: any) => row?.id === receipt.id)
+      if (at >= 0) rows[at] = receipt
+      else rows.push(receipt)
+    } else rows.push(receipt)
+    const identity = fileIdentity(path)
+    if (identity === undefined) { this.forgetReceipts(path); return }
+    this.receiptsCache.bytes += identity.bytes - kept.load.bytes
+    kept.load.bytes = identity.bytes
+    kept.key = identity.key
+  }
+  /**
+   * Append one receipt with a single `O_APPEND` write and no fsync: the call
+   * already happened and its tagged call-log line can rebuild the receipt, so
+   * paying a disk flush per tool call would slow every turn for no recoverable
+   * data. A tail left without a newline by a crash gets one first.
+   */
+  private appendReceipt(sidecarPath: string, receipt: any, { compact = true } = {}): boolean {
+    const path = receiptsPathOf(sidecarPath)
+    let compacted = false
+    // Migration's first append does not compact: moving a legacy combined file
+    // keeps every receipt, and the cap starts applying to later writes.
+    try {
+      if (compact && statSync(path).size > this.receiptBudgetBytes) { this.compactReceipts(path); compacted = true }
+    } catch { /* no receipts file yet */ }
+    const fd = openSync(path, 'a+', 0o600)
+    try {
+      const size = Number(fstatSync(fd).size)
+      if (size > 0) {
+        const last = Buffer.alloc(1)
+        readSync(fd, last, 0, 1, size - 1)
+        if (last[0] !== 10) writeSync(fd, '\n')
+      }
+      writeSync(fd, `${JSON.stringify(receipt)}\n`)
+    } finally { closeSync(fd) }
+    return compacted
+  }
+  /**
+   * Bound one outlier session: keep the newest complete lines up to the byte
+   * budget and prepend a marker with the cumulative dropped count. The rewrite
+   * is atomic (tmp, fsync, rename), so a crash keeps the old file intact.
+   */
+  private compactReceipts(path: string): void {
+    const buffer = readFileSync(path)
+    if (!buffer.byteLength) return
+    let dropped = 0
+    let bodyStart = 0
+    const firstNewline = buffer.indexOf(10)
+    if (buffer[0] === 0x7b && firstNewline > 0) {
+      try {
+        const first = JSON.parse(buffer.subarray(0, firstNewline).toString('utf8'))
+        if (first?.[RECEIPTS_MARKER]) {
+          dropped = Math.max(0, Number(first[RECEIPTS_MARKER].dropped) || 0)
+          bodyStart = firstNewline + 1
+        }
+      } catch { /* a corrupt first line is just dropped below */ }
+    }
+    const keepFrom = Math.max(bodyStart, buffer.byteLength - this.receiptBudgetBytes)
+    let cut = keepFrom
+    if (cut > bodyStart) {
+      const newline = buffer.indexOf(10, cut)
+      cut = newline < 0 ? buffer.byteLength : newline + 1
+    } else cut = bodyStart
+    let lines = 0
+    for (let at = bodyStart; at < cut; at++) if (buffer[at] === 10) lines++
+    const marker = { [RECEIPTS_MARKER]: { version: 1, truncated: true, dropped: dropped + lines, at: Date.now() } }
+    atomicBytes(path, Buffer.concat([Buffer.from(`${JSON.stringify(marker)}\n`), buffer.subarray(cut)]))
+    this.forgetReceipts(path)
   }
   async updateSidecar(id: string, fn: (sidecar: SessionSidecar) => void): Promise<void> {
     const path = await this.sidecarPath(id)
-    const project = this.owners.sessions[id]?.project
-    if (!project) return
-    // Mutations below are synchronous after resolving the path, keeping concurrent
-    // appenders from reading a stale sidecar and dropping one another's records.
-    const value: SessionSidecar = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : { version: 1, sessionId: id, project, invocations: [] }
-    fn(value)
-    // Imported sidecars cannot override the verified destination identity.
-    value.projectId = this.projectIdOf(id)
-    value.projectIdentity = this.owners.sessions[id]?.identity
-    atomicJson(path, value)
-    // A cached trajectory read sees the value just written; the new file
-    // identity also makes any other cache entry stale on its own.
-    if (this.sidecars.has(path)) {
+    const owner = this.owners.sessions[id]
+    if (!owner?.project) return
+    const project = owner.project
+    // Synchronous under the lock every writer of this sidecar takes: concurrent
+    // appenders cannot migrate or rewrite on top of a stale read.
+    withFileLock(`${path}.lock`, () => {
+      const text = existsSync(path) ? readFileSync(path, 'utf8') : undefined
+      const raw: any = text === undefined ? { version: 1, sessionId: id, project, invocations: [] } : JSON.parse(text)
+      const legacy = Array.isArray(raw.invocations) ? raw.invocations : undefined
+      const value: any = { ...raw }
+      delete value.invocations
+      if (!value.version) value.version = 1
+      if (!value.sessionId) value.sessionId = id
+      if (!value.project) value.project = project
+      let assigned: any[] | undefined
+      let assignedFlag = false
+      Object.defineProperty(value, 'invocations', {
+        enumerable: true, configurable: true,
+        get: () => assigned !== undefined ? assigned : legacy !== undefined ? legacy : this.receiptsFor(path).receipts,
+        set: (next: any) => { assignedFlag = true; assigned = Array.isArray(next) ? next : [] },
+      })
+      fn(value)
+      // A callback that replaces the property (Object.assign) still goes through
+      // the setter; one that deletes it leaves the stored receipts alone.
+      const descriptor = Object.getOwnPropertyDescriptor(value, 'invocations')
+      if (!assignedFlag && descriptor && descriptor.get === undefined && Array.isArray(descriptor.value)) { assignedFlag = true; assigned = descriptor.value }
+      if (legacy !== undefined) {
+        // Lazy migration: receipts durably beside the file first, then the small
+        // metadata, with the combined original retained as `.bak`. A crash before
+        // the metadata rewrite leaves the old file authoritative, so the retry
+        // reproduces exactly the same receipts.
+        if (text !== undefined) this.backupSidecar(path, text)
+        if (legacy.length || assignedFlag) this.writeReceipts(path, assignedFlag ? assigned! : legacy)
+      } else if (assignedFlag) {
+        this.writeReceipts(path, assigned!)
+      }
+      delete value.invocations
+      // Imported sidecars cannot override the verified destination identity.
+      value.projectId = this.projectIdOf(id)
+      value.projectIdentity = owner.identity
+      atomicJson(path, value)
+      // A cached read sees the value just written; the new file identity also
+      // makes every other entry stale on its own.
       const identity = this.sidecarIdentity(path)
       if (identity) this.rememberSidecar(path, id, identity.key, identity.bytes, value)
       else this.forgetSidecar(path)
-    }
+    })
   }
   async recordInvocation(invocation: any): Promise<void> {
-    await this.updateSidecar(String(invocation.sessionId), (sidecar) => {
-      sidecar.invocations ??= []
-      const index = sidecar.invocations.findIndex((item: any) => item.id === invocation.id)
-      if (index < 0) sidecar.invocations.push(invocation)
-      else sidecar.invocations[index] = invocation
+    const id = String(invocation.sessionId)
+    const path = await this.sidecarPath(id)
+    const owner = this.owners.sessions[id]
+    if (!owner?.project) return
+    withFileLock(`${path}.lock`, () => {
+      const text = existsSync(path) ? readFileSync(path, 'utf8') : undefined
+      const meta: any = text === undefined ? { version: 1, sessionId: id, project: owner.project } : JSON.parse(text)
+      const legacy = Array.isArray(meta.invocations) ? meta.invocations : undefined
+      delete meta.invocations
+      if (!meta.version) meta.version = 1
+      if (!meta.project) meta.project = owner.project
+      if (legacy !== undefined) {
+        if (text !== undefined) this.backupSidecar(path, text)
+        if (legacy.length) this.writeReceipts(path, legacy)
+      }
+      // Metadata lands before the append: a crash in between leaves the legacy
+      // file (or the prior small one) authoritative, and a retry can only add
+      // receipts, never overwrite appended ones with the old in-file array.
+      meta.projectId = this.projectIdOf(id)
+      meta.projectIdentity = owner.identity
+      atomicJson(path, meta)
+      const receiptKey = fileIdentity(receiptsPathOf(path))?.key
+      const compacted = this.appendReceipt(path, invocation, { compact: legacy === undefined })
+      const identity = this.sidecarIdentity(path)
+      if (identity) this.rememberSidecar(path, id, identity.key, identity.bytes, meta)
+      else this.forgetSidecar(path)
+      if (compacted) this.forgetReceipts(receiptsPathOf(path))
+      else this.noteReceiptAppend(path, invocation, receiptKey)
     })
   }
 }
