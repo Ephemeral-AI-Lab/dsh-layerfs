@@ -137,8 +137,8 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, auto);
   align-items: center;
-  gap: 10px;
-  height: 28px;
+  gap: 4px 10px;
+  min-height: 28px;
   font-size: 12.5px;
 }
 
@@ -149,14 +149,15 @@
 .file {
   min-width: 0;
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
   border: 0;
   background: none;
   font: inherit;
   color: var(--dsw-alias-label-primary);
   text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
   cursor: pointer;
 }
 
