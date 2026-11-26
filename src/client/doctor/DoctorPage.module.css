@@ -254,7 +254,7 @@
 .sigCard ul { display: flex; flex-direction: column; gap: 3px; margin: 2px 0 0; padding: 0; list-style: none; }
 .sigCard li { display: flex; align-items: center; gap: 7px; line-height: 18px; }
 .sigCard li i { font-style: normal; color: var(--dsw-alias-label-secondary); }
-.sigCard li code { font-size: 11.5px; }
+.sigCard li code { font-size: 12px; }
 
 .sigCard pre {
   margin: 4px 0 0;
@@ -262,7 +262,7 @@
   border-radius: 6px;
   background: var(--dsw-alias-interactive-bg-hover);
   font-family: var(--ds-font-family-code);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 17px;
   color: var(--dsw-alias-label-primary);
   white-space: pre-wrap;
@@ -382,6 +382,7 @@
 .more {
   display: flex;
   flex: 1 1 0;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -397,12 +398,10 @@
 }
 
 .fact {
-  flex: 1 1 0;
-  min-width: 0;
-  overflow: hidden;
+  flex: 1 1 8em;
+  min-width: 8em;
   color: var(--dsw-alias-label-secondary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
 }
 
@@ -627,14 +626,14 @@ span.marks { visibility: hidden; }
 .tip li { display: flex; align-items: center; gap: 7px; line-height: 18px; }
 .tip li .mk { align-self: center; }
 .tip li i { font-style: normal; color: var(--doc-tip-fg-2); }
-.tip li code { font-size: 11.5px; }
+.tip li code { font-size: 12px; }
 
 .tip pre {
   margin: 4px 0 0;
   padding: 6px 8px;
   border-radius: 6px;
   background: var(--doc-tip-well);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 17px;
   color: var(--doc-tip-fg);
   white-space: pre-wrap;
@@ -705,3 +704,43 @@ span.marks { visibility: hidden; }
 }
 
 .headActions { display: flex; align-items: center; gap: 8px; }
+
+/* ---------- touch: a row, its status, its marks and its buttons are thumb targets ---------- */
+@media (max-width: 1180px), (pointer: coarse) {
+  .btn,
+  .btn[data-w='all'] {
+    height: var(--lfs-tap, 44px);
+  }
+
+  .headActions > button {
+    min-width: var(--lfs-tap, 44px);
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .rowBtn {
+    height: var(--lfs-tap, 44px);
+  }
+
+  .sig {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .sig button {
+    min-width: var(--lfs-tap, 44px);
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .marks {
+    min-width: var(--lfs-tap, 44px);
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .cause {
+    min-height: var(--lfs-tap, 44px);
+    padding-inline: 12px;
+  }
+
+  .chk {
+    min-height: var(--lfs-tap, 44px);
+  }
+}
