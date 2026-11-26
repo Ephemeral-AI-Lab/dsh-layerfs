@@ -58,7 +58,7 @@ import { branchFields } from '../../shared/session-branch.ts'
 import { UNCLAIMED } from './catalog.ts'
 import { LayerfsSessions } from './service.ts'
 import { localPersistence, SessionStore } from './store.ts'
-import { sidecarMetadata } from '../session-persistence.ts'
+import { sidecarMetadata } from './annotations.ts'
 import { promptDiff } from './prompt-diff.ts'
 import { normalizeKind } from '../../shared/trajectory.ts'
 import { trajectoryDetail, trajectoryReader, type TrajectoryInput, type TrajectoryWindowInput } from './trace.ts'
@@ -139,6 +139,24 @@ export function apply(ctx: Context): void {
   ctx.plugin(LayerfsSessions)
   ctx.inject(['layerfsSessions', 'layerfs', 'layerfsRemote', 'workspaceRegistry'], (ctx) => {
     const sessions = ctx.layerfsSessions
+    /*
+     * Persistence seam (DIP-2, accepted before release). DSH's persistence is a
+     * registry service, so the operations below reach it through
+     * `ctx.get('sessionPersistence' as never) as any` instead of a declared
+     * port. A `SessionPersistencePort` interface would type every call site,
+     * but it would also have to describe DSH's reader, catalog and
+     * session methods, which are pre-release and still moving; the benefit does
+     * not yet pay for that new seam. Constraints while this is accepted:
+     *
+     * - no concrete import of `session-persistence.ts` in this file; use the
+     *   registry (the `session.annotations` projection lives in
+     *   `./annotations.ts`, DIP-1) and type-only imports only;
+     * - every method stays optional and guarded (`?.`, or `typeof … ===
+     *   'function'` where a refusal is meaningful), so a DSH build without it
+     *   degrades instead of failing at import time;
+     * - a new method is named in this comment and in
+     *   docs/specs/project-sessions.md §10, "Persistence seam".
+     */
     const record = async (invocation: Invocation): Promise<void> => {
       const persistence = ctx.get('sessionPersistence' as never) as any
       if (!persistence?.recordInvocation) throw new Error('Project session persistence is not available to record the invocation')

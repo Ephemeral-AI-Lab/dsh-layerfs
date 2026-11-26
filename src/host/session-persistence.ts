@@ -160,21 +160,6 @@ export interface SessionSidecar {
   [key: string]: any
 }
 
-/**
- * A sidecar's metadata as an answer: every stored field except the lazy
- * `invocations` array, which is omitted **without being read**. `readSidecar`
- * keeps that array lazy for exactly this reason — a long session holds tens of
- * MB of receipts, and a metadata reader must not pay for the clone or the
- * serialization. Title, checkpoints, the `receipts` counter and `archive` are
- * plain values and are copied as they are.
- */
-export function sidecarMetadata(sidecar: SessionSidecar | undefined): Record<string, any> {
-  const meta: Record<string, any> = {}
-  if (!sidecar) return meta
-  for (const key of Object.keys(sidecar)) if (key !== 'invocations') meta[key] = sidecar[key]
-  return meta
-}
-
 function atomicJson(path: string, value: unknown): void {
   mkdirSync(dirname(path), { recursive: true })
   const tmp = `${path}.${randomUUID()}.tmp`
