@@ -827,7 +827,7 @@ test('an observed session.state (the views\' poll) changes nothing: a refused ma
   }
 })
 
-test('observed reads check identity and readiness once per short window, but read workspace status every time', async () => {
+test('observed reads check identity and readiness once per short window, and a repeat with no change costs no CLI call', async () => {
   const state = S.initialState()
   state.sessions.live = { sessionId: 'live', kind: 'project', project: 'store/app', machine: 'vm', anchor: '/anchor', scratch: '/scratch', state: 'bound', ws: 'box:main', sandbox: 'box', branch: 'retained', executionState: 'active' }
   state.checkpoints.live = [{ commit: 'saved' }]
@@ -848,8 +848,8 @@ test('observed reads check identity and readiness once per short window, but rea
     assert.deepEqual(view.status?.overlay, { inode_count: 2 }, 'status stays live inside the window')
     assert.equal(view.binding.state, 'bound')
   }
-  assert.deepEqual(calls, ['identity', 'machine', 'store', 'status:true', 'status:true', 'status:true'],
-    'identity and readiness read once; workspace status --detail on every observed read')
+  assert.deepEqual(calls, ['identity', 'machine', 'store', 'status:true'],
+    'identity and readiness read once; a repeat with the same revision answers from the memo, no CLI call')
   // Without observe (an explicit read) the check always runs, window or not.
   calls.length = 0
   await f.s.view('live')
@@ -1534,8 +1534,11 @@ test('sessions.list reads each session\'s log and sidecar once per call', async 
   assert.equal(owned.checkpoints, 1)
 })
 
-test('a second sessions.list inside the discovery window walks no stored session; a change invalidates it', async () => {
+test('a cold sessions.list answers known rows at once, then the walk lands and its event brings the stored session', async () => {
   let branchLists = 0, manifestReads = 0, head = 'c1'
+  // Keep the first walk's manifest read pending: a list must not wait for it.
+  let release, holding = true
+  const walkGate = new Promise((resolve) => { release = resolve })
   const manifest = {
     version: 3, kind: 'dsh-session', sessionId: 'stored1', projectId: 'pid-1', title: 'Stored one',
     count: 1, checkpoints: [], updatedAt: 10, bindingKind: 'project',
@@ -1543,7 +1546,14 @@ test('a second sessions.list inside the discovery window walks no stored session
   }
   const lfs = {
     branch: { list: async () => { branchLists++; return { items: [{ branch: 'dsh.session.stored1', commit: head }] } } },
-    file: { read: async () => { manifestReads++; const text = `${JSON.stringify(manifest)}\n`; return { text, size: Buffer.byteLength(text), start_line: 1, line_truncated: false, next_line: null } } },
+    file: {
+      read: async () => {
+        manifestReads++
+        if (holding) await walkGate
+        const text = `${JSON.stringify(manifest)}\n`
+        return { text, size: Buffer.byteLength(text), start_line: 1, line_truncated: false, next_line: null }
+      },
+    },
   }
   const persistence = {
     stat: async () => undefined,
@@ -1555,8 +1565,9 @@ test('a second sessions.list inside the discovery window walks no stored session
   const state = S.initialState()
   const f = sessions({ state })
   const ops = {}
+  const events = []
   const ctx = {
-    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs, emit() {}, callLog: {} },
+    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs, emit: (type, data) => events.push({ type, data }), callLog: {} },
     layerfsSessions: f.s,
     layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
     plugin() {}, inject: (deps, callback) => { if (deps.includes('layerfsSessions')) callback(ctx) }, on() {}, effect() {},
@@ -1565,19 +1576,36 @@ test('a second sessions.list inside the discovery window walks no stored session
     workspaceRegistry: { archivedSessionIds: [] },
   }
   S.applySessionsIndex(ctx)
-  const first = await ops['sessions.list']({ project: 'st/app', projectId: 'pid-1', localOnly: false })
-  assert.deepEqual(first.sessions.map((r) => r.sessionId), ['stored1'])
-  assert.equal(branchLists, 1, 'one Branch list')
-  assert.equal(manifestReads, 1, 'one manifest read')
-  const second = await ops['sessions.list']({ project: 'st/app', projectId: 'pid-1', localOnly: false })
-  assert.deepEqual(second.sessions, first.sessions, 'the same payload')
-  assert.equal(branchLists, 2, 'every discovery lists the Branches: that is its change token (and the SDK keeps the read)')
+  const list = () => ops['sessions.list']({ project: 'st/app', projectId: 'pid-1', localOnly: false })
+  const announcements = () => events.filter((e) => e.type === 'layerfs-session' && e.data?.discovery === true)
+  const until = async (ready) => { for (let i = 0; i < 200; i++) { if (ready()) return; await new Promise((r) => setTimeout(r, 0)) } throw new Error('timed out') }
+
+  // The cold read answers what is known (nothing) now; the walk finishes behind it.
+  const first = await list()
+  assert.deepEqual(first.sessions, [])
+  assert.equal(branchLists, 1, 'one Branch list inline: the change token')
+  assert.equal(manifestReads, 1, 'the walk started behind the call')
+  // A second read while the walk runs answers known rows and starts no second walk.
+  const second = await list()
+  assert.deepEqual(second.sessions, [])
+  assert.equal(branchLists, 2, 'every read lists the Branches')
+  assert.equal(manifestReads, 1, 'the running walk is not started twice')
+  holding = false
+  release()
+  await until(() => announcements().length === 1)
+  assert.deepEqual(announcements()[0].data, { project: 'st/app', discovery: true })
+  const third = await list()
+  assert.deepEqual(third.sessions.map((r) => r.sessionId), ['stored1'], 'the stored row shows on the event-driven read')
+  assert.equal(branchLists, 3)
   assert.equal(manifestReads, 1, 'unchanged heads: no stored manifest is read again')
   // A stored session saved by another process moves its Branch head: the next
-  // read sees it at once (no TTL), and only that manifest is read again.
+  // read answers the known row at once, and the walk behind it rereads it.
   head = 'c2'
+  manifest.title = 'Stored one @ c2'
   f.s.store.forget('stored1')
-  await ops['sessions.list']({ project: 'st/app', projectId: 'pid-1', localOnly: false })
-  assert.equal(branchLists, 3, 'a moved head re-walks the Store')
+  const moved = await list()
+  assert.deepEqual(moved.sessions.map((r) => r.sessionId), ['stored1'], 'the known row is not dropped while the walk runs')
+  await until(() => announcements().length === 2)
+  assert.equal(branchLists, 4, 'a moved head re-walks the Store')
   assert.equal(manifestReads, 2)
 })
