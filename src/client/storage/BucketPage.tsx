@@ -142,11 +142,11 @@ export function BucketPage({ name, view, t, api, doctorT, now, listing, runningS
                   const restore = r.state !== null && !isMissing
                   return (
                     <tr key={`${r.file}:${r.storeName ?? ''}`}>
-                      <td className={css.mono}><LinkButton onClick={() => onOpenFile(r.file)}>{r.file}</LinkButton><span className={css.muted}>/store.sqlite</span></td>
-                      <td>{g.key === 'other' ? <span className={css.muted}>—</span> : r.storeName ? <span className={css.linkList}>{s ? <LinkButton onClick={() => onOpenStore(r.storeName!)}>{r.storeName}</LinkButton> : <span>{r.storeName}</span>}{s ? <span className={css.muted}>{s.kind === 'postgresql' ? t('postgresql') : placeWords(s.machine, t)}</span> : null}</span> : <span className={css.muted}>{t('notLinked')}</span>}</td>
-                      <td title={r.reason ?? undefined}>{g.key === 'other' ? null : <StateChip tone={chip.tone} label={chip.label} dashed={chip.dashed} />}</td>
-                      <td className={`${css.num} ${css.wide} ${css.muted}`}>{bytes(r.bytes)}</td>
-                      <td className={`${css.wide} ${css.muted}`} title={when(r.modified)}>{r.modified ? ago(r.modified, now, tt) : '—'}</td>
+                      <td data-card-title data-label={t('colFile')} className={css.mono}><LinkButton onClick={() => onOpenFile(r.file)}>{r.file}</LinkButton><span className={css.muted}>/store.sqlite</span></td>
+                      <td data-label={t('colLinked')}>{g.key === 'other' ? <span className={css.muted}>—</span> : r.storeName ? <span className={css.linkList}>{s ? <LinkButton onClick={() => onOpenStore(r.storeName!)}>{r.storeName}</LinkButton> : <span>{r.storeName}</span>}{s ? <span className={css.muted}>{s.kind === 'postgresql' ? t('postgresql') : placeWords(s.machine, t)}</span> : null}</span> : <span className={css.muted}>{t('notLinked')}</span>}</td>
+                      <td data-label={t('colState')} title={r.reason ?? undefined}>{g.key === 'other' ? null : <StateChip tone={chip.tone} label={chip.label} dashed={chip.dashed} />}</td>
+                      <td data-label={t('colSize')} className={`${css.num} ${css.wide} ${css.muted}`}>{bytes(r.bytes)}</td>
+                      <td data-label={t('colWritten')} className={`${css.wide} ${css.muted}`} title={when(r.modified)}>{r.modified ? ago(r.modified, now, tt) : '—'}</td>
                       <td className={css.actionsCell}>
                         {wantsBackUp ? (
                           isMissing && onBackupNewFile
@@ -283,9 +283,9 @@ export function BackupFilePage({ bucket, file, view, t, now, listing, runningSto
                 const backupWhy = wantsBackUp ? storeWaitsFor(s, t, !!runningStores?.has(s.name)) : null
                 return (
                   <tr key={s.name}>
-                    <td><span className={css.linkList}><LinkButton onClick={() => onOpenStore(s.name)}>{s.name}</LinkButton><span className={css.muted}>{placeWords(s.machine, t)}</span></span></td>
-                    <td title={r.reason ?? undefined}><StateChip tone={chip.tone} label={chip.label} dashed={chip.dashed} /></td>
-                    <td className={`${css.wide} ${css.muted}`} title={when(last?.at ?? null)}>
+                    <td data-card-title data-label={t('colLinked')}><span className={css.linkList}><LinkButton onClick={() => onOpenStore(s.name)}>{s.name}</LinkButton><span className={css.muted}>{placeWords(s.machine, t)}</span></span></td>
+                    <td data-label={t('colState')} title={r.reason ?? undefined}><StateChip tone={chip.tone} label={chip.label} dashed={chip.dashed} /></td>
+                    <td data-label={t('colLastTransfer')} className={`${css.wide} ${css.muted}`} title={when(last?.at ?? null)}>
                       {last?.at ? (last.op === 'restore' ? t('backupLastRestore', { ago: ago(last.at, now, tt) }) : t('backupLastCreate', { ago: ago(last.at, now, tt) })) : t('backupLastNone')}
                     </td>
                     <td className={css.actionsCell}>

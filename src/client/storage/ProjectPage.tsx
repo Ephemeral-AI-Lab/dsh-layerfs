@@ -160,10 +160,10 @@ function Sessions({ api, t, project, tick, store }: { api: LayerfsApi, t: Storag
             <tbody>
               {q.data.map((s) => (
                 <tr key={s.sessionId}>
-                  <td><span className={css.rowTitle}>{s.title || t('sessionUntitled')}</span></td>
-                  <td className={css.muted}>{sessionStateWords(s.state, t)}</td>
-                  <td className={`${css.num} ${css.wide} ${css.muted}`}>{s.checkpoints ?? '—'}</td>
-                  <td className={`${css.num} ${css.muted}`} title={when(s.updatedAt)}>{s.updatedAt ? ago(s.updatedAt, now, t as Translate) : '—'}</td>
+                  <td data-card-title data-label={t('colSession')}><span className={css.rowTitle}>{s.title || t('sessionUntitled')}</span></td>
+                  <td data-label={t('colState')} className={css.muted}>{sessionStateWords(s.state, t)}</td>
+                  <td data-label={t('colCheckpoints')} className={`${css.num} ${css.wide} ${css.muted}`}>{s.checkpoints ?? '—'}</td>
+                  <td data-label={t('colUpdated')} className={`${css.num} ${css.muted}`} title={when(s.updatedAt)}>{s.updatedAt ? ago(s.updatedAt, now, t as Translate) : '—'}</td>
                   <td className={css.actionsCell}>
                     {down ? null : <Button variant="outline" size="sm" disabled={busy !== null} icon={busy === s.sessionId ? <StatusDot state="ongoing" size={13} /> : undefined}
                       onClick={() => act(s.sessionId, () => api.op('sessions.open', { sessionId: s.sessionId }))}>{t('sessionsOpen')}</Button>}
