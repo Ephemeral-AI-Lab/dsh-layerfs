@@ -83,6 +83,17 @@ function useFocus(id: string, { viewRequest, completeViewRequest }: ViewOwner): 
   return focus
 }
 
+/** A phone's one-line "Files · this session": the strip collapses the tab into its More menu. */
+export function ViewCrumb({ label, t }: { label: string, t: Translate }): ReactNode {
+  return (
+    <span className={css.viewCrumb}>
+      <span className={css.viewCrumbName}>{label}</span>
+      <span className={css.crumbSep}>·</span>
+      <span>{t('sessionWorkspace')}</span>
+    </span>
+  )
+}
+
 function SessionLine({ view, sessionId, t }: { view: SessionStateView, sessionId: string, t: Translate }): ReactNode {
   const branch = view.binding?.branch
   // 2.0 `workspace status --detail`: `overlay { inode_count, entry_count }`; the changed entries, not the inodes
@@ -92,6 +103,7 @@ function SessionLine({ view, sessionId, t }: { view: SessionStateView, sessionId
     <div className={css.sessionLine}>
       {branch ? <span className={css.branchChip} title={branch}><StatusDot state={active ? 'done' : 'idle'} size={8} />{branchLabel(sessionId, view.binding, t)}</span> : null}
       {active ? <span className={clsx(css.muted, pending > 0 && css.warn)}>{pending > 0 ? t('unsaved', { n: pending }) : t('unsavedNone')}</span> : null}
+      <ViewCrumb label={t('tabFiles')} t={t} />
     </div>
   )
 }
@@ -128,6 +140,7 @@ export function HistoryView(props: ViewProps): ReactNode {
     <Gate state={state} t={t}>
       {(view, project) => (
         <div className={css.frame}>
+          <ViewCrumb label={t('tabHistory')} t={t} />
           <div className={css.fill}>
             <ProjectHistory key={`${project}:${n}`} api={api} project={project} t={t} tick={state.contentTick}
               initialBranch={focus?.branch ?? view.binding.branch} initialCommit={focus?.commit}

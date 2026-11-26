@@ -111,3 +111,33 @@
     gap: 8px;
   }
 }
+
+/* A phone: DSH's conversation strip collapses our tab into its More menu, so
+   the view body carries one compact marker instead — the tab's name and this
+   session, in the same line as the frame's branch chip when there is one. It
+   only appears where the strip stops showing the tab (≤640). */
+.viewCrumb {
+  display: none;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.viewCrumbName {
+  color: var(--dsw-alias-label-secondary);
+  font-weight: 500;
+}
+
+.crumbSep {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+@media (max-width: 640px) {
+  .viewCrumb { display: inline-flex; }
+
+  .empty { max-width: 100%; }
+}
