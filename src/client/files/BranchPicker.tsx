@@ -37,6 +37,7 @@ export function BranchPicker({ branches, value, onChange, t, className }: Branch
       portal
       minWidthFromAnchor
       className={className}
+      listClassName={css.branchMenu}
       anchor={(
         <Button variant="outline" size="sm" className={clsx(css.branchButton)} aria-label={t('files_branch')} aria-haspopup="menu" aria-expanded={open}
           icon={<IconBranchOutlineRegular size={14} />} onClick={() => setOpen((v) => !v)}>

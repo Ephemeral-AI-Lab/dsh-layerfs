@@ -306,7 +306,8 @@ export function HistoryGraph({ layout: latest, selected, branch, focus, onSelect
     const result: { b: TreeBranch, x: number, w: number, text: string }[] = []
     for (const s of [...spans].sort((p, q) => q.b.rows.length - p.b.rows.length)) {
       const text = branchLabel(s.b.name, t)
-      const w = text.length * 6.4 + 12
+      // 12px code lettering: a little over 7px a character, plus the side inset
+      const w = text.length * 7.3 + 14
       const x = s.xe + 8
       const blocked = byLane.get(s.b.lane)!.some((o) => o !== s && o.xs < x + w + 4 && x < o.xe) || taken.get(s.b.lane)?.some((o) => o.x < x + w + 6 && x < o.x + o.w + 6)
       if (blocked && s.b.name !== branch) continue
