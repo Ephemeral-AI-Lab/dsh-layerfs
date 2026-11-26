@@ -75,6 +75,8 @@ const MAIN_ROOM = 0.5
 /** The most of the gap between two lines a leaf may fill. */
 const LEAF_REACH = 0.4
 const GAP_MIN = 16
+/** Lanes sit 48px apart, so a Branch tag's thumb target is 44px tall and clears its neighbours. */
+const GAP_TOUCH = 48
 
 interface Hover { row?: TreeRow, branch: string, names?: string[], x: number, y: number }
 
@@ -123,7 +125,7 @@ export function HistoryGraph({ layout: latest, selected, branch, focus, onSelect
 
   const lanes = 2 * layout.reach + 1
   // Lines sit as far apart as the height allows, and spread further as the steps widen.
-  const gap = Math.max(clamp((size.height - AXIS - 28) / (lanes + 2 * MAIN_ROOM), GAP_MIN, GAP_MAX), clamp(GAP_MIN + (cam.k - 4) * 1.2, GAP_MIN, GAP_ZOOMED))
+  const gap = Math.max(clamp((size.height - AXIS - 28) / (lanes + 2 * MAIN_ROOM), GAP_MIN, GAP_TOUCH), clamp(GAP_MIN + (cam.k - 4) * 1.2, GAP_MIN, GAP_TOUCH))
   const laneY = useCallback((lane: number) => (lane + Math.sign(lane) * MAIN_ROOM) * gap, [gap])
   const overflowY = Math.max(0, ((lanes + 2 * MAIN_ROOM) * gap + 28 - (size.height - AXIS)) / 2)
   const overflowRef = useRef(overflowY)
@@ -297,6 +299,9 @@ export function HistoryGraph({ layout: latest, selected, branch, focus, onSelect
     })
   }, [layout, k, laneY, screen, size.width, laneOf])
   // Name tags: the biggest Branches first, only where a tag covers no line and no other tag.
+  // The visible pill stays 16px tall; its hit band is as tall as the lane gap allows,
+  // up to 44px, so it never reaches a neighbouring lane or steals its checkpoints.
+  const tagHit = clamp(gap - 4, 16, 44)
   const tags = useMemo(() => {
     if (!k) return []
     const spans = layout.branches.map((b) => ({ b, xs: LEFT + Math.max(b.fork, b.first - 3) * k, xe: Math.max(LEFT + b.last * k, LEFT + b.first * k + 3) }))
@@ -316,7 +321,7 @@ export function HistoryGraph({ layout: latest, selected, branch, focus, onSelect
       result.push({ b: s.b, x, w, text })
     }
     return result
-  }, [layout, k, t, branch])
+  }, [layout, k, t, branch, gap])
   const sideOf = useMemo(() => {
     const map = new Map<string, number>()
     for (const b of layout.branches) b.rows.forEach((r, i) => map.set(r.id, i % 2 ? 1 : -1))
@@ -478,12 +483,13 @@ export function HistoryGraph({ layout: latest, selected, branch, focus, onSelect
             {tags.map(({ b, x, w, text }) => {
               if (x - left > size.width || x + w - left < 0) return null
               return (
-                <g key={b.name} data-branch-tag={b.name} role="button" tabIndex={0} aria-label={t('files_openBranch', { name: text })}
+                <g key={b.name} data-branch-tag={b.name} data-hit-height={tagHit} role="button" tabIndex={0} aria-label={t('files_openBranch', { name: text })}
                   className={clsx(css.branchTag, !b.live && css.dead, dim(b.name) && css.dimmed)} style={{ '--bough': branchColor(b.name) } as CSSProperties}
                   transform={`translate(${x},${laneY(b.lane)})`} onClick={() => onBranch(b.name)}
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onBranch(b.name) } }}>
                   <title>{text === b.name ? t('files_openBranch', { name: text }) : `${t('files_openBranch', { name: text })}\n${b.name}`}</title>
-                  <rect x={0} y={-8} width={w} height={16} rx={3} />
+                  <rect className={css.tagHit} x={-4} y={-tagHit / 2} width={w + 8} height={tagHit} />
+                  <rect className={css.tagBody} x={0} y={-8} width={w} height={16} rx={3} />
                   <text x={6} y={3.5}>{text}</text>
                 </g>
               )

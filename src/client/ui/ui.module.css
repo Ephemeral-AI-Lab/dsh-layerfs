@@ -954,7 +954,7 @@
    --lfs-safe-bottom, and each action takes half the width so it is reachable
    with a thumb. Above 640px the dialog keeps its desktop card. */
 @media (max-width: 640px) {
-  .confirmModal {
+  .confirmModal[role='dialog'] {
     position: fixed;
     inset: auto 0 0 0;
     width: 100%;
@@ -964,6 +964,10 @@
     padding: 0;
     gap: 0;
     border-radius: var(--dsw-radius-lg) var(--dsw-radius-lg) 0 0;
+  }
+
+  .confirmModal :global([class*='_footer_']) {
+    padding: 0;
   }
 
   .confirmModal > :global([class*='_content_']) {

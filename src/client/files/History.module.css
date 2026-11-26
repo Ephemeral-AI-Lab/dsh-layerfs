@@ -209,7 +209,7 @@
 
 .tickLabel {
   fill: var(--dsw-alias-label-tertiary);
-  font-size: 10.5px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -231,7 +231,7 @@
 .layerLabel {
   fill: var(--lf-tone-success-dot);
   font-family: var(--ds-font-family-code);
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
   paint-order: stroke;
   stroke: var(--dsw-alias-bg-base);
@@ -328,22 +328,30 @@
   outline: none;
 }
 
-.branchTag > rect {
+/* The pill stays a 16px label; .tagHit is the invisible thumb target, as tall as
+   the lane gap allows (up to 44px), so it never reaches the next lane. */
+.tagHit {
+  fill: transparent;
+  pointer-events: all;
+}
+
+.branchTag .tagBody {
   fill: var(--ink);
 }
 
 .branchTag > text {
   fill: var(--dsw-alias-bg-base);
   font-weight: 500;
+  pointer-events: none;
 }
 
-.branchTag:focus-visible > rect {
+.branchTag:focus-visible .tagBody {
   stroke: var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
   stroke-width: 2;
 }
 
 @media (hover: hover) {
-  .branchTag:hover > rect {
+  .branchTag:hover .tagBody {
     stroke: var(--dsw-alias-label-primary);
     stroke-width: 1;
   }
