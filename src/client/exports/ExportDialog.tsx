@@ -13,7 +13,6 @@
  */
 import { useEffect, useState, type ReactNode } from 'react'
 import { Button, IconChevronLeftOutlineRegular, IconBranchOutlineRegular, IconCloseOutlineRegular, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
-import { filesApi } from '../files/api.ts'
 import { ago, shortId } from '../files/format.ts'
 import { ProjectFiles } from '../files/ProjectFiles.tsx'
 import { ProjectHistory, type HistorySelection } from '../files/ProjectHistory.tsx'
@@ -22,7 +21,7 @@ import type { CommitInfo, Translate } from '../files/types.ts'
 import { enc, type LayerfsApi } from '../api.ts'
 import { Contained, toneScope } from '../ui/index.tsx'
 import { ExportProgress, FolderCard, folderError } from './Export.tsx'
-import { dismissExport, lastFolder, running, startExport, suggestedName, useExport } from './model.ts'
+import { dismissExport, lastFolder, running, startExport, suggestedName, useExport, versionHeader } from './model.ts'
 import css from './ExportDialog.module.css'
 
 type Mode = 'form' | 'map' | 'files'
@@ -43,7 +42,7 @@ function useCommit(api: LayerfsApi, project: string, sel: HistorySelection | nul
     if (!sel) return
     if (seed && seed.key === key) { setInfo(seed); return }
     let live = true
-    void filesApi.commit(api, project, sel.branch, sel.commit).then((d) => { if (live && d?.item) setInfo({ key, item: d.item }) }, () => {})
+    void versionHeader(api, project, sel.branch, sel.commit).then((d) => { if (live && d?.item) setInfo({ key, item: d.item }) }, () => {})
     return () => { live = false }
   }, [api, project, key, seedKey])
   return info?.key === key ? info.item : null

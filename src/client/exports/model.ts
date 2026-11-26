@@ -6,7 +6,9 @@
  * moves its job in place (the host coalesces byte updates to one per 500 ms).
  */
 import { useEffect, useSyncExternalStore } from 'react'
-import type { HostEvent, LayerfsApi } from '../api.ts'
+import { q, type HostEvent, type LayerfsApi } from '../api.ts'
+import { projectPath } from '../files/api.ts'
+import type { CommitDetail } from '../files/types.ts'
 import { afterFirstPaint } from '../ui/first-paint.ts'
 
 export type ExportPhase = 'queued' | 'prepare' | 'export' | 'finalize' | 'stopping' | 'done' | 'stopped' | 'failed'
@@ -50,6 +52,15 @@ export function percentOf(job: ProjectExport): number | null {
 }
 /** The folder name the export makes, for a preview: the last path part. */
 export const leaf = (path: string): string => path.split('/').filter(Boolean).pop() ?? path
+
+/**
+ * A version's header (id, `message`, `at`) without its changed paths. The export
+ * dialog's version line draws only those, so the route is asked for `?changes=0`:
+ * one `commit get`, not the Commit and its diff. The picker's History and Files
+ * views keep `filesApi.commit`, which draws the changed paths and pages them.
+ */
+export const versionHeader = (api: LayerfsApi, project: string, branch: string, commit: string): Promise<CommitDetail> =>
+  api.call<CommitDetail>('GET', `${projectPath(project)}/history${q({ branch, commit, changes: 0 })}`)
 
 /** A suggested folder name: the project for main's head, else the project, Branch and short Commit (as the host does). */
 export function suggestedName(project: string, branch: string, commit: string | null): string {
