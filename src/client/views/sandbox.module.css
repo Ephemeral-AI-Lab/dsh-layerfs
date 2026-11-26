@@ -49,6 +49,9 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 10px;
+  /* The transport row starts at the map's column edge; give its first and last
+     controls the same air from the page's content box as the rows below. */
+  padding: var(--lfs-inset-control, 12px) var(--lfs-inset-control, 12px) 0;
   color: var(--dsw-alias-label-secondary);
 }
 

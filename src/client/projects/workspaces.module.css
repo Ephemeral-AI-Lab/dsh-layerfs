@@ -15,10 +15,12 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  height: 36px;
-  margin: 2px 0 4px;
+  height: 44px;
+  /* The 44 px controls need a row of their own, inset from the panel's top
+     edge instead of hanging over it (the stock row is 36 px tall). */
+  margin: var(--lfs-inset-control, 12px) 0 4px;
   padding-left: var(--dsh-sidebar-row-padding, 8px);
-  padding-right: 1px;
+  padding-right: var(--lfs-inset-control, 12px);
   box-sizing: border-box;
   color: var(--dsw-alias-label-tertiary);
 }

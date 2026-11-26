@@ -20,6 +20,8 @@
   /* The gap between two controls that share a row. Micro-spacing (4 px) is
      fine for a mouse; a finger gets 8 px. */
   --lfs-gap-control: 4px;
+  /* The air between a control and the edge of the surface that holds it. */
+  --lfs-inset-control: 12px;
   --lfs-space-3: 12px;
   --lfs-space-4: 16px;
   --lfs-space-5: 24px;
@@ -35,5 +37,6 @@
     --lfs-control-h: 44px;
     --lfs-row-h: 44px;
     --lfs-gap-control: 8px;
+    --lfs-inset-control: 16px;
   }
 }

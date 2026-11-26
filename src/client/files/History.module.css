@@ -75,7 +75,9 @@
    read-only row above the graph (never a Commit, so it has no diff to open). */
 .forkBase {
   flex: none;
-  padding: 6px 0 8px;
+  /* The read-only start row is a card in the column, so it keeps the 16 px
+     card inset on all edges instead of touching the column's content box. */
+  padding: var(--lfs-space-4, 16px) var(--lfs-space-4, 16px) 8px;
 }
 
 .forkBaseRow {

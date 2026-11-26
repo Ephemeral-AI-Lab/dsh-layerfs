@@ -879,6 +879,9 @@
 
 .confirmModal {
   width: min(560px, calc(100vw - 32px));
+  /* The footer carries the bottom inset; the dialog keeps the same outer
+     height, so the actions stop sitting on the content edge. */
+  padding-bottom: calc(24px - var(--lfs-inset-control, 12px));
 }
 
 .confirmModalBusy > div:first-child > div:first-child > button {
@@ -916,6 +919,7 @@
   justify-content: flex-end;
   gap: 8px;
   width: 100%;
+  padding-bottom: var(--lfs-inset-control, 12px);
 }
 
 .dangerPrimary,
@@ -1038,7 +1042,7 @@
 @media (max-width: 1180px), (pointer: coarse) {
   .confirmModal {
     max-height: 100%;
-    padding-bottom: calc(24px + var(--lfs-safe-bottom, 0px));
+    padding-bottom: calc(24px + var(--lfs-safe-bottom, 0px) - var(--lfs-inset-control, 16px));
   }
 
   .confirmModal > :global([class*='_content_']) {

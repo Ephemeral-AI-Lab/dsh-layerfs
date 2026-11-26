@@ -86,6 +86,12 @@
   text-overflow: ellipsis;
 }
 
+/* The project picker's card: its rows keep a real inset from the card's edge,
+   so the first/last row is never a target flush with the menu's content box. */
+.projectMenu > [role='presentation'] {
+  padding: var(--lfs-inset-control, 12px);
+}
+
 .option {
   display: flex;
   align-items: baseline;
