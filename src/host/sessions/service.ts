@@ -115,6 +115,28 @@ export interface SessionView {
 /** Whether a session has not started its first turn (its preset can still change). */
 const isFresh = (agent: any): boolean => !agent.session.snapshotEvents(0).some((e: any) => e.type === 'turn/start')
 
+/**
+ * The events a conversation's log may hold when it has never started: the
+ * header `session` line and creation/opening metadata. Any message, turn,
+ * title, request or tool event means it has started and is never pruned.
+ */
+const BLANK_EVENTS = new Set(['session', 'permission/preset', 'sandbox/mode', 'approval/policy', 'agent-preset/selected', 'session/end-seed'])
+/** A blank log holds a handful of those events; a longer one is a conversation (and is never read in full). */
+const BLANK_EVENTS_MAX = 64
+
+/** Whether a log's events are only creation metadata: no message, title or turn (conservative: unknown events mean started). */
+export function neverStartedLog(events: readonly any[]): boolean {
+  if (events.length > BLANK_EVENTS_MAX) return false
+  for (const event of events) if (!BLANK_EVENTS.has(String(event?.type ?? ''))) return false
+  return true
+}
+
+/**
+ * What {@link LayerfsSessions.neverStarted} was given by a caller that already
+ * read the snapshot and sidecar (a list reads both anyway).
+ */
+export interface NeverStartedKnown { snapshot?: any, sidecar?: any }
+
 export class LayerfsSessions extends Service {
   static inject = ['layerfs', 'layerfsRemote', 'workspaceRegistry', 'workingDirectory', 'sessions']
   readonly state: JsonFile<SessionsState>
@@ -1451,6 +1473,89 @@ export class LayerfsSessions extends Service {
     for (const b of Object.values(state.sessions)) if (b.project && (b.kind === 'project' || b.kind === 'shared') && ours(b.project)) found.set(b.sessionId, b.project)
     for (const [id, p] of Object.entries(state.pending)) if (ours(p.project)) found.set(id, p.project)
     return [...found].map(([id, project]) => ({ id, project })).sort((a, b) => a.project.localeCompare(b.project) || a.id.localeCompare(b.id))
+  }
+
+  /**
+   * Whether one conversation has never started: it has no user/assistant
+   * message, no title and no turn in its log, and no checkpoint, archive or
+   * mirror record. It is also false for a subagent, an imported/seeded session
+   * and anything that cannot be verified (a missing log that is not a pending
+   * choice), so a caller may only ever delete what this proves blank.
+   * `known` lets a caller that already read the snapshot and sidecar pass them
+   * in (sessions.list does); without it they are read here.
+   */
+  async neverStarted(sessionId: string, known: NeverStartedKnown = {}): Promise<boolean> {
+    const state = this.state.read()
+    const binding = state.sessions[sessionId]
+    // A subagent, a fork, or anything with a checkpoint/mirror record has history that is not this cleanup's.
+    if (binding?.kind === 'shared' || binding?.from || binding?.base || state.checkpoints[sessionId]?.length || state.mirror[sessionId]) return false
+    const persistence = this.ctx.get?.('sessionPersistence' as never) as any
+    // `local` routes to the owner's backend and never imports on a miss.
+    const local = persistence?.local ?? persistence
+    const snapshot = 'snapshot' in known ? known.snapshot : await local?.stat?.(sessionId).catch(() => undefined)
+    if (snapshot?.header?.origin === 'subagent' || snapshot?.header?.isSeeded === true) return false
+    const sidecar = 'sidecar' in known ? known.sidecar : await persistence?.readSidecar?.(sessionId, { cached: true }).catch(() => undefined)
+    if (sidecar?.title || sidecar?.archive?.count || sidecar?.checkpoints?.length || sidecar?.invocations?.length || sidecar?.receipts?.readsTotal) return false
+    // A pending choice with no log yet has nothing to keep; any other missing
+    // log cannot be verified and stays (when in doubt, skip).
+    if (!snapshot) return state.pending[sessionId] !== undefined
+    const live = (this.ctx.get?.('sessions' as never) as any)?.get?.(sessionId as never) as any
+    if (live) return neverStartedLog(live.snapshotEvents?.(0) ?? [])
+    const reader = await local?.open?.(sessionId, 'read').catch(() => undefined)
+    if (!reader) return false
+    try {
+      const read = await reader.read(0, BLANK_EVENTS_MAX + 1)
+      return neverStartedLog(read?.events ?? [])
+    } catch { return false } finally { await reader.close?.().catch(() => {}) }
+  }
+
+  /**
+   * Delete this home's conversations that never started (an empty New Session
+   * that was placed in a project but never received a message). A candidate is
+   * pending (or bound) and proven blank by {@link neverStarted}; the current
+   * selection and every loaded conversation are always kept. `dryRun` defaults
+   * to true, so only `{ dryRun: false }` deletes; a real run removes each
+   * candidate's log and owner route through the persistence row (the same path
+   * Presets Reset uses), its binding/pending choice and checkpoint/mirror
+   * rows, and emits one `layerfs-session {deleted: true}` per id. Safe to
+   * re-run: a second run finds no candidates.
+   * @returns the candidates the scan proved blank, and the ids actually deleted.
+   */
+  async pruneNeverStarted(options: { dryRun?: boolean, project?: string, current?: string | readonly string[] } = {}): Promise<{ candidates: string[], deleted: string[] }> {
+    const state = this.state.read()
+    const only = typeof options.project === 'string' && options.project ? options.project : undefined
+    const current = new Set<string>(Array.isArray(options.current) ? options.current : options.current ? [options.current] : [])
+    const catalog = this.ctx.get?.('sessions' as never) as any
+    const candidates: string[] = []
+    for (const id of [...new Set([...Object.keys(state.pending), ...Object.keys(state.sessions)])].sort()) {
+      const project = state.pending[id]?.project ?? state.sessions[id]?.project
+      if (only && project !== only) continue
+      // The conversation open under a cursor never vanishes; nor does one that is loaded and may be running.
+      if (current.has(id) || catalog?.get?.(id as never)) continue
+      if (await this.neverStarted(id).catch(() => false)) candidates.push(id)
+    }
+    if (options.dryRun !== false || !candidates.length) return { candidates, deleted: [] }
+    const persistence = this.ctx.get?.('sessionPersistence' as never) as any
+    // Wait for in-flight work per session (a bind, a choice), then delete only
+    // what the scan proved blank. Candidates are never loaded, so no activity
+    // is stopped and nothing is archived first.
+    await Promise.all(candidates.map((id) => this.lane(id, async () => {})))
+    const projects = new Set<string>()
+    for (const id of candidates) {
+      const binding = this.state.read().sessions[id]
+      const project = this.state.read().pending[id]?.project ?? binding?.project
+      if (project) projects.add(project)
+      if (binding?.kind === 'project' && binding.sandbox) {
+        try { await this.lfs.sandbox.remove(binding.sandbox, { force: true }) } catch { /* an empty Sandbox may already be gone */ }
+      }
+      this.store?.forget(id)
+    }
+    await persistence?.deleteSessions?.(candidates)
+    this.state.update((s) => { for (const id of candidates) { delete s.sessions[id]; delete s.checkpoints[id]; delete s.mirror[id]; delete s.pending[id] } })
+    for (const id of candidates) this.forgetFreshReads(id)
+    for (const id of candidates) this.ctx.layerfs.emit('layerfs-session', { sessionId: id, deleted: true })
+    for (const project of projects) this.ctx.layerfs.emit('layerfs-workspaces-changed', { project })
+    return { candidates, deleted: candidates }
   }
 
   /**

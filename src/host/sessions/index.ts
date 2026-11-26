@@ -23,6 +23,7 @@
  *   sessions.places {sessionIds}        the project of each of up to 200 sessions, in one read-only batch (ownership store)
  *   sessions.prepareScratch             the Scratch workspace (a plain folder workspace)
  *   sessions.list {project}             local bindings + sessions stored in the project (imports missing ones)
+ *   sessions.pruneNeverStarted {dryRun?, project?, current?}  delete conversations that never started (dry run unless dryRun:false)
  *   sessions.open {sessionId, project?, workspaceId?} open a session, importing it from the project if missing locally
  *   sessions.close {sessionId}          save and close its Sandbox
  *   sessions.forget {sessionId}         close and forget the binding; preserve scratch and history
@@ -676,9 +677,37 @@ export function apply(ctx: Context): void {
         // a conversation archived in DSH (its row's Archive, or DSH's own) leaves the project's list until it is unarchived
         const archived = new Set<string>(ctx.workspaceRegistry?.archivedSessionIds ?? [])
         const listed = [...rows.values()].filter((r) => !archived.has(r.sessionId)).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+        // A New Session that never received a message is not a conversation: it
+        // stays out of the list until it starts, except for the one open under
+        // the cursor (the client passes it as `current`; a loaded session is one)
+        // so the row does not vanish while it is being used. A titled or started
+        // row never pays for this check; an untitled one reads its snapshot and
+        // sidecar (already read above) and, at most, a short log prefix.
+        const liveSessions = ctx.get('sessions' as never) as any
+        const currentId = typeof args?.current === 'string' && args.current ? args.current : typeof args?.sessionId === 'string' && args.sessionId ? args.sessionId : undefined
+        const visible: any[] = []
+        for (const row of listed) {
+          if (row.title || row.sessionId === currentId || liveSessions?.get?.(row.sessionId as never)) { visible.push(row); continue }
+          // A row in the Store (or one DSH has no local log for) is not this
+          // check's to hide: it is imported, and only proven-blank local drafts
+          // pay for the read below.
+          if (row.state === 'stored' || row.stored === true || row.local === false) { visible.push(row); continue }
+          const snapshot = await snapshotOf(row.sessionId).catch(() => undefined)
+          const sidecar = await sidecarOf(row.sessionId).catch(() => undefined)
+          const blank = typeof sessions.neverStarted === 'function' ? await sessions.neverStarted(row.sessionId, { snapshot, sidecar }).catch(() => false) : false
+          if (!blank) visible.push(row)
+        }
         // The same annotation `session.state` gives: the host says which branch each row is on.
         mark('rows')
-        return { project, discoveryError, ...(debug ? { timing: debug.phases } : {}), sessions: listed.map((row) => ({ ...row, ...branchFields(row.sessionId, row.branch) })) }
+        return { project, discoveryError, ...(debug ? { timing: debug.phases } : {}), sessions: visible.map((row) => ({ ...row, ...branchFields(row.sessionId, row.branch) })) }
+      },
+      // Delete the empty New Session rows for good (the owner's one-off cleanup):
+      // a dry run (the default) lists them; `dryRun: false` deletes them.
+      'sessions.pruneNeverStarted': async (args: any) => {
+        const dryRun = args?.dryRun !== false
+        const project = typeof args?.project === 'string' && args.project ? args.project : undefined
+        const current = Array.isArray(args?.current) ? args.current.filter((id: unknown) => typeof id === 'string' && id) as string[] : typeof args?.current === 'string' && args.current ? args.current : undefined
+        return await sessions.pruneNeverStarted({ dryRun, ...(project ? { project } : {}), ...(current ? { current } : {}) })
       },
       'sessions.open': async (args: any) => {
         const sessionId = need(args, 'sessionId')
