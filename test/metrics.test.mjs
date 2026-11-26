@@ -106,6 +106,57 @@ test('sampler: one read at a time across machines, in turn; each machine 15 s af
   s.stop()
 })
 
+// CORR-1: the abort on a stats read is real; a live probe has no abort of its
+// own (it is shared single-flight with the view's fresh=1 read), so it carries
+// no controller and never shows up as `reading`.
+test('sampler: stop aborts the stats read in flight; a live probe has no sampler abort', async () => {
+  const clock = fakeClock()
+  let signal
+  let began
+  const started = new Promise((resolve) => { began = resolve })
+  const s = new H.MetricsSampler({
+    clock,
+    offered: async () => true,
+    list: async () => [{ name: 'vm', state: 'ready' }],
+    stats: (name, sig) => {
+      signal = sig
+      began()
+      return new Promise((_, reject) => sig.addEventListener('abort', () => reject(Object.assign(new Error('stopped'), { code: 'Abort' })), { once: true }))
+    },
+  })
+  s.start()
+  await clock.advance(0)
+  await started
+  assert.equal(s.reading, true, 'the stats read is in flight')
+  s.stop()
+  assert.equal(signal.aborted, true, 'stop aborts the in-flight stats read')
+  await settle()
+  assert.equal(s.reading, false, 'no stats read stays marked after stop')
+})
+
+test('sampler: stop during a live probe leaves it to finish and marks no read', async () => {
+  const clock = fakeClock()
+  let finish
+  let probes = 0
+  const s = new H.MetricsSampler({
+    clock,
+    offered: async () => false,
+    list: async () => [{ name: 'vm', state: 'ready' }],
+    stats: async () => { throw new Error('a stats read must not happen while only probing') },
+    probe: () => { probes++; return new Promise((resolve) => { finish = resolve }) },
+  })
+  s.start()
+  await clock.advance(0)
+  assert.equal(probes, 1, 'the sampler probed on its turn')
+  assert.equal(s.reading, false, 'a probe carries no controller to abort')
+  s.stop()
+  finish()
+  await settle()
+  assert.equal(s.reading, false, 'the stopped probe leaves no read marked')
+  await clock.advance(H.TICK_MS)
+  assert.equal(probes, 1, 'a stopped sampler schedules nothing')
+})
+
 test('sampler: a refused read is a gap with its code, never retried; a timed-out machine skips its next turn', async () => {
   let mode = 'ok'
   const { s, log, clock } = sampler(() => [{ name: 'a', state: 'ready' }], {

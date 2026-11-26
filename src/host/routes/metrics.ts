@@ -29,6 +29,10 @@
  * machine is probed every {@link TICK_MS}; a stop, start or any state change
  * asks once more; a stopped or broken machine is otherwise not probed. A
  * probe refusal is kept by the view as the machine's last known liveness.
+ * `stop()` aborts a stats read in flight but not a probe: the probe is
+ * single-flight and shared with the machines view's explicit `fresh=1` read,
+ * so aborting it here would cancel a page's own probe. The sampler drops the
+ * answer after a stop and schedules nothing.
  *
  * `GET /api/metrics?machines=<names>&since=<seq>` ({@link MetricsSampler.view})
  * is answered from memory with no LayerFS call. Rates are not computed here:
@@ -140,6 +144,11 @@ export interface SamplerDeps {
    * {@link TICK_MS} while the record says `ready` or `unknown`, and once more
    * when its record changes (a stop, a start). Absent: no liveness sampling
    * (a test or a caller that has nothing to probe).
+   *
+   * No `AbortSignal`: the machines view's implementation (`probeNow`) is
+   * single-flight and shared with its explicit `fresh=1` probe, so a sampler
+   * stop cannot abort it without also aborting a page's own probe. The
+   * sampler drops the answer after a stop and schedules nothing.
    */
   probe?: (name: string) => Promise<unknown>
   /** Whether the pinned CLI has machine.stats. */
@@ -199,7 +208,7 @@ export class MetricsSampler {
     this.schedule(0)
   }
 
-  /** Stop: the read in flight is aborted; nothing more is read. */
+  /** Stop: the stats read in flight is aborted; a live probe is left to finish (see {@link SamplerDeps.probe}); nothing more is read. */
   stop(): void {
     this.running = false
     this.clock.clearTimeout(this.timer)
@@ -210,7 +219,7 @@ export class MetricsSampler {
   /** A machine was started, stopped, created or removed: the next turn lists the machines again (no read of its own). */
   relist(): void { this.listedAt = -Infinity }
 
-  /** Whether a read is running now (tests). */
+  /** Whether a stats read is running now (tests); a live probe has no sampler abort and is not counted. */
   get reading(): boolean { return this.controller !== null }
 
   private schedule(ms: number): void {
@@ -262,10 +271,7 @@ export class MetricsSampler {
 
   /** One live probe: its answer (or refusal) is the machines view's last known liveness; nothing is queued or retried. */
   private async probe(m: MachineTrack): Promise<void> {
-    const controller = new AbortController()
-    this.controller = controller
     try { await this.deps.probe?.(m.name) } catch { /* the view keeps the refusal the probe stored */ }
-    this.controller = null
     if (!this.running) return
     // a ready or unknown machine is asked again next tick; a stopped/broken one only got the probe its state change asked for
     m.probeDue = SAMPLED_STATES.has(m.state) || m.state === 'unknown' ? this.clock.now() + TICK_MS : Infinity

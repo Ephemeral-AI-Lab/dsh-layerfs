@@ -149,7 +149,7 @@ cache (two stats, ~0.1 ms) and answers `unchanged` 25/25, as before. A whole-log
 parse cached by a record read does not switch the first page back to the whole
 log: the window input, and so its revision, stays.
 
-**Fallback to the whole parse (`windowed: false`).** The tail is used only when
+**Fallback to the whole parse (`windowed` absent).** The tail is used only when
 it can be read safely. The whole parse runs when: the log is under 8 MiB; the
 session is loaded; there is no split `receipts.jsonl` (legacy combined
 sidecar); the header is not a v4 session header; the file is not JSONL; a row
@@ -158,7 +158,9 @@ last one does not parse; a surface replacement's endpoints predate the window
 after the window has shown a prompt state it would reset; a page
 `system/message` has no earlier system message; or the window would be the
 whole file. A fallback answer is today's answer, never a partial page passed
-off as the session.
+off as the session. `windowed` is omitted rather than `false` (the contract is
+`windowed?: true`), so a reader tests presence, not the value; a fallback
+answer never carries `windowFromSeq` or `recordTotalKnown` either.
 
 **UI.** Window numbers are never shown as session totals. The table footer says
 `402 in the loaded window · Load full history` and the button runs the whole
