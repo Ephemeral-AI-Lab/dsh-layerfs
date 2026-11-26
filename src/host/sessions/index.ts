@@ -399,7 +399,7 @@ export function apply(ctx: Context): void {
           if (seen.has(id)) continue
           const snap = await local(id)
           if (!snap) continue
-          const sidecar = await provider.readSidecar?.(id).catch(() => undefined)
+          const sidecar = await provider.readSidecar?.(id, { cached: true }).catch(() => undefined)
           if (sidecar?.bindingKind === 'shared') continue
           add(id, provider.ownerOf?.(id)?.project, snap.header.createdAt)
         }
@@ -471,7 +471,10 @@ export function apply(ctx: Context): void {
         const sidecarOf = (id: string) => {
           let sidecar = sidecars.get(id)
           if (!sidecar) {
-            sidecar = snapshotOf(id).then((snap) => provider?.readSidecar?.(id, { snapshot: snap }))
+            // `cached`: the list only reads title/checkpoints/archive from the
+            // sidecar, and a non-cached read structuredClones it — 52 MB of
+            // receipts for a long session, ~500 ms per list.
+            sidecar = snapshotOf(id).then((snap) => provider?.readSidecar?.(id, { snapshot: snap, cached: true }))
             sidecars.set(id, sidecar)
           }
           return sidecar
