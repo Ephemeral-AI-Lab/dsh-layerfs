@@ -485,7 +485,7 @@ function HistoryUnread({ error, t }: { error: { code: string, message: string, f
 }
 
 /** A project's size, from the route the finder sorts by: the last answer at once, polled while its first count runs. Nothing is read unless `enabled`. */
-function useProjectSize(api: LayerfsApi, key: string, alone: boolean, tick: number, enabled: boolean): { stored: number | undefined, files: number | null, counting: boolean } {
+function useProjectSize(api: LayerfsApi, key: string, alone: boolean, tick: number, enabled: boolean): { stored: number | undefined, counting: boolean } {
   // A size decorates the row: it reads after the first card paints, and only
   // when the host queue has no interactive read waiting.
   const q = useDeferredQuery<ProjectSize | null>(() => (enabled ? api.call<ProjectSize>('GET', `/api/projects/${enc(key)}/size${alone ? '?alone=1' : ''}`, undefined, { priority: 'background' }) : Promise.resolve(null)), [api, key, alone, enabled],
@@ -497,7 +497,7 @@ function useProjectSize(api: LayerfsApi, key: string, alone: boolean, tick: numb
     const timer = setTimeout(q.reload, SIZE_POLL_MS)
     return () => clearTimeout(timer)
   }, [z, waiting, q.reload])
-  return { stored: z?.stored ?? undefined, files: z?.files ?? null, counting: !z ? !q.error : z.counting }
+  return { stored: z?.stored ?? undefined, counting: !z ? !q.error : z.counting }
 }
 
 /** The open row's head: the list it shows and its count; at its end, a quiet switch naming the other list, then the add verb. */
