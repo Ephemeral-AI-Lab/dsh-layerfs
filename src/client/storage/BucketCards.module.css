@@ -101,15 +101,17 @@
 
 .line {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0;
+  gap: 0 4px;
   margin: 0;
-  overflow: hidden;
+  overflow: visible;
   font-size: 12px;
   line-height: 16px;
   color: var(--dsw-alias-label-secondary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
 }
 
