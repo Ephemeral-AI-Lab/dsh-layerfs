@@ -109,7 +109,9 @@ export function useProjectSessions(api: LayerfsApi, project: string, enabled = t
   // local rows only, keeping the F22 rule (no Store walk per save). No
   // coalescing here: the coalescer keeps only a burst's last event, and an
   // ordinary save right after the walk would drop the one archive read needed.
-  useHostEvents(api, ['layerfs-session'], (event) => { if (enabled && event.data?.discovery === true) archive.reload() })
+  useHostEvents(api, ['layerfs-session'], (event) => {
+    if (enabled && event.data?.discovery === true && (!event.data.project || event.data.project === project)) archive.reload()
+  })
   useHostEvents(api, ['connection'], () => { if (enabled) reload() })
   useEffect(() => {
     if (!enabled) return
