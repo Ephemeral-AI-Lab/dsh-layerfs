@@ -250,8 +250,8 @@ export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api:
       <PageHead title={t('title')}
         actions={(
           <>
-            <Button variant="ghost" size="sm" icon={<IconRefreshOutlineRegular size={14} />} disabled={loading} onClick={() => { void load('replace') }}>{t('refresh')}</Button>
-            <Button variant="outline" size="sm" disabled={!data || logEmpty === true} onClick={() => setConfirming(true)}>{t('reset')}</Button>
+            <Button variant="ghost" size="sm" className={css.headerAction} icon={<IconRefreshOutlineRegular size={14} />} disabled={loading} onClick={() => { void load('replace') }}>{t('refresh')}</Button>
+            <Button variant="outline" size="sm" className={css.headerAction} disabled={!data || logEmpty === true} onClick={() => setConfirming(true)}>{t('reset')}</Button>
           </>
         )} />
       {removed !== undefined && <p className={css.note} role="status">{t('resetDone', { n: removed })}</p>}

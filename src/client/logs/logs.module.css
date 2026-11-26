@@ -517,3 +517,25 @@ div.detailModal {
     min-height: var(--lfs-tap, 44px);
   }
 }
+
+/* Touch: the log row's action links and tags are thumb targets. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .headerAction {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .sessionName {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .chipClear {
+    width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+  }
+
+  .moreRow button {
+    min-height: var(--lfs-tap, 44px);
+  }
+}
