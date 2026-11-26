@@ -15,7 +15,7 @@ import type { LayerfsApi } from '../api.ts'
 import { EmptyState, ErrorState, Loading } from '../files/States.tsx'
 import { cachedAnswer, useQuery } from '../files/use-query.ts'
 import { isUnchanged, type RequestRecord, type ToolRecord, type TraceCheckpointRow, type TraceVersion, type TrajectoryAnswer, type TrajectoryRecord, type TrajectoryReply, type TrajectoryTurn } from '../../shared/trajectory.ts'
-import { HISTORY_VIEW, useNoComposer, type ViewProps } from './FileViews.tsx'
+import { HISTORY_VIEW, useNoComposer, ViewCrumb, type ViewProps } from './FileViews.tsx'
 import { useSessionRows } from './hooks.ts'
 import { isStreamingAssistant, mergeLiveSteps, useLiveSteps } from './live-step.ts'
 import type { Translate } from './locale.ts'
@@ -32,6 +32,8 @@ import css from './trajectory.module.css'
 
 /** DSH's Trajectory view id; this view shadows it while a project session is on screen. */
 export const TRAJECTORY_VIEW = 'trajectory'
+/** A phone's timeline starts folded; a toggle's state survives a tab switch for the page's lifetime. */
+const phoneTimeline = new Map<string, boolean>()
 /** While the session runs, how often the trajectory is read again (shell receipts land when the turn settles). */
 const RUNNING_POLL_MS = 3000
 /** Events wait this long so a burst reads once. */
@@ -368,6 +370,8 @@ export function TrajectoryView(props: ViewProps): ReactNode {
   const [contextOpen, setContextOpen] = useState<ReadonlySet<number>>(new Set())
   const [selected, setSelected] = useState<Selection | null>(null)
   const [tab, setTab] = useState<InspectorTab>('summary')
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [timelineOpen, setTimelineOpen] = useState(() => phoneTimeline.get(sessionId) ?? false)
   const [limit, setLimit] = useState(ROW_PAGE)
   const [scrollTo, setScrollTo] = useState<Selection | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
@@ -378,6 +382,8 @@ export function TrajectoryView(props: ViewProps): ReactNode {
   useEffect(() => {
     setSelected(null); setTurnOverride(new Map()); setCallOverride(new Map()); setContextOpen(new Set()); setLimit(ROW_PAGE)
     setOlder(null); setOlderBusy(false)
+    setFiltersOpen(false)
+    setTimelineOpen(phoneTimeline.get(sessionId) ?? false)
     cache.clear(); diffs.clear()
   }, [sessionId, cache, diffs])
 
@@ -496,6 +502,14 @@ export function TrajectoryView(props: ViewProps): ReactNode {
     && filtered.every((turn) => turn.records.every((r) => r.kind !== 'tool' || !r.ops.length || !callOpen(r)))
 
   const inspected = answer && selected ? inspectedOf(answer, selected, t) : null
+  // The phone's one folded line: how long, how many versions, how many checkpoints.
+  const timelineSummary = answer
+    ? [
+      span ? durationText(t, span.end - span.start) : null,
+      t('trajSummaryVersions', { n: answer.counts.versionsCreated }),
+      checkpoints.length ? t('trajSummaryCheckpoints', { n: checkpoints.length }) : null,
+    ].filter(Boolean).join(' · ')
+    : ''
   const handlers: RowHandlers = {
     t, now, selected, onSelect: select, onOpen,
     onToggleTurn: (turn, open) => setTurnOverride((m) => new Map(m).set(turn, open)),
@@ -508,8 +522,14 @@ export function TrajectoryView(props: ViewProps): ReactNode {
   const empty = !turns.some((turn) => turn.records.length || turn.orphanCalls.length || turn.hostOps.length || turn.checkpoints.length)
   return (
     <div className={clsx(views.frame, views.dataFrame, css.frame)}>
+      <ViewCrumb label={t('tabTrajectory')} t={t} />
       <div className={css.controlsCard}>
-        <div className={css.toolbar} role="toolbar" aria-label={t('trajToolbar')}>
+        <div className={css.toolbar} role="toolbar" aria-label={t('trajToolbar')} data-filters={filtersOpen || undefined}>
+          <button type="button" className={clsx(css.action, css.filtersToggle)} aria-expanded={filtersOpen}
+            onClick={() => setFiltersOpen((open) => !open)}>
+            <IconChevronRightOutlineRegular size={12} className={clsx(css.chevron, filtersOpen && css.chevronOpen)} />
+            <span>{t('trajFilters')}</span>
+          </button>
           <div className={css.actions}>
             <FoldToggle folded={allTurnsFolded} label={t('trajTurns')} expand={t('trajExpandTurns')} collapse={t('trajCollapseTurns')}
               onClick={() => { setTurnsDefault(allTurnsFolded ? 'all' : 'none'); setTurnOverride(new Map()) }} />
@@ -531,6 +551,17 @@ export function TrajectoryView(props: ViewProps): ReactNode {
           </label>
         </div>
         {!answer.logLoaded ? <p className={clsx(css.note, css.frameNote)}>{t('trajNoLog')}</p> : null}
+        <button type="button" className={css.timelineToggle} aria-expanded={timelineOpen}
+          onClick={() => setTimelineOpen((open) => {
+            const next = !open
+            phoneTimeline.set(sessionId, next)
+            return next
+          })}>
+          <IconChevronRightOutlineRegular size={12} className={clsx(css.chevron, timelineOpen && css.chevronOpen)} />
+          <span className={css.timelineSummary}>{timelineSummary}</span>
+          <span className={css.timelineName}>{t('trajTimeline')}</span>
+        </button>
+        <div className={css.timelineBlock} data-open={timelineOpen || undefined}>
         <div className={css.timelineHead}>
           <h2>{t('trajTimeline')}</h2>
           <span className={css.counts}>
@@ -542,6 +573,7 @@ export function TrajectoryView(props: ViewProps): ReactNode {
         </div>
         <TrajectoryTimeline turns={filtered} now={now} span={span} selected={selected} onSelect={onTimeline} t={t} layerfs={layerfs}
           checkpoints={checkpoints} />
+        </div>
       </div>
       <div className={css.body}>
         <div className={css.table} ref={scroller}>

@@ -1333,6 +1333,7 @@
   .row:not(.opRow) .kind { justify-self: start; }
   .row:not(.opRow) .meta { font-size: 12px; }
 }
+
 /* A phone: the drawer takes the whole body width, its footer keeps clear of the
    home indicator, and the header's close target stays a thumb target. */
 @container trajectory-body (max-width: 480px) {
@@ -1354,3 +1355,83 @@
   }
 }
 
+/* A phone folds the filters behind one 44px button and the timeline behind its
+   one-line summary, so the turn list owns the pane. A wider pane keeps the
+   filters and the timeline open, exactly as before. */
+.filtersToggle { display: none; }
+
+.chevron { flex: none; transition: transform 150ms; }
+.chevronOpen { transform: rotate(90deg); }
+
+.timelineToggle { display: none; }
+.timelineSummary { min-width: 0; }
+.timelineName { flex: none; }
+
+@media (max-width: 640px) {
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    min-height: 0;
+    padding: 8px 12px;
+    gap: 6px 8px;
+  }
+
+  .filtersToggle {
+    display: inline-flex;
+    flex: 1 1 100%;
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .toolbar > .actions,
+  .toolbar > .search { display: none; }
+
+  .toolbar[data-filters] > .actions { display: flex; }
+  .toolbar[data-filters] > .search {
+    display: flex;
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  .timelineToggle {
+    display: inline-flex;
+    align-items: center;
+    box-sizing: border-box;
+    width: 100%;
+    min-height: var(--lfs-tap, 44px);
+    padding: 0 12px;
+    gap: 8px;
+    border: 0;
+    border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+    background: transparent;
+    color: var(--dsw-alias-label-secondary);
+    font: var(--dsw-font-xs-13);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .timelineToggle:focus-visible {
+    outline: 1px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+    outline-offset: -1px;
+  }
+
+  .timelineSummary {
+    overflow: hidden;
+    color: var(--dsw-alias-label-secondary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .timelineName {
+    margin-left: auto;
+    color: var(--dsw-alias-label-tertiary);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .timelineBlock { display: none; }
+  .timelineBlock[data-open] { display: block; }
+  .timelineBlock[data-open] .timelineHead { display: none; }
+}
