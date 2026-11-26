@@ -165,7 +165,7 @@
   padding: 0 5px;
   border: 0.5px solid var(--dsw-alias-border-l3);
   border-radius: var(--dsw-radius-xs);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 16px;
   color: var(--dsw-alias-label-secondary);
 }
@@ -393,7 +393,7 @@
   border: 0.5px solid var(--dsw-alias-border-l3);
   border-radius: var(--dsw-radius-xs);
   color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 16px;
   white-space: nowrap;
 }
@@ -413,7 +413,7 @@
   padding: 3px 10px;
   border-bottom: 0.5px solid var(--dsw-alias-border-l2);
   color: var(--dsw-alias-label-secondary);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .alsoText {
@@ -426,4 +426,74 @@
 .alsoMore {
   flex: none;
   color: var(--dsw-alias-label-tertiary);
+}
+
+/* ---------- touch and narrow terminals ----------
+   The Workspaces toolbar wraps into as many lines as it needs; a pane's
+   header grows to fit its name, branch and path instead of cutting the
+   branch; every header control is a 44 px thumb target (the tab-panel rule
+   in log.module.css does the same for the controls around the pane). */
+
+@media (max-width: 1180px), (pointer: coarse) {
+  .head {
+    height: auto;
+    min-height: var(--lfs-tap, 44px);
+    flex-wrap: wrap;
+    row-gap: 2px;
+    padding-block: 4px;
+  }
+
+  .head .iconButton {
+    width: var(--lfs-tap, 44px);
+    min-width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+  }
+
+  .branch {
+    max-width: 100%;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .toolbar :is(button, input, select) {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .toolbar button {
+    min-width: var(--lfs-tap, 44px);
+  }
+
+  .toolbar :global(span[class*='_wrap_']) {
+    height: var(--lfs-tap, 44px);
+  }
+}
+
+@media (max-width: 640px) {
+  .toolbar {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .spacer {
+    display: none;
+  }
+
+  /* "Grid / Terminals" keeps its own row and its buttons stay whole */
+  .toolbar :global([role='group']) {
+    flex: none;
+  }
+
+  .grid {
+    grid-auto-rows: minmax(240px, auto);
+  }
+
+  .newTile {
+    min-height: 120px;
+  }
+
+  .formActions {
+    flex-wrap: wrap;
+  }
 }
