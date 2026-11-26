@@ -136,3 +136,12 @@
   .scroll { flex-basis: 100%; }
   .actions { padding-bottom: 6px; }
 }
+
+/* Touch: the selected tab's actions are thumb targets too; the tabs themselves
+   already grow to --lfs-tap through their height. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .actions > button,
+  .actions > a {
+    min-height: var(--lfs-tap, 44px);
+  }
+}

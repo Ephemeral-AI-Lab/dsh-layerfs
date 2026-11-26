@@ -909,3 +909,70 @@
     background: var(--lf-tone-danger-solid-hover);
   }
 }
+
+/* Touch: the menu rows, the selection anchors and the toolbar's icon buttons
+   are thumb targets; a fine pointer keeps the desktop density. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .menuTouch [role='menuitem'] {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .select {
+    height: var(--lfs-tap, 44px);
+  }
+
+  .toolbar > button,
+  .sectionActions > button {
+    height: var(--lfs-tap, 44px);
+  }
+
+  .iconButton {
+    width: var(--lfs-tap, 44px);
+    min-width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+  }
+
+  /* a long Store or project name wraps instead of ending in an ellipsis */
+  .title {
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+}
+
+/* Touch: the shared confirm dialog fits the viewport and its body scrolls; its
+   close, inputs and actions are thumb targets, and a typed name is 16px so iOS
+   does not zoom the page on focus. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .confirmModal {
+    max-height: 100%;
+    padding-bottom: calc(24px + var(--lfs-safe-bottom, 0px));
+  }
+
+  .confirmModal > :global([class*='_content_']) {
+    min-height: 0;
+  }
+
+  .confirmModal :global([class*='_body_']) {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .confirmModal :global(button) {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .confirmModal :global(button[aria-label]) {
+    min-width: var(--lfs-tap, 44px);
+  }
+
+  .confirmModal :global([class*='_wrap_']) {
+    height: var(--lfs-tap, 44px);
+  }
+
+  .confirmModal :global([class*='_input_']),
+  .confirmModal .confirmMono input {
+    height: var(--lfs-tap, 44px);
+    font-size: 16px;
+  }
+}
