@@ -79,8 +79,19 @@ try {
 
   step('B: the project lists the stored session')
   const B = await open(dirB)
-  const listed = await B.op('sessions.list', { project })
-  const row = listed.sessions.find((s) => s.sessionId === sid)
+  // A cold `sessions.list` answers the rows it already knows and completes the
+  // Store walk behind the call, announcing it with `layerfs-session`
+  // (`discovery: true`); the stored row shows on the next read (commit deeb565).
+  const storedRow = async (what, sessionId, ms = 30000) => {
+    const end = Date.now() + ms
+    for (;;) {
+      const found = (await B.op('sessions.list', { project })).sessions.find((s) => s.sessionId === sessionId)
+      if (found) return found
+      if (Date.now() > end) throw new Error(`timed out: ${what}`)
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+  }
+  const row = await storedRow('B lists the stored session', sid)
   console.log(row)
   assert.ok(row?.stored, 'stored in the project')
   assert.equal(row.local, false, 'not yet local to B')
