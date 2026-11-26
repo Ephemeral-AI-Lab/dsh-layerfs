@@ -10,7 +10,7 @@
  * sideways without going back. Jump to lists every machine, Store, project,
  * Sandbox, bucket and available session with where it lives, filtered as you type.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { Button, IconChevronDownOutlineRegular, IconChevronLeftOutlineRegular, IconChevronRightOutlineRegular, IconEllipsisOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, IconSettingsOutlineRegular, IconShieldOutlineRegular, Menu, MenuItemButton, Modal, ShortcutKeys, modalSelector } from '@deepseek-ai/dsh-client-ui-primitives'
 import { StatusDot } from '../ui/StatusDot.tsx'
@@ -124,6 +124,13 @@ const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigat
 export function NavBar({ t, history, crumbs, jump, sessions, onSession, jobs, findings, refreshing, onRefresh, add, onOpen }: NavBarProps): ReactNode {
   const [jumping, setJumping] = useState(false)
   const barRef = useRef<HTMLElement>(null)
+  const crumbListRef = useRef<HTMLOListElement | null>(null)
+  // A phone's breadcrumb scrolls sideways: keep the page showing in sight when
+  // the crumbs change (Home is current, or Logs, Doctor, a Store …).
+  useLayoutEffect(() => {
+    const list = crumbListRef.current
+    if (list) list.scrollLeft = list.scrollWidth
+  }, [crumbs])
   // ⌘K / Ctrl+K opens Jump to while this page shows and nothing modal is open over it.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -146,7 +153,7 @@ export function NavBar({ t, history, crumbs, jump, sessions, onSession, jobs, fi
           icon={<IconChevronRightOutlineRegular size={16} />} onClick={history.forward} />
       </span>
       <nav className={css.crumbs} aria-label={t('crumbsLabel')}>
-        <ol className={css.crumbList}>
+        <ol className={css.crumbList} ref={crumbListRef}>
           {crumbs.map((c, i) => (
             <li key={c.key} className={css.crumbItem}>
               {i > 0 ? <IconChevronRightOutlineRegular size={12} className={css.crumbSep} aria-hidden="true" /> : null}

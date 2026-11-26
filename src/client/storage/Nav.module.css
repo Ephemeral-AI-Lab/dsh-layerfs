@@ -607,3 +607,23 @@ button.crumb[aria-expanded='true'],
     padding: 0 10px;
   }
 }
+
+/* Touch: the page showing is never the crumb that gets cut. The current crumb
+   keeps its natural width; the ancestors shrink or scroll away, and the list
+   is scrolled to the current page when it changes (NavBar's effect). */
+@media (max-width: 1180px), (pointer: coarse) {
+  .crumbItem:has(.crumbCurrent) {
+    flex: 0 0 auto;
+  }
+
+  .crumbCurrent {
+    flex: 0 0 auto;
+    max-width: none;
+  }
+
+  .crumbCurrent .crumbLabel {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: nowrap;
+  }
+}
