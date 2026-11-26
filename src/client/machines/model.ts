@@ -131,8 +131,8 @@ export interface MachineStore {
 
 /** A PostgreSQL Store: on no machine; Sandboxes on a machine that supports it reach its database. */
 export interface MachinePgStore {
-  /** The machines its database is connected from (spec v23 `connections`, this computer as `native`), with the last reach's word. */
-  connectedFrom?: { machine: string, reached: string | null }[]
+  /** The machines attached to it (`store attach`), with the last reach's word. */
+  attached?: { machine: string, reached: string | null }[]
   state?: string
   op?: SdkOperation | null
   name: string
@@ -1107,13 +1107,13 @@ export function shortSandbox(name: string): string {
 }
 
 /**
- * The PostgreSQL Stores a machine shows: those connected from it (spec v23),
- * and those with a Sandbox on it now. A PostgreSQL Store is on no
+ * The PostgreSQL Stores a machine shows: those attached to it, and those
+ * with a Sandbox on it now. A PostgreSQL Store is on no
  * machine, so every other one is left to Storage.
  */
 export function pgUsable(view: Pick<AvailableView, 'postgresql' | 'sandboxes'>, m: Pick<MachineInfo, 'name'>): MachinePgStore[] {
   const here = new Set(view.sandboxes.filter((b) => b.machine === m.name && b.project).map((b) => b.project!.split('/')[0]))
-  return (view.postgresql ?? []).filter((s) => (s.connectedFrom ?? []).some((c) => c.machine === m.name) || here.has(s.name))
+  return (view.postgresql ?? []).filter((s) => (s.attached ?? []).some((c) => c.machine === m.name) || here.has(s.name))
 }
 
 // ---------- the Sandbox page ----------

@@ -2,17 +2,17 @@
  * The Store page's tabs and the numbers its views draw, kept free of React so
  * they are unit tested (test/store-page.test.mjs).
  *
- * - Tabs: Overview, Projects, and Backups (SQLite) or Connections (PostgreSQL).
+ * - Tabs (SQLite): Overview, Projects, and Backups.
  * - The database file's parts (`store get --with stats`: stored content, metadata, reusable pages).
  * - The Store's growth from the host's observation journal of `store.stats` reads.
  * - Each project's share of the Store's packed bytes, from the project ledgers.
  * - The project cards: order, search and the Sandboxes running per project.
  */
-export type StoreTab = 'overview' | 'projects' | 'backups' | 'connections'
+export type StoreTab = 'overview' | 'projects' | 'backups' | 'machines'
 
-/** The third tab follows the Store's family: a SQLite Store has backups, a PostgreSQL Store has its connection. */
+/** A Store page's tabs: a SQLite Store's backups, or the machines a PostgreSQL Store's Sandboxes run on. */
 export function storeTabs(kind: string): StoreTab[] {
-  return ['overview', 'projects', kind === 'postgresql' ? 'connections' : 'backups']
+  return kind === 'postgresql' ? ['overview', 'projects', 'machines'] : ['overview', 'projects', 'backups']
 }
 
 /** `GET /api/stores/<name>/stats`: the Store's engine and its `store get --with stats` section (LayerFS 2.0). */
@@ -88,7 +88,7 @@ export function growthRuns(journal: ObservationJournal | null | undefined): Grow
 export interface StoreProject {
   name: string
   created: number | null
-  totals: { saves: number, merges: number, branches: number, stored: number, metadata: number, commitLogical: number, canonical: number } | null
+  totals: { saves: number, merges: number, branches: number, stored: number, metadata: number, commitLogical: number, canonical: number, publications?: number } | null
   last: { id: string, time: number | null, branch: string, message: string } | null
   files: { files: number | null, complete: boolean } | null
   partial: boolean
@@ -167,6 +167,34 @@ export function commitTotalWords(c: { commits: number, complete: boolean, refuse
   if (c.refused && !c.commits) return { key: 'spCommitsUnread', n }
   if (c.complete || c.refused) return { key: c.commits === 1 ? 'spCommitsTotalOne' : 'spCommitsTotal', n }
   return { key: 'spCommitsCounting', n }
+}
+
+/**
+ * The sentence LayerFS refuses a Store of an older format with (#776): a
+ * SQLite Store of schema version 2, a PostgreSQL Store of 2 or 3.
+ */
+const OLD_FORMAT = /(?:SQLite|PostgreSQL) Store schema version \d+ \([^)]*\): not supported by this release and not migrated; create a new Store/
+
+/** Why a Store could not be read: `outdated` for one of an older format, LayerFS's sentence, its fix line. */
+export interface StoreUnread { outdated: boolean, message: string, fix: string | null }
+
+/**
+ * A refused Store read (its stats) in the page's terms, null when there is
+ * none. An older-format Store is the one LayerFS answers with
+ * `detail.code: 'OldStore'` (public `Unsupported`), with its fix (`store
+ * upgrade`, else remove or disconnect); the refusal's sentence never decides
+ * it (#804 rewrites it). A build before #776 answers `Failed` with a version
+ * sentence inside its open error's text: that sentence is only cut out of it,
+ * so no nested error text reaches a card (the Store reads Not read).
+ */
+export function storeUnread(error: unknown): StoreUnread | null {
+  if (!error) return null
+  const e = (typeof error === 'object' ? error : {}) as { message?: unknown, detail?: unknown, fix?: unknown }
+  const message = typeof e.message === 'string' ? e.message : error instanceof Error ? error.message : String(error)
+  const detail = e.detail && typeof e.detail === 'object' ? e.detail as { code?: unknown } : null
+  const fix = typeof e.fix === 'string' && e.fix ? e.fix : null
+  const said = OLD_FORMAT.exec(message)?.[0]
+  return { outdated: detail?.code === 'OldStore', message: said ?? message, fix }
 }
 
 /** Whether a ledger is still being read (and the answer worth asking again): partial or building, not refused. */

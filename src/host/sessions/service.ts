@@ -28,7 +28,7 @@ import { withTraceContext, type Invocation } from '../layerfs/tracing.ts'
 import { classifyStore, storeOf, type StoreHealth } from './availability.ts'
 import type { SessionFailure } from '../../shared/pg-failure.ts'
 import { branchFields, type BranchFields } from '../../shared/session-branch.ts'
-import { lastUsed, pgPlacement, reachedFrom } from '../placement.ts'
+import { attachedFrom, lastUsed, pgPlacement } from '../placement.ts'
 import { machineRows } from '../layerfs/machine-records.ts'
 
 /** How long a passed identity and readiness check stands for pre-step checks. */
@@ -400,6 +400,10 @@ export class LayerfsSessions extends Service {
     // A PostgreSQL project's machine is chosen per session when it is bound
     // (`machineFor`, as `mount` does): the picked one, else its last Sandbox's.
     const effective = kind === 'postgresql' ? await this.machineFor(project, machine) : undefined
+    // A PostgreSQL project's machine is per session: when none is picked and the
+    // Store has no single attached machine, say so here rather than checking a
+    // machine (native) that nothing attached to this Store.
+    if (kind === 'postgresql' && !effective) throw this.unplaced(project)
     await this.assertReady({
       kind,
       machine: row?.machine ?? info?.machine ?? null,
@@ -668,13 +672,19 @@ export class LayerfsSessions extends Service {
     }, run)
   }
 
+  /** The refusal a PostgreSQL placement without a single attached machine gets (nothing is guessed). */
+  private unplaced(project: string): CliError {
+    return new CliError('InvalidInput', `Choose the machine this session runs on: Store ${storeOf(project)} has no single attached machine`, null, 'refusal', null)
+  }
+
   /**
    * The machine a project's Sandboxes run on: a sqlite Store's machine; for a
    * PostgreSQL Store `preferred` (the session's own machine) when it has one,
-   * else placement.ts's order: the project's last machine, a machine its
-   * database was reached from, native; never a broken or stopped one.
+   * else placement.ts's order: the project's last machine while attached, the
+   * only machine attached to its Store, else null (the session's machine is
+   * the person's pick: none attached, or several).
    */
-  private async machineFor(project: string, preferred?: string | null): Promise<string> {
+  private async machineFor(project: string, preferred?: string | null): Promise<string | null> {
     const info: any = await this.lfs.project.get(project, { detail: true })
     if (info?.engine !== 'postgresql') return info?.machine ?? 'native'
     if (preferred) return preferred
@@ -683,7 +693,7 @@ export class LayerfsSessions extends Service {
       this.lfs.store.get(storeOf(project)!, { detail: true }).catch(() => null),
       this.lfs.sandbox.list({ project, detail: true }).then((r: any) => r?.items ?? [], () => []),
     ])
-    return pgPlacement(machines, { last: lastUsed(sandboxes), reached: reachedFrom(store) })
+    return pgPlacement(machines, { last: lastUsed(sandboxes), attached: attachedFrom(store) })
   }
 
   /**
@@ -994,7 +1004,7 @@ export class LayerfsSessions extends Service {
       if (metadata?.codeBranch) {
         existing = {
           sessionId, kind: 'project', project, anchor, scratch: '', branch: metadata.codeBranch,
-          machine: await this.machineFor(project), sandbox: metadata.simulation ? this.simulationSandbox(sessionId) : sandboxOf(sessionId), ws: `${metadata.simulation ? this.simulationSandbox(sessionId) : sandboxOf(sessionId)}:${WS_NAME}`,
+          machine: (await this.machineFor(project)) ?? undefined, sandbox: metadata.simulation ? this.simulationSandbox(sessionId) : sandboxOf(sessionId), ws: `${metadata.simulation ? this.simulationSandbox(sessionId) : sandboxOf(sessionId)}:${WS_NAME}`,
           state: 'closed', createdAt: Date.now(), updatedAt: Date.now(),
           simulation: metadata.simulation,
         }
@@ -1022,9 +1032,19 @@ export class LayerfsSessions extends Service {
     let forkReceipt: string | undefined
     if (existing?.branch && existing.sandbox) {
       const resolved = await persistence?.assertSessionIdentity?.(sessionId)
-      binding = { ...existing, ...selected, machine: resolved ? (resolved.kind === 'postgresql' ? existing.machine ?? 'native' : resolved.machine ?? 'native') : existing.machine, state: existing.state }
+      // A PostgreSQL project has no Store-wide machine: keep the recorded one and
+      // never fall back to native. With none recorded (and the identity resolver
+      // silent), the project's own row says the kind; then the person picks one.
+      const kind = resolved?.kind ?? (existing.machine ? null : ((await this.lfs.project.get(project, { detail: true }))?.engine ?? null))
+      const machine = kind === 'postgresql'
+        ? existing.machine
+        : resolved?.machine ?? existing.machine ?? (resolved ? 'native' : undefined)
+      if (kind === 'postgresql' && !machine) throw this.unplaced(project)
+      binding = { ...existing, ...selected, machine, state: existing.state }
     } else {
       const machine = await this.machineFor(project, existing?.machine ?? this.state.read().pending[sessionId]?.machine)
+      // no machine named and none (or several) attached: the person picks one; nothing is guessed
+      if (!machine) throw this.unplaced(project)
       const sandbox = this.simulationOf(sessionId) ? this.simulationSandbox(sessionId) : sandboxOf(sessionId)
       const branch = existing?.resumeFromArchive ? `${branchOf(sessionId)}.resume.${randomUUID().replaceAll('-', '').slice(0, 12)}` : branchOf(sessionId)
       const start = this.forkSource(sessionId, header, project)

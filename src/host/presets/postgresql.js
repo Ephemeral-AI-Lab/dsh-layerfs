@@ -4,12 +4,11 @@
  * port fixed when it is created, restarted with Docker unless someone stops it
  * by hand), with a generated password kept in the
  * presets state folder (`<state>/postgresql/password`, 0600) and handed to
- * LayerFS once as a saved login (`store save-auth`, the password on stdin).
- * Each PostgreSQL Store gets a fresh database
- * right before `store connect`. A PostgreSQL Store is on no machine: any
- * machine whose platform runs PostgreSQL Sandboxes dials it (LayerFS rewrites
- * 127.0.0.1 to what the machine reaches the host by), and the preset's
- * `machine` is only where the Store's sessions run by default.
+ * LayerFS on stdin when each Store is connected (`store connect --user
+ * postgres --password-stdin`). Each PostgreSQL Store gets a fresh database
+ * right before `store connect`. A PostgreSQL Store is on no machine: the
+ * preset's `machine` is attached to it (`store attach`), and its Sandboxes
+ * run there.
  * The container is reused by later builds and is never removed here.
  */
 import { execFile } from 'node:child_process'
@@ -60,11 +59,9 @@ export class PresetPostgres {
     this.docker = docker; this.exec = exec; this.sleep = sleep
   }
   get passwordFile() { return join(this.dir, 'password') }
-  /** The saved LayerFS login the preset's Stores share (2.0 `store save-auth`). */
-  get authName() { return 'dsh-preset-postgres' }
-  /** The password LayerFS gets on stdin when the login is saved. */
+  /** The password LayerFS gets on stdin when a Store is connected. */
   password() { return readFileSync(this.passwordFile, 'utf8').trim() }
-  /** A Store's address: 2.0 keeps the user in the saved login, never in the URL. */
+  /** A Store's address: the user is given apart (`--user`), never in the URL. */
   url(port, database) {
     if (!DATABASE.test(database)) fail(`Invalid preset database name ${database}.`, 'InvalidInput')
     return `postgresql://127.0.0.1:${port}/${database}`

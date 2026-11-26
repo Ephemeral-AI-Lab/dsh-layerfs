@@ -31,7 +31,7 @@ const tOf = (lang) => (key, vars) => fill(listLocales[lang][key] ?? key, vars)
 const en = tOf('en'), zh = tOf('zh')
 const canRun = (over = {}) => ({ state: 'available', machine: 'docker', canStart: false, canRun: true, storageBlocked: false, ...over })
 const session = (over = {}) => ({ sessionId: 's-1', title: 'Chat', local: true, updatedAt: 1, state: 'local', ...over })
-const pgStore = (over = {}) => ({ name: 'pg', kind: 'postgresql', state: 'broken', reason: 'missing', message: 'Store pg names no saved login', connectedFrom: [], ...over })
+const pgStore = (over = {}) => ({ name: 'pg', kind: 'postgresql', state: 'broken', reason: 'missing', postgresql: { passwordSaved: false }, attached: [], ...over })
 
 test('a project that cannot run is unavailable; a stopped machine offers Start <machine>', () => {
   const r = sessionReadiness(session({ executionState: 'inactive' }), { state: 'stopped', machine: 'docker', canStart: true, canRun: false, storageBlocked: false }, 'demo', en)
@@ -45,7 +45,7 @@ test('a Store failure says its own words and offers exactly one Open Store actio
   const r = sessionReadiness(session(), { state: 'available', machine: 'docker', canStart: false, canRun: false, storageBlocked: true }, 'pg', en, pgStore())
   assert.equal(r.key, 'unavailable')
   assert.equal(r.word, 'Unavailable')
-  assert.match(r.reason, /no saved login/)
+  assert.match(r.reason, /has no saved password/)
   assert.equal(r.action?.kind, 'store')
   assert.equal(r.action.label, 'Open Store')
 })

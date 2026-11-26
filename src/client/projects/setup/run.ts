@@ -5,7 +5,7 @@
  */
 import { enc, type LayerfsApi } from '../../api.ts'
 import { waitProject, type ProjectInitJob } from '../../picker/NewProjectForm.tsx'
-import type { StorageJob } from '../../storage/types.ts'
+import type { PgAttachResult, StorageJob } from '../../storage/types.ts'
 import { pgLoginBody, type CreatePlan, type Step } from './model.ts'
 
 /** Start a machine and wait until it runs (the host waits; native answers at once). Only ever behind a press on that machine's own Start. */
@@ -49,9 +49,16 @@ export async function runStep(api: LayerfsApi, plan: CreatePlan, step: Step, onJ
       await api.call('POST', '/api/stores', { name: store })
       return
     case step.id === 'connect':
-      // a new login is saved by the host first (store save-auth, the password on stdin), then named on store connect --auth
+      // the address, the user and the password (on stdin, through the host): LayerFS checks from the host before it saves
       await api.call('POST', '/api/stores/postgresql', { name: store, url: plan.newStore?.url ?? '', ...(plan.newStore?.login ? pgLoginBody(plan.newStore.login) : {}) })
       return
+    case step.id.startsWith('attach:'): {
+      // the machine the first session runs on, checked from there; its refusal is the step's
+      const answer = await api.call<PgAttachResult>('POST', `/api/stores/${enc(store)}/attach`, { machines: [step.machine!] })
+      const failed = answer?.results?.find((r) => !r.ok)
+      if (failed && !failed.ok) throw Object.assign(new Error(failed.error.message), failed.error)
+      return
+    }
     case step.id === 'init': {
       const job = await api.call<ProjectInitJob>('POST', '/api/projects', { store, name: plan.name, ...(plan.source ? { source: plan.source } : {}) })
       await waitProject(api, job, onJob)

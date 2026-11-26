@@ -32,7 +32,7 @@ import { liveOf, spaceAnswer, type MachineSpace, type MachineSpaceView, type Mac
 import { Answer, cliFeatures, featuresOf, fixOf, pages, refuse, type CliFeatures, type RouteHost } from './util.ts'
 import { ImageLoads, type LoadReport } from './image-loads.ts'
 import { createPhase } from './projects.ts'
-import { companionsOf, machineOf, opOf, unreadableRecord, probedRecord } from '../layerfs/machine-records.ts'
+import { attachedOf, companionsOf, machineOf, opOf, unreadableRecord, probedRecord } from '../layerfs/machine-records.ts'
 
 export { machineOf, opOf, STATES } from '../layerfs/machine-records.ts'
 import { engineSocket, realEngineDeps, startEngine, type EngineDeps } from './docker-engine.ts'
@@ -252,15 +252,14 @@ export function storeOf(s: any) {
 
 /**
  * One store.list() item, when it is a PostgreSQL Store (on no machine: Sandboxes
- * reach its database). `connectedFrom`: the machines its `connections` name
- * (spec v23: an address of their own, a reach seen, or a Sandbox), this
- * computer as `native`, each with the word of its last reach.
+ * reach its database). `attached`: the machines attached to it ({@link attachedOf}),
+ * each with the word of its last reach.
  */
 export function pgStoreOf(s: any) {
   if (s.engine !== 'postgresql') return null
   const names = Array.isArray(s.projects) ? s.projects.map(String) : []
-  const connectedFrom = (Array.isArray(s.connections) ? s.connections : []).map((c: any) => ({ machine: text(c?.machine) ?? 'native', reached: text(c?.reached) }))
-  return { name: String(s.store), projects: num(s.projects_count) ?? names.length, names, state: text(s.state) ?? 'ready', op: opOf(s.op), ...companionsOf(s), connectedFrom }
+  const attached = attachedOf(s).map((c) => ({ machine: c.machine, reached: c.reached }))
+  return { name: String(s.store), projects: num(s.projects_count) ?? names.length, names, state: text(s.state) ?? 'ready', op: opOf(s.op), ...companionsOf(s), attached }
 }
 
 /**

@@ -5,7 +5,7 @@
  */
 import type { MachinePlatformInfo } from '../../machines/model.ts'
 import { engineStart, machineBlock, type HostOs } from '../../machines/needs.ts'
-import { connectedMachines, pgDefaultMachine } from '../../storage/model.ts'
+import { attachedMachines, pgDefaultMachine } from '../../storage/model.ts'
 import type { StorageView, StoreRow } from '../../storage/types.ts'
 
 export type StoreKind = 'sqlite' | 'postgresql'
@@ -67,21 +67,21 @@ export const pickable = (name: string, blocks: ReadonlyMap<string, TileBlock>): 
 
 /**
  * Where a project runs: its SQLite Store's machine; for a PostgreSQL Store
- * the machines its database is connected from (spec v23: each session picks
- * its own, nothing is Store-wide).
+ * the machines attached to it (each session picks one of them).
  */
-export function runsOn(store: Pick<StoreRow, 'kind' | 'machine' | 'connectedFrom'> | undefined): string[] {
+export function runsOn(store: Pick<StoreRow, 'kind' | 'machine' | 'attached'> | undefined): string[] {
   if (!store) return []
-  return store.kind === 'postgresql' ? connectedMachines(store) : [store.machine ?? 'native']
+  return store.kind === 'postgresql' ? attachedMachines(store) : [store.machine ?? 'native']
 }
 
 /**
  * The machine a project's readiness follows (§8): a SQLite Store's machine;
  * for a PostgreSQL Store the machine a new session would run on
- * (`pgDefaultMachine`: never a broken or stopped one, native at worst), so
- * it reads available while its Store is ready and some machine can run it.
+ * (`pgDefaultMachine`: never a broken or stopped one, none when the person
+ * must pick), so it reads available while its Store is ready and some
+ * machine can run it.
  */
-export function primaryMachine(store: Pick<StoreRow, 'kind' | 'machine' | 'connectedFrom'> | undefined, machines: Pick<StorageView, 'machines'>['machines'] = []): string | null {
+export function primaryMachine(store: Pick<StoreRow, 'kind' | 'machine' | 'attached'> | undefined, machines: Pick<StorageView, 'machines'>['machines'] = []): string | null {
   if (!store) return null
   return store.kind === 'postgresql' ? pgDefaultMachine(store, machines) : store.machine ?? 'native'
 }
@@ -123,33 +123,20 @@ export function resolveNewStoreName(
   return { slugTaken, autoName, chosenName, showField, conflictNotice: slugTaken && typedStoreName === null }
 }
 
-/**
- * A new PostgreSQL Store's login (LayerFS 2.0 saved logins): one saved before,
- * by name (`store auths`), or a new one the host saves now under `authName`
- * (`store save-auth <authName> --user <user> --password-stdin`), then names
- * on `store connect --auth`.
- */
-export type PgLogin = { auth: string } | { authName: string, user: string, password: string }
+/** A new PostgreSQL Store's login: its user and password, saved by the host for this Store (`store connect --user … --password-stdin`). */
+export interface PgLogin { user: string, password: string }
 
-/** A saved login's name, as LayerFS names things. */
-const LOGIN_NAME = /^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/
-
-/** Why a login cannot be used yet, or null. `saved`: the home's saved logins by name; a new login never takes one of them. */
-export type PgLoginProblem = 'pick' | 'name' | 'nameInvalid' | 'nameTaken' | 'user' | 'password'
-export function pgLoginProblem(login: PgLogin, saved: readonly string[]): PgLoginProblem | null {
-  if ('auth' in login) return login.auth && saved.includes(login.auth) ? null : 'pick'
-  const name = login.authName.trim()
-  if (!name) return 'name'
-  if (!LOGIN_NAME.test(name)) return 'nameInvalid'
-  if (saved.includes(name)) return 'nameTaken'
+/** Why a login cannot be used yet, or null. */
+export type PgLoginProblem = 'user' | 'password'
+export function pgLoginProblem(login: PgLogin): PgLoginProblem | null {
   if (!login.user.trim()) return 'user'
   if (!login.password) return 'password'
   return null
 }
 
-/** The connect route's login fields: a saved login's name, or a new login (the password goes to LayerFS on stdin). */
-export function pgLoginBody(login: PgLogin): { auth: string } | { authName: string, user: string, passwordValue: string } {
-  return 'auth' in login ? { auth: login.auth } : { authName: login.authName.trim(), user: login.user.trim(), passwordValue: login.password }
+/** The connect route's login fields (the password goes to LayerFS on stdin). */
+export function pgLoginBody(login: PgLogin): { user: string, passwordValue: string } {
+  return { user: login.user.trim(), passwordValue: login.password }
 }
 
 /** What a Create asks for. */
@@ -166,14 +153,14 @@ export interface CreatePlan {
   source?: string
 }
 
-export type StepId = 'check' | 'store' | 'connect' | 'init' | `place:${string}` | 'open'
+export type StepId = 'check' | 'store' | 'connect' | 'init' | `place:${string}` | `attach:${string}` | 'open'
 export interface Step { id: StepId, machine?: string }
 
 /**
- * The steps a Create runs, in order (§3). A PostgreSQL Store is on no machine
- * and has no Store-wide machine (spec v23): a new one is connected, and the
- * machine picked is the first session's own (`open` carries it). Nothing is
- * attached. Create starts no machine: a machine it needs that is
+ * The steps a Create runs, in order (§3). A PostgreSQL Store is on no machine:
+ * a new one is connected, and the machine picked is the first session's own
+ * (`open` carries it); it is attached first when it is not yet (a Sandbox
+ * runs only on an attached machine). Create starts no machine: a machine it needs that is
  * not running ({@link needsStart}) is started by the person's own press on
  * that machine's Start first (UI pass 2: no start without that press).
  */
@@ -189,6 +176,8 @@ export function createSteps(plan: CreatePlan, _view?: Pick<StorageView, 'machine
   } else {
     if (!plan.store) steps.push({ id: 'connect' })
     steps.push({ id: 'init' })
+    const first = plan.machines[0]
+    if (first && !(plan.store?.attached ?? []).some((a) => a.machine === first)) steps.push({ id: `attach:${first}`, machine: first })
   }
   const first = plan.kind === 'postgresql' ? plan.machines[0] : undefined
   steps.push({ id: 'open', ...(first ? { machine: first } : {}) })
@@ -219,4 +208,32 @@ export function stoppedOf(names: readonly string[], view: Pick<StorageView, 'mac
     const m = view?.machines.find((x) => x.name === n)
     return !!m && m.state !== 'broken' && !isRunning(m)
   })
+}
+
+/** The Store a new project goes in: an existing one by name, a new SQLite Store, or a new PostgreSQL connection. */
+export type StoreChoice = { kind: 'existing', store: string } | { kind: 'sqlite' } | { kind: 'pg' }
+
+/**
+ * The last-used Store: the Store of the newest project with sessions on this
+ * DSH (`projects.recent`, newest first, keys `<store>/<project>`) that is still
+ * one of `stores`. A Create opens a session, so the Store of the last project
+ * made or worked in. Null when none is.
+ */
+export function lastUsedStore<S extends Pick<StoreRow, 'name'>>(recent: readonly { project: string }[], stores: readonly S[]): S | null {
+  for (const r of recent) {
+    const name = r.project.split('/')[0]
+    const store = stores.find((s) => s.name === name)
+    if (store) return store
+  }
+  return null
+}
+
+/**
+ * The Create dialog's default Store: the last-used one when a new project can
+ * use it (a SQLite Store whose machine is stopped stays: its Start is shown),
+ * else a new SQLite Store. `fellBack`: there is a last-used Store, but not usable.
+ */
+export function defaultStoreChoice<S extends Pick<StoreRow, 'name'>>(last: S | null, usable: (s: S) => boolean): { choice: StoreChoice, fellBack: boolean } {
+  if (last && usable(last)) return { choice: { kind: 'existing', store: last.name }, fellBack: false }
+  return { choice: { kind: 'sqlite' }, fellBack: !!last }
 }

@@ -50,12 +50,21 @@
 
 .crumbList {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 2px;
+  min-width: 0;
   margin: 0;
   padding: 0;
   list-style: none;
+}
+/* one line: the earlier crumbs keep their size, the last one shrinks with an ellipsis */
+.crumbItem:not(:last-child) {
+  flex: none;
+}
+.crumbItem:last-child {
+  flex: 0 1 auto;
+  overflow: hidden;
 }
 
 .crumbItem {

@@ -19,7 +19,7 @@ const isLoginRejection = (code: string | undefined, text: string): boolean =>
 
 export function classifyPgFailure(code: string | undefined, message: string | undefined, step?: string | undefined): PgFailureKind | null {
   const text = message ?? ''
-  if (step === 'record' || code === 'Outdated' || /its record is outdated|names no saved login|no saved login named|its record is missing/i.test(text)) return 'record'
+  if (step === 'record' || code === 'Outdated') return 'record'
   if (/pack persistence:\s*Refused\s*\{\s*status:\s*"Closed"\s*\}/i.test(text)) return 'daemon_dns'
   if (step === 'database' || /SQLSTATE 3D000/i.test(text) || text.includes('holds another Store than')) return 'store'
   if (step === 'authentication' || step === 'login') return 'login'

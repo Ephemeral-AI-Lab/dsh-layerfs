@@ -52,7 +52,7 @@ const stubPlugin = {
 
     const stubHooks = {
       'machines/context.tsx': `export const useMachinesContext = () => ({ api: { call: async () => ({}) }, useMachines: (s) => s({ data: null, loading: false, error: null }), t: (k) => k }); export const useMachinesMaybe = () => null`,
-      'ui/use-query.ts': `export const useQuery = () => ({ data: undefined, loading: false, error: null, reload: () => {} })`,
+      'ui/use-query.ts': `export const useQuery = () => ({ data: undefined, loading: false, error: null, reload: () => {} }); export const cachedAnswer = () => undefined`,
       'storage/hooks.ts': `export const useHostEvents = () => {}`,
       'projects/hooks.ts': `export const useProjectSessions = () => ({ data: null })`,
     }
@@ -126,7 +126,7 @@ const noopActions = () => ({
 
 test('replaceRefusal covers every refusal reason and allows current / bucket_changed', () => {
   const ready = makeStore('notes')
-  assert.match(M.replaceRefusal(makeStore('remote', { machine: 'docker' }), 'current', 'lab', tEn, { listed: true }), /pull it to LayerFS Home first/)
+  assert.match(M.replaceRefusal(makeStore('remote', { machine: 'docker' }), 'current', 'lab', tEn, { listed: true }), /pull it to native first/)
   assert.match(M.replaceRefusal(makeStore('notes', { state: 'busy' }), 'current', 'lab', tEn, { listed: true }), /is busy/)
   assert.match(M.replaceRefusal(makeStore('notes', { state: 'blocked', blockedBy: { machine: 'docker', reason: 'stopped' } }), 'current', 'lab', tEn, { listed: true }), /is not ready: Start machine docker first/)
   assert.match(M.replaceRefusal(ready, 'current', 'lab', tEn, { listed: true, heldBy: ['held-box'] }), /held by Sandbox held-box/)

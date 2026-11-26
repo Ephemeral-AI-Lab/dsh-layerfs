@@ -173,14 +173,14 @@ test('a session being bound says Starting, with no reason, and its row can still
 
 test('a blocked row whose Store failure names it states the reason in words, with no Open Store action', () => {
   const local = { sessionId: 'local-2', title: 'Chat', local: true, updatedAt: 1, state: 'local', executionState: 'inactive' }
-  const store = { name: 'pg', kind: 'postgresql', state: 'broken', reason: 'missing', message: 'Store pg names no saved login', connectedFrom: [] }
+  const store = { name: 'pg', kind: 'postgresql', state: 'broken', reason: 'missing', postgresql: { passwordSaved: false }, attached: [] }
   const readiness = M.sessionReadiness(local, availability({ state: 'available', canRun: false, storageBlocked: true }), 'pg', t, store)
   const view = M.mount(M.SessionLine, {
     session: local, title: 'Chat', selected: false, t, readiness,
     onOpen: () => {}, onArchive: async () => null,
   })
   assert.match(M.text(view.tree), /Unavailable/)
-  assert.match(M.text(view.tree), /no saved login/, 'the Store failure is the reason')
+  assert.match(M.text(view.tree), /has no saved password/, 'the Store failure is the reason')
   assert.equal(find(view.tree, (p) => p['data-session-reason'] === 'unavailable').length, 1)
   assert.equal(rowButton(view.tree, 'local-2').props.disabled, true, 'the row itself cannot open')
   assert.equal(actionButtons(view.tree).length, 0, 'no readiness action button')

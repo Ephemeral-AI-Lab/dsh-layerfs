@@ -26,12 +26,6 @@ import { liveNote, sandboxLook } from './stats.ts'
 import css from './machines.module.css'
 import { chipOpWords, sandboxesEmptyKey } from './notices.ts'
 
-/** The name a machine goes by everywhere: the tree's "LayerFS Home" for the native machine, else its own. */
-export function useMachineTitle(): (m: { name: string, platform: string }) => string {
-  const { t } = useMachinesContext()
-  return (m) => (m.platform === 'native' ? t('homeName') : m.name)
-}
-
 /** A listed Sandbox's look: its record's state, or "Daemon not running" when LayerFS saw its daemon ended (stats.ts). */
 export const lookOf = (b: MachineSandbox) => sandboxLook(b, (x) => thingLook('sandbox', x))
 
@@ -84,7 +78,7 @@ export function Inventory({ m, view, storeAction, sandboxAction, storeMenu, sand
   const running = machineState(m, view.live[m.name]).key === 'running'
   const storesEmpty = view.readErrors?.stores ? t('storesUnread') : t('noStoresHere')
   const emptyKey = sandboxesEmptyKey(m, view, running)
-  const sandboxesEmpty = t(emptyKey.key, { name: emptyKey.home ? t('homeName') : m.name })
+  const sandboxesEmpty = t(emptyKey, { name: m.name })
   return (
     <div className={css.inventory}>
       <section className={css.inventoryColumn} aria-label={t('storesOnMachine', { name: m.name })}>

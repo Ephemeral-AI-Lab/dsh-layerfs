@@ -418,7 +418,7 @@ for (const store of stores) {
 }
 
 for (const m of machines) {
-  const open = () => jumpTo(m.name === 'native' ? 'LayerFS Home' : m.name)
+  const open = () => jumpTo(m.name)
   view('machine', `machine ${m.name}`, async () => { await open(); await editor().getByRole('heading', { level: 1 }).first().waitFor() })
   view('machine', `machine ${m.name} menu`, async () => { await open(); await openAndDismiss(btn(editor(), `More for ${m.name}`), 'menu') })
   view('machine', `machine ${m.name} details`, async () => {

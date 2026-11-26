@@ -45,17 +45,6 @@ export function CloudGlyph({ size = 12 }: { size?: number }): ReactNode {
   )
 }
 
-/** The LayerFS Home's glyph in the explorer: a house. */
-export function HomeGlyph({ size = 15 }: { size?: number }): ReactNode {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" aria-hidden="true">
-      <path d="M2.5 7.25 8 2.75l5.5 4.5" />
-      <path d="M4 6.1v7.15h8V6.1" />
-      <path d="M6.75 13.25v-3.5h2.5v3.5" />
-    </svg>
-  )
-}
-
 /** A bucket's glyph. */
 export function BucketGlyph({ size = 18 }: { size?: number }): ReactNode {
   return (
@@ -87,22 +76,31 @@ export interface FormModalProps {
   keepOpen?: boolean | undefined
   /** Hide the secondary Cancel button when the modal only reports a completed result. */
   hideCancel?: boolean | undefined
+  /**
+   * Draws a refusal as one line in the footer's hint slot instead of the
+   * refusal block under the form (LayerFS's words go in its `title`).
+   */
+  renderError?: ((error: unknown) => { line: string, detail: string }) | undefined
+  /** Told of each refusal (and `undefined` when the form is sent again), so fields can mark themselves. */
+  onError?: ((error: unknown) => void) | undefined
   children: ReactNode
 }
 
 /** A form in a DSH modal: its fields, one submit whose refusal shows under them. */
-export function FormModal({ open, onClose, title, description, action, valid, submit, hint, busyHint, t, danger, keepOpen, hideCancel, children }: FormModalProps): ReactNode {
+export function FormModal({ open, onClose, title, description, action, valid, submit, hint, busyHint, t, danger, keepOpen, hideCancel, renderError, onError, children }: FormModalProps): ReactNode {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(undefined)
   const go = async () => {
     if (!valid || busy) return
     setBusy(true)
     setError(undefined)
+    onError?.(undefined)
     try {
       await submit()
       if (!keepOpen) onClose()
     } catch (e) {
       setError(e)
+      onError?.(e)
     } finally {
       setBusy(false)
     }
@@ -111,7 +109,9 @@ export function FormModal({ open, onClose, title, description, action, valid, su
     <Modal open={open} onClose={() => { if (!busy) onClose() }} title={title} description={description} closeLabel={t('close')} className={css.modal}
       footer={(
         <div className={css.modalFooter}>
-          {busy && busyHint ? <span className={css.modalHint} role="status">{busyHint}</span> : hint ? <span className={css.modalHint}>{hint}</span> : <span />}
+          {busy && busyHint ? <span className={css.modalHint} role="status">{busyHint}</span>
+            : error !== undefined && renderError ? (() => { const e = renderError(error); return <span className={css.modalError} role="alert" title={e.detail}>{e.line}</span> })()
+              : hint ? <span className={css.modalHint}>{hint}</span> : <span />}
           <div className={css.modalActions}>
             {hideCancel ? null : <Button variant="outline" onClick={onClose} disabled={busy}>{t('cancel')}</Button>}
             {danger ? (
@@ -124,7 +124,7 @@ export function FormModal({ open, onClose, title, description, action, valid, su
       )}>
       <form className={css.form} onSubmit={(e) => { e.preventDefault(); void go() }}>
         {children}
-        {error !== undefined ? <Refusal error={error} labels={refusalLabels(t)} /> : null}
+        {error !== undefined && !renderError ? <Refusal error={error} labels={refusalLabels(t)} /> : null}
         <button type="submit" hidden aria-hidden="true" tabIndex={-1} />
       </form>
     </Modal>
@@ -132,12 +132,14 @@ export function FormModal({ open, onClose, title, description, action, valid, su
 }
 
 /** A labelled text input. */
-export function TextField({ label, value, onChange, hint, error, placeholder, mono, autoFocus, type, disabled }: {
+export function TextField({ label, value, onChange, hint, error, invalid, placeholder, mono, autoFocus, type, disabled }: {
   label: string
   value: string
   onChange: (v: string) => void
   hint?: string | undefined
   error?: string | null | undefined
+  /** Marked as refused without words (a refused form says why once, in its footer). */
+  invalid?: boolean | undefined
   placeholder?: string | undefined
   mono?: boolean
   autoFocus?: boolean
@@ -145,8 +147,8 @@ export function TextField({ label, value, onChange, hint, error, placeholder, mo
   disabled?: boolean | undefined
 }): ReactNode {
   return (
-    <Field label={label} hint={hint} error={error}>
-      <Input className={mono ? css.monoInput : undefined} value={value} placeholder={placeholder} type={type} disabled={disabled} autoComplete="off" spellCheck={false} aria-label={label}
+    <Field label={label} hint={hint} error={error} invalid={invalid}>
+      <Input className={mono ? css.monoInput : undefined} aria-invalid={error || invalid ? true : undefined} value={value} placeholder={placeholder} type={type} disabled={disabled} autoComplete="off" spellCheck={false} aria-label={label}
         data-modal-autofocus={autoFocus ? '' : undefined} onChange={(e) => onChange(e.target.value)} />
     </Field>
   )
@@ -220,7 +222,7 @@ export function FileGlyph({ size = 14 }: { size?: number }): ReactNode {
 export function locationWords(t: StorageT, view: Pick<StorageView, 'computer'> | undefined): LocationWords {
   const os = view?.computer?.os
   return {
-    home: t('layerfsHome'), thisMac: t(os === 'linux' ? 'nsThisLinux' : os === 'windows' ? 'nsThisPc' : 'nsThisMac'),
+    thisMac: t(os === 'linux' ? 'nsThisLinux' : os === 'windows' ? 'nsThisPc' : 'nsThisMac'),
     running: t('nsRunning'), stopped: t('nsStopped'), default: t('nsDefault'), here: t('nsHere'),
     nativeOs: os === 'linux' ? 'linux' : os === 'windows' || os === 'other' ? 'pc' : 'mac',
     state: (s) => storeStateWords(s, t),

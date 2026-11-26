@@ -288,6 +288,6 @@ export class ProjectExports {
 }
 
 /** Signal a CLI's whole process group (it was spawned detached), else the process itself. */
-function killGroup(pid: number, signal: NodeJS.Signals): void {
+export function killGroup(pid: number, signal: NodeJS.Signals): void {
   try { process.kill(-pid, signal) } catch { process.kill(pid, signal) }
 }

@@ -1,0 +1,53 @@
+/* PostgreSQL parts of a Store page (PgPanels.tsx). */
+
+.facts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px 12px;
+  margin: 0;
+  font-size: 12.5px;
+}
+.facts dt,
+.facts dd {
+  min-height: 18px;
+  line-height: 18px;
+}
+.facts dt {
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+}
+.facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.addr {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.addr > :first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* the check's words wrap rather than cut on a narrow column (the time is in its title) */
+.facts dd.check {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 2px;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+.facts dd.check > span {
+  flex-wrap: wrap;
+  row-gap: 2px;
+  max-width: 100%;
+}

@@ -1,7 +1,7 @@
 /**
  * Where a new project can go (docs/specs/layerfs-workspaces.md §5): the Stores
  * this host can Init into, the default Store name when there is none, the
- * machines a PostgreSQL Store is connected from, and project-name slugs.
+ * machines attached to a PostgreSQL Store, and project-name slugs.
  */
 
 /** One Store a project can be made in. */
@@ -10,8 +10,8 @@ export interface Location {
   kind: 'sqlite' | 'postgresql'
   /** PostgreSQL: the server (`host:port/db`), else null. */
   server: string | null
-  /** PostgreSQL: the machines its database is connected from (spec v23; each session picks its own), else empty. */
-  connectedFrom: string[]
+  /** PostgreSQL: the machines attached to it (each session picks one of them), else empty. */
+  attached: string[]
 }
 
 /** A project name from free text: lowercase, other runs become `-`, trimmed to 63. */
@@ -27,9 +27,9 @@ export function locationsOf(view: any, scratchStore?: string | null): Location[]
   const stores: any[] = Array.isArray(view?.stores) ? view.stores : []
   const usable = stores.filter((s) => s?.name && s.name !== scratchStore)
   const sqlite = usable.filter((s) => (s.kind ?? 'sqlite') !== 'postgresql' && (s.machine ?? 'native') === 'native')
-    .map((s): Location => ({ store: String(s.name), kind: 'sqlite', server: null, connectedFrom: [] }))
+    .map((s): Location => ({ store: String(s.name), kind: 'sqlite', server: null, attached: [] }))
   const pg = usable.filter((s) => s.kind === 'postgresql')
-    .map((s): Location => ({ store: String(s.name), kind: 'postgresql', server: s.postgresql?.target ?? null, connectedFrom: (Array.isArray(s.connectedFrom) ? s.connectedFrom : []).map((c: any) => (typeof c?.machine === 'string' && c.machine ? c.machine : 'native')) }))
+    .map((s): Location => ({ store: String(s.name), kind: 'postgresql', server: s.postgresql?.target ?? null, attached: (Array.isArray(s.attached) ? s.attached : []).map((c: any) => (typeof c?.machine === 'string' ? c.machine : '')).filter(Boolean) }))
   return [...sqlite, ...pg]
 }
 

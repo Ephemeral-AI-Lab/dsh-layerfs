@@ -93,51 +93,6 @@
   white-space: nowrap;
 }
 
-/* Home only: the kind's second view (Stores | Buckets, Databases | Servers), a smaller switch by the actions */
-.views {
-  display: inline-flex;
-  gap: 2px;
-  margin-inline-start: auto;
-  padding: 2px;
-  border-radius: 8px;
-  background: var(--dsw-alias-bg-module-platform);
-}
-.views + .barAction {
-  margin-inline-start: 0;
-}
-.view {
-  all: unset;
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 28px;
-  padding: 0 10px;
-  border-radius: 6px;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 12.5px;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.view[aria-selected='true'] {
-  background: var(--dsw-alias-settings-card-fill);
-  color: var(--dsw-alias-label-primary);
-  box-shadow: var(--dsw-elevation-soft);
-}
-.view:focus-visible {
-  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
-  outline-offset: 1px;
-}
-@media (hover: hover) {
-  .view[aria-selected='false']:hover {
-    color: var(--dsw-alias-label-primary);
-  }
-}
-.viewCount {
-  color: var(--dsw-alias-label-secondary);
-  font-variant-numeric: tabular-nums;
-}
-
 /* ---------- the panel ---------- */
 
 .panel {
@@ -243,73 +198,7 @@
   line-height: 16px;
   white-space: nowrap;
 }
-.metaMark {
-  display: inline-flex;
-  flex: none;
-  color: var(--dsw-alias-label-tertiary);
-}
 .metaText {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-/* Where the Store is, one line: "Stored on" its machine (SQLite), or "Runs on" a machine with Change (PostgreSQL). */
-.machines {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  min-height: 24px;
-  overflow: hidden;
-  white-space: nowrap;
-}
-.machinesLabel {
-  flex: none;
-  margin-inline-end: 2px;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 11.5px;
-}
-.chip {
-  all: unset;
-  box-sizing: border-box;
-  display: inline-flex;
-  flex: 0 1 auto;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  height: 22px;
-  padding: 0 8px;
-  border: 0.5px solid var(--dsw-alias-border-l2);
-  border-radius: 999px;
-  corner-shape: round;
-  color: var(--dsw-alias-label-primary);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
-}
-.chip[data-add] {
-  flex: none;
-  border-style: dashed;
-  border-color: var(--dsw-alias-border-l3);
-  color: var(--dsw-alias-label-secondary);
-}
-.chip:disabled {
-  cursor: default;
-}
-.chip .dot {
-  width: 6px;
-  height: 6px;
-}
-.chip:focus-visible {
-  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
-  outline-offset: 1px;
-}
-@media (hover: hover) {
-  .chip:not(:disabled):hover {
-    background: var(--dsw-alias-interactive-bg-hover);
-  }
-}
-.chipName {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -442,25 +331,6 @@
   gap: 4px;
   margin-inline-start: auto;
 }
-.check {
-  display: inline-flex;
-  flex: 0 1 auto;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.checkText {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.check[data-state='failed'] {
-  color: var(--lf-tone-danger-fg);
-}
 .badge {
   all: unset;
   box-sizing: border-box;
@@ -531,77 +401,16 @@
   font-size: 12px;
 }
 
-/* ---------- PostgreSQL: the cards under one thin header per server ---------- */
-
-.pgGroups {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-.pgGroup {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 0;
-}
-.pgServer {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  min-height: 28px;
-  padding-bottom: 6px;
-  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
-  color: var(--dsw-alias-label-secondary);
-  font-size: 12px;
-}
-.pgServerName {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--dsw-alias-label-primary);
-  font-family: var(--dsw-font-mono, ui-monospace, monospace);
-  font-size: 12.5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.pgServerFacts {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--dsw-alias-label-secondary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.pgServerImpact {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.pgServerImpact[data-cross-machine] {
-  padding: 1px 7px;
-  border: 0.5px solid var(--dsw-alias-border-l2);
-  border-radius: var(--dsw-radius-sm, 6px);
-  background: var(--dsw-alias-bg-module-platform);
-  color: var(--dsw-alias-label-primary);
-}
-.pgServerAdd {
-  flex: none;
-  margin-inline-start: auto;
-}
-
-/* narrow: the tiles stack their note under a shorter figure */
+/* narrow: the two tiles share the width; the figure moves into the tile's title */
 @container (max-width: 520px) {
-  .tileFigure {
-    font-size: 15px;
-    line-height: 22px;
+  .tiles {
+    width: 100%;
   }
-  .tileNote {
-    white-space: normal;
+  .tile {
+    flex: 1 1 0;
+  }
+  .tileFigure {
+    display: none;
   }
 }
 
@@ -706,126 +515,6 @@
   line-height: 18px;
 }
 
-/* the check, drawn as the path the machine dials */
-.path {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  margin: 6px 4px 2px;
-}
-.hop {
-  display: flex;
-  flex: 0 0 auto;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  max-width: 40%;
-  min-width: 0;
-  text-align: center;
-}
-.node {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border: 0.5px solid var(--dsw-alias-border-l3);
-  border-radius: 10px;
-  background: var(--dsw-alias-settings-card-fill);
-  color: var(--dsw-alias-label-secondary);
-}
-.hopLabel {
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 12px;
-  line-height: 16px;
-}
-.hopSub {
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
-  line-height: 14px;
-}
-.ownForm {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px 14px;
-  border: 0.5px solid var(--dsw-alias-border-l2);
-  border-radius: var(--dsw-radius-md);
-  background: var(--dsw-alias-bg-module-platform);
-}
-.wire {
-  flex: 1;
-  height: 2px;
-  margin-top: 17px;
-  border-radius: 1px;
-  background: var(--dsw-alias-border-l3);
-}
-.wire[data-state='running'] {
-  background: repeating-linear-gradient(90deg, var(--dsw-alias-link) 0 6px, transparent 6px 10px);
-}
-.wire[data-state='ok'] {
-  background: var(--lf-tone-success-dot);
-}
-.wire[data-state='failed'] {
-  background: var(--lf-tone-danger-dot);
-}
-.steps {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: var(--dsw-radius-m, 8px);
-  background: var(--dsw-alias-bg-module-platform);
-  list-style: none;
-}
-.step {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 13px;
-  line-height: 18px;
-}
-.step[data-state='ok'] {
-  color: var(--dsw-alias-label-primary);
-}
-.step[data-state='failed'] {
-  color: var(--lf-tone-danger-fg);
-}
-.stepMark {
-  display: inline-flex;
-  width: 14px;
-  justify-content: center;
-}
-.result {
-  margin: 0;
-  font-size: 13px;
-  line-height: 18px;
-}
-.checkActions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.checkFailure {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px 14px;
-  border: 0.5px solid var(--lf-tone-danger-border);
-  border-radius: var(--dsw-radius-md);
-  background: var(--lf-tone-danger-bg);
-}
-.checkFailureNote {
-  margin: 0;
-  color: var(--dsw-alias-label-primary);
-  font-size: 12.5px;
-  line-height: 18px;
-}
-
 /* ---------- Backups and Back up ---------- */
 
 .health {
@@ -911,48 +600,6 @@
 }
 
 /* phone: the PostgreSQL server row wraps (address and check on one line, Add database on the next) instead of clipping */
-@container (max-width: 520px) {
-  .pgServer {
-    flex-wrap: wrap;
-    row-gap: 4px;
-  }
-  .pgServerName {
-    flex: 1 1 auto;
-    overflow-wrap: anywhere;
-    white-space: normal;
-  }
-  .pgServer .check {
-    flex: none;
-    white-space: nowrap;
-  }
-  .pgServerFacts {
-    flex-basis: 100%;
-    white-space: normal;
-  }
-}
-
-/* Connected from (spec v23): the chips wrap under their label; a chip's Sandbox count is quiet */
-.machines[data-connected-from] {
-  align-items: flex-start;
-  overflow: visible;
-  white-space: normal;
-}
-.machines[data-connected-from] .machinesLabel {
-  line-height: 22px;
-}
-.chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  min-width: 0;
-}
-.chipCount {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  color: var(--dsw-alias-label-secondary);
-  font-variant-numeric: tabular-nums;
-}
 
 /* Touch: the Stores board's kinds, view switch, names, place chips, project
    rows and foot actions are thumb targets. A fine pointer keeps Home's

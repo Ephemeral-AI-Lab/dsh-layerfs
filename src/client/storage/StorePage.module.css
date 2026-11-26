@@ -63,7 +63,6 @@
   color: var(--lf-tone-danger-fg);
 }
 
-
 /* ---------- tiles ---------- */
 
 .tiles {
@@ -300,7 +299,6 @@
   font-size: 12px;
   font-weight: 400;
 }
-
 
 .ratioLine {
   display: flex;
@@ -774,21 +772,6 @@
   color: var(--dsw-alias-label-primary);
 }
 
-.linkCheck {
-  margin: 0;
-  font-size: 12px;
-  color: var(--dsw-alias-label-secondary);
-  /* its parts apart, a dot between them (R1 F4: "outdatedchecked just now17.11" ran together) */
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 6px;
-}
-.linkPart + .linkPart::before {
-  content: '·';
-  margin-right: 6px;
-}
-
 .linkActions {
   display: flex;
   flex-wrap: wrap;
@@ -819,70 +802,12 @@
   .partsLegend { grid-template-columns: minmax(0, 1fr); }
 }
 
-/* Connection ▸ Machines (spec v23): one row per side that connects */
-.connList {
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.connRow {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 14px;
-  min-height: 36px;
-  padding: 6px 0;
-  border-top: 0.5px solid var(--dsw-alias-border-l2);
-  font-size: 13px;
-}
-.connRow:first-child {
-  border-top: none;
-}
-.connIdentity {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 112px;
-}
-.connName {
-  min-width: 0;
-  overflow: hidden;
-  font-weight: 500;
-  color: var(--dsw-alias-label-primary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.connTag {
-  padding: 0 6px;
-  border-radius: 999px;
-  corner-shape: round;
-  background: var(--dsw-alias-bg-module-platform);
-  font-size: 11px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-secondary);
-}
-.connAddr {
+
+/* A Store that could not be read: the dot and its word (StoreUnreadSignal). */
+.unreadWord {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-width: 168px;
-  font-size: 12.5px;
-  color: var(--dsw-alias-label-tertiary);
-}
-.connReach {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 110px;
-  font-size: 12.5px;
-  font-variant-numeric: tabular-nums;
-}
-.connActions {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
 }
 
 /* ---------- the Store page on touch ---------- */

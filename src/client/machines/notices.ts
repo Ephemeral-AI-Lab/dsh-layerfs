@@ -74,22 +74,21 @@ export function chipOpWords(look: Pick<StateLook, 'label'> & { op?: SdkOperation
  * (start it, or its worker). A machine whose record LayerFS cannot read says
  * so: starting it is not offered.
  */
-export function sandboxesEmptyKey(m: MachineInfo, view: Pick<AvailableView, 'readErrors'>, running: boolean): { key: MachinesKey, home: boolean } {
-  const home = m.platform === 'native'
-  if (view.readErrors?.sandboxes) return { key: 'sandboxesUnread', home }
-  if (unreadableRecord(m)) return { key: 'sandboxesRecordUnreadable', home }
-  if (running) return { key: 'noSandboxesHere', home }
-  return { key: m.platform === 'docker' ? 'sandboxesAfterWorker' : 'sandboxesAfterStart', home }
+export function sandboxesEmptyKey(m: MachineInfo, view: Pick<AvailableView, 'readErrors'>, running: boolean): MachinesKey {
+  if (view.readErrors?.sandboxes) return 'sandboxesUnread'
+  if (unreadableRecord(m)) return 'sandboxesRecordUnreadable'
+  if (running) return 'noSandboxesHere'
+  return m.platform === 'docker' ? 'sandboxesAfterWorker' : 'sandboxesAfterStart'
 }
 
 /**
- * The PostgreSQL Stores connected from this machine (spec v23), and those
+ * The PostgreSQL Stores attached to this machine, and those
  * with a Sandbox on it now (the Stores tab lists the same).
  */
 export function pgStoresHere(view: Pick<AvailableView, 'postgresql' | 'sandboxes'> & Partial<Pick<AvailableView, 'machines'>>, m: MachineInfo): string[] {
   const boxes = sandboxesOn({ sandboxes: view.sandboxes } as AvailableView, m)
   const busy = new Set(boxes.map((b) => b.project?.split('/')[0]).filter((x): x is string => !!x))
-  return (view.postgresql ?? []).filter((s) => (s.connectedFrom ?? []).some((c) => c.machine === m.name) || busy.has(s.name)).map((s) => s.name).sort()
+  return (view.postgresql ?? []).filter((s) => (s.attached ?? []).some((c) => c.machine === m.name) || busy.has(s.name)).map((s) => s.name).sort()
 }
 
 /** The Details line of a machine's PostgreSQL Sandboxes, counted as its Stores tab counts them. */

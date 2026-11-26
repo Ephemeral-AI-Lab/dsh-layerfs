@@ -1,6 +1,6 @@
 /** Storage's pure rules: placement, attention and job words. No React. */
 import type { Tone } from '../ui/index.tsx'
-import type { BackupFile, BucketRow, JobKind, PgConnection, StorageJob, StorageView, StoreBackupLink, StoreRow } from './types.ts'
+import type { BackupFile, BucketRow, JobKind, StorageJob, StorageView, StoreBackupLink, StoreFormat, StoreRow } from './types.ts'
 import type { StorageKey, StorageT } from './locale.ts'
 import { connectBucketFix } from '../../shared/doctor.ts'
 
@@ -255,15 +255,14 @@ export function storeStateWords(state: string, t: StorageT, reason?: string | nu
 }
 
 /**
- * A PostgreSQL Store whose record names no saved login (one connected before
- * saved logins). LayerFS 2.0 does not dial it: it is `broken` `outdated` and
- * every call is refused until a login is saved and named
- * (`store save-auth` then `store update --auth`).
+ * A broken PostgreSQL Store with no saved password: every call is refused
+ * until its connection is given again (`store connect` with the user and
+ * password: Edit connection…).
  */
-export const needsLogin = (s: Pick<StoreRow, 'kind' | 'state' | 'reason' | 'postgresql'>): boolean =>
-  s.kind === 'postgresql' && s.state === 'broken' && ((s.reason === 'outdated' && !s.postgresql?.auth) || (s.reason === 'missing' && !!s.postgresql?.auth))
+export const needsLogin = (s: Pick<StoreRow, 'kind' | 'state' | 'postgresql'>): boolean =>
+  s.kind === 'postgresql' && s.state === 'broken' && s.postgresql?.passwordSaved === false
 
-/** A broken Store's words: an unknown outcome, a PostgreSQL Store with no saved login, else the state word and its reason. */
+/** A broken Store's words: an unknown outcome, a PostgreSQL Store with no saved password, else the state word and its reason. */
 export function brokenWords(s: Pick<StoreRow, 'kind' | 'state' | 'reason' | 'postgresql'>, t: StorageT): string {
   if (s.reason === 'unresolved') return t('unresolved')
   if (needsLogin(s)) return `${t('stateBroken')} · ${t('reasonNoLogin')}`
@@ -275,8 +274,8 @@ export const sessionsUnavailable = (s: { state?: string | null } | undefined): b
 
 /**
  * A Store's hover tip: LayerFS's own sentence when its answer has one; a
- * PostgreSQL Store with no saved login says what LayerFS's refusal says
- * (`store list` gives no sentence for it); else its fix line.
+ * PostgreSQL Store with no saved password says to edit its connection;
+ * else its fix line.
  */
 export function storeTip(s: Pick<StoreRow, 'name' | 'kind' | 'state' | 'reason' | 'postgresql' | 'message' | 'fix'>, t: StorageT): string | undefined {
   if (s.message) return s.message
@@ -360,7 +359,7 @@ export const latestBackup = (s: StoreRow): number | null =>
   s.links.reduce<number | null>((n, l) => (l.last?.at != null && (n === null || l.last.at > n) ? l.last.at : n), null)
 
 /** Where a Store is, in words: the home, a machine, or PostgreSQL. */
-export const placeWords = (machine: string | null | undefined, t: StorageT): string => (machine === 'native' ? t('layerfsHome') : (machine ?? '?'))
+export const placeWords = (machine: string | null | undefined): string => machine ?? '?'
 
 /** One file a bucket holds: the file, the Store it belongs to, its last listed state. */
 export interface BucketFileRow {
@@ -395,6 +394,8 @@ export const STEPS: Record<JobKind, readonly string[]> = {
   restore: ['check', 'download', 'verify', 'install'],
   // a sqlite Store's; the host names a PostgreSQL Store's own (`steps`)
   compact: ['mark', 'build', 'verify', 'install'],
+  // a sqlite Store's; a PostgreSQL Store's (check, convert) come from the host (`steps`)
+  upgrade: ['check', 'convert', 'verify', 'commit'],
 }
 
 export type StepState = 'done' | 'now' | 'failed' | 'todo'
@@ -448,8 +449,10 @@ export function mergeJob(old: StorageJob | undefined, incoming: StorageJob): Sto
   if (nextHalf === oldHalf && nextPhases < oldPhases) return old
   if (nextHalf === oldHalf && nextPhases === oldPhases && incoming.phase === old.phase && (incoming.done ?? -1) < (old.done ?? -1)) return old
   const maxShare = Math.min(0.99, Math.max(oldShare, nextRaw, incoming.maxShare ?? 0))
-  if (old.ended === incoming.ended && old.phase === incoming.phase && old.done === incoming.done && old.total === incoming.total && old.half === incoming.half && old.maxShare === maxShare) return old
-  return { ...incoming, maxShare }
+  // an upgrade's Cancel is sticky: once the host says stopping, a stale poll never turns it back into Cancel
+  const stopping = !!(old.stopping || incoming.stopping)
+  if (old.ended === incoming.ended && old.phase === incoming.phase && old.done === incoming.done && old.total === incoming.total && old.half === incoming.half && old.maxShare === maxShare && !!old.stopping === stopping) return old
+  return { ...incoming, maxShare, ...(stopping ? { stopping } : {}) }
 }
 
 export function movePushFailed(j: Pick<StorageJob, 'kind' | 'half' | 'phase' | 'outcome' | 'error'>): boolean {
@@ -491,6 +494,8 @@ export function stepWords(step: string | null, t: StorageT): string {
     case 'build': return t('stepBuild')
     case 'swap': return t('stepSwap')
     case 'cleanup': return t('stepCleanup')
+    case 'convert': return t('stepConvert')
+    case 'commit': return t('stepCommit')
     case null: return t('stepStarting')
     // a step this page has no word for: a plain word, never LayerFS's step code
     default: return t('stepWorking')
@@ -500,12 +505,13 @@ export function stepWords(step: string | null, t: StorageT): string {
 /** What a running job does, in words. */
 export function doingWords(j: StorageJob, t: StorageT): string {
   switch (j.kind) {
-    case 'push': return t(j.made ? 'jobMaking' : 'jobPushing', { place: placeWords(j.target, t) })
-    case 'pull': return t('jobPulling', { place: placeWords(j.from, t) })
-    case 'move': return t('jobMoving', { place: placeWords(j.target, t) })
+    case 'push': return t(j.made ? 'jobMaking' : 'jobPushing', { place: placeWords(j.target) })
+    case 'pull': return t('jobPulling', { place: placeWords(j.from) })
+    case 'move': return t('jobMoving', { place: placeWords(j.target) })
     case 'backup': return t('jobBackingUp', { place: j.target })
     case 'restore': return t('jobRestoring', { place: j.file ? `${j.target}/${j.file}` : j.target })
     case 'compact': return t('jobCompacting', { place: j.store })
+    case 'upgrade': return t('jobUpgrading', { place: j.store })
   }
 }
 
@@ -535,14 +541,15 @@ export const holderTab = (b: Holder): `sandbox:${string}` => `sandbox:${b.machin
 
 /** How a job ended, in words. `size` writes a byte count (a compaction's freed space); without it the count is left out. */
 export function endedWords(j: StorageJob, t: StorageT, size?: (n: number) => string): string {
+  if (j.kind === 'upgrade') return upgradeEnd(j, t).word
   if (j.outcome === 'unknown') return t('jobUnknown')
   if (j.outcome === 'interrupted') return t('jobInterrupted')
-  const place = j.kind === 'pull' ? placeWords(j.from, t) : j.kind === 'backup' || j.kind === 'restore' ? j.target : j.kind === 'compact' ? j.store : placeWords(j.target, t)
+  const place = j.kind === 'pull' ? placeWords(j.from) : j.kind === 'backup' || j.kind === 'restore' ? j.target : j.kind === 'compact' ? j.store : placeWords(j.target)
   const failPhase = j.error?.phase ?? j.phase ?? null
   if (j.error && failPhase === 'retire' && (j.kind === 'push' || j.kind === 'pull' || j.kind === 'move')) {
     return j.kind === 'pull' || j.half === 'pull'
-      ? t('jobRetireHome', { from: placeWords(j.from, t) })
-      : t('jobRetireTarget', { place: placeWords(j.target, t) })
+      ? t('jobRetireHome', { from: placeWords(j.from) })
+      : t('jobRetireTarget', { place: placeWords(j.target) })
   }
   if (movePushFailed(j)) {
     return inUseJob(j)
@@ -550,7 +557,7 @@ export function endedWords(j: StorageJob, t: StorageT, size?: (n: number) => str
       : t('jobMovePushFailed', { place, phase: failPhase ? stepWords(failPhase, t) : '—' })
   }
   if (j.error && j.kind === 'move' && j.half === 'pull' && j.from) {
-    const from = placeWords(j.from, t)
+    const from = placeWords(j.from)
     return inUseJob(j)
       ? t('jobMovePullInUse', { place, from })
       : t('jobMovePullFailed', { place, from, phase: failPhase ? stepWords(failPhase, t) : '—' })
@@ -573,6 +580,107 @@ export function endedWords(j: StorageJob, t: StorageT, size?: (n: number) => str
   }
 }
 
+// ---------- Store formats and upgrades (#804) ----------
+
+/**
+ * A Store's format in its details row: "3 (latest)", "2 · latest 3", "4 ·
+ * newer than this LayerFS", "2 · no upgrade path" (`unsupported`), and
+ * "unknown" when it could not be read (`unknown`: a stopped machine, an
+ * unreachable server; or an unrecognized `unsupported` one); null when not reported.
+ */
+export function formatWords(f: StoreFormat | null | undefined, t: StorageT): string | null {
+  if (!f) return null
+  if (f.status === 'unknown' || f.version === null) return f.status === 'unknown' || f.status === 'unsupported' ? t('fmtUnknown') : null
+  const v = String(f.version)
+  if (f.status === 'current') return t('fmtLatest', { v })
+  if (f.status === 'newer') return t('fmtNewer', { v })
+  if (f.status === 'unsupported') return t('fmtNoPath', { v })
+  return f.latest !== null ? t('fmtBehind', { v, latest: String(f.latest) }) : v
+}
+
+/** A Store's format as a tip: "Format 2 · latest 3", "Format 3 (latest)", "Format 4 · newer than this LayerFS". */
+export function formatTip(f: StoreFormat | null | undefined, t: StorageT): string | null {
+  const words = formatWords(f, t)
+  return words ? t('fmtTip', { words }) : null
+}
+
+/**
+ * The chip a Store's format earns on its row and page head, or null: an older
+ * one with an upgrade path (`outdated`) reads Outdated in red, one with none
+ * (`unsupported`) Unsupported format in red, a newer one Newer format in
+ * amber; a format that could not be read (`unknown`) earns none. Only from
+ * `--with format`; no sentence parsing.
+ */
+export function formatChip(f: StoreFormat | null | undefined, t: StorageT): { tone: 'danger' | 'warning', label: string } | null {
+  if (!f) return null
+  if (f.status === 'outdated') return { tone: 'danger', label: t('spOutdated') }
+  if (f.status === 'unsupported') return { tone: 'danger', label: t('fmtUnsupportedChip') }
+  if (f.status === 'newer') return { tone: 'warning', label: t('fmtNewerChip') }
+  return null
+}
+
+/** Whether a fix line is `layerfs store upgrade <store>` (the Store's own Upgrade… runs it, not Remove… or Disconnect…). */
+export const namesUpgrade = (fix: string | null | undefined, store?: string): boolean => {
+  const m = typeof fix === 'string' ? /^layerfs store upgrade (\S+)$/.exec(fix.trim()) : null
+  return !!m && (store === undefined || m[1] === store || m[1] === `'${store}'`)
+}
+
+/** Whether a Store offers Upgrade…: the runtime has store.upgrade and its format (or a refusal's fix) names it. */
+export function canUpgrade(s: Pick<StoreRow, 'name' | 'format'>, view: Pick<StorageView, 'upgrade'> | undefined, refusalFix?: string | null): boolean {
+  if (!view?.upgrade) return false
+  return s.format?.status === 'outdated' || namesUpgrade(s.format?.fix, s.name) || namesUpgrade(refusalFix, s.name)
+}
+
+/** The Upgrade dialog's format line, "Format 2 → 3", or null when the format is not known. */
+export function upgradeLine(f: StoreFormat | null | undefined, t: StorageT): string | null {
+  return f?.version != null && f.latest != null ? t('fmtArrow', { from: String(f.version), to: String(f.latest) }) : null
+}
+
+/** Whether a running upgrade's Cancel is refused: it reached `commit`, the point of no return. */
+export const upgradeFinishing = (j: Pick<StorageJob, 'phase' | 'ended'>): boolean => !j.ended && j.phase === 'commit'
+
+export type UpgradeEndState = 'ok' | 'idle' | 'error' | 'warning'
+
+/**
+ * How an upgrade ended, as a signal: its state, word and tip (#804 §10).
+ * Upgraded green (tip: the format it is at now); cancelled before COMMIT,
+ * nothing changed, neutral; failed red with LayerFS's words, which name the
+ * check; unknown or interrupted amber with `check` (its Check reads the
+ * format), and after a Check, Upgraded or Outdated as the format says.
+ */
+export function upgradeEnd(j: StorageJob, t: StorageT): { state: UpgradeEndState, word: string, tip: string | null, check: boolean } {
+  const place = j.store
+  const latest = (v: unknown) => (typeof v === 'number' ? t('fmtTip', { words: t('fmtLatest', { v: String(v) }) }) : null)
+  if (j.outcome === 'succeeded' || (!j.outcome && j.ended && !j.error)) {
+    const current = j.result?.outcome === 'current'
+    return { state: 'ok', word: t(current ? 'jobUpgradeCurrent' : 'jobUpgraded', { place }), tip: latest(j.result?.format_after), check: false }
+  }
+  if (j.outcome === 'stopped') return { state: 'idle', word: t('jobUpgradeStopped', { place }), tip: t('upgradeStoppedTip'), check: false }
+  if (j.outcome === 'unknown' || j.outcome === 'interrupted') {
+    const f = j.observation?.kind === 'upgrade' ? j.observation.value?.format as StoreFormat | undefined : undefined
+    const amber = t(j.outcome === 'interrupted' ? 'jobUpgradeInterrupted' : 'jobUpgradeUnknown', { place })
+    // the host's own look at a restart (`auto`) settles nothing: still interrupted, its read only in the tip, Check offered
+    if (j.observation?.auto) return { state: 'warning', word: amber, tip: [t('upgradeUnknownTip'), formatTip(f, t)].filter(Boolean).join('\n'), check: true }
+    // a person's Check that read the format settles it: no Check again
+    if (f?.status === 'current') return { state: 'ok', word: t('jobUpgraded', { place }), tip: latest(f.version), check: false }
+    if (f?.status === 'outdated') return { state: 'error', word: t('jobUpgradeOutdated', { place }), tip: [t('upgradeOutdatedTip'), formatTip(f, t)].filter(Boolean).join('\n'), check: false }
+    // the Check could not read the format (no `--with format`, a stopped machine, an unreachable server): still unknown
+    if (f?.status === 'unknown') return { state: 'warning', word: amber, tip: [t('upgradeFormatUnknownTip'), formatTip(f, t)].filter(Boolean).join('\n'), check: true }
+    return { state: 'warning', word: amber, tip: t('upgradeUnknownTip'), check: true }
+  }
+  const tip = j.error ? [`${j.error.code}: ${j.error.message}`, ...(j.error.fix ? [j.error.fix] : [])].join('\n') : null
+  const phase = j.error?.phase ?? j.phase ?? null
+  return { state: 'error', word: inUseJob(j) ? t('jobInUse', { what: kindWords(j.kind, t), place }) : t('jobFailed', { what: kindWords(j.kind, t), place, phase: phase ? stepWords(phase, t) : '—' }), tip, check: false }
+}
+
+/** Elapsed time as m:ss (h:mm:ss past an hour). */
+export function elapsedWords(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60
+  const two = (n: number) => String(n).padStart(2, '0')
+  return h ? `${h}:${two(m)}:${two(r)}` : `${m}:${two(r)}`
+}
+
 /** A job kind as a noun. */
 export function kindWords(kind: JobKind, t: StorageT): string {
   switch (kind) {
@@ -582,6 +690,7 @@ export function kindWords(kind: JobKind, t: StorageT): string {
     case 'backup': return t('kindBackup')
     case 'restore': return t('kindRestore')
     case 'compact': return t('kindCompact')
+    case 'upgrade': return t('kindUpgrade')
   }
 }
 
@@ -619,32 +728,16 @@ export function jobCounts(jobs: readonly StorageJob[], dismissed: ReadonlySet<st
   return { running: last.filter((j) => !j.ended).length, failed: last.filter((j) => j.ended && j.error && !dismissed.has(j.id)).length }
 }
 
-// ---------- PostgreSQL: who connects (spec v23) ----------
+// ---------- PostgreSQL: the machines attached to a Store ----------
 
-/** A connections row's machine as the page names machines: this computer is `native`. */
-export const rowMachine = (c: Pick<PgConnection, 'machine'>): string => c.machine ?? 'native'
-
-/** The machines a PostgreSQL Store's database is connected from, this computer first (as `native`). */
-export function connectedMachines(s: Pick<StoreRow, 'connectedFrom'>): string[] {
-  return (s.connectedFrom ?? []).map(rowMachine)
+/** The machines attached to a PostgreSQL Store, in LayerFS's order. */
+export function attachedMachines(s: Pick<StoreRow, 'attached'>): string[] {
+  return (s.attached ?? []).map((a) => a.machine)
 }
 
-/** `machine`'s row of a PostgreSQL Store (this computer's for `native` without an address of its own), or null. */
-export function connectionOf(s: Pick<StoreRow, 'connectedFrom'>, machine: string): PgConnection | null {
-  const rows = s.connectedFrom ?? []
-  return rows.find((c) => c.machine === machine) ?? (machine === 'native' ? rows.find((c) => c.machine === null) ?? null : null)
-}
-
-/** The name a new login for `server` (`host:port`) gets by default (spec v23 V23-12): `pg-<host>-<port>`, never the Store's. */
-export function pgServerLogin(server: string | null | undefined): string | null {
-  if (!server) return null
-  const name = `pg-${server}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '').slice(0, 63).replace(/-+$/, '')
-  return /^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/.test(name) ? name : null
-}
-
-/** The PostgreSQL Stores connected from `machine` (its `connections` name it), or with a Sandbox there now (`busy`: their names), by name. */
+/** The PostgreSQL Stores attached to `machine`, or with a Sandbox there now (`busy`: their names), by name. */
 export function pgStoresOn(view: Pick<StorageView, 'stores'>, machine: string, busy: ReadonlySet<string> = new Set()): StoreRow[] {
-  return view.stores.filter((s) => s.kind === 'postgresql' && (connectedMachines(s).includes(machine) || busy.has(s.name))).sort((a, b) => a.name.localeCompare(b.name))
+  return view.stores.filter((s) => s.kind === 'postgresql' && (attachedMachines(s).includes(machine) || busy.has(s.name))).sort((a, b) => a.name.localeCompare(b.name))
 }
 
 /** Whether a new PostgreSQL session may be placed on `m`: it runs, runs PostgreSQL Sandboxes and is not broken (the host's placement.ts). */
@@ -654,21 +747,13 @@ export const pgPlaceable = (m: { state?: string | null, supports?: readonly stri
 /**
  * The machine a new session of PostgreSQL Store `s` runs on when the person
  * names none (the host's placement.ts order, without its Sandbox read): the
- * project's last machine when given, a machine the database was reached
- * from, else native. Never a broken or stopped machine.
+ * project's last machine while it is attached, else the only attached
+ * machine, else none (null: the person picks one). Never a broken or stopped
+ * machine, and never a machine guessed.
  */
-export function pgDefaultMachine(s: Pick<StoreRow, 'connectedFrom'> | undefined, machines: readonly { name: string, state?: string | null, supports?: readonly string[] | null }[], last?: string | null): string {
+export function pgDefaultMachine(s: Pick<StoreRow, 'attached'> | undefined, machines: readonly { name: string, state?: string | null, supports?: readonly string[] | null }[], last?: string | null): string | null {
   const ok = (name: string | null | undefined): name is string => !!name && pgPlaceable(machines.find((m) => m.name === name))
-  if (ok(last)) return last
-  return (s?.connectedFrom ?? []).filter((c) => c.reached === 'ok').map(rowMachine).find(ok) ?? 'native'
-}
-
-/** What a machine of `platform` dials for a server on this host's localhost (LayerFS's reach rewrite). Linux docker uses `--network host` (no rewrite). */
-export function loopbackAlias(platform: string, hostOs?: 'macos' | 'linux' | 'windows' | 'other'): string | null {
-  switch (platform) {
-    case 'docker': return hostOs === 'linux' ? null : 'host.docker.internal'
-    case 'lima': return '192.168.5.2'
-    case 'apple-container': return '192.168.64.1'
-    default: return null
-  }
+  const rows = s?.attached ?? []
+  if (ok(last) && rows.some((a) => a.machine === last)) return last
+  return rows.length === 1 && ok(rows[0]!.machine) ? rows[0]!.machine : null
 }

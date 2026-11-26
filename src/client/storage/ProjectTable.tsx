@@ -40,7 +40,7 @@ import { LayerfsGlyph } from '../overview/glyph.tsx'
 import type { TabId } from './tabs.ts'
 import type { StorageKey, StorageT } from './locale.ts'
 import { useHostEvents } from './hooks.ts'
-import { HomeGlyph, StoreGlyph, refusalLabels } from './parts.tsx'
+import { StoreGlyph, refusalLabels } from './parts.tsx'
 import { Signal } from './Signal.tsx'
 import { JobLine, SIZE_POLL_MS, sandboxesOfProject, storeTrouble, troubleAction, type Place, type Trouble } from './HomeCards.tsx'
 import { doingWords, sessionsUnavailable } from './model.ts'
@@ -598,7 +598,7 @@ function SandboxList({ boxes, fleet, place, t, other, onSwitch, onOpen }: {
                     <span className={css.lineIcon} aria-hidden="true"><SandboxGlyph size={13} /></span>
                     <span className={clsx(css.ellipsis, css.mono)}>{shortSandbox(b.name)}</span>
                     <span className={css.machine}>
-                      <span className={css.lineIcon} aria-hidden="true">{b.machine === 'native' ? <HomeGlyph size={12} /> : <MachineGlyph platform={platformOf(b.machine) ?? 'unknown'} size={12} />}</span>
+                      <span className={css.lineIcon} aria-hidden="true"><MachineGlyph platform={platformOf(b.machine) ?? 'unknown'} size={12} /></span>
                       <span className={css.ellipsis}>{place(b.machine)}</span>
                     </span>
                     <span className={css.lineState} data-tone={runs ? 'success' : undefined}>{runs ? t('ptSandboxRunning') : t('ptSandboxStopped')}</span>

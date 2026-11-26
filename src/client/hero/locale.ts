@@ -21,7 +21,6 @@ const en = {
   loadFailed: 'Could not list projects',
   onMachine: 'On {machine}',
   /** Where a project on the native machine runs. */
-  home: 'LayerFS Home',
   newEmpty: 'New project…',
   importProject: 'Import a folder…',
   configure: 'Set up {project}',
@@ -62,7 +61,6 @@ const zh: typeof en = {
   loading: '正在加载项目…',
   loadFailed: '无法列出项目',
   onMachine: '位于 {machine}',
-  home: 'LayerFS Home',
   newEmpty: '新建项目…',
   importProject: '导入文件夹…',
   configure: '设置 {project}',

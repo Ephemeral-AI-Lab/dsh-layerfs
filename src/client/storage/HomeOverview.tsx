@@ -16,7 +16,7 @@ import { EmptyState } from '../files/States.tsx'
 import { Card, FixContext, LoadError, Loading, Refusal, resolveFix, usePressGuard } from '../ui/index.tsx'
 import { isOverviewTab, type OverviewTab, type TabId } from './tabs.ts'
 import { BucketCards } from './BucketCards.tsx'
-import { HomeStores } from './MachineStores.tsx'
+import { StoreRows } from './StoreRows.tsx'
 import { ProjectTable } from './ProjectTable.tsx'
 import { ProjectFinderBar, useProjectFinder } from './ProjectFinder.tsx'
 import { projectMatches } from './project-list.ts'
@@ -25,7 +25,7 @@ import { useStartDoctor } from '../doctor/Doctor.tsx'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { projectDialog } from '../projects/dialog.ts'
 import { HomeHero, panelId } from './HomeHero.tsx'
-import { StoreMenu, type LoginActions, type StoreActions } from './StoreCard.tsx'
+import { StoreMenu, type StoreActions } from './StoreCard.tsx'
 import { compareNeeds, visibleFailures, worstTone } from './home-notices.ts'
 import { storeTrouble } from './HomeCards.tsx'
 import { Signal } from './Signal.tsx'
@@ -69,9 +69,7 @@ export interface HomeOverviewProps {
   onBackup: (store: string) => void
   /** A Store's actions (the Store menu, Back up, Edit connection), through the page's dialogs. */
   actionsFor: (store: StoreRow) => StoreActions
-  /** A saved PostgreSQL login's own actions (the PostgreSQL tab's login headers). */
-  loginActions: LoginActions
-  /** The Sandboxes the Machines view knows: a Connected from chip counts the machine's Sandboxes of the Store. */
+  /** The Sandboxes the Machines view knows: a Runs on row counts the machine's Sandboxes of the Store. */
   sandboxes?: readonly { machine?: string | null, project?: string | null }[]
   onAddBucket: () => void
   /** Lists a bucket's files. */
@@ -135,9 +133,8 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
     )
   }
 
-  const place = (machine: string | null | undefined) => (machine === 'native' ? t('groupHome') : machine ?? '?')
+  const place = (machine: string | null | undefined) => machine ?? '?'
   const stores = orderStores(view.stores)
-  const sqlite = stores.filter((s) => s.kind === 'sqlite')
   const projectCount = stores.reduce((n, s) => n + s.projects.length, 0)
   const searching = finder.query.trim() !== ''
   const projectsShown = searching ? stores.reduce((n, s) => n + s.projects.filter((p) => projectMatches(s.name, p, finder.query)).length, 0) : projectCount
@@ -234,7 +231,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
     // a broken Store (2.0): its word, its fix line as the detail; a machine already listed above is not repeated
     if (s.state === 'broken' && !(s.kind === 'sqlite' && unreachable.has(s.machine ?? ''))) {
       const pgDown = s.kind === 'postgresql' && s.reason === 'unreachable'
-      // a PostgreSQL Store that is only outdated or names a missing login is reachable: it needs its update, not "down" (R1 F1);
+      // a PostgreSQL Store that is only outdated or missing its password is reachable: it needs its update, not "down" (R1 F1);
       // its state word with LayerFS's fix as the tip, and that fix as the one action where the page runs it
       const needsKey = s.kind !== 'postgresql' ? null : needsLogin(s) || s.reason === 'missing' ? 'ovStoreNeedsLogin' : s.reason === 'outdated' ? 'ovStoreNeedsUpdate' : null
       const fix = needsKey && fixes ? resolveFix(fixes, s.fix)?.fix ?? null : null
@@ -279,6 +276,15 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
   // The selected tab's actions, at the right end of the tab bar (an empty tab carries its own call to action instead).
   const plus = <IconPlusOutlineRegular size={12} />
   const tabActions = tab === 'projects' ? (projectCount > 0 ? <Button variant="outline" size="sm" className={heroCss.actionButton} icon={plus} onClick={newProject}>{t('newProject')}</Button> : null)
+    : tab === 'buckets' ? (
+      <>
+        {view.buckets.length > 0 ? (
+          <Button variant="outline" size="sm" className={heroCss.actionButton} disabled={props.listingAll} onClick={props.onListAll}
+            icon={props.listingAll ? <StatusDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={13} />}>{t('ovListBuckets')}</Button>
+        ) : null}
+        <Button variant="outline" size="sm" className={heroCss.actionButton} icon={plus} onClick={props.onAddBucket}>{t('ovAddBucket')}</Button>
+      </>
+    )
     : tab === 'machines' ? (
       <>
         <Button title={machineReason} disabled={!!machineReason} variant="outline" size="sm" className={heroCss.actionButton} icon={plus} onClick={props.onNewMachine}>{t('newMachine')}</Button>
@@ -287,19 +293,6 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
       </>
     )
      : <span className={heroCss.storeActions} ref={setStoreActionsHost} />
-  // SQLite's second view: the backup buckets (once the Backups tab). PostgreSQL has one view: its databases under their server.
-  const storesAlt = {
-    main: { label: t('hsViewStores'), count: sqlite.length },
-    other: { label: t('hsViewBuckets'), count: view.buckets.length },
-    view: <BucketCards view={view} t={t} now={now} jobs={runningJobs} listingBuckets={props.listingBuckets} listingAll={props.listingAll} onOpen={props.onOpen} onAddBucket={props.onAddBucket} onList={props.onListBucket} onReconnect={props.onReconnect} onRestore={props.onRestore} />,
-    add: view.buckets.length > 0 ? (
-      <>
-        <Button variant="outline" size="sm" disabled={props.listingAll} onClick={props.onListAll}
-          icon={props.listingAll ? <StatusDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={13} />}>{t('ovListBuckets')}</Button>
-        <Button variant="outline" size="sm" icon={plus} onClick={props.onAddBucket}>{t('ovAddBucket')}</Button>
-      </>
-    ) : null,
-  }
   // A Store row's menu on the board: the Store card's own menu (a PostgreSQL Store's checks from this machine).
   const storeMenuOn = (machine: string) => ({ name }: { name: string }) => {
     const s = stores.find((x) => x.name === name)
@@ -345,6 +338,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
           { key: 'projects', label: t('ovProjects'), count: searching ? t('ovCountOf', { n: projectsShown, total: projectCount }) : projectCount, tone: projectTone },
           { key: 'stores', label: t('ovStores'), count: stores.length, tone: storeTone },
           { key: 'machines', label: t('ovMachines'), count: fleet ? machines.length : '—', tone: machineTone ?? (dockerBlock ? 'warning' : undefined) },
+          { key: 'buckets', label: t('ovBuckets'), count: view.buckets.length },
         ]}
         titleAside={dockerBlock && (
           <button type="button" className={heroCss.dockerNotice} aria-expanded={dockerExpanded}
@@ -400,7 +394,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
       {/* ---------- 2. Stores, each with its projects ---------- */}
       {tab === 'stores' ? (
         <section id={panelId('stores')} role="tabpanel" className={css.section} aria-label={t('ovStores')}>
-          {stores.length === 0 && view.buckets.length === 0 ? (
+          {stores.length === 0 ? (
             <Card>
               <EmptyState title={t('noStores')} icon={<StoreGlyph kind="sqlite" size={20} />}
                 action={(
@@ -413,10 +407,18 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
               </EmptyState>
             </Card>
           ) : (
-            <HomeStores actionHost={storeActionsHost} api={mc.api} stores={stores} view={view} t={t} now={now} jobs={props.jobs} dismissed={props.dismissed} actionsFor={props.actionsFor} loginActions={props.loginActions} sandboxes={props.sandboxes}
-              onOpenStore={(name) => props.onOpen(`store:${name}`)} onOpenProject={(key) => props.onOpen(`project:${key}`)} onBackups={props.onBackups}
-              onNewStore={props.onNewStore} onConnect={props.onConnect} alt={storesAlt} />
+            <StoreRows actionHost={storeActionsHost} api={mc.api} stores={stores} view={view} t={t} now={now} jobs={props.jobs} dismissed={props.dismissed} actionsFor={props.actionsFor} sandboxes={props.sandboxes}
+              onOpenStore={(name) => props.onOpen(`store:${name}`)} onOpenProject={(key) => props.onOpen(`project:${key}`)}
+              onNewStore={props.onNewStore} onConnect={props.onConnect} />
           )}
+        </section>
+      ) : null}
+
+      {/* ---------- 4. backup buckets, each with the Stores backed up there ---------- */}
+      {tab === 'buckets' ? (
+        <section id={panelId('buckets')} role="tabpanel" className={css.section} aria-label={t('ovBuckets')}>
+          <BucketCards view={view} t={t} now={now} jobs={runningJobs} listingBuckets={props.listingBuckets} listingAll={props.listingAll} onOpen={props.onOpen}
+            onAddBucket={props.onAddBucket} onList={props.onListBucket} onReconnect={props.onReconnect} onRestore={props.onRestore} />
         </section>
       ) : null}
 

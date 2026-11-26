@@ -7,8 +7,10 @@ export interface StoreHealth {
   readonly failure?: SessionFailure
 }
 
+/** The host's last failed check, else the first attached machine's (`store get` `reach`, `machines[].reach`). */
 function firstFailedReachError(row: any): string | undefined {
-  const conns = Array.isArray(row?.connections) ? row.connections : []
+  if (row?.reach?.ok === false && typeof row.reach.error === 'string' && row.reach.error) return row.reach.error
+  const conns = Array.isArray(row?.machines) ? row.machines : []
   for (const c of conns) {
     if (c?.reached === 'failed' && typeof c?.reach?.error === 'string' && c.reach.error) return c.reach.error
   }
@@ -53,10 +55,10 @@ export function classifyStore(row: any | undefined, live?: any): StoreHealth {
       }
     }
     if (isPg) {
-      if ((x.reason === 'outdated' && typeof row.auth !== 'string') || x.reason === 'missing') {
+      if (row.password_saved === false) {
         return {
           state: 'unavailable',
-          reason: `PostgreSQL ${name} has no saved login; save one with Save a login… on its Store page.${fix}`,
+          reason: `PostgreSQL ${name} has no saved password; give one with Edit connection… on its Store page.${fix}`,
           failure: { code: 'pg_no_login', ...(storeName ? { store: storeName } : {}), ...(fixLine ? { fix: fixLine } : {}) },
         }
       }
@@ -72,7 +74,7 @@ export function classifyStore(row: any | undefined, live?: any): StoreHealth {
       if (kind === 'login') {
         return {
           state: 'unavailable',
-          reason: `PostgreSQL ${name} failed to sign in (wrong user or password); change its login or rotate the password on its Store page.${fix}`,
+          reason: `PostgreSQL ${name} failed to sign in (wrong user or password); fix them with Edit connection… on its Store page.${fix}`,
           failure: { code: 'pg_wrong_login', ...(storeName ? { store: storeName } : {}), ...(rawDetail ? { detail: rawDetail } : {}), ...(fixLine ? { fix: fixLine } : {}) },
         }
       }
@@ -81,7 +83,7 @@ export function classifyStore(row: any | undefined, live?: any): StoreHealth {
         const detail = priv ? `${priv.role} lacks ${priv.privilege}` : rawDetail
         return {
           state: 'unavailable',
-          reason: `PostgreSQL ${name} is missing a required database privilege${detail ? ` (${detail})` : ''}; grant it or change login on its Store page.${fix}`,
+          reason: `PostgreSQL ${name} is missing a required database privilege${detail ? ` (${detail})` : ''}; grant it, or change the user with Edit connection… on its Store page.${fix}`,
           failure: { code: 'pg_privilege', ...(storeName ? { store: storeName } : {}), ...(detail ? { detail } : {}), ...(fixLine ? { fix: fixLine } : {}) },
         }
       }

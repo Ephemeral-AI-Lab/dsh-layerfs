@@ -34,6 +34,8 @@ export interface SetupStatus {
     readonly source: 'config' | 'settings' | 'env' | 'home' | 'none'
     readonly version: string | null
     readonly commit: string | null
+    /** The Store formats this build writes, by engine (LayerFS #804); null or absent from a build that does not say. */
+    readonly formats?: Readonly<Record<string, number>> | null
     readonly sdk: { readonly dir: string, readonly commit: string } | null
     readonly sdkDir: string | null
     readonly error: { readonly code: string, readonly message: string } | null

@@ -1,6 +1,6 @@
 // Regression tests for ui/205 (Store stopped machine neutral tone & copy,
 // stopped / broken / ok three-state grading across StoreCard, StorePage,
-// HealthCard and MachineLine).
+// HealthCard and the Store rows' status word).
 //   node --test test/store-stopped-neutral.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -75,7 +75,6 @@ await build({
   stdin: {
     contents: `
       export * as sm from './src/client/storage/model.ts'
-      export { HomeStores, MachineLine } from './src/client/storage/MachineStores.tsx'
       export { storeNotice, storePageNotice } from './src/client/storage/StoreCard.tsx'
       export { StorePage } from './src/client/storage/StorePage.tsx'
       export { locales as storageLocales } from './src/client/storage/locale.ts'
@@ -189,69 +188,6 @@ test('ui/205 model: three-state grading separates ok, stopped (neutral), and bro
   assert.equal(M.sm.storeSignal(broken, undefined, 'ready', [], t)?.state, 'error')
 })
 
-test('ui/205 HomeStores cards: stopped card stays neutral without grey dot, while broken Store and broken machine render red status + error dot', () => {
-  for (const lang of ['en', 'zh']) {
-    const t = makeT(lang)
-    const html = renderToStaticMarkup(createElement(M.HomeStores, {
-      api: { call: async () => ({}) },
-      stores: fixtureStores,
-      view: fixtureView,
-      t,
-      now: 61000,
-      jobs: [],
-      dismissed: new Set(),
-      actionsFor: noopActions,
-      loginActions: () => ({}),
-      sandboxes: [],
-      actionHost: null,
-      onNewStore: () => {},
-      onConnect: () => {},
-      onOpenStore: () => {},
-      onOpenProject: () => {},
-      onBackups: () => {},
-    }))
-
-    const cardSlice = (name) => {
-      const start = html.indexOf(`data-store="${name}"`)
-      assert.ok(start >= 0, `expected card for ${name}`)
-      const next = html.indexOf('data-store="', start + 1)
-      return next > 0 ? html.slice(start, next) : html.slice(start)
-    }
-
-    // Ok store: no statusRow, no error dot
-    const okCard = cardSlice('ok-store')
-    assert.ok(!okCard.includes('statusRow'), `ok-store must not render statusRow (${lang})`)
-    assert.ok(!okCard.includes('data-state="error"'), `ok-store must not render error dot (${lang})`)
-
-    // Stopped store: neutral statusRow (no data-tone="danger" or "warning"), NO dot in statusRow, cardMachineStopped text, Start docker button
-    const stoppedCard = cardSlice('stopped-store')
-    const statusIdx = stoppedCard.indexOf('statusRow')
-    assert.ok(statusIdx >= 0, `stopped-store must render statusRow (${lang})`)
-    const statusOpenTag = stoppedCard.slice(stoppedCard.lastIndexOf('<div', statusIdx), stoppedCard.indexOf('>', statusIdx) + 1)
-    assert.match(statusOpenTag, /\bMachineStores_statusRow\b/, `stopped-store statusRow must carry MachineStores_statusRow class (${lang})`)
-    assert.ok(!statusOpenTag.includes('data-tone="danger"'), `stopped-store statusRow must not be danger (${lang})`)
-    assert.ok(!statusOpenTag.includes('data-tone="warning"'), `stopped-store statusRow must not be warning (${lang})`)
-    const statusBlock = stoppedCard.slice(stoppedCard.lastIndexOf('<div', statusIdx), stoppedCard.indexOf('</div>', statusIdx))
-    assert.ok(!statusBlock.includes('StatusDot_dot') && !statusBlock.includes('data-primitive="StateDot"'), `stopped-store statusRow must not draw a dot (${lang})`)
-    assert.ok(statusBlock.includes(t('cardMachineStopped', { machine: 'docker' })), `stopped-store must show cardMachineStopped copy (${lang})`)
-    assert.ok(statusBlock.includes('data-start-machine="docker"'), `stopped-store must render Start docker button (${lang})`)
-    const stoppedMachineHtml = renderToStaticMarkup(createElement(M.MachineLine, { s: fixtureStores[1], view: fixtureView, t, on: noopActions() }))
-    assert.ok(!stoppedMachineHtml.includes('data-health='), `stopped MachineLine must not render dot (${lang})`)
-
-    // Machine broken store: danger statusRow WITH red StateDot AND problem dot on MachineLine chip
-    const mbrokenCard = cardSlice('mbroken-store')
-    assert.ok(mbrokenCard.includes('data-tone="danger"'), `mbroken-store statusRow must have data-tone="danger" (${lang})`)
-    assert.match(mbrokenCard, /StatusDot_dot[^"]*" data-state="error"/, `mbroken-store must render red error StatusDot (${lang})`)
-    const mbrokenMachineHtml = renderToStaticMarkup(createElement(M.MachineLine, { s: fixtureStores[2], view: fixtureView, t, on: noopActions() }))
-    assert.ok(mbrokenMachineHtml.includes('data-health="problem"'), `broken MachineLine must render problem red dot (${lang})`)
-
-    // Store itself broken: danger statusRow WITH red StateDot
-    const brokenCard = cardSlice('broken-store')
-    assert.ok(brokenCard.includes('data-tone="danger"'), `broken-store statusRow must have data-tone="danger" (${lang})`)
-    assert.match(brokenCard, /StatusDot_dot[^"]*" data-state="error"/, `broken-store must render red error StatusDot (${lang})`)
-  }
-})
-
 test('ui/205 StorePage: header chip, notice banner, and Health › Machine match three-state grading in EN and ZH', () => {
   for (const lang of ['en', 'zh']) {
     const t = makeT(lang)
@@ -315,19 +251,19 @@ test('ui/205 StorePage: header chip, notice banner, and Health › Machine match
     const okHealthIdx = okHtml.indexOf('data-store-health')
     const okHealth = okHtml.slice(okHealthIdx, okHtml.indexOf('</ul>', okHealthIdx))
     assert.ok(okHealth.includes('data-tone="ok"'), `ready Health › Machine row must be ok (${lang})`)
-    assert.ok(okHealth.includes(t('spMachineRunning', { machine: M.storageLocales[lang].layerfsHome })), `ready Health › Machine must say running (${lang})`)
+    assert.ok(okHealth.includes(t('spMachineRunning', { machine: 'native' })), `ready Health › Machine must say running (${lang})`)
   }
 })
 
 test('ui/205 CSS & locale: compiled statusRow and notice default colors stay neutral, single-row notice layout, neutral info health dot, and EN/ZH copy integrity', () => {
   const builtCss = readFileSync(join(out, 'u205.css'), 'utf8')
-  const statusRule = /\.MachineStores_statusRow\s*\{([^}]*)\}/.exec(builtCss)
-  assert.ok(statusRule, 'compiled CSS must contain .MachineStores_statusRow rule')
-  assert.match(statusRule[1], /color:\s*var\(--dsw-alias-label-secondary\)/, 'default .statusRow text color must use neutral secondary label token')
-  assert.doesNotMatch(statusRule[1], /state-error|state-warn|tone-danger|tone-warning|#[0-9a-f]{3,8}/i, 'default .statusRow must never paint text red or amber')
-  const statusDangerRule = /\.MachineStores_statusRow\[data-tone=["']?danger["']?\]\s*\{([^}]*)\}/.exec(builtCss)
-  assert.ok(statusDangerRule, 'compiled CSS must contain .MachineStores_statusRow[data-tone=danger]')
-  assert.match(statusDangerRule[1], /color:\s*var\(--lf-tone-danger-fg\)/)
+  // a Store row's status word (StoreRows.module.css): neutral by default, red only for danger
+  const rowsCss = src('src/client/storage/StoreRows.module.css')
+  const reachText = /\n\.reachText\s*\{([^}]*)\}/.exec(rowsCss)
+  assert.ok(reachText, 'StoreRows.module.css has a .reachText rule')
+  assert.match(reachText[1], /color:\s*var\(--dsw-alias-label-secondary\)/, 'the default status word uses the neutral secondary label token')
+  assert.doesNotMatch(reachText[1], /state-error|state-warn|tone-danger|tone-warning|#[0-9a-f]{3,8}/i, 'the default status word is never red or amber')
+  assert.match(rowsCss, /\.reach\[data-tone='danger'\] \.reachText\s*\{\s*color:\s*var\(--lf-tone-danger-fg\);/)
 
   const noticeRule = /\.ui_notice\s*\{([^}]*)\}/.exec(builtCss)
   assert.ok(noticeRule, 'compiled CSS must contain .ui_notice rule')

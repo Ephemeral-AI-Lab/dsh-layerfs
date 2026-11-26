@@ -279,7 +279,7 @@ export function replayClock(calls: readonly { at: number, ms: number }[]): (time
 const methodOf = (argv: readonly string[]) => `${argv[0] ?? '?'}.${String(argv[1] ?? '?').replaceAll('_', '-')}`
 
 /** Reads that only poll state (this plugin's own pages and checks among them); kept out of the map so the wires show work. */
-const QUIET = new Set(['project.get', 'branch.get', 'file.list', 'file.stat', 'workspace.list', 'workspace.status', 'sandbox.list', 'sandbox.get', 'machine.list', 'machine.get', 'store.get', 'store.auths', 'store.list', 'project.list', 'branch.list'])
+const QUIET = new Set(['project.get', 'branch.get', 'file.list', 'file.stat', 'workspace.list', 'workspace.status', 'sandbox.list', 'sandbox.get', 'machine.list', 'machine.get', 'store.get', 'store.list', 'project.list', 'branch.list'])
 
 /** True for a call the map leaves out (a state poll), so the page need not keep it. */
 export const isQuietCall = (line: Pick<CallLine, 'argv'>): boolean => QUIET.has(methodOf(line.argv))

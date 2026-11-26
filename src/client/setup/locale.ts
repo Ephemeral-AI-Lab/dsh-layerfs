@@ -55,6 +55,8 @@ const en = {
   // details
   terminal: 'Terminal', warnings: 'Notes from LayerFS',
   copy: 'Copy', copied: 'Copied',
+  // the Store formats this build writes (`--version --json` formats, LayerFS #804)
+  fmtWrites: 'This LayerFS writes {list}', fmtWritesSqlite: 'SQLite format {v}', fmtWritesPg: 'PostgreSQL format {v}', fmtSep: ', ',
 }
 
 const zh: typeof en = {
@@ -102,6 +104,7 @@ const zh: typeof en = {
   cardFinishTitle: '完成 LayerFS 设置', cardFinishBody: '{what}', openSetup: '设置 LayerFS…',
   terminal: '终端', warnings: 'LayerFS 的提示',
   copy: '复制', copied: '已复制',
+  fmtWrites: '此 LayerFS 写入 {list}', fmtWritesSqlite: 'SQLite 格式 {v}', fmtWritesPg: 'PostgreSQL 格式 {v}', fmtSep: '，',
 }
 
 export const locales = { en, zh }

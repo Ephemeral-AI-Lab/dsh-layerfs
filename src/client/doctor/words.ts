@@ -68,7 +68,7 @@ export function wordsOf(t: DoctorT) {
     const key = REASON_SHORT.get(raw.toLowerCase())
     return key ? cap(tt(key)) : human(raw)
   }
-  const nameOf = (x: Thing): string => (x.kind === 'home' ? tt('dpHomeName', { version: x.version ?? '' }).trim() : x.kind === 'machine' && x.name === 'native' ? tt('dpHomeMachine') : x.name)
+  const nameOf = (x: Thing): string => (x.kind === 'home' ? tt('dpHomeName', { version: x.version ?? '' }).trim() : x.name)
   const platform = (p: string | null | undefined): string => (p === 'native' ? tt('dpThisComputer') : p ?? '')
   const engine = (e: string | null | undefined): string => (e === 'postgresql' ? 'PostgreSQL' : 'SQLite')
   const provider = (p: string | null | undefined): string => (p === 'r2' ? 'Cloudflare R2' : p === 'minio' ? 'MinIO' : p === 's3' ? 'S3' : p ?? '')
@@ -112,7 +112,6 @@ export function wordsOf(t: DoctorT) {
       if (boxes) bits.push(n('dpFactSandboxes', boxes))
     } else if (x.kind === 'store') {
       bits.push(x.engine ?? '')
-      if (x.connections != null) bits.push(n('dpFactConnections', x.connections))
       bits.push(n('dpFactProjects', kids.length), on)
     } else if (x.kind === 'sandbox') {
       // a 64-hex image id cut to its first twelve digits (the row's tip has it whole)

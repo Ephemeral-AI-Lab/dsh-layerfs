@@ -49,6 +49,16 @@ const withNames = (c) => new Set(Object.keys(c.form?.with ?? {}))
 // What the plugin passes besides the positionals, per call (src/host/routes/*.ts,
 // service.ts, logs/source.ts, sessions/*.ts, presets/*.js, simulations/*.ts). `progress` is
 // an `on_progress` callback (`--progress`); `with` is a `--with` section.
+/**
+ * The PostgreSQL connect/attach contract (docs/specs/store-home-rows.md;
+ * LayerFS branch claude/pg-connect-attach) the plugin sends before a pinned
+ * runtime has it: these calls and options are not asked of an older table.
+ */
+// store.upgrade (LayerFS #804) is sent only behind `cliFeatures(...).storeUpgrade` (call-table.test.mjs GATED) until the pinned runtime has it
+const AHEAD = { 'store.attach': null, 'store.detach': null, 'store.connect': ['user', 'password'], 'store.upgrade': null }
+const ahead = (name, option) => name in AHEAD && (option === undefined || AHEAD[name] === null || AHEAD[name].includes(option))
+const flagAhead = (name, flag) => name in AHEAD && (AHEAD[name] === null || ['--user', '--password-stdin'].includes(flag))
+
 const SENT = {
   'home.init': {},
   'home.get': { with: ['platforms', 'tree'] },
@@ -72,15 +82,14 @@ const SENT = {
   'store.get': { with: ['live', 'stats'] },
   'store.create': {},
   'store.remove': {},
-  'store.save_auth': { options: ['user', 'password'] },
-  'store.auths': {},
-  'store.remove_auth': {},
-  'store.connect': { options: ['auth', 'machine', 'synchronous_commit'] },
-  'store.disconnect': { options: ['machine'] },
-  'store.update': { options: ['auth', 'synchronous_commit'] },
+  'store.connect': { options: ['user', 'password', 'synchronous_commit'] },
+  'store.disconnect': {},
+  'store.attach': { options: ['machine'] },
+  'store.detach': { options: ['machine'] },
   'store.doctor': { options: ['machine'] },
   'store.move': { progress: true },
   'store.compact': { progress: true },
+  'store.upgrade': { progress: true },
   'backup.connect': { options: ['access_key', 'secret_key'] },
   'backup.disconnect': {},
   'backup.list': { options: ['bucket'] },
@@ -129,15 +138,16 @@ test('the switches the seam writes are in the 2.0 table', { skip }, () => {
   const switches = new Set((help.switches ?? []).map((s) => s.name))
   for (const name of ['--detail', '--with', '--progress']) assert.ok(switches.has(name), `${name} is a 2.0 switch`)
   const detail = help.switches.find((s) => s.name === '--detail')
-  for (const call of Object.keys(SENT)) assert.ok(detail.calls.includes(call), `${call} takes --detail (the UI reads its long form)`)
+  for (const call of Object.keys(SENT)) assert.ok(detail.calls.includes(call) || ahead(call), `${call} takes --detail (the UI reads its long form)`)
 })
 
 test('every call the plugin sends is in the 2.0 table, with its options, sections and progress', { skip }, () => {
   const { calls } = table()
   for (const [name, sent] of Object.entries(SENT)) {
     const c = calls.get(name)
+    if (!c && ahead(name)) continue
     assert.ok(c, `${name} is a 2.0 call`)
-    for (const option of sent.options ?? []) assert.ok(optionNames(c).has(option), `${name} takes ${option}`)
+    for (const option of sent.options ?? []) assert.ok(optionNames(c).has(option) || ahead(name, option), `${name} takes ${option}`)
     for (const section of sent.with ?? []) assert.ok(withNames(c).has(section), `${name} has --with ${section}`)
     if (sent.progress) assert.ok(c.form?.progress && optionNames(c).has('on_progress'), `${name} reports progress`)
   }
@@ -152,7 +162,7 @@ test('every call the plugin sends is in the 2.0 table, with its options, section
   for (const entry of found) {
     const [name, path] = entry.split('\t')
     assert.ok(BUILT.has(name.split('.')[0]))
-    assert.ok(calls.has(name), `${name} (${path.slice(root.length)}) is a 2.0 call`)
+    assert.ok(calls.has(name) || ahead(name), `${name} (${path.slice(root.length)}) is a 2.0 call`)
     assert.ok(name in SENT, `${name} (${path.slice(root.length)}) is listed in SENT`)
   }
 })
@@ -196,10 +206,11 @@ test('every flag in a raw argv the plugin writes (presets, simulations) is a 2.0
       if (FAMILIES.has(m[2])) continue
       const name = `${m[1]}.${m[2].replace(/-/g, '_')}`
       const c = calls.get(name)
+      if (!c && ahead(name)) continue
       assert.ok(c, `${name} (${path.slice(root.length)}) is a 2.0 call`)
       for (const f of m[3].matchAll(/'(--[a-z][a-z-]*)'/g)) {
         checked++
-        assert.ok(switches.has(f[1]) || flagsOf(c).has(f[1]), `${name} (${path.slice(root.length)}) takes ${f[1]}`)
+        assert.ok(switches.has(f[1]) || flagsOf(c).has(f[1]) || flagAhead(name, f[1]), `${name} (${path.slice(root.length)}) takes ${f[1]}`)
       }
     }
   }
@@ -209,8 +220,10 @@ test('every flag in a raw argv the plugin writes (presets, simulations) is a 2.0
 test('secrets go on stdin: the content options the plugin passes have the shell flags it writes', { skip }, () => {
   const { calls } = table()
   const option = (call, name) => (calls.get(call)?.options ?? []).find((o) => o.name === name)
-  assert.equal(option('store.save_auth', 'password')?.shell, '--password-stdin')
-  assert.equal(option('store.save_auth', 'password')?.kind, 'content')
+  if (option('store.connect', 'password')) {
+    assert.equal(option('store.connect', 'password')?.shell, '--password-stdin')
+    assert.equal(option('store.connect', 'password')?.kind, 'content')
+  }
   assert.equal(option('backup.connect', 'secret_key')?.shell, '--key-stdin')
   // `file write` takes its content as a positional read from stdin (the preset recipe's `input`)
   assert.equal(calls.get('file.write').args.at(-1).kind, 'content')
@@ -330,19 +343,21 @@ test('the Doctor page\'s argv is a 2.0 call: six doctors, --progress only where 
   } finally { rmSync(out, { recursive: true, force: true }) }
 })
 
-// Coming in LayerFS (package FX): `store save-auth` without `--user` or the
-// password, `backup connect` without both keys and `file edit` without the old
-// and new strings are usage errors. Every call site sends them.
-test('options 2.0 makes required are always sent: save-auth user + password, backup connect keys, file edit strings', () => {
+// `store connect` for a new PostgreSQL Store takes its user and password (the
+// password on stdin); `backup connect` without both keys and `file edit`
+// without the old and new strings are usage errors. Every call site sends them.
+test('options 2.0 makes required are always sent: a new Store\'s connect user + password, backup connect keys, file edit strings', () => {
   const src = sources()
   const sites = (re) => src.flatMap((f) => [...f.text.matchAll(re)].map((m) => ({ path: f.path.slice(root.length), call: m[0] })))
-  const saveAuth = sites(/\.store\.save_auth\([^)]*\)/g)
-  assert.ok(saveAuth.length > 0)
-  for (const s of saveAuth) assert.match(s.call, /\buser\b/, `${s.path}: ${s.call}`), assert.match(s.call, /\bpassword\b/, `${s.path}: ${s.call}`)
+  const storeConnect = sites(/\.store\.connect\([^)]*\)/g)
+  assert.ok(storeConnect.length > 0)
+  // a new Store's connect sends both; Edit connection sends only what changed (the saved user and password stay)
+  assert.ok(storeConnect.some((s) => /\{ user, password: input\.passwordValue\b/.test(s.call)), storeConnect.map((s) => s.call).join('\n'))
+  for (const s of sites(/\.store\.(save_auth|auths|remove_auth|update)\(/g)) assert.fail(`${s.path} sends the retired ${s.call}`)
   const connect = sites(/\.backup\.connect\([^)]*\)/g)
   assert.ok(connect.length > 0)
   for (const s of connect) assert.match(s.call, /access_key/, `${s.path}: ${s.call}`), assert.match(s.call, /secret_key/, `${s.path}: ${s.call}`)
-  const argv = sites(/\['store', 'save-auth'[^\]]*\]/g)
+  const argv = sites(/\['store', 'connect'[^\]]*\]/g)
   assert.ok(argv.length > 0)
   for (const s of argv) assert.ok(s.call.includes("'--user'") && s.call.includes("'--password-stdin'"), `${s.path}: ${s.call}`)
   // the plugin itself makes no file edit (agents do, through the CLI): none to check, and none may appear without its strings
@@ -402,20 +417,19 @@ test('no option is given twice: the seam joins --with, and no raw argv repeats a
 // LayerFS N-G: `help --json` marks the options a call needs `optional: false` (with
 // `required: true`). The seam refuses a call that leaves one out before spawning, and
 // every call site sends them (the static check above).
-test('the table\'s required options are the three pairs the call sites send; the seam refuses one left out', { skip }, async () => {
+test('the table\'s required options are the pairs the call sites send; the seam refuses one left out', { skip }, async () => {
   const { help } = table()
   const required = {}
   for (const c of help.calls) for (const o of c.options ?? []) if (o.optional === false || o.required === true) (required[`${c.family}.${c.call}`] ??= []).push(o.name)
-  assert.deepEqual(required, { 'store.save_auth': ['user', 'password'], 'backup.connect': ['access_key', 'secret_key'], 'file.edit': ['old_string', 'new_string'] },
+  assert.deepEqual(required, { 'backup.connect': ['access_key', 'secret_key'], 'file.edit': ['old_string', 'new_string'], 'store.attach': ['machine'], 'store.detach': ['machine'] },
     'a new required option needs its call sites checked (the test above)')
   const dir = tmpRoot('dsh-cs20-required-')
   try {
     const home = join(dir, 'home')
     execFileSync(CLI, ['home', 'init'], { env: { ...process.env, LAYERFS_HOME: home }, timeout: 30_000 })
     const { lfs, sent } = await recordingClient(dir, home)
-    await assert.rejects(lfs.store.save_auth('x', { password: 'p' }), (e) => e.code === 'InvalidInput' && /user is required/.test(e.message))
     await assert.rejects(lfs.backup.connect('b', 'https://example.invalid', { secret_key: 's' }), (e) => e.code === 'InvalidInput' && /access_key is required/.test(e.message))
-    assert.deepEqual(sent().filter((l) => /^(store save-auth|backup connect)/.test(l)), [], 'nothing spawned')
+    assert.deepEqual(sent().filter((l) => /^backup connect/.test(l)), [], 'nothing spawned')
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
@@ -447,9 +461,7 @@ test('machine answers: an unreadable record is listed broken/failed and not prob
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
-// CUT (LayerFS a2a13a3892, owner 2026-11-19): old state is not read as before. A PostgreSQL
-// Store recorded with no saved login is `broken` `outdated` and refused with the save-auth
-// fix; the built-in docker and a created machine whose record has no vm_name are refused
+// CUT (LayerFS a2a13a3892, owner 2026-11-19): old state is not read as before. The built-in docker and a created machine whose record has no vm_name are refused
 // with `machine doctor docker` / `machine remove <m>`; `workspace exec` env is an object.
 // Each fix line LayerFS answers is the page's one action (runnableFix), never a guess.
 test('CUT old state: each refusal\'s fix is the page\'s one action; exec env is an object', { skip }, async () => {
@@ -462,22 +474,15 @@ test('CUT old state: each refusal\'s fix is the page\'s one action; exec env is 
       mkdirSync(join(home, kind, name), { recursive: true, mode: 0o700 })
       writeFileSync(join(home, kind, name, 'record.json'), JSON.stringify(value), { mode: 0o600 })
     }
-    record('store', 'pg', { name: 'pg', kind: 'postgresql', url: 'postgresql://owner@db.invalid:5432/team', schema: 'layerfs', password: 'env:NOPE' })
     record('machine', 'docker', { v: 1, name: 'docker', platform: 'docker', created: 1795069751311 })
     record('machine', 'old', { v: 1, name: 'old', platform: 'lima', created: 1795069751311 })
     const out = join(dir, 'fix')
     await build({
-      stdin: { contents: "export { runnableFix } from './src/shared/doctor.ts'\nexport { storeRow } from './src/host/routes/storage.ts'\n", resolveDir: root, loader: 'ts' },
+      stdin: { contents: "export { runnableFix } from './src/shared/doctor.ts'\n", resolveDir: root, loader: 'ts' },
       bundle: true, platform: 'node', format: 'esm', outfile: join(out, 'fix.mjs'), absWorkingDir: root, target: 'node24', logLevel: 'warning', packages: 'external',
     })
-    const { runnableFix, storeRow } = await import(pathToFileURL(join(out, 'fix.mjs')).href)
+    const { runnableFix } = await import(pathToFileURL(join(out, 'fix.mjs')).href)
     const { lfs, sent } = await recordingClient(dir, home)
-    const pg = (await lfs.store.list({ detail: true, with: ['stats'] })).items.find((s) => s.store === 'pg')
-    assert.deepEqual([pg.state, pg.reason, pg.auth], ['broken', 'outdated', null])
-    assert.deepEqual(runnableFix(pg.fix), { kind: 'saveAuth', store: 'pg' })
-    const row = storeRow(pg, [])
-    assert.deepEqual([row.state, row.reason, row.postgresql.auth, row.fix], ['broken', 'outdated', null, pg.fix])
-    await assert.rejects(lfs.store.compact('pg', { detail: true }), (e) => e.code === 'InvalidInput' && /names no saved login/.test(e.message) && runnableFix(e.fix)?.kind === 'saveAuth')
     // docker: `machine doctor docker` at a2a13a3892; the cut's review makes it `machine remove docker` (records only, the built-in comes back fresh)
     await assert.rejects(lfs.machine.stop('docker', {}), (e) => e.code === 'Failed' && /no vm_name/.test(e.message) && ['doctor', 'removeMachine'].includes(runnableFix(e.fix)?.kind) && runnableFix(e.fix).machine === 'docker')
     await assert.rejects(lfs.machine.stop('old', {}), (e) => e.code === 'Failed' && JSON.stringify(runnableFix(e.fix)) === JSON.stringify({ kind: 'removeMachine', machine: 'old' }))

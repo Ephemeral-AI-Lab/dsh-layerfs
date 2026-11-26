@@ -173,7 +173,7 @@ test('checkPlacement passes for a ready project, and reads the machine a Postgre
       ] }),
       get: async (name) => { got.push(name); return { machine: name, state: 'ready' } },
     },
-    store: { get: async () => ({ store: 'st', engine: 'postgresql', state: 'ready', connections: [{ machine: 'docker', reached: 'ok' }] }) },
+    store: { get: async () => ({ store: 'st', engine: 'postgresql', state: 'ready', machines: [{ machine: 'docker', reached: 'ok' }] }) },
     sandbox: { list: async () => ({ items: [{ sandbox: 'old', machine: 'docker', created_at: '2026-11-19T00:00:00Z' }] }) },
   } })
   assert.deepEqual(await pg.s.checkPlacement('st/app'), { ok: true })
@@ -533,15 +533,15 @@ test('a subagent follows its root and never shows a Starting state of its own', 
   assert.deepEqual(saves, [{ sessionId: 'kid', executionState: 'active' }], 'one Active save, never Starting')
 })
 
-test('ensureBound runs a PostgreSQL project where the session picked, else its last machine, else one its database was reached from, else native; never a broken or stopped one (spec v23)', async () => {
-  const bind = async (machines, { picked, last, reached = [] } = {}) => {
+test('ensureBound runs a PostgreSQL project where the session picked, else its last machine while attached and running, else the only attached one; otherwise the person picks (spec v23)', async () => {
+  const bind = async (machines, { picked, last, attached = [] } = {}) => {
     const calls = []
     const lfs = {
       // a PostgreSQL Store is on no machine: project.get names none
       project: { get: async () => ({ store: 'st', engine: 'postgresql', state: 'ready' }) },
       // `machine list --detail` (2.0): rows keyed `machine`, `supports` a list
       machine: { list: async () => ({ items: machines.map(({ name, ...rest }) => ({ machine: name, ...rest })) }) },
-      store: { get: async () => ({ engine: 'postgresql', connections: [{ machine: null, reached: null }, ...reached.map((m) => ({ machine: m, reached: 'ok' }))] }) },
+      store: { get: async () => ({ engine: 'postgresql', machines: attached.map((m) => ({ machine: m, reached: 'ok' })) }) },
       branch: { fork: async () => ({ commit: 'f'.repeat(66) }) },
       sandbox: {
         get: async () => { throw new Refusal('NotFound') },
@@ -565,10 +565,12 @@ test('ensureBound runs a PostgreSQL project where the session picked, else its l
   const m = (name, more = {}) => ({ name, supports: ['sqlite', 'postgresql_sandbox'], ...more })
   const fleet = [m('native'), m('docker'), m('vm1'), m('vm2', { state: 'stopped' }), m('vm3', { state: 'broken' }), m('old', { supports: ['sqlite'] })]
   assert.equal(await bind(fleet, { picked: 'vm1' }), 'vm1', 'the session\'s own pick')
-  assert.equal(await bind(fleet, { last: 'vm1', reached: ['docker'] }), 'vm1', 'the project\'s last machine')
-  assert.equal(await bind(fleet, { last: 'vm2', reached: ['vm3', 'docker'] }), 'docker', 'a stopped last machine and a broken reached one are skipped')
-  assert.equal(await bind(fleet, { reached: ['old'] }), 'native', 'a machine that runs no PostgreSQL Sandbox is not the default')
-  assert.equal(await bind(fleet, {}), 'native', 'nothing known: native')
+  assert.equal(await bind(fleet, { last: 'vm1', attached: ['docker', 'vm1'] }), 'vm1', 'the project\'s last machine, while attached')
+  assert.equal(await bind(fleet, { last: 'vm1', attached: ['docker'] }), 'docker', 'a last machine no longer attached is skipped: the only attached one')
+  assert.equal(await bind(fleet, { last: 'vm3', attached: ['docker'] }), 'docker', 'a broken last machine is skipped')
+  assert.equal(await bind(fleet, { attached: ['native'] }), 'native', 'native attached like any machine')
+  await assert.rejects(bind(fleet, { last: 'vm2', attached: ['vm2', 'docker'] }), (e) => e.code === 'InvalidInput', 'a stopped last machine, two attached: nothing is guessed')
+  await assert.rejects(bind(fleet, {}), (e) => e.code === 'InvalidInput', 'none attached: nothing is guessed, not even native')
 })
 
 test('ensureBound keeps native project local cwd as selected scratch, separate from the mount', async () => {
@@ -998,17 +1000,12 @@ test('classifyStore: the 2.0 six states: blocked and broken are unavailable, bus
   assert.equal(S.classifyStore({ store: 'pg', engine: 'postgresql', state: 'ready' }, { store: 'pg', state: 'ready' }).state, 'available')
   assert.equal(S.classifyStore({ store: 's', state: 'unknown' }).state, 'unknown')
   assert.equal(S.classifyStore({ store: 's', state: 'mystery' }).state, 'unknown')
-  // CUT: a PostgreSQL Store naming no saved login is unavailable, and says what fixes it
-  const noLogin = S.classifyStore({ store: 'old', engine: 'postgresql', auth: null, state: 'broken', reason: 'outdated', fix: 'layerfs store save-auth <auth> --user <user> --password-stdin && layerfs store update old --auth <auth>' })
+  // a PostgreSQL Store with no saved password is unavailable, and says what fixes it; never a missing SQLite file or the "Storage page"
+  const noLogin = S.classifyStore({ store: 'old', engine: 'postgresql', state: 'broken', reason: 'failed', password_saved: false, fix: 'layerfs store connect old postgresql://db/old --user <user> --password-stdin' })
   assert.equal(noLogin.state, 'unavailable')
   assert.equal(noLogin.failure?.code, 'pg_no_login')
-  assert.match(noLogin.reason, /PostgreSQL Store old has no saved login; save one with Save a login… on its Store page/)
-  // PG broken + reason=missing must never be misreported as a missing SQLite file or point to "Storage page"
-  const missingLogin = S.classifyStore({ store: 'orders', engine: 'postgresql', state: 'broken', reason: 'missing', message: 'no saved login named pg-orders' })
-  assert.equal(missingLogin.state, 'unavailable')
-  assert.equal(missingLogin.failure?.code, 'pg_no_login')
-  assert.doesNotMatch(missingLogin.reason, /file of Store|Storage page/i)
-  assert.match(missingLogin.reason, /Store page/)
+  assert.match(noLogin.reason, /PostgreSQL Store old has no saved password; give one with Edit connection… on its Store page/)
+  assert.doesNotMatch(noLogin.reason, /file of Store|Storage page/i)
   const priv = S.classifyStore({ store: 'billing', engine: 'postgresql', state: 'broken', reason: 'unreachable', message: 'role app lacks USAGE on schema layerfs (2 privilege(s) missing in all)' })
   assert.equal(priv.failure?.code, 'pg_privilege')
   assert.match(priv.reason, /lacks USAGE on schema layerfs/)
@@ -1103,14 +1100,17 @@ test('a tool call never re-activates an interrupted context mid-turn; only a new
   assert.deepEqual(calls, [])
 })
 
-test('pgPlacement: the last machine, else a reached one, else native; placeable means running, PostgreSQL Sandboxes, not broken (spec v23)', () => {
+test('pgPlacement: the last machine while attached and placeable, else the only attached one, else none; placeable means running, PostgreSQL Sandboxes, not broken (spec v23)', () => {
   const m = (name, more = {}) => ({ name, supports: ['sqlite', 'postgresql_sandbox'], ...more })
   const fleet = [m('native'), m('docker'), m('vm1', { state: 'stopped' }), m('vm2', { state: 'broken' })]
-  assert.equal(S.pgPlacement(fleet, { last: 'docker' }), 'docker')
-  assert.equal(S.pgPlacement(fleet, { last: 'vm1', reached: ['vm2', 'docker'] }), 'docker')
-  assert.equal(S.pgPlacement(fleet, { last: 'gone' }), 'native')
-  assert.equal(S.pgPlacement([], {}), 'native')
-  assert.deepEqual(S.reachedFrom({ connections: [{ machine: null, reached: 'ok' }, { machine: 'docker', reached: 'failed' }, { machine: 'vm', reached: 'ok' }] }), ['native', 'vm'])
+  assert.equal(S.pgPlacement(fleet, { last: 'docker', attached: ['docker'] }), 'docker')
+  assert.equal(S.pgPlacement(fleet, { last: 'docker', attached: ['native'] }), 'native', 'a last machine no longer attached is not chosen: the only attached one')
+  assert.equal(S.pgPlacement(fleet, { last: 'vm1', attached: ['vm1', 'vm2', 'docker'] }), null, 'a stopped last machine, several attached: LayerFS asks for one')
+  assert.equal(S.pgPlacement(fleet, { last: 'gone', attached: [] }), null, 'none attached: not even native')
+  assert.equal(S.pgPlacement([], { attached: ['vm1'] }), 'vm1', 'the only attached machine, as LayerFS picks it')
+  assert.deepEqual(S.attachedFrom({ machines: [{ machine: 'native', reached: null }, { machine: 'docker', reached: 'failed' }, { machine: 'vm', reached: 'ok' }] }), ['vm', 'native', 'docker'], 'a machine that reached the database first')
+  assert.deepEqual(S.attachedFrom({ machines: ['a', 'b'] }), ['a', 'b'], 'store list names only')
+  assert.deepEqual(S.attachedFrom({}), [])
   assert.equal(S.lastUsed([{ machine: 'a', created_at: '2026-01-01T00:00:00Z' }, { machine: 'b', created_at: '2026-02-01T00:00:00Z' }]), 'b')
   assert.equal(S.placeable({ name: 'x' }), true, 'a machine that says nothing about support or state is placeable')
 })

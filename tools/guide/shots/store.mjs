@@ -187,15 +187,6 @@ export default [
     clip: dialog,
   },
   {
-    file: 'store-connect-options',
-    run: async (page, h) => {
-      await add(page, h, 'Connect a database')
-      await dialog(page).locator('summary', { hasText: 'More options' }).click()
-      await h.wait(500)
-    },
-    clip: dialog,
-  },
-  {
     file: 'store-bucket-add',
     run: async (page, h) => { await add(page, h, 'Add bucket') },
     clip: dialog,
@@ -247,18 +238,6 @@ export default [
     run: async (page, h) => {
       await machineStores(page, h, 'docker')
       await page.getByRole('button', { name: 'Push a Store here' }).click()
-      await dialog(page).waitFor()
-      await h.wait(800)
-    },
-    clip: dialog,
-  },
-  {
-    file: 'store-connect-machine',
-    run: async (page, h) => {
-      await machineStores(page, h, 'docker')
-      await page.getByRole('tab', { name: /^PostgreSQL/ }).first().click()
-      await h.wait(600)
-      await page.locator('[data-machine-stores="docker"]').getByRole('button', { name: 'Connect a database' }).click()
       await dialog(page).waitFor()
       await h.wait(800)
     },

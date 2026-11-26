@@ -86,7 +86,7 @@ the folder becomes scratch.
 |---|---|---|---|---|
 | Chip | **No project** or the project; aria **LayerFS project: {project}** | Press → the menu | `session.place` (host state, no call) | — |
 | **No project** | Checked when the session has none | Choose → a plain DSH session | — | — |
-| Project rows | **bookshelf** and **handbook**, both on **LayerFS Home**: the name and where it runs; a ⚙ **Set up {project}** on hover | Choose → the session joins the project (the agent preset becomes **LayerFS**) · ⚙ → the [project dialog](#project-dialog) | `sessions.choose`: `project get`, and on the first claim `branch list`, `branch fork`; then a background Store sync | **Could not open the project: {message}** |
+| Project rows | **bookshelf** and **handbook**, both on **native**: the name and where it runs; a ⚙ **Set up {project}** on hover | Choose → the session joins the project (the agent preset becomes **LayerFS**) · ⚙ → the [project dialog](#project-dialog) | `sessions.choose`: `project get`, and on the first claim `branch list`, `branch fork`; then a background Store sync | **Could not open the project: {message}** |
 | **New project…** · **Import a folder…** | — | → the [project dialog](#project-dialog) in that mode | see there | — |
 | Import progress | **Importing {name}…** · Counting files, Checking, Sending files, Writing layers, Recording the project, Opening | — | `project init` (polled job) | **Import failed** with **Dismiss** |
 
@@ -152,16 +152,16 @@ in which part (**Project: Not named yet**, **Store: Needs a name**).
 
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
-| Machines | Tiles: **docker**, **LayerFS Home** (This Mac, unisolated, or This computer, sandboxed; **Default**), **New machine** | Choose where the Store file lives: "Where the Store file lives. Its projects’ sessions run there." · **New machine** → closes the dialog and opens Home › Machines with Add machine | `GET /api/platforms`: `home get` (read) | a tile says **Running** / **Stopped**; a stopped machine offers **Start {machine}** first (`machine start`) |
+| Machines | Tiles: **docker**, **native** (This Mac, unisolated, or This computer, sandboxed; **Default**), **New machine** | Choose where the Store file lives: "Where the Store file lives. Its projects’ sessions run there." · **New machine** → closes the dialog and opens Home › Machines with Add machine | `GET /api/platforms`: `home get` (read) | a tile says **Running** / **Stopped**; a stopped machine offers **Start {machine}** first (`machine start`) |
 
 ![PostgreSQL](img/entry-project-pg.png)
 
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
-| Store | **New connection** · **Existing · {n}** | — | `GET /api/store-auths` (read, host only) | — |
+| Store | **New connection** · **Existing · {n}** | — | `GET /api/storage` (read) | — |
 | Database URL | "Without a user, password or passfile, for example postgresql://db.lan:5432/app." | Type; a URL naming a login is refused with **LayerFS’s fix** and **Copy**; on Linux a `localhost` URL warns and offers **Use 127.0.0.1** | — | **Store: Needs a database URL** beside the buttons |
-| Login | **Type** · **Saved login** (auto-picks a healthy saved login for the typed server); Login name, User, Password ("Saved as a LayerFS login (store save-auth): the password goes to LayerFS on stdin and is never shown again.") | Type or pick | `store save-auth`, `store connect`, `store get` on create | — |
-| Runs on | The machine its sessions run on (this part is titled **Runs on** for PostgreSQL) | Choose | — | — |
+| Login | User, Password ("Saved by this computer for this Store: the password goes to LayerFS on stdin and is never shown again.") | Type | `store connect` (password on stdin) and `store get` on create, then `store attach --machine` when the session's machine is not attached yet | — |
+| Runs on | The machine its sessions run on (this part is titled **Runs on** for PostgreSQL). For an existing Store it starts on the machine last used while still attached, else the only attached machine; with several attached and none chosen, nothing is picked. A machine not attached yet says **Will attach {machine} to the Store.** | Choose | — | — |
 
 ### Import a folder
 
@@ -194,7 +194,7 @@ one.
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
 | 1 Projects | Back link (when opened from the list) | → the list | — | — |
-| Store | **guide-notes** · **SQLite Store · Only this project** (or **Shared with {n} other projects**) | — | `GET /api/storage` (read) | PostgreSQL: **Connected from …** instead of machines |
+| Store | **guide-notes** · **SQLite Store · Only this project** (or **Shared with {n} other projects**) | — | `GET /api/storage` (read) | PostgreSQL: **Runs on …** (the attached machines) instead of machines |
 | Machine | Tiles; **Here now** on the current one | Choose another → **Move to {machine}** | `store move` (a job) | a stopped machine offers **Start {machine}** first |
 | 2 Hide from sidebar | — | The project leaves the sidebar's LayerFS view until its next session | — (remembered in this browser) | **Hidden until its next session** |
 | 3 Done | — | Closes | — | — |
@@ -215,7 +215,7 @@ load on its own when something is missing (unless you chose **Later**). It reads
 | LayerFS | **Ready** or **{n} to fix** | — | — | — |
 | Folder | The LayerFS folder's path | A copyable fix line when it cannot be used | `home get` (read) | **Ready**, **Created just now**, **Made by an older LayerFS**, **Not created yet**, **Can’t be read** |
 | Runtime | **LayerFS 2.0.0** `ed911896` (Incomplete · No Linux bundle) | 1 **Change…** (or **Choose…**) → the runtime picker · **Details** → its pieces (CLI, Native daemon, Linux bundle, Node SDK, Terminal line) with copy buttons | `--version --json`, `help --json` (read) | **Use this daemon** when the native machine records another daemon: `machine get native`, `machine update native --daemon` |
-| Machines | **{n} of {total} available**: This Mac, Docker, Lima, Apple Container | **Install…** / **Set up…** → how-to; **Check** → reads again | `GET /api/machines?fresh=1`: `home get`, `machine get`, `machine list` (read) | **Ready**, **Available**, **Not installed**, **Not running**, **Needs setup**, **Needs the Linux bundle** |
+| Machines | **{n} of {total} available**: Native, Docker, Lima, Apple Container (the providers; not the LayerFS home) | **Install…** / **Set up…** → how-to; **Check** → reads again | `GET /api/machines?fresh=1`: `home get`, `machine get`, `machine list` (read) | **Ready**, **Available**, **Not installed**, **Not running**, **Needs setup**, **Needs the Linux bundle** |
 | 2 Check again | — | Reads everything again | as above | — |
 | **Later** | Only when something is missing | Closes; the need moves to Home's Overview head | — (remembered in this browser) | — |
 | 3 Done | — | Closes | — | disabled while something is missing |

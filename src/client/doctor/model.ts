@@ -31,8 +31,6 @@ export interface Thing {
   cpus?: number | null
   memoryBytes?: number | null
   engine?: string | null
-  /** A PostgreSQL Store: how many connections its record holds (null: none recorded, a sqlite Store). */
-  connections?: number | null
   provider?: string | null
   /** A Sandbox's project and image; a Workspace's Branch. */
   project?: string | null
@@ -89,7 +87,7 @@ export function buildWorld(answer: TreeAnswer, discovered: Readonly<Record<strin
   const home = add({ kind: 'home', name: answer.home.home, label: answer.home.home, parent: null, machine: null, version: answer.home.version, node: { state: answer.home.state, reason: answer.home.reason, fix: answer.home.fix } })
   const store = (s: TreeNode, parent: Thing, machine: Thing | null) => {
     if (typeof s.store !== 'string') return
-    const sx = add({ kind: 'store', name: s.store, label: s.store, parent: parent.key, machine: machine?.key ?? null, engine: s.engine ?? (machine ? 'sqlite' : 'postgresql'), connections: Array.isArray(s.connections) ? s.connections.length : null, node: s })
+    const sx = add({ kind: 'store', name: s.store, label: s.store, parent: parent.key, machine: machine?.key ?? null, engine: s.engine ?? (machine ? 'sqlite' : 'postgresql'), node: s })
     for (const p of s.projects ?? []) {
       if (typeof p !== 'string' || !p) continue
       const name = p.includes('/') ? p : `${s.store}/${p}`

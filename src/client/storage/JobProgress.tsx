@@ -12,11 +12,19 @@ import { refusalLabels } from './parts.tsx'
 import { useMachinesMaybe, type MachinesContext } from '../machines/context.tsx'
 import type { MachineSandbox as Sandbox } from '../machines/model.ts'
 import css from './Storage.module.css'
+import { UpgradePanel } from './UpgradePanel.tsx'
 
-type JobPanelProps = { job: StorageJob, t: StorageT, compact?: boolean, onRetry?: (() => void) | undefined, onDismiss?: (() => void) | undefined }
+type JobPanelProps = {
+  job: StorageJob, t: StorageT, compact?: boolean, onRetry?: (() => void) | undefined, onDismiss?: (() => void) | undefined
+  /** An upgrade's Cancel (SIGTERM to its CLI; the reply decides) and its Check after an unknown end (#804). */
+  onStop?: (() => Promise<unknown> | void) | undefined
+  onCheck?: (() => Promise<unknown> | void) | undefined
+}
 
 /** A job on its Store; where the page knows the Sandboxes (the Machines context), an in-use refusal names what holds the Store. */
 export function JobPanel(props: JobPanelProps): ReactNode {
+  // an upgrade has its own panel: a phase stepper, elapsed time and Cancel, then one signal for how it ended
+  if (props.job.kind === 'upgrade') return <UpgradePanel {...props} />
   const mc = useMachinesMaybe()
   return mc ? <FleetJobPanel {...props} mc={mc} /> : <JobPanelView {...props} sandboxes={[]} />
 }
@@ -47,7 +55,7 @@ function JobPanelView({ job: j, t, compact, onRetry, onDismiss, sandboxes, onOpe
     : resolved?.fix && fixes ? <FixAction line={resolved.line} fix={resolved.fix} runner={fixes} labels={refusalLabels(t)} />
       : holder && onOpen ? <Button variant="outline" size="sm" onClick={() => onOpen(holderTab(holder))}>{t('jobOpenSandbox', { name: holder.name })}</Button>
         : onRetry ? (
-          <Button variant="outline" size="sm" title={pushOnlyRetry ? t('jobRetryPushTip', { place: placeWords(j.target, t) }) : undefined} onClick={onRetry}>
+          <Button variant="outline" size="sm" title={pushOnlyRetry ? t('jobRetryPushTip', { place: placeWords(j.target) }) : undefined} onClick={onRetry}>
             {t(pushOnlyRetry ? 'jobRetryPush' : 'jobRetry')}
           </Button>
         ) : null

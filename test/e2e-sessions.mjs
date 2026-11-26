@@ -304,13 +304,10 @@ try {
   // New project… opens the project dialog in create mode (docs/specs/layerfs-workspaces.md §2-3).
   await page.getByRole('menuitem', { name: 'New project…' }).click()
   const draft = page.getByRole('dialog', { name: 'New project', exact: true })
-  // One scrolling page (Project, Store, Runs on); the rail the older test
-  // expected is gone since the pinecones overlay, so go to the Store part directly.
+  // One page: Name and the Save to list (docs/specs/layerfs-workspaces.md §3); the chosen row opens in place.
   await draft.getByLabel('Name', { exact: true }).fill('blank')
-  await draft.getByRole('tab', { name: /^Existing/ }).click()
-  await draft.getByRole('radio', { name: new RegExp(`^${store.replace(/[.]/g, '\\.')}\\b`) }).click()
-  // Keep the fixture Store on its own machine instead of the docker default.
-  await draft.locator(`[data-machine="${machine}"]`).click()
+  await draft.getByRole('radio', { name: new RegExp(`^\\s*${store.replace(/[.]/g, '\\.')}\\b`) }).click()
+  // The fixture Store keeps its own machine (native or DSH_E2E_MACHINE): no Move.
   await draft.getByRole('button', { name: 'Create and open' }).click()
   await draft.waitFor({ state: 'detached', timeout: 60000 })
   await until('hero on the new project', async () => (await page.locator('[data-layerfs-hero] button[aria-label^="LayerFS project:"]').first().innerText().catch(() => '')).trim() === 'blank', 60000)

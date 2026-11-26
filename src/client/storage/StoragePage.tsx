@@ -40,17 +40,16 @@ import { HomeOverview } from './HomeOverview.tsx'
 import { useHostEvents, useNow, useStorageJobs } from './hooks.ts'
 import type { StorageT } from './locale.ts'
 import { MachineStores } from './MachineStores.tsx'
-import { serverKey } from './machine-stores.ts'
-import { bucketFiles, cardJob, connectedMachines, inHome, movePushFailed, orderStores, pgPlaceable, type Reconnect } from './model.ts'
+import { bucketFiles, cardJob, inHome, movePushFailed, orderStores, upgradeLine, type Reconnect } from './model.ts'
 import { NavBar, useNavHistory, type AddItem, type Crumb, type JumpItem, type NavPage, type Sibling } from './Nav.tsx'
 import { refusalLabels } from './parts.tsx'
 import { ProjectPage } from './ProjectPage.tsx'
 import type { ProjectMapShare } from './ProjectSandboxes.tsx'
-import type { LoginActions, StoreActions } from './StoreCard.tsx'
+import type { StoreActions } from './StoreCard.tsx'
 import { PageReading } from './PaneBar.tsx'
 import { StorePage } from './StorePage.tsx'
-import { isTabId, underPage, openHomeStores, type OverviewTab, type TabId } from './tabs.ts'
-import type { ProjectSummary, StorageJob, StorageView, StoreRow } from './types.ts'
+import { isTabId, underPage, type OverviewTab, type TabId } from './tabs.ts'
+import type { PgCheck, ProjectSummary, StorageJob, StorageView, StoreRow } from './types.ts'
 import { useDoctorCount } from '../doctor/use-doctor-count.ts'
 import css from './Storage.module.css'
 
@@ -81,7 +80,7 @@ export function StoragePage(props: StorageMainProps): ReactNode {
   const machines = useMemo<MachinesPageProps>(() => ({
     ...rest, api, doctorT, logsT: more.logs, t: tm, openTab: (id: string) => { if (isTabId(id)) openRef.current(id) },
   }), [props])
-  // The save-login fix opens the page's own dialog; the ref reaches the page's latest `setDialog`.
+  // The connection fix opens the page's own Edit connection dialog; the ref reaches the page's latest `setDialog`.
   const loginRef = useRef<(store: string) => void>(() => {})
   // The connect-again fix (a bucket whose key was refused) opens the Connect dialog the same way.
   const reconnectRef = useRef<(again: Reconnect) => void>(() => {})
@@ -107,8 +106,8 @@ export function chainSteps(fix: Extract<RunnableFix, { kind: 'chain' }>, label: 
 /**
  * Every refusal under Center offers its fix line as its one action
  * ({@link FixContext}). A machine's doctor fix starts that doctor and opens the
- * Doctor page; a PostgreSQL Store's save-login fix opens the save-login dialog
- * for that Store (the person gives the login and its password there).
+ * Doctor page; a PostgreSQL Store's connection fix opens Edit connection for
+ * that Store (the person gives the user and password there).
  */
 function CenterFixes({ api, t, loginRef, reconnectRef, confirmRef, children }: { api: LayerfsApi, t: StorageT, loginRef: { current: (store: string) => void }, reconnectRef: { current: (again: Reconnect) => void }, confirmRef: { current: (dialog: StorageDialog) => void }, children: ReactNode }): ReactNode {
   const { recheck, useMachines } = useMachinesContext()
@@ -128,19 +127,20 @@ function CenterFixes({ api, t, loginRef, reconnectRef, confirmRef, children }: {
         case 'doctor': return t('fixRunDoctor', { name: fix.machine })
         case 'removeMachine': return t('fixRunRemoveRecord', { name: fix.machine })
         case 'compact': return t('fixRunCompact', { name: fix.store })
+        case 'upgrade': return t('fixRunUpgrade', { name: fix.store })
         case 'removeStore': return t('fixRunRemoveRecord', { name: fix.store })
         case 'removeSandbox': return t('fixRunCloseSandbox', { name: fix.sandbox })
         case 'delete': return t('fixRunDelete', { name: fix.project })
         case 'backup': return t('fixRunBackup', { bucket: fix.bucket })
         case 'homeInit': return t('fixRunHomeInit')
-        case 'saveAuth': return t('fixRunSaveLogin')
-        case 'updateAuth': return t('fixRunUpdateAuth')
+        case 'connection': return t('pgEditConnectionShort')
+        case 'attach': return t('fixRunAttach', { machine: fix.machine })
         case 'connectBucket': return t('fixRunConnectBucket')
       }
     }
     return {
       run: async (fix) => {
-        if (fix.kind === 'saveAuth') { loginRef.current(fix.store); return }
+        if (fix.kind === 'connection') { loginRef.current(fix.store); return }
         if (fix.kind === 'connectBucket') { reconnectRef.current({ bucket: fix.bucket, provider: null, url: fix.url }); return }
         if (fix.kind === 'doctor') return doctorRef.current('machine', fix.machine)
         try { return await fixCall(api, fix) } finally { if ('machine' in fix || (fix.kind === 'chain' && fix.steps.some((s) => 'machine' in s))) void recheck() }
@@ -295,6 +295,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
     if (j.kind === 'backup') return api.call('POST', `/api/stores/${enc(j.store)}/backup`, { bucket: j.target, ...(j.file ? { file: j.file } : {}) })
     // a new run: it settles what the failed one left before it marks again
     if (j.kind === 'compact') return api.call('POST', `/api/stores/${enc(j.store)}/compact`)
+    if (j.kind === 'upgrade') return api.call('POST', `/api/stores/${enc(j.store)}/upgrade`)
     return api.call('POST', `/api/buckets/${enc(j.target)}/restore`, { store: j.store, ...(j.file ? { file: j.file } : {}) })
   }
   const openMachine = (name: string) => open(`machine:${name}`)
@@ -315,48 +316,45 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
         run: () => api.call('POST', `/api/stores/${enc(s.name)}/compact`).then((job) => { if (job && typeof job === 'object' && 'id' in job && 'kind' in job) take([job as StorageJob]) }),
       }),
     } : {}),
+    // an older-format Store, when the runtime has store.upgrade (#804): the formats, then one Upgrade button
+    ...(view?.upgrade ? {
+      upgrade: () => {
+        const line = upgradeLine(s.format, t)
+        setDialog({
+          kind: 'confirm', title: t('confirmTitleUpgrade', { name: s.name }), body: line ? t('confirmUpgradeBody', { line }) : t('confirmUpgradeBodyPlain'), action: t('upgradeAction'), plain: true,
+          run: () => api.call('POST', `/api/stores/${enc(s.name)}/upgrade`).then((job) => { if (job && typeof job === 'object' && 'id' in job && 'kind' in job) take([job as StorageJob]) }),
+        })
+      },
+    } : {}),
+    // Cancel answers the job marked stopping; its CLI's reply ends it. A refusal (at commit) shows on the page.
+    stopJob: (j) => api.call<StorageJob>('POST', `/api/storage-jobs/${enc(j.id)}/stop`).then((job) => { if (job && typeof job === 'object' && 'id' in job) take([job]) }, (e: unknown) => setFailed(e)),
+    // Check: the host reads the Store's format and keeps it on the job (Upgraded or Outdated)
+    checkJob: (j) => api.call<StorageJob>('POST', `/api/storage-jobs/${enc(j.id)}/inspect`).then((job) => { if (job && typeof job === 'object' && 'id' in job) take([job]); reload() }, (e: unknown) => setFailed(e)),
     remove: () => setDialog({
       kind: 'confirm', title: t('confirmTitleRemove', { name: s.name }), body: t('confirmRemoveBody', { n: s.projects.length }), action: t('removeAction'), name: s.name,
       run: () => api.call('DELETE', `/api/stores/${enc(s.name)}?confirm=${enc(s.name)}`).then(() => closeStore(s.name)),
     }),
     disconnect: () => setDialog({
-      kind: 'confirm', title: t('confirmTitlePg', { name: s.name }), body: t('confirmPgBody'), action: t('disconnectAction'),
+      kind: 'confirm', title: t('confirmTitlePg', { name: s.name }), body: t('pgDisconnectBody', { n: s.projectsCount ?? s.projects.length }), action: t('disconnectAction'),
       run: () => api.call('POST', `/api/stores/${enc(s.name)}/disconnect`).then(() => closeStore(s.name)),
     }),
     start: () => act(() => api.call('POST', `/api/machines/${enc(s.machine ?? '')}/start`)),
     addProject: () => setDialog({ kind: 'add-project', store: s.name }),
-    editConnection: (machine) => setDialog({ kind: 'pg-edit', store: s.name, ...(machine ? { machine } : {}) }),
-    check: (machine) => setDialog({ kind: 'connect', check: { store: s.name, ...(machine ? { machine } : {}) } }),
-    // a machine that runs and is not connected yet, else this computer; the check's From picks another
-    connectMachine: () => {
-      const connected = new Set(connectedMachines(s))
-      const next = (view?.machines ?? []).find((m) => !connected.has(m.name) && pgPlaceable(m))?.name ?? 'native'
-      setDialog({ kind: 'connect', check: { store: s.name, machine: next } })
+    startMachine: (machine) => act(() => api.call('POST', `/api/machines/${enc(machine)}/start`)),
+    backups: () => setDialog({ kind: 'backups', store: s.name }),
+    editConnection: () => setDialog({ kind: 'pg-edit', store: s.name }),
+    // the host, then the attached machines; LayerFS records each reach, the view is read again; a refusal shows on the page
+    check: () => {
+      setFailed(undefined)
+      return api.call<PgCheck>('GET', `/api/stores/${enc(s.name)}/check`).then((c) => { reload(); return c }, (e: unknown) => { setFailed(e); return null })
     },
-    removeOwn: (machine, own = true) => {
-      const place = machine === 'native' ? t('layerfsHome') : machine
-      setDialog({
-        kind: 'confirm',
-        title: own ? t('pgRemoveOwnTitle', { store: s.name, machine: place }) : t('pgForgetCheckTitle', { store: s.name, machine: place }),
-        body: own ? t('pgRemoveOwnBody', { machine: place }) : t('pgForgetCheckBody', { machine: place }),
-        action: own ? t('pgRemoveOwn') : t('pgForget'),
-        plain: !own,
-        run: () => api.call('POST', `/api/stores/${enc(s.name)}/connection`, { machine, clear: true }),
-      })
-    },
-    newOnServer: () => setDialog({ kind: 'connect', server: serverKey(s) }),
+    attach: () => setDialog({ kind: 'attach', store: s.name }),
+    // reversible (attach again), so no confirm; LayerFS refuses it while a Sandbox of the Store runs there
+    detach: (machine) => act(() => api.call('POST', `/api/stores/${enc(s.name)}/detach`, { machine })),
     retry: (j) => { dismiss(j.id); act(() => retry(j)) },
     dismiss: (j) => dismiss(j.id),
     openMachine,
   })
-  // a saved PostgreSQL login's own actions (its group's header): a new password; Remove while no Store names it
-  const loginActions: LoginActions = {
-    rotate: (auth) => setDialog({ kind: 'pg-rotate', auth }),
-    remove: (auth) => setDialog({
-      kind: 'confirm', title: t('pgRemoveLoginTitle', { auth }), body: t('pgRemoveLoginBody', { auth }), action: t('pgRemoveLogin'), name: auth,
-      run: () => api.call('DELETE', `/api/store-auths/${enc(auth)}`),
-    }),
-  }
   const listBucket = (name: string) => {
     setListing((prev) => new Set(prev).add(name))
     return api.call('GET', `/api/buckets/${enc(name)}/files`).catch(setFailed).finally(() => {
@@ -372,7 +370,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
 
   // ---------- what the bar shows: crumbs, Jump to, Add ----------
 
-  const machineWord = (name: string) => (name === 'native' ? t('groupHome') : name)
+  const machineWord = (name: string) => name
   /** Every machine once: the home, Docker, then created machines by name. */
   const places = useMemo(() => {
     const byName = new Map<string, string>()
@@ -392,8 +390,8 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
 
   const root: Crumb = { key: 'root', label: t('title'), go: () => open('overview') }
   const sectionCrumb = (key: OverviewTab, label: string): Crumb => ({ key: `section:${key}`, label, go: () => { setSection(key); history.open('overview') } })
-  // a bucket's way back: Home › Stores on SQLite's Buckets view (once the Backups tab)
-  const bucketsCrumb: Crumb = { key: 'section:buckets', label: t('hsViewBuckets'), go: () => { openHomeStores('sqlite', true); setSection('stores'); history.open('overview') } }
+  // a bucket's way back: Home › Buckets
+  const bucketsCrumb = sectionCrumb('buckets', t('ovBuckets'))
   const machineSiblings: Sibling[] = places.map((p) => ({ id: `machine:${p.name}`, label: machineWord(p.name), meta: mc.kind(p.platform) }))
   const storeSiblings: Sibling[] = stores.map((s) => ({ id: `store:${s.name}`, label: s.name, meta: `${kindWord(s)} · ${storeWhere(s)}`, group: s.kind }))
   const bucketSiblings: Sibling[] = (view?.buckets ?? []).map((b) => ({ id: `bucket:${b.name}`, label: b.name, meta: providerWords(b.provider, t) }))
@@ -503,9 +501,9 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
         <MachineDetail key={id} name={id.slice(8)} go={mc.go} onAddStore={(machine) => setDialog({ kind: 'to-machine', machine })}
           // before the Stores are read the tab says so (no empty list that the cards then replace)
           storesTab={(machine) => (!view ? <Loading label={t('readingStores')} /> : (
-            <MachineStores api={api} machine={machine} view={view} t={t} jobs={jobs} dismissed={dismissed} now={now} actionsFor={actionsFor} loginActions={loginActions} sandboxes={sandboxes}
+            <MachineStores api={api} machine={machine} view={view} t={t} jobs={jobs} dismissed={dismissed} now={now} actionsFor={actionsFor} sandboxes={sandboxes}
               busy={new Set(sandboxes.filter((b) => b.machine === machine && b.project).map((b) => b.project!.split('/')[0]!))}
-              onPushHere={(m) => setDialog({ kind: 'to-machine', machine: m })} onConnect={(m) => setDialog({ kind: 'connect', machine: m })}
+              onPushHere={(m) => setDialog({ kind: 'to-machine', machine: m })} onAttachStore={(m) => setDialog({ kind: 'attach', machine: m })}
               onOpenStore={(name) => open(`store:${name}`)} onOpenProject={(key) => open(`project:${key}`)} onBackups={(store) => setDialog({ kind: 'backups', store })} />
           ))} />
       )
@@ -517,7 +515,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
     if (id === 'overview') {
       return (
         <Page wide label={t('title')}>
-          <HomeOverview view={view} error={storage.error} t={t} setup={more.setup} now={now} doctor={doctor} jobs={jobs} dismissed={dismissed} loginActions={loginActions} sandboxes={sandboxes}
+          <HomeOverview view={view} error={storage.error} t={t} setup={more.setup} now={now} doctor={doctor} jobs={jobs} dismissed={dismissed} sandboxes={sandboxes}
             onOpen={open} onRefresh={refresh} onCheckAgain={() => setChecks((n) => n + 1)}
             onNewStore={() => setDialog({ kind: 'new-store' })} onConnect={() => setDialog({ kind: 'connect' })}
             onBackups={(store) => setDialog({ kind: 'backups', store })} onNewMachine={() => setNewMachine(true)} onPresets={() => setPresetsOpen(true)} presetsLabel={more.presets('openTitle')}

@@ -1,4 +1,4 @@
-<!-- source: 62253ded5c99 -->
+<!-- source: 325a6bc33121 -->
 # 入口
 
 > 截图来自独立的指南环境，使用固定版本的 LayerFS 运行时和预置的 `handbook` 项目。
@@ -84,7 +84,7 @@ DSH 的侧边栏里有 **LayerFS** 行（和 Plugins、Automation tasks、More �
 |---|---|---|---|---|
 | 控件块 | **无项目**（No project）或项目名；aria 为 **LayerFS 项目：{project}**（LayerFS project: {project}） | 按下 → 菜单 | `session.place`（主机状态，没有调用） | — |
 | **无项目**（No project） | 会话没有项目时打勾 | 选择 → 普通的 DSH 会话 | — | — |
-| 项目行 | **bookshelf** 和 **handbook** 均显示 **LayerFS Home**：名称和运行位置；悬停时有 ⚙ **设置 {project}**（Set up {project}） | 选择 → 会话加入这个项目（智能体预设变成 **LayerFS**）· ⚙ → [项目对话框](#project-dialog) | `sessions.choose`：`project get`，第一次认领时还有 `branch list`、`branch fork`；之后在后台同步 Store | **无法打开项目：{message}**（Could not open the project: {message}） |
+| 项目行 | **bookshelf** 和 **handbook** 均显示 **native**：名称和运行位置；悬停时有 ⚙ **设置 {project}**（Set up {project}） | 选择 → 会话加入这个项目（智能体预设变成 **LayerFS**）· ⚙ → [项目对话框](#project-dialog) | `sessions.choose`：`project get`，第一次认领时还有 `branch list`、`branch fork`；之后在后台同步 Store | **无法打开项目：{message}**（Could not open the project: {message}） |
 | **新建项目…**（New project…）· **导入文件夹…**（Import a folder…） | — | → 以对应模式打开[项目对话框](#project-dialog) | 见那里 | — |
 | 导入进度 | **正在导入 {name}…**（Importing {name}…）· 正在统计文件（Counting files）、正在检查（Checking）、正在发送文件（Sending files）、正在写入层（Writing layers）、正在记录项目（Recording the project）、正在打开（Opening） | — | `project init`（轮询的任务） | **导入失败**（Import failed），附 **关闭**（Dismiss） |
 
@@ -149,16 +149,16 @@ DSH 的侧边栏里有 **LayerFS** 行（和 Plugins、Automation tasks、More �
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
-| 机器 | 磁贴：**docker**、**LayerFS Home**（本机，无隔离（This Mac, unisolated），或这台电脑，已沙箱化（This computer, sandboxed）；**默认**（Default））、**新建机器**（New machine） | 选择 Store 文件放在哪里：“存储文件所在的位置，其中项目的会话也在那里运行。”（Where the Store file lives. Its projects’ sessions run there.）· **新建机器**（New machine）→ 关闭对话框，打开 主页 › 机器，并展开添加机器（Add a machine） | `GET /api/platforms`：`home get` (读取) | 磁贴上写 **运行中**（Running）/ **已停止**（Stopped）；已停止的机器会先提供 **启动 {machine}**（Start {machine}）（`machine start`） |
+| 机器 | 磁贴：**docker**、**native**（本机，无隔离（This Mac, unisolated），或这台电脑，已沙箱化（This computer, sandboxed）；**默认**（Default））、**新建机器**（New machine） | 选择 Store 文件放在哪里：“存储文件所在的位置，其中项目的会话也在那里运行。”（Where the Store file lives. Its projects’ sessions run there.）· **新建机器**（New machine）→ 关闭对话框，打开 主页 › 机器，并展开添加机器（Add a machine） | `GET /api/platforms`：`home get` (读取) | 磁贴上写 **运行中**（Running）/ **已停止**（Stopped）；已停止的机器会先提供 **启动 {machine}**（Start {machine}）（`machine start`） |
 
 ![PostgreSQL](../img/entry-project-pg.png)
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
-| 存储 | **新建连接**（New connection）· **已有 · {n}**（Existing · {n}） | — | `GET /api/store-auths` (读取，仅主机) | — |
+| 存储 | **新建连接**（New connection）· **已有 · {n}**（Existing · {n}） | — | `GET /api/storage` (读取) | — |
 | 数据库 URL | “不含用户、密码或 passfile，例如 postgresql://db.lan:5432/app。”（Without a user, password or passfile, for example postgresql://db.lan:5432/app.） | 输入；含登录信息的 URL 会被拒绝并附 **LayerFS 的修复**（LayerFS’s fix）和 **复制**（Copy）；Linux 上填 `localhost` 会给出警告并提供 **改用 127.0.0.1**（Use 127.0.0.1） | — | 按钮旁显示 **存储：需要数据库 URL**（Store: Needs a database URL） |
-| 登录 | **输入**（Type）· **已保存的登录**（Saved login）（按所填服务器自动预选健康的已保存登录）；登录名（Login name）、用户（User）、密码（Password）（“保存为 LayerFS 登录（store save-auth）：密码经标准输入发送给 LayerFS，不再显示。”（Saved as a LayerFS login (store save-auth): the password goes to LayerFS on stdin and is never shown again.）） | 输入或选择 | 创建时 `store save-auth`、`store connect`、`store get` | — |
-| 运行于 | 会话运行的机器（PostgreSQL 下这一部分就叫 **运行于**（Runs on）） | 选择 | — | — |
+| 登录 | 用户（User）、密码（Password）（“由这台电脑为此 Store 保存：密码经标准输入交给 LayerFS，之后不再显示。”（Saved by this computer for this Store: the password goes to LayerFS on stdin and is never shown again.）） | 输入 | 创建时 `store connect`（密码经标准输入）和 `store get`，会话的机器尚未挂接时再 `store attach --machine` | — |
+| 运行于 | 会话运行的机器（PostgreSQL 下这一部分就叫 **运行于**（Runs on））。已有的 Store 默认选中上次用过且仍挂接的机器，否则选唯一挂接的那台；挂接了多台又没有选过时不预选。尚未挂接的机器会提示 **将把 {machine} 挂接到此 Store。**（Will attach {machine} to the Store.） | 选择 | — | — |
 
 ### 导入文件夹
 
@@ -191,7 +191,7 @@ DSH 的侧边栏里有 **LayerFS** 行（和 Plugins、Automation tasks、More �
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
 | 1 项目（Projects） | 返回链接（从列表打开时才有） | → 列表 | — | — |
-| 存储 | **guide-notes** · **SQLite 存储 · 仅此项目**（SQLite Store · Only this project）（或 **与另外 {n} 个项目共用**（Shared with {n} other projects）） | — | `GET /api/storage` (读取) | PostgreSQL：显示 **连接自 …**（Connected from …），而不是机器 |
+| 存储 | **guide-notes** · **SQLite 存储 · 仅此项目**（SQLite Store · Only this project）（或 **与另外 {n} 个项目共用**（Shared with {n} other projects）） | — | `GET /api/storage` (读取) | PostgreSQL：显示 **运行于 …**（Runs on …，挂接的机器），而不是机器 |
 | 机器 | 磁贴；当前那台标着 **当前位置**（Here now） | 选另一台 → **移到 {machine}**（Move to {machine}） | `store move`（任务） | 已停止的机器会先提供 **启动 {machine}**（Start {machine}） |
 | 2 从侧边栏隐藏（Hide from sidebar） | — | 项目从侧边栏的 LayerFS 视图里消失，直到它有新会话 | —（记在这个浏览器里） | **已隐藏，直到它有新会话**（Hidden until its next session） |
 | 3 完成（Done） | — | 关闭 | — | — |
@@ -211,7 +211,7 @@ Store 已经不在的项目会显示：“此项目的存储已不在这个 Laye
 | LayerFS | **就绪**（Ready）或 **{n} 项待处理**（{n} to fix） | — | — | — |
 | 文件夹 | LayerFS 文件夹的路径 | 不能用时给出一行可复制的修复命令 | `home get` (读取) | **就绪**（Ready）、**刚刚创建**（Created just now）、**由旧版 LayerFS 创建**（Made by an older LayerFS）、**尚未创建**（Not created yet）、**无法读取**（Can’t be read） |
 | 运行时 | **LayerFS 2.0.0** `ed911896`（Incomplete，缺少 Linux 包） | 1 **更改…**（Change…）（或 **选择…**（Choose…））→ 运行时选择器 · **详情**（Details）→ 它的各个部分（CLI、本机守护进程（Native daemon）、Linux 包（Linux bundle）、Node SDK、终端（Terminal）命令行），带复制按钮 | `--version --json`、`help --json` (读取) | 本机机器记录的是另一个守护进程时，显示 **使用此守护进程**（Use this daemon）：`machine get native`、`machine update native --daemon` |
-| 机器 | **{n}/{total} 可用**（{n} of {total} available）：本机、Docker、Lima、Apple Container | **安装…**（Install…）/ **设置…**（Set up…）→ 操作说明；**检查**（Check）→ 重新读取 | `GET /api/machines?fresh=1`：`home get`、`machine get`、`machine list` (读取) | **就绪**（Ready）、**可用**（Available）、**未安装**（Not installed）、**未运行**（Not running）、**需要设置**（Needs setup）、**需要 Linux 包**（Needs the Linux bundle） |
+| 机器 | **{n}/{total} 可用**（{n} of {total} available）：原生、Docker、Lima、Apple Container（服务商；不是 LayerFS 主目录） | **安装…**（Install…）/ **设置…**（Set up…）→ 操作说明；**检查**（Check）→ 重新读取 | `GET /api/machines?fresh=1`：`home get`、`machine get`、`machine list` (读取) | **就绪**（Ready）、**可用**（Available）、**未安装**（Not installed）、**未运行**（Not running）、**需要设置**（Needs setup）、**需要 Linux 包**（Needs the Linux bundle） |
 | 2 重新检查（Check again） | — | 全部重新读取 | 同上 | — |
 | **稍后**（Later） | 只在缺东西时出现 | 关闭；待办挪到主页的概览头部上 | —（记在这个浏览器里） | — |
 | 3 完成（Done） | — | 关闭 | — | 缺东西时不可用 |

@@ -23,7 +23,7 @@ import type { LayerfsApi } from '../api.ts'
 import { MachineGlyph } from '../machines/icons.tsx'
 import type { MachinesKey } from '../machines/locale.ts'
 import { kindKey, type AvailableView, type MachinesView, type Words } from '../machines/model.ts'
-import { nativeGlyphOs, nativeNameKey, osOfView, stepReasons, type HostOs } from '../machines/needs.ts'
+import { nativeGlyphOs, osOfView, stepReasons, type HostOs } from '../machines/needs.ts'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { CopyLine } from '../ui/index.tsx'
 import { useQuery } from '../ui/use-query.ts'
@@ -152,6 +152,15 @@ function Row({ tile, title, line, lineMono, lineWarn, state, warn, action, data 
   )
 }
 
+/** "This LayerFS writes SQLite format 3, PostgreSQL format 4", from `--version --json` `formats`; null from a build without them. */
+export function formatsLine(formats: Readonly<Record<string, number>> | null | undefined, t: SetupModalT): string | null {
+  const parts = [
+    typeof formats?.sqlite === 'number' ? t('fmtWritesSqlite', { v: String(formats.sqlite) }) : null,
+    typeof formats?.postgresql === 'number' ? t('fmtWritesPg', { v: String(formats.postgresql) }) : null,
+  ].filter((p): p is string => !!p)
+  return parts.length ? t('fmtWrites', { list: parts.join(t('fmtSep')) }) : null
+}
+
 function LayerfsSection({ api, s, t }: { api: LayerfsApi, s: SetupStatus, t: SetupModalT }): ReactNode {
   const r = s.runtime
   const [changing, setChanging] = useState<'pick' | 'other' | null>(!r.cli ? 'pick' : null)
@@ -168,6 +177,7 @@ function LayerfsSection({ api, s, t }: { api: LayerfsApi, s: SetupStatus, t: Set
         action={changing ? null : <Button variant="outline" size="sm" onClick={() => setChanging('pick')}>{r.cli ? t('change') : t('choose')}</Button>} />
       {s.daemonRecordable ? <RecordDaemon api={api} t={t} /> : null}
       {b.state === 'mixed' && s.mixedAllowed ? <p className={css.rowNote}>{t('mixedAllowedNote')}</p> : null}
+      {formatsLine(r.formats, t) ? <p className={css.rowNote} data-formats>{formatsLine(r.formats, t)}</p> : null}
       {changing ? <RuntimePicker api={api} t={t} other={changing === 'other'} onOther={() => setChanging('other')} onDone={() => setChanging(null)} cancellable={!!r.cli} /> : null}
       {r.cli ? (
         <div className={css.details}>
@@ -298,7 +308,7 @@ function PlatformLine({ row, os, open, onOpen, t, tm, tw, recheck }: {
   const check = () => { setChecking(true); void recheck().finally(() => setChecking(false)) }
   const native = row.platform === 'native'
   const key = kindKey(row.platform)
-  const name = native ? tm(nativeNameKey(os)) : key ? tm(key) : row.platform
+  const name = key ? tm(key) : row.platform
   const blocked = row.state !== 'ready' && row.state !== 'available'
   // the state word says it (Not installed, Not running, Needs the Linux bundle); only a host fact to set up needs its reason
   const line = row.state === 'needsSetup' ? stepReasons(row.readiness, tw) : null

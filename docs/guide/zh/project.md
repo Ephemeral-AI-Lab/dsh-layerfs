@@ -1,4 +1,4 @@
-<!-- source: 57fa4e64b321 -->
+<!-- source: b1827deebbcc -->
 # 项目
 
 > **位置：** `LayerFS › 主页 › Store › <store> › <project>` · **打开方式：** 主页 › 项目或某个 Store 的项目标签页中的项目名、跳转到、Store 卡片 · **源码：** 见文末
@@ -198,9 +198,9 @@ Init 导入的内容属于 Store，不属于某次保存。
 
 ## 变体
 
-- **Store 损坏时的文件和历史。** 当项目所在的 Store 损坏时（没有已保存登录的 PostgreSQL Store、
+- **Store 损坏时的文件和历史。** 当项目所在的 Store 损坏时（没有已保存密码的 PostgreSQL Store、
   被损坏的机器阻塞的 Store），这两个标签页不显示读取失败，而是显示 Store 的状态词（例如
-  **已损坏 · 没有已保存的登录**（Broken · no saved login）或 **已阻塞 · `<machine>` 已损坏**
+  **已损坏 · 未保存密码**（Broken · no password saved）或 **已阻塞 · `<machine>` 已损坏**
   （Blocked · `<machine>` broken））、作为提示的 LayerFS 原句，以及它唯一的修复（见[修复
   按钮](components.md#fix-buttons)）。会话标签页显示同样的状态词，并在修好之前隐藏
   **新建会话**（New session）和 **打开**（Open）。

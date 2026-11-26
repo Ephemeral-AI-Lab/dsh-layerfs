@@ -41,14 +41,14 @@ export interface ProjectPageProps {
   onOpenStore: (store: string) => void
   /** What the Sandboxes map needs of the conversation views. */
   map: ProjectMapShare
-  /** The project's Store as the Storage page last read it: a broken one (no saved login…) is shown instead of failed reads. */
+  /** The project's Store as the Storage page last read it: a broken one (no password saved…) is shown instead of failed reads. */
   store?: StoreRow | undefined
 }
 
 /**
- * The project's Store is broken (UI pass 2 F4: a PostgreSQL Store with no
- * saved login): its word, LayerFS's sentence as the tip and its fix (Save a
- * login…) as the one action, instead of a failed read with a code and Retry.
+ * The project's Store is broken (UI pass 2 F4: a PostgreSQL Store whose
+ * password is not saved): its word, LayerFS's sentence as the tip and its fix
+ * (connect it again with the password) as the one action, instead of a failed read with a code and Retry.
  */
 function StoreBroken({ s, t }: { s: StoreRow, t: StorageT }): ReactNode {
   return (

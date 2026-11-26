@@ -7,13 +7,13 @@
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Lfs } from '../layerfs/cli.ts'
+import { READ_TIMEOUT_MS, type Lfs } from '../layerfs/cli.ts'
 import { stringify } from './util.ts'
 
 /** One storage job (Connect's StorageJob). */
 export interface StorageJob {
   id: string
-  kind: 'push' | 'pull' | 'move' | 'backup' | 'restore' | 'compact'
+  kind: 'push' | 'pull' | 'move' | 'backup' | 'restore' | 'compact' | 'upgrade'
   store: string
   target: string
   from: string | null
@@ -25,7 +25,10 @@ export interface StorageJob {
   phases: { phase: string, half: string | null, at: number }[]
   /** The phases the call reports, in order, when the host knows them before the run (a compaction). */
   steps?: readonly string[]
-  outcome: 'succeeded' | 'failed' | 'unknown' | 'interrupted' | null
+  /** `stopped`: an upgrade its Cancel ended before COMMIT (LayerFS answered `Cancelled`; nothing changed). */
+  outcome: 'succeeded' | 'failed' | 'unknown' | 'interrupted' | 'stopped' | null
+  /** An upgrade's Cancel was asked: SIGTERM went (or goes, once the call reports its first phase) to its CLI. */
+  stopping?: boolean
   pid: number | null
   observation: any
   summary: string | null
@@ -43,20 +46,39 @@ export interface StorageJob {
 /** The phases store.compact reports, by Store family (LayerFS `on_progress`, GC decision A13). */
 export const COMPACT_STEPS = { sqlite: ['mark', 'build', 'verify', 'install'], postgresql: ['mark', 'build', 'swap', 'cleanup'] } as const
 
+/**
+ * The phases store.upgrade reports, by Store family (#804 §5). `commit` is the
+ * point of no return: from there a Cancel is refused.
+ */
+export const UPGRADE_STEPS = { sqlite: ['check', 'convert', 'verify', 'commit'], postgresql: ['check', 'convert'] } as const
+
 export function failureOutcome(error: any, phase: string | null): StorageJob['outcome'] {
   if (error?.code === 'Unknown' || (error?.transport && error.transport !== 'refusal') || ['install', 'record'].includes(phase ?? '')) return 'unknown'
   if (error?.code === 'Interrupted') return 'interrupted'
   return 'failed'
 }
 
+/**
+ * How an upgrade's refusal ended it: LayerFS's own reply decides, never the
+ * phase it was in. A Cancel before COMMIT answers `Failed` with
+ * `detail.code: Cancelled` (nothing changed): `stopped`; a lost reply or a
+ * killed CLI is `unknown` (its Check reads the format); any other refusal
+ * changed nothing: `failed`.
+ */
+export function upgradeOutcome(error: any): StorageJob['outcome'] {
+  if (error?.code === 'Failed' && error?.detail?.code === 'Cancelled' && (!error?.transport || error.transport === 'refusal')) return 'stopped'
+  return failureOutcome(error, null)
+}
+
 export function transferSummary(job: StorageJob): string | null {
   if (job.outcome === 'unknown') return 'Outcome unknown · Inspect'
   if (job.outcome === 'interrupted') return 'Interrupted · Final result unavailable'
+  if (job.outcome === 'stopped') return 'Cancelled · nothing changed'
   if (!job.error) return null
   if (job.phase === 'retire') return job.kind === 'pull' || job.half === 'pull'
     ? 'On Home; source copy not removed'
     : `Moved to ${job.target}; old copy on Home not removed`
-  if (job.kind === 'move' && job.half === 'push') return `Push to ${job.target} failed; Store stays in LayerFS Home`
+  if (job.kind === 'move' && job.half === 'push') return `Push to ${job.target} failed; Store stays on native`
   return null
 }
 
@@ -67,13 +89,21 @@ export function transferSummary(job: StorageJob): string | null {
  * ready again after a certain failure, and resolved (the same `store move`,
  * LayerFS's own `fix`) when it is broken `unresolved` and the machine is ready.
  */
-export async function inspectJob(lfs: Lfs, job: StorageJob) {
+/** The format an upgrade's Check answers when the CLI cannot read it (`--with format` not in its table). */
+export const UNKNOWN_FORMAT = { version: null, latest: null, status: 'unknown', fix: null } as const
+
+/** @param storeFormat - the CLI takes `store get --with format` (else an upgrade's Check reads format unknown). */
+export async function inspectJob(lfs: Lfs, job: StorageJob, storeFormat = false) {
   const at = Date.now()
   const live = () => lfs.store.get(job.store, { detail: true, with: ['live'] })
   if (job.kind === 'backup') return { at, kind: 'backup', value: await lfs.backup.list({ bucket: job.target, detail: true }), action: null }
   if (job.kind === 'restore') return { at, kind: 'restore', value: await live(), action: null }
   // a compaction is never resolved from here: the next store.compact adopts and settles what a run left
   if (job.kind === 'compact') return { at, kind: 'compact', value: await live(), action: null }
+  // an upgrade's Check: the Store's format alone (`--with format` reads only the version, works on an old Store);
+  // `current` reads Upgraded, `outdated` Outdated with the upgrade again as its fix
+  // (only when the CLI lists it: else the format is unknown, and the card says so)
+  if (job.kind === 'upgrade') return { at, kind: 'upgrade', value: storeFormat ? await lfs.store.get(job.store, { detail: true, with: ['format'], timeout_ms: READ_TIMEOUT_MS }) : { store: job.store, format: { ...UNKNOWN_FORMAT } }, action: null }
   const status = await live()
   const direction = job.kind === 'move' ? job.half ?? 'pull' : job.kind
   const machine = direction === 'pull' ? job.from : job.target

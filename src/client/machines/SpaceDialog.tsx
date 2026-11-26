@@ -17,7 +17,6 @@ import { Button, IconRefreshOutlineRegular, Modal } from '@deepseek-ai/dsh-clien
 import { LinkButton } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import { SandboxGlyph } from './icons.tsx'
-import { useMachineTitle } from './Inventory.tsx'
 import { percent } from './metrics.ts'
 import { gib, sandboxGone, shortSandbox, type MachineInfo } from './model.ts'
 import {
@@ -48,14 +47,13 @@ const ROW_KEYS = {
 /** `onTab`: closes the dialog on the Stores or Sandboxes tab. */
 export function SpaceDialog({ m, onClose, onTab }: { m: MachineInfo, onClose: () => void, onTab: (tab: 'stores' | 'sandboxes') => void }): ReactNode {
   const { t, tw } = useMachinesContext()
-  const title = useMachineTitle()
   const { askable, read, refresh } = useMachineSpace(m)
   const view = read.data ?? null
   const space = view?.space ?? null
   const scope = space ? diskScopeWords(space.disk.scope) : null
   const description = [space?.disk.fs, scope ? tw(scope) : null, space ? t('spaceAsOf', { time: clock(view!.at) }) : null].filter(Boolean).join(' · ')
   return (
-    <Modal open onClose={onClose} title={t('spaceDialogTitle', { name: title(m) })} description={description || undefined} closeLabel={t('close')}
+    <Modal open onClose={onClose} title={t('spaceDialogTitle', { name: m.name })} description={description || undefined} closeLabel={t('close')}
       className={css.spaceDialog} contentClassName={css.dialogContent}>
       <div className={css.sdBody} data-space-dialog={m.name}>
         {!askable

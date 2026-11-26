@@ -8,9 +8,9 @@ import type { StoreRow } from '../storage/types.ts'
 
 export const SESSION_FAILURE_EN = {
   sfOpenStore: 'Open Store',
-  sfShortNoLogin: 'No login',
+  sfShortNoLogin: 'No password',
   sfShortOutdated: 'Outdated record',
-  sfShortWrongLogin: 'Wrong login',
+  sfShortWrongLogin: 'Wrong password',
   sfShortPrivilege: 'Missing privilege',
   sfShortUnreachable: 'Server unreachable',
   sfShortDaemonDns: 'Address not resolved',
@@ -19,11 +19,11 @@ export const SESSION_FAILURE_EN = {
   sfShortRemoved: 'Store removed',
   sfShortBusy: 'Store busy',
   sfShortMachine: 'Machine blocked',
-  sfPgNoLogin: 'Store {store} has no saved login. Save or pick a login on its Store page.',
+  sfPgNoLogin: 'Store {store} has no saved password. Give one with Edit connection… on its Store page.',
   sfPgOutdated: 'Store {store}’s record is outdated. Check or reconnect it on its Store page.',
-  sfPgWrongLogin: 'PostgreSQL rejected the login for Store {store}. Rotate the password or change the login on its Store page.',
-  sfPgPrivilege: 'The PostgreSQL user for Store {store} lacks {privilege}. Grant it or switch to a login with access on its Store page.',
-  sfPgPrivilegeGeneric: 'The PostgreSQL user for Store {store} lacks required database privileges. Grant access or change the login on its Store page.',
+  sfPgWrongLogin: 'PostgreSQL rejected the user or password for Store {store}. Fix them with Edit connection… on its Store page.',
+  sfPgPrivilege: 'The PostgreSQL user for Store {store} lacks {privilege}. Grant it, or change the user with Edit connection… on its Store page.',
+  sfPgPrivilegeGeneric: 'The PostgreSQL user for Store {store} lacks required database privileges. Grant access, or change the user with Edit connection… on its Store page.',
   sfPgUnreachable: 'Cannot reach the PostgreSQL server for Store {store}. Check the server and connection on its Store page.',
   sfPgDaemonDns: 'The LayerFS daemon could not resolve the PostgreSQL host for Store {store}. Check the server address on its Store page (on Linux, prefer 127.0.0.1 over localhost).',
   sfPgStoreMismatch: 'The PostgreSQL database does not match Store {store}. Check its connection on the Store page.',
@@ -37,9 +37,9 @@ export const SESSION_FAILURE_EN = {
 
 export const SESSION_FAILURE_ZH: typeof SESSION_FAILURE_EN = {
   sfOpenStore: '打开 Store',
-  sfShortNoLogin: '缺少登录',
+  sfShortNoLogin: '缺少密码',
   sfShortOutdated: '记录已过时',
-  sfShortWrongLogin: '登录错误',
+  sfShortWrongLogin: '密码错误',
   sfShortPrivilege: '缺少权限',
   sfShortUnreachable: '连不上服务器',
   sfShortDaemonDns: '地址无法解析',
@@ -48,11 +48,11 @@ export const SESSION_FAILURE_ZH: typeof SESSION_FAILURE_EN = {
   sfShortRemoved: 'Store 已移除',
   sfShortBusy: 'Store 忙碌',
   sfShortMachine: '机器不可用',
-  sfPgNoLogin: 'Store {store} 没有已保存的登录。请到 Store 页面保存或选择登录。',
+  sfPgNoLogin: 'Store {store} 没有已保存的密码。请在其 Store 页面通过“编辑连接…”填写。',
   sfPgOutdated: 'Store {store} 的记录已过时。请到 Store 页面检查或重新连接。',
-  sfPgWrongLogin: 'PostgreSQL 拒绝了 Store {store} 的登录。请到 Store 页面更换密码或切换登录。',
-  sfPgPrivilege: 'Store {store} 的 PostgreSQL 用户缺少 {privilege} 权限。请授予权限或到 Store 页面切换登录。',
-  sfPgPrivilegeGeneric: 'Store {store} 的 PostgreSQL 用户缺少所需数据库权限。请授予权限或到 Store 页面切换登录。',
+  sfPgWrongLogin: 'PostgreSQL 拒绝了 Store {store} 的用户或密码。请在其 Store 页面通过“编辑连接…”修改。',
+  sfPgPrivilege: 'Store {store} 的 PostgreSQL 用户缺少 {privilege} 权限。请授予权限，或在其 Store 页面通过“编辑连接…”更换用户。',
+  sfPgPrivilegeGeneric: 'Store {store} 的 PostgreSQL 用户缺少所需数据库权限。请授予权限，或在其 Store 页面通过“编辑连接…”更换用户。',
   sfPgUnreachable: '无法连接到 Store {store} 的 PostgreSQL 服务器。请到 Store 页面检查服务器和连接。',
   sfPgDaemonDns: 'LayerFS 守护进程无法解析 Store {store} 的主机名。请到 Store 页面检查地址（Linux 上建议使用 127.0.0.1 而非 localhost）。',
   sfPgStoreMismatch: '连接的 PostgreSQL 数据库与 Store {store} 不匹配。请到 Store 页面检查连接。',
@@ -92,7 +92,7 @@ function codeFromPgKind(kind: PgFailureKind | null, raw: string): SessionFailure
 export function pgStoreFailure(store: StoreRow | undefined): SessionFailure | null {
   if (!store || store.kind !== 'postgresql') return null
   if (store.state === 'broken') {
-    if (store.reason === 'missing' || !store.postgresql?.auth || /names no saved login|no saved login named/i.test(store.message ?? '')) {
+    if (store.postgresql?.passwordSaved === false) {
       return { code: 'pg_no_login', store: store.name, reason: store.reason ?? undefined, detail: store.message ?? undefined }
     }
     if (store.reason === 'outdated') return { code: 'pg_outdated', store: store.name, reason: 'outdated', detail: store.message ?? undefined }
@@ -107,10 +107,12 @@ export function pgStoreFailure(store: StoreRow | undefined): SessionFailure | nu
   }
   if (store.state === 'busy') return { code: 'store_busy', store: store.name, detail: store.message ?? undefined }
   if (store.state !== 'ready') return { code: 'store_unresolved', store: store.name, detail: store.message ?? undefined }
-  const rows = store.connectedFrom ?? []
-  const first = !rows.some((c) => c.reached === 'ok') ? rows.find((c) => c.reached === 'failed') : undefined
+  // the host's own check first, then the attached machines when none of them reached the database
+  const host = store.postgresql?.host
+  const rows = store.attached ?? []
+  const first = host && !host.ok ? host : !rows.some((c) => c.reached === 'ok') ? rows.find((c) => c.reached === 'failed')?.reach ?? undefined : undefined
   if (first) {
-    const err = first.reach?.error ?? undefined
+    const err = first.error ?? undefined
     const kind = classifyPgFailure(undefined, err)
     const code = codeFromPgKind(kind, err ?? '') ?? 'pg_unreachable'
     return { code, store: store.name, detail: err }
@@ -132,12 +134,11 @@ export function inferSessionFailure(raw: string | null | undefined, store?: stri
     }
     if (/was removed from this LayerFS home/i.test(text)) return { code: 'store_removed', store: store ?? undefined, detail: text }
     if (/file of Store\s+.+\s+is missing/i.test(text)) {
-      if (storeRow?.kind === 'postgresql') return { code: 'pg_no_login', store: store ?? storeRow.name, detail: text }
       return { code: 'store_missing_file', store: store ?? undefined, detail: text }
     }
     if (/is busy/i.test(text)) return { code: 'store_busy', store: store ?? undefined, detail: text }
   }
-  if (storeRow && (!text || /file of Store|no saved login|names no saved login|outdated|PostgreSQL|SQLSTATE|lacks\s+|Storage page|Store page/i.test(text))) {
+  if (storeRow && (!text || /file of Store|outdated|PostgreSQL|SQLSTATE|lacks\s+|Storage page|Store page/i.test(text))) {
     return pgStoreFailure(storeRow)
   }
   return null

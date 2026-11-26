@@ -42,30 +42,33 @@ test('each runnable fix line makes the host call of the page\'s own button', asy
   ])
 })
 
-// CUT (LayerFS 2.0, 2026-11-19): the fixes of old state the page offers as its one action.
-test('the CUT fixes: a Store with no saved login opens the save-login dialog, docker\'s doctor runs, a record without vm_name is removed', async () => {
-  assert.deepEqual(M.runnableFix('layerfs store save-auth <auth> --user <user> --password-stdin && layerfs store update compact-demo-pg --auth <auth>'), { kind: 'saveAuth', store: 'compact-demo-pg' })
+// CUT (LayerFS 2.0, 2026-11-19): the fixes of old state the page offers as its one action;
+// the PostgreSQL connect/attach contract: a connection to change opens Edit connection, an
+// unattached machine is attached.
+test('the CUT fixes: docker\'s doctor runs, a record without vm_name is removed; a PostgreSQL connection fix opens Edit connection, an attach fix attaches', async () => {
   assert.deepEqual(M.runnableFix('layerfs machine doctor docker'), { kind: 'doctor', machine: 'docker' })
   assert.deepEqual(M.runnableFix('layerfs machine remove old'), { kind: 'removeMachine', machine: 'old' })
   // the cut's review: docker with no vm_name is reset by its remove; a Store with no kind and an lfs- Sandbox are removed (records only)
   assert.deepEqual(M.runnableFix('layerfs machine remove docker'), { kind: 'removeMachine', machine: 'docker' })
   assert.deepEqual(M.runnableFix('layerfs store remove nokind'), { kind: 'removeStore', store: 'nokind' })
   assert.deepEqual(M.runnableFix('layerfs sandbox remove lfs-1a2b3c4d-box'), { kind: 'removeSandbox', sandbox: 'lfs-1a2b3c4d-box' })
-  // spec v23: a login the home lacks (`missing`) opens the save-login dialog for its Store (the person types the password there);
-  // an old record (`outdated`) is Update, store update naming its own login again
-  assert.deepEqual(M.runnableFix('layerfs store save-auth pg --user u --password-stdin && layerfs store update pg --auth pg'), { kind: 'saveAuth', store: 'pg' })
-  assert.deepEqual(M.runnableFix('layerfs store update demo-experiments --auth demo-pg'), { kind: 'updateAuth', store: 'demo-experiments', auth: 'demo-pg' })
-  // never run in part, never with a guessed login: a line whose names differ, or a longer one, stays a tip
+  assert.deepEqual(M.runnableFix('layerfs store connect pg postgresql://db.lan:5432/team --user <user> --password-stdin'), { kind: 'connection', store: 'pg' })
+  assert.deepEqual(M.runnableFix('layerfs store attach pg --machine docker'), { kind: 'attach', store: 'pg', machine: 'docker' })
+  // never run in part: a chain, a retired call or a longer line stays a tip
   for (const line of [
-    'layerfs store save-auth other --user u --password-stdin && layerfs store update pg --auth pg',
-    'layerfs store save-auth <auth> --user <user> --password-stdin',
-    'layerfs store update pg --auth <auth>',
+    'layerfs store save-auth pg --user u --password-stdin && layerfs store update pg --auth pg',
+    'layerfs store update pg --auth pg',
+    'layerfs store connect pg postgresql://h/d && layerfs store attach pg --machine m',
+    'layerfs store attach pg --machine m --force',
     'layerfs machine remove old --force',
     'layerfs sandbox remove box --force',
     'layerfs store remove a b',
     'layerfs machine doctor',
     'mv /h /h.old && layerfs home init',
   ]) assert.equal(M.runnableFix(line), null, line)
-  // the two that are Center's own are not host calls
-  for (const fix of [{ kind: 'saveAuth', store: 'pg' }, { kind: 'doctor', machine: 'docker' }]) await assert.rejects(M.fixCall({ call: async () => assert.fail('no call'), op: async () => assert.fail('no op') }, fix))
+  // attach is a host call; the two that are Center's own are not
+  const calls = []
+  await M.fixCall({ call: async (...a) => { calls.push(a) } }, { kind: 'attach', store: 'pg', machine: 'docker' })
+  assert.deepEqual(calls, [['POST', '/api/stores/pg/attach', { machines: ['docker'] }]])
+  for (const fix of [{ kind: 'connection', store: 'pg' }, { kind: 'doctor', machine: 'docker' }]) await assert.rejects(M.fixCall({ call: async () => assert.fail('no call'), op: async () => assert.fail('no op') }, fix))
 })

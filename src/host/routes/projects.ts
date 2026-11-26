@@ -30,7 +30,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync } from 'node:fs'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import { StorageObservations } from './storage-observations.ts'
 import { ProjectStorageLedgers } from './project-storage.ts'
-import { lastUsed, pgPlacement, reachedFrom } from '../placement.ts'
+import { attachedFrom, lastUsed, pgPlacement } from '../placement.ts'
 import { READ_TIMEOUT_MS } from '../layerfs/cli.ts'
 import { companionsOf, machineRows, msAt, opOf } from '../layerfs/machine-records.ts'
 import { Answer, PAGE, cliFeatures, fixOf, invalidateSandbox, keyOf, pages, projectRef, refuse, sandboxObservation, type RouteHost } from './util.ts'
@@ -618,15 +618,16 @@ export class Projects {
     const { name, image } = body ?? {}
     if (typeof name !== 'string' || !name) throw refuse(400, 'InvalidInput', 'A Sandbox needs a name.')
     // a sqlite project's Sandboxes run on its Store's machine (LayerFS's default); a PostgreSQL one's on the machine named, else placement.ts's
+    // (null: none named, and LayerFS's refusal, with its attach fix or `next.machines`, is the answer)
     const storeName = String(record.store ?? keyOf(record).split('/')[0])
     const storeRecord: any = await this.lfs.store.get(storeName, { detail: true }).catch(() => null)
     const postgresql = (storeRecord?.engine ?? record.engine) === 'postgresql'
-    let machine = storeRecord?.machine ?? record.machine
+    let machine: string | null = storeRecord?.machine ?? record.machine
     if (postgresql) {
       const named = typeof body.machine === 'string' && body.machine ? body.machine : null
       if (!named) {
         const sandboxes = await this.lfs.sandbox.list({ project: keyOf(record), detail: true }).then((r: any) => r?.items ?? [], () => [])
-        machine = pgPlacement(await machineRows(this.lfs), { last: lastUsed(sandboxes), reached: reachedFrom(storeRecord) })
+        machine = pgPlacement(await machineRows(this.lfs), { last: lastUsed(sandboxes), attached: attachedFrom(storeRecord) })
       } else machine = named
     }
     if (image !== undefined && image !== null && image !== '' && typeof image !== 'string') throw refuse(400, 'InvalidInput', 'Name the image as a string: its id (a sha256 digest) or a reference.')
@@ -636,15 +637,15 @@ export class Projects {
       throw Object.assign(refuse(501, 'Unsupported', `The pinned LayerFS CLI takes a Sandbox image only by its full sha256 digest, not ${JSON.stringify(picked)}. Pick an image from the list, or pin a LayerFS that takes image references.`), { detail: { need: 'image-refs' } })
     }
     // Stage 1: a Docker image whose copy cannot fit is refused before the export starts (D8), in LayerFS's own `Capacity` shape (its refusal is the real answer)
-    if (picked && features.imageStage === 1) {
+    if (picked && features.imageStage === 1 && machine) {
       const short = await this.spaceFor(String(machine), picked)
       if (short) throw Object.assign(refuse(507, 'Capacity', `${picked} needs ${short.need} bytes on ${machine}; it has ${short.free} free.`), { detail: { needed_bytes: short.need, free_bytes: short.free, path: null }, fix: `layerfs machine prune ${machine} --unused` })
     }
     const start = body.start === true
     const project = keyOf(record)
-    const input = { project, name, machine: String(machine), ...(picked ? { image: picked } : {}), ...(start ? { start: true } : {}) }
+    const input = { project, name, machine: machine ?? '', ...(picked ? { image: picked } : {}), ...(start ? { start: true } : {}) }
     const run = async (report: Report) => {
-      if (start) {
+      if (start && input.machine) {
         report({ phase: 'machine' })
         await this.startMachine(input.machine)
         report({ phase: 'queued' })
@@ -652,7 +653,7 @@ export class Projects {
       await this.host.ensureNative()
       // the CLI's create phases (inspect, lock, export, send, unpack, start) as the job's, bytes while a phase reports them
       const progress = features.createProgress ? { on_progress: (p: unknown) => { const u = createPhase(p); if (u) report(u) } } : {}
-      const made = await this.lfs.sandbox.create(project, name, { ...(postgresql ? { machine: String(machine) } : {}), ...(picked ? { image: picked } : {}), ...progress })
+      const made = await this.lfs.sandbox.create(project, name, { ...(postgresql && machine ? { machine } : {}), ...(picked ? { image: picked } : {}), ...progress })
       this.sandboxCreates.created(project, name)
       this.sandboxMade(name)
       return made

@@ -60,7 +60,7 @@ await build({
       "export { refusalOf as cliRefusalOf } from './src/host/layerfs/cli.ts'",
       "export { refusedInUse } from './src/client/machines/MachineImages.tsx'",
       "export { classifyStore } from './src/host/sessions/availability.ts'",
-      "export { PG_URL_LOGIN, hasPgUrlLogin, isLinuxLocalhostUrl, replaceLocalhostWithIpv4, formatHostPort, loginInUrlFix } from './src/client/storage/pg-fields.tsx'",
+      "export { PG_URL_LOGIN, hasPgUrlLogin, isLinuxLocalhostUrl, replaceLocalhostWithIpv4 } from './src/client/storage/pg-fields.tsx'",
       "export * as ms from './src/client/storage/machine-stores.ts'",
       "export { stoppedBlock, storeNotice } from './src/client/storage/StoreCard.tsx'",
       "export { locales as machineLocales } from './src/client/machines/locale.ts'",
@@ -87,9 +87,9 @@ test('R FAIL 1: a multi-command fix is a chain the page runs step by step; anyth
   assert.deepEqual(M.doc.runnableFix(CHAIN), { kind: 'chain', steps: [{ kind: 'removeStore', store: 'sim-website-0cefe19cfdbb6fe8d224' }, { kind: 'removeMachine', machine: 'docker' }] })
   assert.equal(M.doc.removesMachine(M.doc.runnableFix(CHAIN)), 'docker')
   assert.equal(M.doc.removesSomething(M.doc.runnableFix(CHAIN)), true, 'a chain that removes asks the confirm press')
-  // unchanged: stop && start is the restart; save-auth stays the login dialog; --force and unknown commands stay tips
+  // unchanged: stop && start is the restart; a connect line opens Edit connection; --force and unknown commands stay tips
   assert.deepEqual(M.doc.runnableFix('layerfs machine stop m && layerfs machine start m'), { kind: 'restart', machine: 'm' })
-  assert.equal(M.doc.runnableFix('layerfs store save-auth <auth> --user <user> --password-stdin && layerfs store update s --auth <auth>').kind, 'saveAuth')
+  assert.equal(M.doc.runnableFix('layerfs store connect s postgresql://h/d --user <user> --password-stdin').kind, 'connection')
   assert.equal(M.doc.runnableFix('layerfs machine stop m --force && layerfs machine start m'), null)
   assert.equal(M.doc.runnableFix('layerfs store remove s && rm -rf /'), null)
   assert.equal(M.doc.runnableFix('layerfs store remove s && layerfs machine doctor m'), null, 'a step that opens something is not chained')
@@ -265,11 +265,7 @@ test('F12: a check the host has not started reads Waiting to start with Stop, ne
   for (const lang of ['en', 'zh']) assert.ok(M.doctorLocales[lang].dpWaitingTurn && M.doctorLocales[lang].dpStopWaitLabel.includes('{name}'), lang)
 })
 
-test('F5: Store and connection controls and every fix button name what they act on (visible words stay short)', () => {
-  const links = src('src/client/storage/StoreLinks.tsx')
-  assert.match(links, /aria-label=\{t\('ariaFor', \{ action: editLabel, name: s\.name \}\)\}/, 'editLabel')
-  assert.match(links, /aria-label=\{t\('ariaFor', \{ action: t\('pgCheck'\), name: s\.name \}\)\}/, 'pgCheck')
-  for (const key of ['pgCheck', 'edit', 'pgForget']) assert.match(links, new RegExp(`aria-label=\\{t\\('ariaForOn', \\{ action: t\\('${key}'\\), name: place\\(name\\), store: s\\.name \\}\\)\\}`), key)
+test('F5: every fix button names what it acts on (visible words stay short)', () => {
   // the PostgreSQL Store card's Update (and every other fix button) goes through FixAction, whose name comes from the runner
   assert.match(src('src/client/ui/index.tsx'), /aria-label=\{runner\.named\?\.\(fix, words\) \?\? words\}/)
   assert.match(src('src/client/storage/StoreCard.tsx'), /<FixAction line=\{resolved\.line\} fix=\{resolved\.fix\} runner=\{fixes\}/)
@@ -277,10 +273,9 @@ test('F5: Store and connection controls and every fix button name what they act 
   assert.match(center, /named: \(fix, words\) => \{/)
   assert.match(center, /return target && !words\.includes\(target\) \? t\('ariaFor', \{ action: words, name: target \}\) : words/)
   const fill = (text, vars) => text.replace(/\{(\w+)\}/g, (_, k) => vars[k])
-  assert.equal(fill(M.storageLocales.en.ariaFor, { action: M.storageLocales.en.fixRunUpdateAuth, name: 'compact-demo-pg' }), 'Update (compact-demo-pg)')
+  assert.equal(fill(M.storageLocales.en.ariaFor, { action: M.storageLocales.en.pgEditConnectionShort, name: 'compact-demo-pg' }), 'Edit connection… (compact-demo-pg)')
   for (const lang of ['en', 'zh']) {
     assert.ok(M.storageLocales[lang].ariaFor.includes('{name}'), lang)
-    assert.ok(M.storageLocales[lang].ariaForOn.includes('{name}') && M.storageLocales[lang].ariaForOn.includes('{store}'), lang)
   }
 })
 
@@ -551,14 +546,17 @@ test('R1 F3: New project offers a PostgreSQL Store only running, not-broken mach
   assert.equal(M.sm.pgPlaceable({ state: 'broken', supports: ['postgresql_sandbox'] }), false)
   assert.equal(M.sm.pgPlaceable({ state: 'ready', supports: ['sqlite'] }), false)
   assert.equal(M.sm.pgPlaceable({ state: 'ready', supports: ['postgresql_sandbox'] }), true)
-  // default: last used, then connected from (reached), then native; never a stopped one
+  // default: last used while attached, then the only attached one; otherwise none (the person picks); never a stopped one, never native by default
   const machines = [{ name: 'native', state: 'ready' }, { name: 'demo-research', state: 'stopped' }, { name: 'lima1', state: 'ready' }]
-  assert.equal(M.sm.pgDefaultMachine({ connectedFrom: [{ machine: 'demo-research', reached: 'ok' }, { machine: 'lima1', reached: 'ok' }] }, machines), 'lima1')
-  assert.equal(M.sm.pgDefaultMachine({ connectedFrom: [{ machine: 'demo-research', reached: 'ok' }] }, machines), 'native')
-  assert.equal(M.sm.pgDefaultMachine({ connectedFrom: [] }, machines, 'lima1'), 'lima1')
+  assert.equal(M.sm.pgDefaultMachine({ attached: [{ machine: 'demo-research', reached: 'ok' }, { machine: 'lima1', reached: 'ok' }] }, machines), null, 'two attached: the person picks')
+  assert.equal(M.sm.pgDefaultMachine({ attached: [{ machine: 'demo-research', reached: 'ok' }] }, machines), null, 'the only attached one is stopped')
+  assert.equal(M.sm.pgDefaultMachine({ attached: [{ machine: 'lima1', reached: null }] }, machines), 'lima1', 'the only attached one')
+  assert.equal(M.sm.pgDefaultMachine({ attached: [{ machine: 'lima1', reached: null }, { machine: 'native', reached: 'ok' }] }, machines, 'lima1'), 'lima1')
+  assert.equal(M.sm.pgDefaultMachine({ attached: [] }, machines, 'lima1'), null, 'a last machine no longer attached is not the default, and native is no fallback')
   const dialog = src('src/client/projects/setup/ProjectDialog.tsx')
   assert.match(dialog, /const offered = kind === 'postgresql' \? machines\.filter\(\(m\) => pgPlaceable\(m\) && !blocks\.has\(m\.name\)\) : machines/)
-  assert.match(dialog, /<LocationPicker machines=\{offered\} value=\{chosenPg\}/)
+  assert.match(dialog, /<LocationPicker machines=\{offered\} value=\{chosenPg \?\? ''\}/)
+  assert.match(dialog, /t\('pgWillAttach', \{ machine: willAttach \}\)/, 'an unattached pick says Create attaches it')
   assert.match(dialog, /2: chosen\.length > 0 && chosen\.every\(\(m\) => offered\.some/)
   assert.match(dialog, /const pgPicked = pgChoice && offered\.some\(\(m\) => m\.name === pgChoice\) \? pgChoice : null/)
 })
@@ -572,28 +570,9 @@ test('R1 F1: Home words an outdated or login-missing PostgreSQL Store as needing
   assert.doesNotMatch(M.storageLocales.en.ovStoreNeedsUpdate, /down/)
 })
 
-test('R1 F2: Connect a database names each Check, Connect and New database by its Store or server', () => {
-  const cd = src('src/client/storage/ConnectDatabase.tsx')
-  assert.match(cd, /aria-label=\{t\('cdCheckTitle', \{ store: s\.name \}\)\} onClick=\{\(\) => onCheck\(s\)\}>\{t\('cdCheck'\)\}/)
-  assert.match(cd, /aria-label=\{t\('cdConnectMachineNamed', \{ store: s\.name \}\)\} onClick=\{\(\) => onCheck\(s\)\}>\{t\('pgConnectMachineShort'\)\}/)
-  assert.match(cd, /aria-label=\{t\('cdNewOnServerNamed', \{ server: g\.server \}\)\} onClick=\{\(\) => onNew\(g\)\}/)
-  for (const lang of ['en', 'zh']) for (const key of ['cdCheckTitle', 'cdConnectMachineNamed', 'cdNewOnServerNamed']) assert.match(M.storageLocales[lang][key], /\{(store|server)\}/, `${lang} ${key}`)
-})
-
-test('R1 F4/F5: the Connection status parts stand apart; the password input stays inside its column', () => {
-  const links = src('src/client/storage/StoreLinks.tsx')
-  const from = links.indexOf('className={css.linkCheck} data-state={broken')
-  const line = links.slice(from, links.indexOf('className={css.linkActions}', from))
-  assert.equal((line.match(/css\.linkPart/g) ?? []).length, 4)
-  const pageCss = src('src/client/storage/StorePage.module.css')
-  assert.match(pageCss, /\.linkCheck \{[^}]*display: flex;[^}]*gap: 4px 6px;/)
-  assert.match(pageCss, /\.linkPart \+ \.linkPart::before \{\s*content: '·';/)
-  assert.match(src('src/client/storage/Storage.module.css'), /\.passwordPart \.passwordInput \{[^}]*box-sizing: border-box;[^}]*max-width: 100%;/)
-})
-
 // ---------------------------------------------------------------- Step 7 fix loop 2 (M and R2 on 3080)
 
-test('M2 (V23-13): Connect a database refuses a URL naming a login, with LayerFS\'s fix line; nothing is created; other options go through', () => {
+test('M2 (V23-13): Connect a database refuses an address naming a login; nothing is created', () => {
   const base = 'postgresql://127.0.0.1:56968/x'
   for (const q of ['?passfile=/x', '?sslpassword=s', '?password=p', '?user=u']) assert.ok(M.PG_URL_LOGIN.test(base + q), q)
   assert.ok(M.PG_URL_LOGIN.test('postgresql://app@db:5432/x'), 'a user part')
@@ -601,21 +580,11 @@ test('M2 (V23-13): Connect a database refuses a URL naming a login, with LayerFS
   // V23-13 (spec NOTE): sslkey/sslcert name a client-certificate file, not a secret: allowed
   assert.equal(M.PG_URL_LOGIN.test(base + '?sslkey=/k.pem'), false)
   assert.equal(M.PG_URL_LOGIN.test(base + '?sslmode=require'), false)
-  assert.equal(M.loginInUrlFix('postgresql://app:pw@db:5432/orders?sslmode=require&passfile=/x', 'orders'),
-    "layerfs store save-auth <auth> --user app --password-stdin && layerfs store connect orders 'postgresql://db:5432/orders?sslmode=require' --auth <auth>")
-  assert.equal(M.loginInUrlFix(base + '?sslpassword=s&user=u', ''), `layerfs store save-auth <auth> --user u --password-stdin && layerfs store connect <store> ${base} --auth <auth>`)
-  assert.equal(M.loginInUrlFix('postgresql://app:pw@10.0.0.5:5432/orders?sslmode=require', 'orders', { machine: 'docker' }),
-    'layerfs store connect orders \'postgresql://10.0.0.5:5432/orders?sslmode=require\' --machine docker')
-  // a URL's `&` and a user's `;` stay one shell word each (quoted), so a pasted fix runs one command
-  assert.equal(M.loginInUrlFix('postgresql://a%3Becho%20x:pw@db:5432/o?sslmode=require&connect_timeout=5', 'o'),
-    "layerfs store save-auth <auth> --user 'a;echo x' --password-stdin && layerfs store connect o 'postgresql://db:5432/o?sslmode=require&connect_timeout=5' --auth <auth>")
-  const cd = src('src/client/storage/ConnectDatabase.tsx')
-  assert.match(cd, /const loginInUrl = !server && hasPgUrlLogin\(url\)/)
-  assert.match(cd, /const urlError = loginInUrl \? t\('cdLoginInUrl'\)/)
-  assert.match(cd, /const valid = [^\n]*!urlError/, 'Connect stays off: nothing is created')
-  assert.match(cd, /\{loginInUrl \? <PgLoginInUrlFix url=\{url\} store=\{storeName\}/)
-  assert.match(cd, /url: `\$\{pgUrl\(\{ user: '', host, database \}\)\}\$\{options\}`/, 'its other options are not dropped')
-  for (const lang of ['en', 'zh']) for (const key of ['cdLoginInUrl', 'cdLoginInUrlShort', 'cdLoginFix']) assert.ok(M.storageLocales[lang][key], `${lang} ${key}`)
+  const dialogs = src('src/client/storage/PgDialogs.tsx')
+  assert.match(dialogs, /const login = urlHasLogin\(url\)/)
+  assert.match(dialogs, /const valid = !!name && !!url\.trim\(\) && !!user\.trim\(\) && !!password && !nameError && !login/, 'Connect stays off: nothing is created')
+  assert.match(dialogs, /error=\{login \? t\('pgAddressLogin'\) : null\} invalid=\{refused\}/, 'the reason sits under the address; a refused connect only marks it (its line is in the footer)')
+  for (const lang of ['en', 'zh']) assert.ok(M.storageLocales[lang].pgAddressLogin, `${lang} pgAddressLogin`)
   assert.equal(M.hasPgUrlLogin('app@db:5432/orders'), true)
   assert.equal(M.hasPgUrlLogin('postgresql://db:5432/orders?sslmode=require'), false)
   assert.equal(M.isLinuxLocalhostUrl('postgresql://localhost:15432/orders', 'linux'), true)
@@ -623,18 +592,6 @@ test('M2 (V23-13): Connect a database refuses a URL naming a login, with LayerFS
   assert.equal(M.isLinuxLocalhostUrl('postgresql://127.0.0.1:15432/orders', 'linux'), false)
   assert.equal(M.replaceLocalhostWithIpv4('postgresql://localhost:15432/orders?sslmode=disable'), 'postgresql://127.0.0.1:15432/orders?sslmode=disable')
   assert.equal(M.replaceLocalhostWithIpv4('localhost:15432/orders'), '127.0.0.1:15432/orders')
-  assert.equal(M.formatHostPort('127.0.0.1', 15200), '127.0.0.1:15200')
-  assert.equal(M.formatHostPort('::1', 5432), '[::1]:5432')
-  assert.equal(M.formatHostPort('127.0.0.1:15200', 5432), '127.0.0.1:15200')
-})
-
-test('M3b: opening Connect a machine runs no check; the named "Check <store> from <machine>" does', () => {
-  const cd = src('src/client/storage/ConnectDatabase.tsx')
-  assert.match(cd, /machine: startCheck\.machine \?\? fixed \?\? 'native', state: 'ready' \}/)
-  assert.doesNotMatch(cd, /useEffect\(\(\) => \{ if \(screen\.kind === 'check' && screen\.check\.state === 'running'\) void check/, 'no check on open')
-  assert.match(cd, /check\?\.state === 'ready'\s*\? <Button variant="primary" onClick=\{onRun\}>\{t\('cdCheckFromNamed', \{ store: check\.store, machine: place\(check\.machine\) \}\)\}/)
-  assert.match(cd, /if \(screen\.check\.state === 'ready'\) setScreen\(\{ kind: 'check', check: \{ \.\.\.screen\.check, machine \} \}\)/, 'choosing From before the press checks nothing')
-  for (const lang of ['en', 'zh']) assert.match(M.storageLocales[lang].cdCheckFromNamed, /\{store\}[^]*\{machine\}|\{machine\}[^]*\{store\}/)
 })
 
 test('M9: a lost VM (missing) is "VM gone": not worker down, no Stop or Restart, LayerFS\'s fix as the one action', () => {
@@ -669,10 +626,7 @@ test('R2-2: a broken Store shows its red dot, a stopped machine omits the idle d
   for (const lang of ['en', 'zh']) assert.doesNotMatch(M.storageLocales[lang].msSizeStaleStoppedTitle, /answer|响应/)
 })
 
-test('M4/M5: a timed-out reach check is a server failure (Give own address); the record-only remove names the Stores it holds', () => {
-  assert.equal(M.ms.failedStep('Unknown', 'LayerFS did not answer in time and was stopped'), 'server')
-  assert.equal(M.ms.failedStep('Unknown', 'something else'), null)
-  assert.equal(M.ms.failedStep('Unavailable', 'connection refused (os error 61)'), 'server')
+test('M5: the record-only remove names the Stores it holds', () => {
   const parts = src('src/client/machines/parts.tsx')
   assert.match(parts, /recordOnly \? \(m\.stores\.length \? t\('removeRecordHeldBody', \{ name: m\.name, stores: m\.stores\.join\(', '\) \}\) : t\('removeRecordBody'/)
   for (const lang of ['en', 'zh']) assert.match(M.machineLocales[lang].removeRecordHeldBody, /\{stores\}/)
@@ -685,26 +639,7 @@ test('M8/M1: Delete Sandbox titles and the platform Create name their resource',
   for (const lang of ['en', 'zh']) assert.match(M.machineLocales[lang].createPlatformNamed, /\{platform\}/)
 })
 
-test('M10: a login header follows its Stores\' worst reach (no green Ready over red chips); the reach errors stay in its tip', () => {
-  const ms = src('src/client/storage/MachineStores.tsx')
-  assert.match(ms, /const failed = g\.state === 'ready' \? g\.stores\.flatMap\(\(st\) => \(st\.connectedFrom \?\? \[\]\)\.filter\(\(c\) => c\.reached === 'failed'\)\) : \[\]/)
-  assert.match(ms, /data-health=\{healthOf\(state\)\} \/><span className=\{css\.checkText\}>\{failed\.length \? t\('pgLoginNotReached'\) : storeStateWords\(g\.state, t\)\}<\/span>/)
-  assert.match(ms, /title=\{\[loginTip\(g, t, now\), \.\.\.causes\]\.join\('\\n'\)\}/)
-  for (const lang of ['en', 'zh']) assert.ok(M.storageLocales[lang].pgLoginNotReached, lang)
-})
-
 // ---------------------------------------------------------------- Step 7 fix loop 3 (K on 3080)
-
-test('K FAIL 2 (V23-13): a login URL leaves Connect disabled, with its reason beside it; the URL input is named', () => {
-  const cd = src('src/client/storage/ConnectDatabase.tsx')
-  assert.match(cd, /<Button variant="primary" type="submit" form="lfs-cd-new" disabled=\{!!why\} aria-disabled=\{!!why \|\| undefined\} title=\{why \?\? undefined\}>\{t\('connect'\)\}/)
-  assert.match(cd, /const why = valid \? null : loginInUrl \? t\('cdLoginInUrlShort'\)/, 'a login URL is the first reason')
-  assert.match(cd, /const valid = [^\n]*!urlError/, 'a login URL makes the form not valid')
-  assert.match(cd, /useEffect\(\(\) => \{ onWhy\(why\) \}, \[why\]\)/)
-  assert.match(cd, /screen\.kind === 'new' && why \? <span className=\{scss\.modalHint\} data-connect-why>\{why\}<\/span>/, 'the reason is shown, not only a tooltip')
-  assert.match(cd, /onWhy=\{setNewWhy\}/)
-  assert.match(src('src/client/storage/parts.tsx'), /spellCheck=\{false\} aria-label=\{label\}/, 'TextField inputs (the Connection URL) carry their label as their name')
-})
 
 test('K FAIL 1 (R2-2): a Store blocked by its stopped machine (fix null) reads <m> is stopped, with a tip and one guarded Start <m>', () => {
   const t = (key, vars) => `${key} ${JSON.stringify(vars ?? {})}`

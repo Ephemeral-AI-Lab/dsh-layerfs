@@ -43,23 +43,21 @@ export function underPage(id: TabId, parent: TabId): boolean {
   return !!child && id.startsWith(`${child}:${parent.slice(parent.indexOf(':') + 1)}/`)
 }
 
-export type OverviewTab = 'projects' | 'stores' | 'machines'
-export const isOverviewTab = (v: unknown): v is OverviewTab => v === 'projects' || v === 'stores' || v === 'machines'
+export type OverviewTab = 'projects' | 'stores' | 'machines' | 'buckets'
+export const isOverviewTab = (v: unknown): v is OverviewTab => v === 'projects' || v === 'stores' || v === 'machines' || v === 'buckets'
 
-// ---------------------------------------------------------------- a Stores board's kind, and Home's second view
+// ---------------------------------------------------------------- a Stores view's kind (SQLite | PostgreSQL)
 
-/** The board scope of Home › Stores (a machine page's board is scoped by its machine). */
+/** The scope of Home › Stores (a machine page's Stores board is scoped by its machine). */
 export const HOME_SCOPE = '(home)'
 
 const KIND_KEY = 'layerfs.machineStoreKind'
-const ALT_KEY = 'dsh-layerfs:home-stores-alt'
-const kindWatchers = new Set<() => void>()
 
 function storedMap(key: string): Record<string, unknown> {
   try { const v = JSON.parse(localStorage.getItem(key) ?? '{}'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {} } catch { return {} }
 }
 
-/** The kind this viewer had open last on a board (per machine; `HOME_SCOPE` on Home). */
+/** The kind this viewer had open last on Home › Stores (`HOME_SCOPE`) or a machine's Stores board. */
 export function readStoreKind(scope: string): StoreKind | null {
   const v = storedMap(KIND_KEY)[scope]
   return v === 'sqlite' || v === 'postgresql' ? v : null
@@ -69,38 +67,17 @@ export function writeStoreKind(scope: string, kind: StoreKind): void {
   try { localStorage.setItem(KIND_KEY, JSON.stringify({ ...storedMap(KIND_KEY), [scope]: kind })) } catch { /* the tile still switches */ }
 }
 
-/** Whether Home › Stores shows SQLite's second view (Buckets) instead of its Store cards. PostgreSQL has one view. */
-export function readStoresAlt(): boolean {
-  return storedMap(ALT_KEY).sqlite === true
-}
-
-export function writeStoresAlt(buckets: boolean): void {
-  try { localStorage.setItem(ALT_KEY, JSON.stringify({ sqlite: buckets })) } catch { /* the view still switches */ }
-}
-
-/** Point Home › Stores at `kind` (SQLite: its Store cards, or `buckets`) and tell a board already showing it. */
-export function openHomeStores(kind: StoreKind, buckets: boolean): void {
-  writeStoreKind(HOME_SCOPE, kind)
-  if (kind === 'sqlite') writeStoresAlt(buckets)
-  for (const watch of [...kindWatchers]) watch()
-}
-
-/** Hear `openHomeStores`. Returns the release. */
-export function watchHomeStores(listener: () => void): () => void {
-  kindWatchers.add(listener)
-  return () => { kindWatchers.delete(listener) }
-}
 
 // ---------------------------------------------------------------- a machine's or Sandbox's own tabs
 
 /** The tabs inside a machine page (Overview, Files, Worker log), a Sandbox page (Terminals, Files, Daemon log) and a Store page (Overview, Projects, Backups or Connections). */
-export type DetailTab = 'overview' | 'terminals' | 'files' | 'log' | 'sandboxes' | 'stores' | 'images' | 'projects' | 'backups' | 'connections'
+export type DetailTab = 'overview' | 'terminals' | 'files' | 'log' | 'sandboxes' | 'stores' | 'images' | 'projects' | 'backups' | 'machines'
 export type DetailKind = 'machine' | 'sandbox' | 'store'
 
 const DETAIL_KEY = 'dsh-layerfs:detail-tabs'
 /** How many machines and Sandboxes keep their last tab. */
 const DETAIL_KEEP = 100
-const DETAIL_TABS: readonly unknown[] = ['overview', 'terminals', 'files', 'log', 'sandboxes', 'stores', 'images', 'projects', 'backups', 'connections']
+const DETAIL_TABS: readonly unknown[] = ['overview', 'terminals', 'files', 'log', 'sandboxes', 'stores', 'images', 'projects', 'backups', 'machines']
 const isDetailTab = (v: unknown): v is DetailTab => DETAIL_TABS.includes(v)
 
 /** dsh has no URLs: the tab a link asks for is kept here, in the app, and mirrored to localStorage as the last one per entity. */

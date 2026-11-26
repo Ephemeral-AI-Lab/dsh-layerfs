@@ -9,7 +9,7 @@
 //   DSH_LAYERFS_HOME       the LayerFS home that server uses, when it is not <dev dir>/layerfs-home
 //   DSH_LAYERFS_CLI        the CLI that server pins                                      required
 //   INSPECT_MACHINE        the machine whose page is opened (default `native`)
-//   INSPECT_MACHINE_TITLE  its title in "Jump to" (default `LayerFS Home` for native, else its name)
+//   INSPECT_MACHINE_TITLE  its title in "Jump to" (default: its name)
 //   INSPECT_SANDBOX        a running Sandbox on that machine
 //   INSPECT_TARGET         `machine` or `sandbox`: the log the one-log rows use
 //                          (default: the worker log when the machine offers one, else the daemon log)
@@ -58,7 +58,7 @@ export const cfg = {
   devDir,
   cli: process.env.DSH_LAYERFS_CLI,
   machine,
-  machineTitle: process.env.INSPECT_MACHINE_TITLE || (machine === 'native' ? 'LayerFS Home' : machine),
+  machineTitle: process.env.INSPECT_MACHINE_TITLE || machine,
   sandbox: process.env.INSPECT_SANDBOX || null,
   standin,
   hook: process.env.INSPECT_HOOK || null,
