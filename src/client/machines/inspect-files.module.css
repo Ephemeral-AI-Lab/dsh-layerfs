@@ -8,7 +8,7 @@
   flex-direction: column;
   gap: 8px;
   min-width: 0;
-  height: max(360px, calc(100vh - 260px));
+  height: max(360px, calc(100dvh - 260px));
 }
 
 .bar {
@@ -252,7 +252,7 @@
   background: var(--dsw-alias-bg-module-platform);
   color: var(--lf-tone-danger-fg);
   font-family: var(--ds-font-family-code);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 /* what follows a row */
@@ -261,7 +261,7 @@
   border: 0.5px solid var(--dsw-alias-border-l3);
   border-radius: var(--dsw-radius-xs);
   color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 16px;
   white-space: nowrap;
 }
@@ -273,7 +273,7 @@
 
 .hint {
   color: var(--dsw-alias-label-tertiary);
-  font-size: 11.5px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -297,3 +297,70 @@
 .stoppedActions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-block: 4px; }
 .stoppedNotice summary { cursor: pointer; }
 .stoppedNotice p { margin: 6px 0 0; }
+
+/* ---------- compact and phone ----------
+   The view switch wraps into the bar instead of pushing the page wider than
+   the screen; the path bar keeps its field and Go on one line and lets
+   Refresh take the next. The tree itself drills in at ../machines/InspectFiles
+   NARROW_PX (now the 640 compact edge), so this file only has to keep the
+   switch and the bar on the page. */
+
+@media (max-width: 640px) {
+  .bar > :global(div[role='tablist']) {
+    display: flex;
+    flex-wrap: wrap;
+    box-sizing: border-box;
+    width: 100%;
+    gap: 2px;
+  }
+
+  /* the sliding pill assumes one grid row; a wrapped switch draws the
+     selected segment in place instead */
+  .bar > :global(div[role='tablist']) > :global(span[aria-hidden='true']) {
+    display: none;
+  }
+
+  .bar > :global(div[role='tablist']) > button {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding-inline: 10px;
+    white-space: normal;
+  }
+
+  .bar > :global(div[role='tablist']) > button[aria-selected='true'] {
+    border-radius: var(--dsw-radius-sm);
+    background: var(--dsw-alias-bg-layer-1);
+    box-shadow: var(--dsw-elevation-soft);
+  }
+
+  .pathForm {
+    flex: 1 1 220px;
+  }
+
+  .crumb,
+  .crumbHere {
+    overflow-wrap: anywhere;
+  }
+
+  .fileName {
+    min-width: 0;
+  }
+
+  .bar {
+    row-gap: 6px;
+  }
+}
+
+/* A tree row's name and its dim path read whole on the 1180 px iPad too: the
+   side panel is then narrow enough that one line cuts the path. Rows grow
+   instead; the file window below keeps its own horizontal scroll. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .treeScroll :global([class*='treeName']),
+  .treeScroll :global([class*='treePath']),
+  .treeScroll :global([class*='treeSecondary']) {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
