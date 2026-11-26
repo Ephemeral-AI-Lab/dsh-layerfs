@@ -131,7 +131,7 @@ test('a plain repeat is the memo: the same payload shape and no CLI call', async
   assert.deepEqual(f.calls, ['identity', 'machine', 'store', 'status:true'])
 })
 
-test('readiness stands for 30 s, identity for 10 s, and the memo just under the 10 s poll', async (t) => {
+test('the 12 s identity window and the 30 s readiness window stand after a gap, while the 8 s memo stays under the poll', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 })
   const f = fixture()
   const at = async () => { const view = await f.s.view('live', { observe: true }); assert.equal(view.execution.available, true); return view }
@@ -142,20 +142,96 @@ test('readiness stands for 30 s, identity for 10 s, and the memo just under the 
   t.mock.timers.tick(7_500)
   await at()
   assert.deepEqual(f.calls, [])
-  // Past the memo, inside both windows: the Workspace status stays fresh.
-  t.mock.timers.tick(1_500)
-  await at()
-  assert.deepEqual(f.calls, ['status:true'])
-  // Past the identity window, inside readiness: identity is read again.
+  // A gap past the identity window but inside readiness: identity is read
+  // again, the machine and Store still stand, the Workspace status stays fresh.
   f.calls.length = 0
-  t.mock.timers.tick(10_000)
+  t.mock.timers.tick(13_000)
   await at()
   assert.deepEqual(f.calls, ['identity', 'status:true'])
-  // Past the readiness window: the machine and Store are asked again.
+  // A gap past the readiness window too: the machine and Store are asked again.
   f.calls.length = 0
-  t.mock.timers.tick(20_000)
+  t.mock.timers.tick(31_000)
   await at()
   assert.deepEqual(f.calls, ['identity', 'machine', 'store', 'status:true'])
+  // A poll inside both renewed windows after the memo: the status alone.
+  f.calls.length = 0
+  t.mock.timers.tick(10_500)
+  await at()
+  assert.deepEqual(f.calls, ['status:true'])
+})
+
+test('a steady 10.5 s poll is one CLI: identity and readiness stand until their 60 s hard re-check', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 })
+  const f = fixture()
+  const read = () => f.s.view('live', { observe: true, debug: true })
+  const total = (view) => Object.values(view.timing.calls).reduce((sum, n) => sum + n, 0)
+  // A cold read (no memo) pays the full path: project.get + branch.list,
+  // machine.get + store.get, workspace.status --detail.
+  const first = await read()
+  assert.deepEqual(first.timing.calls, { identity: 2, readiness: 2, status: 1 })
+  assert.equal(total(first), 5, 'the first read is five CLI calls')
+  // The views poll every 10 s through a 500 ms coalescing timer (~10.5 s).
+  // Every reuse renews both checks, so a steady poll is the Workspace status.
+  for (let poll = 1; poll <= 5; poll++) {
+    f.calls.length = 0
+    t.mock.timers.tick(10_500)
+    const view = await read()
+    assert.deepEqual(view.timing.calls, { identity: 0, readiness: 0, status: 1 }, `poll ${poll}: identity and readiness stand`)
+    assert.deepEqual(f.calls, ['status:true'], `poll ${poll}: the Workspace status is the only CLI call`)
+  }
+  // The hard re-check: both checks are 63 s old, so this poll reads identity,
+  // the machine, the Store and the Workspace status again.
+  f.calls.length = 0
+  t.mock.timers.tick(10_500)
+  const refreshed = await read()
+  assert.deepEqual(refreshed.timing.calls, { identity: 2, readiness: 2, status: 1 }, 'the 60 s hard re-check')
+  assert.deepEqual(f.calls, ['identity', 'machine', 'store', 'status:true'])
+})
+
+test('every invalidator clears a steady poll, and the full five-CLI path returns', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 })
+  const full = { identity: 2, readiness: 2, status: 1 }
+  const reattach = (f) => f.s.save({ ...f.state().sessions.live, state: 'bound', executionState: 'active', ws: 'box:main', mount: '/mnt/box', error: undefined, interruption: undefined })
+  // What the very next read pays after each invalidator: a detached or
+  // interrupted session has no Workspace status to read, so its full path is
+  // identity + readiness (and a health refusal stops before the status). The
+  // restore only puts a healthy bound session back; it never runs before the
+  // first post-invalidation read, so that read proves the invalidator itself
+  // cleared the memo. The machine-stop case uses a session without a Sandbox,
+  // so the stop clears the memo but does not interrupt the binding; the restart
+  // then shows the full five.
+  const cases = [
+    ['a saved binding', (f) => f.s.save({ ...f.state().sessions.live, error: undefined }), full, () => {}],
+    ['a mount', (f) => f.s.save({ ...f.state().sessions.live, mount: '/mnt/other' }), full, () => {}],
+    ['a detach', (f) => f.s.save({ ...f.state().sessions.live, mount: undefined, ws: undefined, state: 'closed', executionState: 'inactive' }), { identity: 2, readiness: 2, status: 0 }, reattach],
+    ['an interrupt', (f) => f.s.interrupt('live', 'stopped by the test', 'blocked'), { identity: 2, readiness: 2, status: 0 }, reattach],
+    ['a branch change', (f) => f.s.save({ ...f.state().sessions.live, branch: 'dsh.live.r1', restores: 1 }), full, () => {}],
+    ['a Store health flip', async (f) => { f.facts.store = 'blocked'; await f.s.refreshAvailability() }, { identity: 2, readiness: 0, status: 0 }, (f) => { f.facts.store = 'ready'; reattach(f) }],
+    ['a machine stop', (f) => { f.facts.machine = 'stopped'; f.s.machinesStopped(['vm']); f.facts.machine = 'ready' }, full, () => {}],
+  ]
+  for (const [label, invalidate, expected, restore] of cases) {
+    const f = fixture(label === 'a machine stop' ? liveState({ sandbox: undefined }) : liveState())
+    const first = await f.s.view('live', { observe: true, debug: true })
+    assert.deepEqual(first.timing.calls, full, `${label}: the first read is full`)
+    f.calls.length = 0
+    t.mock.timers.tick(10_500)
+    const steady = await f.s.view('live', { observe: true, debug: true })
+    assert.deepEqual(steady.timing.calls, { identity: 0, readiness: 0, status: 1 }, `${label}: a steady poll is the status`)
+    f.calls.length = 0
+    await invalidate(f)
+    const fresh = await f.s.view('live', { observe: true, debug: true })
+    assert.deepEqual(fresh.timing.calls, expected, `${label}: the remembered checks are gone`)
+    if (label === 'a detach' || label === 'an interrupt' || label === 'a Store health flip') {
+      assert.ok(f.calls.includes('machine') && f.calls.includes('store'), `${label}: readiness is read again`)
+    }
+    if (label === 'a Store health flip') assert.equal(fresh.execution.available, false, `${label}: the refusal is fresh, never a memo`)
+    if (expected.status === 0) {
+      // Detached/interrupted: put a bound Workspace back and read it healthily.
+      restore(f)
+      const after = await f.s.view('live', { observe: true, debug: true })
+      assert.deepEqual(after.timing.calls, full, `${label}: the next healthy read is the full five CLI`)
+    }
+  }
 })
 
 test('a new event and a new checkpoint force a fresh answer', async () => {

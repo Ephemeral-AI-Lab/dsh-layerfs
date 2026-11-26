@@ -36,19 +36,44 @@ const IDENTITY_FRESH_MS = 15_000
 
 /**
  * How long a successful observed identity check (project.get + branch.list)
- * stands. Identity changes only through a save of the binding here (bind,
- * mount, detach, restore, interrupt: each clears this), or when another
- * installation changes the project's identity branch, which this bounds.
+ * stands while the views poll. They read `session.state {observe: true}` every
+ * SESSION_POLL_MS (10 s, src/client/views/model.ts) through a 500 ms coalescing
+ * timer, so consecutive polls are ~10.5 s apart; 12 s clears that cadence with
+ * margin for scheduling jitter. Each observed read that reuses the check renews
+ * this window, so a steady poll pays only the Workspace status read instead of
+ * re-reading identity every time.
  */
-const OBSERVED_IDENTITY_MS = 10_000
+const OBSERVED_IDENTITY_MS = 12_000
 
 /**
- * How long a successful observed machine + Store readiness check stands. Both
- * change rarely and every change this host sees clears it (`machinesStopped`, a
- * Store health transition, a save or interrupt); a machine stopped from outside
- * this host is the worst case, bounded by this window.
+ * The longest a renewed identity check may stand without a fresh read. A poll
+ * renewing OBSERVED_IDENTITY_MS would otherwise leave an identity branch
+ * changed by another installation unread for as long as a view stays open; one
+ * real check a minute bounds it. Identity changes this host sees (a save, bind,
+ * mount, detach, restore or interrupt) clear the memo at once regardless.
+ */
+const OBSERVED_IDENTITY_FULL_MS = 60_000
+
+/**
+ * How long a successful observed machine + Store readiness check stands when a
+ * poll does not follow. Both change rarely and every change this host sees
+ * clears it (`machinesStopped`, a Store health transition, a save or interrupt).
+ * An observed read that reuses the check renews this window, so a steady poll
+ * keeps it instead of re-reading the machine and Store every 30 s.
  */
 const OBSERVED_READY_MS = 30_000
+
+/**
+ * The longest a renewed readiness check may stand without a fresh read. A
+ * machine stopped or a Store lost from outside this host is the change no local
+ * invalidation sees, and this bounds how long a polling view may show it as
+ * ready; the first check still stands only this long regardless of renewals.
+ * Identity shares this ceiling. A steady poll renews both checks, so their hard
+ * re-checks are deliberately allowed to fall on the same poll: one 5-CLI full
+ * pass a minute rather than two separate 3-CLI passes. Do not lengthen either
+ * window; 60 s is the freshness bound.
+ */
+const OBSERVED_READY_FULL_MS = 60_000
 
 /**
  * How long an observed answer stands while the session's local revision does
@@ -151,9 +176,9 @@ export class LayerfsSessions extends Service {
   private readonly serverChecked = new Map<string, number>()
   private availabilityRun: Promise<void> | undefined
   /** Successful observed identity checks by owner, with the row facts they answered. */
-  private freshIdentity?: Map<string, { at: number, project: string, machine?: string, row: { kind?: string | null, machine?: string | null, store: string } }>
+  private freshIdentity?: Map<string, { at: number, checkedAt: number, project: string, machine?: string, row: { kind?: string | null, machine?: string | null, store: string } }>
   /** Successful observed machine + Store readiness checks by owner. */
-  private freshReadiness?: Map<string, { at: number, project: string, machine: string, store: string }>
+  private freshReadiness?: Map<string, { at: number, checkedAt: number, project: string, machine: string, store: string }>
   /** The last observed answer per requested session, keyed by the revision it answered. */
   private observedAnswers?: Map<string, { at: number, revision: string, ownerId: string, project: string, machine?: string, view: SessionView }>
   /** Project ids read for sessions.places, reused for the same window. */
@@ -546,18 +571,26 @@ export class LayerfsSessions extends Service {
     for (const [sessionId, entry] of this.observedAnswers ?? []) if (test(entry)) this.forgetFreshReads(sessionId)
   }
 
-  /** The row a successful observed identity pass returned, while it still stands for this binding. */
+  /**
+   * The row a successful observed identity pass returned, while it still stands
+   * for this binding. A reuse renews the poll window; the first check still
+   * stands only OBSERVED_IDENTITY_FULL_MS.
+   */
   private observedIdentity(ownerId: string, binding: Binding | null | undefined): { kind?: string | null, machine?: string | null, store: string } | undefined {
     const entry = (this.freshIdentity ??= new Map()).get(ownerId)
     if (!entry) return undefined
-    if (Date.now() - entry.at >= OBSERVED_IDENTITY_MS) { this.freshIdentity.delete(ownerId); return undefined }
+    const now = Date.now()
+    if (now - entry.at >= OBSERVED_IDENTITY_MS || now - entry.checkedAt >= OBSERVED_IDENTITY_FULL_MS) { this.freshIdentity.delete(ownerId); return undefined }
     if (!binding?.project || entry.project !== binding.project || entry.machine !== binding.machine) return undefined
+    entry.at = now
     return entry.row
   }
 
   /** Remember a successful observed identity pass; a refused pass never reaches here. */
   private rememberObservedIdentity(ownerId: string, binding: Binding | null | undefined, row: { kind?: string | null, machine?: string | null, store: string }): void {
-    if (binding?.project) (this.freshIdentity ??= new Map()).set(ownerId, { at: Date.now(), project: binding.project, machine: binding.machine, row: { kind: row.kind, machine: row.machine, store: row.store } })
+    if (!binding?.project) return
+    const now = Date.now()
+    ;(this.freshIdentity ??= new Map()).set(ownerId, { at: now, checkedAt: now, project: binding.project, machine: binding.machine, row: { kind: row.kind, machine: row.machine, store: row.store } })
   }
 
   /** The machine and Store a readiness check reads for one identity row (assertReady's own rule). */
@@ -565,20 +598,28 @@ export class LayerfsSessions extends Service {
     return { machine: row.kind === 'postgresql' ? (placed ?? 'native') : (row.machine ?? 'native'), store: row.store }
   }
 
-  /** Whether a successful observed readiness check still stands for this binding and identity row. */
+  /**
+   * Whether a successful observed readiness check still stands for this binding
+   * and identity row. A reuse renews the poll window; the check still stands at
+   * most OBSERVED_READY_FULL_MS after it was read.
+   */
   private observedReadiness(ownerId: string, binding: Binding | null | undefined, row: { kind?: string | null, machine?: string | null, store: string }): boolean {
     const entry = (this.freshReadiness ??= new Map()).get(ownerId)
     if (!entry) return false
-    if (Date.now() - entry.at >= OBSERVED_READY_MS) { this.freshReadiness.delete(ownerId); return false }
+    const now = Date.now()
+    if (now - entry.at >= OBSERVED_READY_MS || now - entry.checkedAt >= OBSERVED_READY_FULL_MS) { this.freshReadiness.delete(ownerId); return false }
     const target = this.readyTargets(row, binding?.machine)
-    return !!binding?.project && entry.project === binding.project && entry.machine === target.machine && entry.store === target.store
+    if (!binding?.project || entry.project !== binding.project || entry.machine !== target.machine || entry.store !== target.store) return false
+    entry.at = now
+    return true
   }
 
   /** Remember a successful observed readiness check; a refused pass never reaches here. */
   private rememberObservedReadiness(ownerId: string, binding: Binding | null | undefined, row: { kind?: string | null, machine?: string | null, store: string }): void {
     if (!binding?.project) return
     const target = this.readyTargets(row, binding.machine)
-    ;(this.freshReadiness ??= new Map()).set(ownerId, { at: Date.now(), project: binding.project, machine: target.machine, store: target.store })
+    const now = Date.now()
+    ;(this.freshReadiness ??= new Map()).set(ownerId, { at: now, checkedAt: now, project: binding.project, machine: target.machine, store: target.store })
   }
 
   /**
@@ -1655,11 +1696,14 @@ export class LayerfsSessions extends Service {
    * host's own availability poll.
    *
    * An observed read is cheap when nothing moved: a successful identity check
-   * stands for OBSERVED_IDENTITY_MS, machine and Store readiness for
-   * OBSERVED_READY_MS, and an answer whose local revision is unchanged (inside
-   * OBSERVED_MEMO_MS) is returned with no CLI call at all. Every other observed
-   * read still reads the Workspace status and the mount, so the unsaved count
-   * and a lost mount stay current. `debug` adds `timing`, the per-step split.
+   * stands for OBSERVED_IDENTITY_MS since the poll that last used it (and at
+   * most OBSERVED_IDENTITY_FULL_MS since it was read), machine and Store
+   * readiness for OBSERVED_READY_MS since the poll that last used it (and at
+   * most OBSERVED_READY_FULL_MS since it was read), and an answer whose local
+   * revision is unchanged (inside OBSERVED_MEMO_MS) is returned with no CLI call
+   * at all. Every other observed read still reads the Workspace status and the
+   * mount, so the unsaved count and a lost mount stay current. `debug` adds
+   * `timing`, the per-step split.
    */
   async view(sessionId: string, options: { observe?: boolean, debug?: boolean } = {}): Promise<SessionView> {
     // The panel polls and effect reads are the session's own host work: every
