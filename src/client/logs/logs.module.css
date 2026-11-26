@@ -503,3 +503,17 @@ div.detailModal {
   line-height: 20px;
   color: var(--dsw-alias-label-secondary);
 }
+
+/* Touch: the filter row's inputs, selects and buttons are thumb targets. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .filters input,
+  .filters select,
+  .search input {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .filters > button,
+  .filters button {
+    min-height: var(--lfs-tap, 44px);
+  }
+}

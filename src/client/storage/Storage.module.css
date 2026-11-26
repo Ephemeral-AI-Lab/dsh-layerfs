@@ -1420,3 +1420,18 @@
   color: var(--dsw-alias-label-secondary);
   overflow-wrap: anywhere;
 }
+
+/* Touch: 12px floor on the small state words, and thumb-sized dialog actions. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .sessionTag,
+  .rotateSideTag,
+  .rotateSideHost,
+  .rotateSidePlace {
+    font-size: 12px;
+  }
+
+  .modalActions > button,
+  .modalFooter > button {
+    min-height: var(--lfs-tap, 44px);
+  }
+}

@@ -590,3 +590,55 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Touch: the chevron, the add verb and the row menu are thumb targets. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .toggle {
+    width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+  }
+
+  .add {
+    height: var(--lfs-tap, 44px);
+  }
+
+  .head {
+    font-size: 12px;
+  }
+}
+
+@container (max-width: 480px) {
+  .table,
+  .table[data-store-column] {
+    /* the chevron needs the thumb-sized column it now occupies */
+    grid-template-columns: var(--lfs-tap, 44px) minmax(0, 1fr) minmax(56px, auto) var(--lfs-tap, 44px);
+  }
+}
+
+/* Touch: a name/store/cell link is a row target, not a 20px line. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .name,
+  .store,
+  .cellLink,
+  .line {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .row button {
+    min-width: var(--lfs-tap, 44px);
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .runningPill {
+    font-size: 12px;
+  }
+}
+
+@container (max-width: 780px) {
+  .table,
+  .table[data-store-column] {
+    grid-template-columns: var(--lfs-tap, 44px) minmax(0, 1fr) 64px 72px minmax(84px, auto) var(--lfs-tap, 44px);
+  }
+}

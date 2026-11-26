@@ -447,3 +447,52 @@
 .dockerMachines { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; }
 
 .storeActions { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+
+/* Touch: the hero's tabs and tools are thumb targets; on a phone the tab strip
+   scrolls sideways instead of squeezing or stacking into two rows. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .toolButton {
+    width: var(--lfs-tap, 44px);
+    min-width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+  }
+
+  .actionButton,
+  .storeActions > button,
+  .statusActions button {
+    height: var(--lfs-tap, 44px);
+  }
+
+  .actionIconButton {
+    width: var(--lfs-tap, 44px);
+    min-width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+  }
+
+  .tab,
+  .runtime {
+    height: var(--lfs-tap, 44px);
+  }
+}
+
+@media (max-width: 640px) {
+  .toolbar {
+    align-items: stretch;
+  }
+
+  .tabList {
+    flex: 1 1 100%;
+    gap: 16px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tabList::-webkit-scrollbar {
+    display: none;
+  }
+
+  .toolbar > .actions {
+    padding-bottom: 0;
+  }
+}

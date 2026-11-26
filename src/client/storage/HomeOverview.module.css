@@ -69,3 +69,12 @@
 }
 
 :where(.page) :where(button, input, select, textarea, summary) { font-family: inherit; }
+
+/* Touch: the status link and its signal are thumb targets. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .link {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--lfs-tap, 44px);
+  }
+}

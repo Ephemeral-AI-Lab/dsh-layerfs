@@ -115,3 +115,16 @@
   .finderSearch { flex: 1 0 100%; }
   .finderSpacer { flex: 1; }
 }
+
+/* Touch: the finder is a thumb target. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .finderSearch,
+  .finderSort,
+  .clear {
+    height: var(--lfs-tap, 44px);
+  }
+
+  .finderSearch input {
+    height: 100%;
+  }
+}

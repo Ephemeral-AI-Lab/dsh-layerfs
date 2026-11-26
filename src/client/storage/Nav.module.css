@@ -477,3 +477,36 @@ button.crumb[aria-expanded='true'],
   font-size: 12px;
   color: var(--dsw-alias-label-tertiary);
 }
+
+/* Touch: the bar's controls are thumb targets, and its 11px counts read at 12px. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .iconButton {
+    width: var(--lfs-tap, 44px);
+    min-width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+  }
+
+  .crumb,
+  .crumbMore,
+  .countButton,
+  .addButton,
+  .jumpField,
+  .jobs {
+    height: var(--lfs-tap, 44px);
+  }
+
+  .crumbMore {
+    width: var(--lfs-tap, 44px);
+  }
+
+  .toolCount {
+    font-size: 12px;
+    line-height: 18px;
+  }
+}
+
+@media (max-width: 1180px), (pointer: coarse) {
+  .jumpField {
+    min-width: var(--lfs-tap, 44px);
+  }
+}

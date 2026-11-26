@@ -1160,3 +1160,23 @@
   line-height: 18px;
   color: var(--lf-tone-danger-fg);
 }
+
+/* Touch and the iOS home bar: the footer stays above the inset and its actions
+   are thumb targets; a narrow phone wraps the note above them. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .footActions > button {
+    min-height: var(--lfs-tap, 44px);
+  }
+}
+
+@media (max-width: 640px) {
+  .foot {
+    flex-wrap: wrap;
+    padding-bottom: calc(12px + var(--lfs-safe-bottom, 0px));
+  }
+
+  .footActions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
