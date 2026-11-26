@@ -3,6 +3,14 @@
 // the pinned CLI's `help --json`, with the options, `--with` sections, `--progress` and
 // `--full` it passes, and every flag in a raw argv (presets, simulations) is one the call takes.
 // Runs DSH_LAYERFS_CS20_CLI or the dev runtime pin with a throwaway LAYERFS_HOME.
+//
+// The installed 2.0.0 CLI (ed911896) predates the Store attach/detach contract
+// (docs/specs/store-home-rows.md): it advertises neither store.attach nor
+// store.detach nor `store.connect --dry-run`, and no newer bundle is installed
+// locally. The fixture therefore stays on that CLI (option (b): a
+// capability-aware real-CLI check, not a synthetic table) and the required-options
+// test SKIPs only with `SKIP (CLI lacks store.attach/detach)`; every advertised
+// call and option is still asserted.
 //   node --test test/cs20-contract.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -55,9 +63,9 @@ const withNames = (c) => new Set(Object.keys(c.form?.with ?? {}))
  * runtime has it: these calls and options are not asked of an older table.
  */
 // store.upgrade (LayerFS #804) is sent only behind `cliFeatures(...).storeUpgrade` (call-table.test.mjs GATED) until the pinned runtime has it
-const AHEAD = { 'store.attach': null, 'store.detach': null, 'store.connect': ['user', 'password'], 'store.upgrade': null }
+const AHEAD = { 'store.attach': null, 'store.detach': null, 'store.connect': ['user', 'password', 'dry_run'], 'store.upgrade': null }
 const ahead = (name, option) => name in AHEAD && (option === undefined || AHEAD[name] === null || AHEAD[name].includes(option))
-const flagAhead = (name, flag) => name in AHEAD && (AHEAD[name] === null || ['--user', '--password-stdin'].includes(flag))
+const flagAhead = (name, flag) => name in AHEAD && (AHEAD[name] === null || ['--user', '--password-stdin', '--dry-run'].includes(flag))
 
 const SENT = {
   'home.init': {},
@@ -82,9 +90,9 @@ const SENT = {
   'store.get': { with: ['live', 'stats'] },
   'store.create': {},
   'store.remove': {},
-  'store.connect': { options: ['user', 'password', 'synchronous_commit'] },
+  'store.connect': { options: ['user', 'password', 'dry_run', 'synchronous_commit'] },
   'store.disconnect': {},
-  'store.attach': { options: ['machine'] },
+  'store.attach': { options: ['machine', 'dry_run'] },
   'store.detach': { options: ['machine'] },
   'store.doctor': { options: ['machine'] },
   'store.move': { progress: true },
@@ -417,12 +425,38 @@ test('no option is given twice: the seam joins --with, and no raw argv repeats a
 // LayerFS N-G: `help --json` marks the options a call needs `optional: false` (with
 // `required: true`). The seam refuses a call that leaves one out before spawning, and
 // every call site sends them (the static check above).
-test('the table\'s required options are the pairs the call sites send; the seam refuses one left out', { skip }, async () => {
-  const { help } = table()
+const REQUIRED_SENT = {
+  'backup.connect': ['access_key', 'secret_key'],
+  'file.edit': ['old_string', 'new_string'],
+  'store.attach': ['machine'],
+  'store.detach': ['machine'],
+}
+const requiredIn = (help) => {
   const required = {}
   for (const c of help.calls) for (const o of c.options ?? []) if (o.optional === false || o.required === true) (required[`${c.family}.${c.call}`] ??= []).push(o.name)
-  assert.deepEqual(required, { 'backup.connect': ['access_key', 'secret_key'], 'file.edit': ['old_string', 'new_string'], 'store.attach': ['machine'], 'store.detach': ['machine'] },
-    'a new required option needs its call sites checked (the test above)')
+  return required
+}
+const missingRequired = (help) => Object.keys(REQUIRED_SENT).filter((name) => !help.calls.some((c) => `${c.family}.${c.call}` === name))
+const missingLabel = (names) => {
+  const families = new Map()
+  for (const name of names) {
+    const [family, call] = name.split('.')
+    families.set(family, [...(families.get(family) ?? []), call])
+  }
+  return [...families].map(([family, calls]) => `${family}.${calls.join('/')}`).join(', ')
+}
+// The installed build still lists this retired call; no call site sends it.
+const RETIRED_REQUIRED = new Set(['store.save_auth'])
+
+test('the table\'s required options are the pairs the call sites send; the seam refuses one left out', { skip }, async () => {
+  const { help } = table()
+  const required = requiredIn(help)
+  const missing = missingRequired(help)
+  // The installed build still lists the retired store.save_auth, which no call
+  // site sends; every other required option must match the pairs call sites send.
+  const sent = Object.fromEntries(Object.entries(required).filter(([name]) => !RETIRED_REQUIRED.has(name)))
+  const advertised = Object.fromEntries(Object.entries(REQUIRED_SENT).filter(([name]) => !missing.includes(name)))
+  assert.deepEqual(sent, advertised, 'a new required option needs its call sites checked (the test above)')
   const dir = tmpRoot('dsh-cs20-required-')
   try {
     const home = join(dir, 'home')
@@ -431,6 +465,18 @@ test('the table\'s required options are the pairs the call sites send; the seam 
     await assert.rejects(lfs.backup.connect('b', 'https://example.invalid', { secret_key: 's' }), (e) => e.code === 'InvalidInput' && /access_key is required/.test(e.message))
     assert.deepEqual(sent().filter((l) => /^backup connect/.test(l)), [], 'nothing spawned')
   } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+// The Store attach/detach part of the check above, skipped alone when the pinned
+// CLI predates the contract: the required options stay checked for every call
+// the CLI advertises.
+test('the Store attach/detach required options are the pairs the call sites send', { skip }, (t) => {
+  const { help } = table()
+  const missing = missingRequired(help)
+  if (missing.length) return t.skip(`SKIP (CLI lacks ${missingLabel(missing)})`)
+  const required = requiredIn(help)
+  const sent = Object.fromEntries(Object.entries(required).filter(([name]) => !RETIRED_REQUIRED.has(name)))
+  assert.deepEqual(sent, REQUIRED_SENT, 'a new required option needs its call sites checked (the test above)')
 })
 
 // LayerFS N-D and Q: the machine answers the Machines page reads. An unreadable record
