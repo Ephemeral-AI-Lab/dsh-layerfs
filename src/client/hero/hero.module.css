@@ -341,6 +341,13 @@
     min-height: var(--lfs-tap, 44px);
   }
 
+  /* The project dropdown's rows (No project, New project…, Import a folder…)
+     are thumb targets too; a project row is already taller by its gear. */
+  .projectMenu [role='menuitem'],
+  .projectMenu [role='menuitemradio'] {
+    min-height: var(--lfs-tap, 44px);
+  }
+
   .retry {
     min-height: var(--lfs-tap, 44px);
     padding: 0 8px;

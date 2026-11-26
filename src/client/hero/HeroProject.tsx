@@ -271,7 +271,7 @@ export function HeroProjectControl({ sessionId, api, t, imports, ownership, retr
   return (
     <span ref={root} className={css.root} data-layerfs-hero="">
       {place?.project ? <span className={css.scratchSlot} data-layerfs-scratch=""><ScratchPicker sessionId={sessionId} scratch={place.scratch} api={api} t={t} /></span> : null}
-      <Menu open={open && !switching} onClose={() => setOpen(false)} portal align="start" items={items} selectedId={current ?? NONE} dense
+      <Menu open={open && !switching} onClose={() => setOpen(false)} portal align="start" items={items} selectedId={current ?? NONE} dense listClassName={css.projectMenu}
         onSelect={(id) => {
           setOpen(false)
           if (id === NEW) projectDialog.open({ mode: 'new' })
