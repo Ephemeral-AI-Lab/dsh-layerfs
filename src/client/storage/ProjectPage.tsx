@@ -2,7 +2,7 @@
  * One project: Files (Branch, tree, saved file), History (Commits and their
  * diffs), Sandboxes (the live Sandbox map), Sessions (the DSH sessions bound to it) and Stats.
  */
-import { useId, useState, type ReactNode } from 'react'
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { Button, IconPlusOutlineRegular, IconRefreshOutlineRegular, MenuItemButton, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { StatusDot } from '../ui/StatusDot.tsx'
@@ -67,6 +67,31 @@ export function ProjectPage({ refreshKey = 0, api, t, project, onDialog, onRemov
   const [localTick, setTick] = useState(0)
   const tick = localTick + refreshKey
   const [open, setOpen] = useState<{ branch?: string, pin?: string, path?: string, n: number }>({ n: 0 })
+  const panelRef = useRef<HTMLDivElement | null>(null)
+  // The Files and History panes fill the room the page leaves: the chrome above
+  // them is taller on a phone and a tablet than the old 100vh - 156px assumed,
+  // so measure the panel's top and give it the rest of the pane. The height is
+  // a custom property; CSS keeps a static fallback when JS has not run.
+  useLayoutEffect(() => {
+    const el = panelRef.current
+    if (!el) return
+    const fit = (): void => {
+      let scroller: HTMLElement | null = el.parentElement
+      while (scroller && scroller !== document.body) {
+        if (/(auto|scroll)/.test(getComputedStyle(scroller).overflowY) && scroller.clientHeight > 0) break
+        scroller = scroller.parentElement
+      }
+      const inPane = !!scroller && scroller !== document.body
+      const top = el.getBoundingClientRect().top - (inPane ? scroller!.getBoundingClientRect().top : 0)
+      const room = (inPane ? scroller!.clientHeight : window.innerHeight) - top
+      if (room > 0) el.style.setProperty('--lfs-fill-height', `${Math.max(360, Math.floor(room))}px`)
+    }
+    fit()
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(fit) : null
+    if (ro) { ro.observe(el); if (el.parentElement) ro.observe(el.parentElement) }
+    window.addEventListener('resize', fit)
+    return () => { ro?.disconnect(); window.removeEventListener('resize', fit) }
+  }, [tab])
   const tt = t as Translate
   const tabs: { value: Tab, label: string }[] = [
     { value: 'files', label: t('tabFiles') },
@@ -93,7 +118,7 @@ export function ProjectPage({ refreshKey = 0, api, t, project, onDialog, onRemov
             <MoreMenu label={t('projectActions', { name })}>{(close) => <MenuItemButton danger onSelect={() => { close(); remove() }}>{t('removeProject')}</MenuItemButton>}</MoreMenu>
           </>
         )} />
-      <div role="tabpanel" id={`${ids}-${tab}-panel`} aria-labelledby={`${ids}-${tab}`} className={clsx(css.tabPanel, (tab === 'files' || tab === 'history') && css.fillPanel)}>
+      <div ref={panelRef} role="tabpanel" id={`${ids}-${tab}-panel`} aria-labelledby={`${ids}-${tab}`} className={clsx(css.tabPanel, (tab === 'files' || tab === 'history') && css.fillPanel)}>
         {(tab === 'files' || tab === 'history') && store?.state === 'broken' ? (
           <StoreBroken s={store} t={t} />
         ) : tab === 'files' ? (

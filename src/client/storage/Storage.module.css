@@ -526,10 +526,18 @@
 /* the project page's tab bar (ui/TabBar.tsx) sits where the pane bar was */
 .projectTabs {
   margin-top: var(--lfs-page-top-inset);
+  /* the page column already gives the bar its gutter: no -4px bleed that
+     would add 4px to the page's scrollWidth at every width */
+  margin-inline: 0;
+}
+
+/* doubled: TabBar's own bar rule carries the -4px gutter bleed */
+.projectTabs.projectTabs {
+  margin-inline: 0;
 }
 
 .fillPanel {
-  height: max(360px, calc(100vh - 156px));
+  height: var(--lfs-fill-height, max(360px, calc(100vh - 156px)));
 }
 
 /* ---------- dialogs ---------- */
