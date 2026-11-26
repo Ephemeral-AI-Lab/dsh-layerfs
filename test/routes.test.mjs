@@ -844,6 +844,59 @@ test('live: a Sandbox, a forked side Branch mounted in it, its status, unmount a
   assert.equal(gone.status, 404, JSON.stringify(gone.body))
 })
 
+test('file history: a provenance page walks the Branch\'s own line once per pinned head, then keeps it', async () => {
+  const pin = (c) => c.repeat(66)
+  const own = [{ commit: 'c3', parent: 'c2', change: 'modified', message: 'three' }, { commit: 'c2', parent: null, change: 'modified', message: 'two' }]
+  const other = [{ commit: 'm1', parent: 'm0', change: 'added', message: 'one' }]
+  const impl = {
+    ...base,
+    branch: { get: async () => ({ commit: pin('f') }) },
+    // provenance: two of feat's own Commits and one made on main before the fork
+    file: { history: async (_project, _branch, _path, o) => (o.traversal === 'branch' ? { items: own } : { items: [...own, ...other] }) },
+    commit: { get: async (_project, id) => ({ m1: { branch: 'main' }, c3: { branch: 'feat' }, c2: { branch: 'feat' } })[id] ?? {} },
+  }
+  const { http, calls, root } = fakeGroups(impl)
+  const path = `/api/projects/${encodeURIComponent('s1/p')}/file-query?branch=feat&path=%2Fa.txt&kind=revisions`
+  try {
+    const first = await http('GET', path)
+    assert.equal(first.status, 200, JSON.stringify(first.body))
+    assert.deepEqual(first.body.items.map((r) => [r.ref.id, r.ref.branch, r.message]), [['c3', 'feat', 'three'], ['c2', 'feat', 'two'], ['m1', 'main', 'one']])
+    assert.deepEqual([first.body.has_more, first.body.continuation], [false, null])
+    assert.deepEqual(calls, ['branch.get', 'file.history', 'file.history', 'commit.get'], 'the page, its own line, and the one version saved elsewhere')
+    calls.length = 0
+    const again = await http('GET', path)
+    assert.deepEqual(again.body, first.body, 'the same rows in the same order')
+    assert.deepEqual(calls, ['branch.get', 'file.history'], 'the own line of this pinned head is kept, so the history is walked once')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('commit detail: the diff is read only when the caller asks for the changes', async () => {
+  const commit = 'a'.repeat(66), parent = 'b'.repeat(66)
+  const impl = {
+    ...base,
+    branch: { get: async () => ({ commit }) },
+    commit: {
+      get: async () => ({ commit, parent, branch: 'feat', message: 'one', created_at: new Date(5).toISOString(), size: 12, new_canonical_bytes: 3, new_stored_bytes: 2, new_metadata_bytes: 1 }),
+      diff: async () => ({ items: [{ path: '/a.txt', change: 'modified' }], next_cursor: 'c2' }),
+    },
+  }
+  const { http, calls, root } = fakeGroups(impl)
+  const path = `/api/projects/${encodeURIComponent('s1/p')}/history?branch=feat&commit=${commit}`
+  try {
+    const full = await http('GET', path)
+    assert.equal(full.status, 200, JSON.stringify(full.body))
+    assert.deepEqual(calls, ['commit.get', 'commit.diff'])
+    assert.deepEqual(full.body.changes, [{ path: '/a.txt', kind: 'modified' }], 'the diff\'s rows, as the route has always named them')
+    assert.equal(full.body.nextChanges, 'c2')
+    // the fork-point row reads the header only (its `sourceBranch`), so its diff is not read
+    calls.length = 0
+    const head = await http('GET', `${path}&changes=0`)
+    assert.equal(head.status, 200, JSON.stringify(head.body))
+    assert.deepEqual(calls, ['commit.get'], 'no commit.diff')
+    assert.deepEqual(head.body, { item: full.body.item, changes: [], nextChanges: null }, 'the same shape, with no changes read')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
 test('project storage: a ledger of each save\'s counters from 2.0 commit list --detail pages (by cursor), then only new saves', async () => {
   const id = (c, n) => `12${String(n).padStart(3, '0')}${c.repeat(61)}`
   const layer = (n) => `32${String(n).padStart(3, '0')}${'f'.repeat(61)}`
@@ -881,7 +934,7 @@ test('project storage: a ledger of each save\'s counters from 2.0 commit list --
       },
     },
   }
-  const { http, groups, root } = fakeGroups(impl)
+  const { http, groups, calls, root } = fakeGroups(impl)
   const path = `/api/projects/${encodeURIComponent('s1/p')}/storage`
   try {
     const first = await http('GET', path)
@@ -908,6 +961,13 @@ test('project storage: a ledger of each save\'s counters from 2.0 commit list --
     assert.equal(done.body.growth.at(-1), 1250)
     assert.deepEqual({ name: done.body.store.name, projects: done.body.store.projects, stored: done.body.store.stored, file: done.body.store.file }, { name: 's1', projects: 2, stored: 100, file: 4096 })
     assert.deepEqual(done.body.main, { logical: 100, files: 3, directories: 1, complete: true })
+    // the Store is opened once: one `store get --with stats` answers its counters and its projects
+    calls.length = 0
+    const counted = await http('GET', path)
+    assert.equal(counted.status, 200, JSON.stringify(counted.body))
+    assert.deepEqual(counted.body.store, done.body.store)
+    assert.equal(calls.filter((c) => c === 'store.get').length, 1, 'one store get opens the Store once')
+    assert.equal(calls.filter((c) => c === 'project.stats').length, 1, 'the main tree is still one project.stats')
     assert.deepEqual(asked.filter(([b]) => b === 'c'), [['c', null], ['c', '100']], 'c\'s second page by the cursor its first answered')
     assert.ok(!asked.some(([b]) => b === 'd'))
     // a new save on b: a recount lists only b, and stops at the save it knows
@@ -926,7 +986,7 @@ test('project storage: a ledger of each save\'s counters from 2.0 commit list --
   }
 })
 
-test('project size: counting until the first count ends, then packed bytes and main\'s size; the Store\'s bytes when alone', async () => {
+test('project size: one call a row (the Store alone, the record otherwise), counting until the first count ends', async () => {
   const id = (n) => `12${String(n).padStart(3, '0')}${'a'.repeat(61)}`
   const history = [2, 1].map((n) => ({ commit: id(n), created_at: new Date(1_000_000 + n).toISOString(), via: 'fs', size: 100, new_canonical_bytes: 20, new_stored_bytes: 10, new_metadata_bytes: 4 }))
   let open = () => {}
@@ -944,19 +1004,26 @@ test('project size: counting until the first count ends, then packed bytes and m
       },
     },
   }
-  const { http, groups, root } = fakeGroups(impl)
+  const { http, groups, calls, root } = fakeGroups(impl)
   const path = `/api/projects/${encodeURIComponent('s1/p')}/size`
   try {
+    // alone in its Store: the Store's packed bytes, publications to main included, from ONE read
+    calls.length = 0
+    const alone = await http('GET', `${path}?alone=1`)
+    assert.equal(alone.status, 200, JSON.stringify(alone.body))
+    assert.deepEqual(alone.body, { project: 's1/p', stored: 8423, counting: false })
+    assert.deepEqual(calls, ['store.get'], 'one store get --with stats: no project record and no tree walk')
+    // a shared Store: the record names the ledger, which is read from disk, so nothing else is asked
+    calls.length = 0
     const first = await http('GET', path)
     assert.equal(first.status, 200, JSON.stringify(first.body))
-    assert.deepEqual(first.body, { project: 's1/p', stored: null, counting: true, files: 900 })
+    assert.deepEqual(first.body, { project: 's1/p', stored: null, counting: true })
     open()
     await groups.projects.storageLedgers.settle('s1/p', 7)
+    calls.length = 0
     const done = await http('GET', path)
-    assert.deepEqual(done.body, { project: 's1/p', stored: 20, counting: false, files: 900 })
-    // alone in its Store: the Store's packed bytes, publications to main included
-    const alone = await http('GET', `${path}?alone=1`)
-    assert.deepEqual(alone.body, { project: 's1/p', stored: 8423, counting: false, files: 900 })
+    assert.deepEqual(done.body, { project: 's1/p', stored: 20, counting: false })
+    assert.deepEqual(calls, ['project.get'], 'the ledger is fresh: one record read, and no project.stats or store.get')
   } finally {
     open()
     await groups.projects.close()
