@@ -38,7 +38,9 @@ export function useDoctorCount(api: LayerfsApi, checks: number): Query<DoctorCou
 
   const runHome = useCallback(async () => {
     setHomeRunning(true)
-    try { await api.call('POST', '/api/doctor/runs', { runs: [{ id: newId(), kind: 'home' }] }, { priority: 'background' }) } catch (e) { setError(e); setHomeRunning(false) }
+    // A run is a write: interactive, even when the count starts one by itself
+    // after the first frame. Only the status read above is decoration.
+    try { await api.call('POST', '/api/doctor/runs', { runs: [{ id: newId(), kind: 'home' }] }) } catch (e) { setError(e); setHomeRunning(false) }
   }, [api])
 
   useEffect(() => {

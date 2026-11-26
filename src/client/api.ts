@@ -130,10 +130,12 @@ export interface HostCallOptions {
   /**
    * `interactive` (the default) is what the person is waiting for: the open
    * view's reads and every write. `background` is prefetch and decoration
-   * (doctor, metrics, exports, sandbox-create history, per-row sizes): it runs
-   * only while no interactive op waits, and a waiting background op takes a
-   * turn after {@link BACKGROUND_TURN_EVERY} admitted interactive ops, so it
-   * cannot starve.
+   * (the doctor count, metrics, exports, sandbox-create history, per-row
+   * sizes): it runs only while no interactive op waits, and a waiting
+   * background op takes a turn after {@link BACKGROUND_TURN_EVERY} admitted
+   * interactive ops, so it cannot starve. A doctor run is a write even when
+   * the count starts one by itself after the first frame; only the count read
+   * is decoration.
    */
   priority?: HostPriority
   /**
