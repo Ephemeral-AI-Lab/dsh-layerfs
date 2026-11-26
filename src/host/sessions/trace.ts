@@ -37,6 +37,11 @@ export interface TrajectoryWindowInput {
    * predecessor against the real one, not the window's edge.
    */
   prompt?: { seq: number, tools: readonly unknown[] }
+  /**
+   * Tool-call ids whose first occurrence is before the window: a repeat inside
+   * it is the same call, not a record (the whole parse keeps the first one).
+   */
+  seenCalls?: readonly string[]
 }
 
 export interface TrajectoryInput {
@@ -584,11 +589,15 @@ function toolCatalog(tools: unknown): { tools: TrajectoryTool[], cut: boolean } 
 
 type ToolEntry = ToolRecord & { turn: number }
 
-/** A record-producing event's seq, in log order; a repeated tool call counts once. */
-export function recordEventSeqs(events: readonly any[] | undefined): number[] {
+/**
+ * A record-producing event's seq, in log order; a repeated tool call counts
+ * once. A window seeds `seen` with the call ids its prefix already logged, so a
+ * repeat inside the window is not counted as a new record.
+ */
+export function recordEventSeqs(events: readonly any[] | undefined, seen?: ReadonlySet<string>): number[] {
   const out: number[] = []
   if (!events) return out
-  const calls = new Set<string>()
+  const calls = new Set<string>(seen)
   for (const event of events) {
     const type = event?.type
     const data = event?.data
@@ -631,7 +640,8 @@ export function buildTrajectory(input: TrajectoryInput, scope: TrajectoryBuildSc
   // A first-page build reads the whole log for totals but materializes only the
   // newest records: `keepSeqs` is their event seqs. A short log (or a full
   // build) keeps everything.
-  const allSeqs = scope.newest !== undefined && scope.newest > 0 ? recordEventSeqs(input.events) : undefined
+  const windowCalls = input.window?.seenCalls?.length ? new Set(input.window.seenCalls) : undefined
+  const allSeqs = scope.newest !== undefined && scope.newest > 0 ? recordEventSeqs(input.events, windowCalls) : undefined
   const keepSeqs = allSeqs && allSeqs.length > scope.newest! ? new Set(allSeqs.slice(-scope.newest!)) : undefined
   const keep = (seq: number): boolean => keepSeqs === undefined || keepSeqs.has(seq)
   // The recorded prompt changes (docs/specs/layerfs-trajectory.md): a system or
@@ -758,6 +768,10 @@ export function buildTrajectory(input: TrajectoryInput, scope: TrajectoryBuildSc
     } else if (type === 'tool/call') {
       const n = integer(data?.turn)
       if (seq === undefined || n === undefined || !text(data.callId) || tools.has(data.callId)) continue
+      // A call whose first occurrence is before the window belongs to that
+      // earlier record; the whole parse drops this repeat.
+      if (windowCalls?.has(data.callId)) continue
+      if (input.window && n < input.window.fromTurn) continue
       const step = integer(data.step)
       const summary = keep(seq) ? summarize(data.arguments) : undefined
       const record: ToolEntry = {
@@ -844,8 +858,11 @@ export function buildTrajectory(input: TrajectoryInput, scope: TrajectoryBuildSc
     if (keepSeqs) {
       // A first page: count every receipt, but build the call line only for a
       // record (or host/checkpoint call) the page keeps.
-      const made = receiptMade(receipt)
       const callId = text(receipt.toolCallId)
+      // A receipt of a call whose record is before the window is not this
+      // window's (the full page drops the repeated call too).
+      if (callId && windowCalls?.has(callId)) continue
+      const made = receiptMade(receipt)
       if (callId) {
         if (made) callMade.add(callId)
         const record = tools.get(callId)

@@ -33,7 +33,7 @@ const header = (tools) => ({ config: { provider: 'deepseek', model: 'deepseek-ch
  * assistant message and two tool calls), a request header and/or a system
  * message on the turns named, and a receipt per tool call.
  */
-function makeSession({ turns = 400, headersAt = [], systemsAt = [], edits = [], text = 'x' } = {}) {
+function makeSession({ turns = 400, headersAt = [], systemsAt = [], edits = [], text = 'x', extraCalls = [] } = {}) {
   const events = []
   const receipts = []
   let seq = 0
@@ -55,6 +55,11 @@ function makeSession({ turns = 400, headersAt = [], systemsAt = [], edits = [], 
         at: 1000 + seq,
       })
     }
+    for (const extra of extraCalls) {
+      if (extra.turn !== turn) continue
+      events.push(ev(++seq, 'tool/call', { turn, step: 1, callId: extra.callId, name: 'bash', arguments: JSON.stringify({ command: extra.callId }) }))
+      events.push(ev(++seq, 'tool/result', { turn, step: 1, message: { toolCallId: extra.callId, content: [txt(`ok ${extra.callId}`)] } }))
+    }
     events.push(ev(++seq, 'step/end', { turn, step: 1 }))
     events.push(ev(++seq, 'turn/end', { turn }))
     at.endSeq = seq
@@ -71,9 +76,9 @@ function makeSession({ turns = 400, headersAt = [], systemsAt = [], edits = [], 
 }
 
 /** The records `buildTrajectory` would keep: record event seqs, oldest first. */
-function recordSeqs(events) {
+function recordSeqs(events, seen) {
   const out = []
-  const calls = new Set()
+  const calls = new Set(seen)
   for (const event of events) {
     const data = event?.data
     if (!Number.isInteger(event?.seq)) continue
@@ -90,7 +95,7 @@ const base = (session) => ({ sessionId: SID, project: 'st/p', branch: 'dsh.s', c
 
 /** The windowed input a cold first page would build from. */
 function windowInput(session, window, receipts) {
-  return { ...base(session), events: window.events, invocations: receipts, window: { fromSeq: window.fromSeq, fromTurn: window.fromTurn, logKey: 'test', ...(window.prompt ? { prompt: window.prompt } : {}) } }
+  return { ...base(session), events: window.events, invocations: receipts, window: { fromSeq: window.fromSeq, fromTurn: window.fromTurn, logKey: 'test', ...(window.prompt ? { prompt: window.prompt } : {}), ...(window.seenCalls ? { seenCalls: window.seenCalls } : {}) } }
 }
 
 const wholeInput = (session) => ({ ...base(session), events: session.events, invocations: session.receipts })
@@ -254,6 +259,35 @@ test('receipts windows are exact and fall back on a broken tail line', () => {
   assert.equal(readReceiptsWindow(broken, window.fromTurn), undefined, 'an unparsable receipt line in the window')
 })
 
+test('a stale stat does not slice the tail at an old end: the window describes the bytes it read', () => {
+  const session = makeSession({ headersAt: [380] })
+  const stale = statSync(session.logPath).size
+  // The file grows after the caller's stat (two more turns, receipts too), and
+  // the caller still passes the old size: the read must reach the current end.
+  let seq = session.events.at(-1).seq
+  const extra = []
+  for (const turn of [401, 402]) {
+    extra.push(ev(++seq, 'turn/start', { turn }))
+    extra.push(ev(++seq, 'user/message', { source: { kind: 'user' }, content: [txt(`late ${turn}`)] }))
+    extra.push(ev(++seq, 'assistant/message', { turn, step: 1, message: { content: [txt(`late ${turn}`)] } }))
+    extra.push(ev(++seq, 'turn/end', { turn }))
+  }
+  writeFileSync(session.logPath, `${readFileSync(session.logPath, 'utf8')}${extra.map((event) => JSON.stringify(event)).join('\n')}\n`)
+  const current = statSync(session.logPath)
+  assert.ok(current.size > stale)
+  const window = readTrajectoryWindow(session.logPath, stale, LIMITS)
+  assert.ok(window, 'the grown log is still readable as a window')
+  assert.ok(window.key.startsWith(`${current.size}:`), `the identity is the read bytes (${window.key}), not the stale size ${stale}`)
+  assert.ok(window.events.some((event) => event.type === 'turn/start' && event.data?.turn === 402), 'the newest turn is in the window')
+  // The same for receipts: a stale size still reads to the current end.
+  const staleReceipts = statSync(session.receiptsPath).size
+  writeFileSync(session.receiptsPath, `${readFileSync(session.receiptsPath, 'utf8')}${JSON.stringify({ id: 'late', origin: 'tool', sessionId: SID, turn: 402, toolCallId: 'late_call', operation: 'file.read', outcome: 'success', versions: [], argv: [] })}\n`)
+  const receipts = readReceiptsWindow(session.receiptsPath, window.fromTurn, staleReceipts)
+  assert.ok(receipts, 'the grown receipts file is readable')
+  assert.ok(receipts.receipts.some((receipt) => receipt.id === 'late'), 'the newest receipt is in the window')
+  assert.ok(receipts.key.startsWith(`${statSync(session.receiptsPath).size}:`))
+})
+
 test('the tail cache answers a since poll and a repeat without reading the files again', () => {
   const session = makeSession({ headersAt: [40, 380] })
   const files = {
@@ -303,6 +337,62 @@ test('since answers unchanged 25/25 from a warm window, and a grown log is a new
   grown.window.logKey = 'grown'
   grown.events = grown.events.concat([ev(999999, 'turn/start', { turn: 401 }), ev(1000000, 'turn/end', { turn: 401 })])
   assert.notEqual(read(grown, { since: first.revision }).revision, first.revision, 'a grown log is not unchanged')
+})
+
+test('a duplicate tool call whose first occurrence is before the window is not a window record', () => {
+  // The same callId is logged at turn 320 (in the read chunk but before the
+  // page window) and again at turn 390 (in the page). The whole parse keeps the
+  // first; the window must not turn the repeat into a record, a total or a count.
+  const session = makeSession({ extraCalls: [{ turn: 290, callId: 'dup_call' }, { turn: 390, callId: 'dup_call' }] })
+  const window = readTrajectoryWindow(session.logPath, statSync(session.logPath).size, { minBytes: 1, startBytes: 256 * 1024 })
+  assert.ok(window, 'the tail is readable')
+  assert.ok(window.fromTurn > 290 && window.fromTurn < 390, `the first occurrence is in the dropped prefix, the repeat in the page (from turn ${window.fromTurn})`)
+  const receipts = readReceiptsWindow(session.receiptsPath, window.fromTurn).receipts
+  const page = pageTrajectory(buildTrajectory(windowInput(session, window, receipts), { newest: FIRST_PAGE_RECORDS }))
+  const whole = pageTrajectory(buildTrajectory(wholeInput(session), { newest: FIRST_PAGE_RECORDS }))
+  assert.deepEqual(recordsOf(page), recordsOf(whole), 'the page is the whole parse\'s page')
+  assert.equal(recordsOf(page).filter((record) => record.callId === 'dup_call').length, 0, 'the repeat is not a record')
+  assert.equal(recordsOf(whole).filter((record) => record.callId === 'dup_call').length, 0, 'the first occurrence is older than the page')
+  const prefixEnd = session.events.findIndex((event) => event.seq === window.fromSeq)
+  const seed = new Set(session.events.slice(0, prefixEnd).filter((event) => event.type === 'tool/call' && event.data?.callId).map((event) => event.data.callId))
+  assert.equal(page.recordTotal, recordSeqs(window.events, seed).length, 'the duplicate is not in the window total')
+  // Every older page stays strictly older than its cursor, and the whole
+  // history is still reached once.
+  const read = trajectoryReader(8)
+  let current = read(windowInput(session, window, receipts))
+  const seen = recordsOf(current).map((record) => record.seq)
+  let cursor = current.olderBefore
+  while (current.hasMore) {
+    current = read(wholeInput(session), { before: current.olderBefore })
+    const seqs = recordsOf(current).map((record) => record.seq)
+    assert.ok(seqs.every((seq) => seq < cursor), 'strictly older than the cursor')
+    seen.push(...seqs)
+    cursor = current.olderBefore
+  }
+  assert.equal(seen.length, new Set(seen).size, 'no record repeats')
+  assert.equal(seen.length, recordSeqs(session.events).length, 'every record once')
+})
+
+test('a window that would be the whole log is answered whole, also when a prompt anchor reaches turn 1', () => {
+  // The page system message at turn 400 anchors to the last earlier one at turn
+  // 1: the anchored span is the whole log, so it must not come back windowed.
+  const session = makeSession({ systemsAt: [1, 400], headersAt: [400] })
+  assert.ok(readTrajectoryWindow(session.logPath, statSync(session.logPath).size, LIMITS) === undefined, 'the tail is not usable as a window')
+})
+
+test('a prompt change between the seeded header and the window falls back to the whole parse', () => {
+  // system at turn 1, replaced at turn 290 (after the seeded header at 40 and
+  // before the window), headers at 40 and 390: the window cannot tell that the
+  // page header's prompt changed, so it must not answer a window.
+  const session = makeSession({
+    systemsAt: [1, 290, 400], headersAt: [40, 390],
+    edits: [(events) => {
+      const first = events.find((event) => event.type === 'system/message' && event.data.turn === 1)
+      const replacement = events.find((event) => event.type === 'system/message' && event.data.turn === 290)
+      replacement.surfaceOp = { op: 'replace', startSeq: first.seq, endSeq: first.seq }
+    }],
+  })
+  assert.ok(readTrajectoryWindow(session.logPath, statSync(session.logPath).size, LIMITS) === undefined, 'the tail is not usable as a window')
 })
 
 test('load older after a windowed first page reads the whole log once and reaches every record exactly once', () => {

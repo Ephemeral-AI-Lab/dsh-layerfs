@@ -133,6 +133,29 @@ test('"Load older records" asks for the before cursor and appends the older page
   view.unmount()
 })
 
+test('a windowed answer keeps its footer when a filter empties the rows', async () => {
+  const sessionId = 'session-paging-window'
+  const first = answerOf(sessionId, 'r1', [turn(3, [record(30, 3, 'newest turn text')])], {
+    windowed: true, windowFromSeq: 1, recordTotalKnown: false, recordTotal: 402, hasMore: true, olderBefore: 10,
+  })
+  const { api, calls } = fakeApi([first])
+
+  const view = mount(api, sessionId)
+  let tree = await view.settle()
+  assert.ok(M.text(tree).includes('402 in the loaded window'), 'the footer says the totals are a window')
+  const search = M.elements(tree).find((element) => element.props?.type === 'search')
+  assert.ok(search, 'the search input is on screen')
+  search.props.onChange({ currentTarget: { value: 'no-such-record' } })
+  tree = await view.settle()
+  assert.equal(recordRows(tree).length, 0, 'the filter emptied the rows')
+  assert.ok(M.text(tree).includes('402 in the loaded window'), 'the footer stays so the full history can still be loaded')
+  const button = byLabel(tree, 'Load older records')
+  assert.ok(button, 'the window footer\'s action is still there')
+  button.props.onClick()
+  assert.equal(calls.at(-1).args.before, 10, 'the same cursor')
+  view.unmount()
+})
+
 test('a reconnect reads whole, without the revision it holds', async () => {
   const sessionId = 'session-paging-reconnect'
   const first = answerOf(sessionId, 'r1', [turn(2, [record(20, 2, 'after reconnect')])], { recordTotal: 1 })

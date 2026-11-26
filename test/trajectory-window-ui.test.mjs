@@ -46,10 +46,38 @@ const button = (view) => M.elements(view.tree).find((element) => typeof element.
 test('a windowed answer shows its window size and loads the full history', () => {
   let loads = 0
   const view = mount({ answer: answer({ windowed: true, windowFromSeq: 1, recordTotalKnown: false, recordTotal: 402 }), onLoadOlder: () => { loads++ } })
-  assert.equal(M.text(view.tree), '402 in the loaded window·Load full history')
+  assert.equal(M.text(view.tree), '402 in the loaded window·Load older records (window)')
   assert.equal(button(view).props.onClick(), undefined)
   assert.equal(loads, 1, 'the button asks for the full history')
   assert.equal(button(view).props.disabled, false)
+})
+
+test('merging the whole history adopts its counts, not the window\'s', () => {
+  // The measured shape: the window counts 0 versions, the full answer 1.
+  const windowed = answer({
+    windowed: true, windowFromSeq: 1, recordTotalKnown: false, recordTotal: 402,
+    counts: { versionsCreated: 0, callsWithVersions: 0 }, hasMore: true, olderBefore: 2,
+  })
+  const older = answer({ recordTotal: 3314, counts: { versionsCreated: 1, callsWithVersions: 1 } })
+  const merged = M.mergeOlder(windowed, older)
+  assert.deepEqual(merged.counts, { versionsCreated: 1, callsWithVersions: 1 }, 'the full answer\'s counts')
+})
+
+test('a record the full page also carries takes its complete opsTotal', () => {
+  const op = (id) => ({ id, origin: 'tool', operation: 'file.read', versions: [], argv: ['file', 'read'] })
+  const shared = (opsTotal, ops) => ({ kind: 'tool', seq: 2, turn: 1, callId: 'call_shared', name: 'bash', ops, opsTotal })
+  const windowed = answer({
+    windowed: true, recordTotalKnown: false, recordTotal: 402, hasMore: true, olderBefore: 2,
+    turns: [{ turn: 1, at: 1000, records: [shared(1, [op('w1')])], orphanCalls: [], hostOps: [], checkpoints: [] }],
+  })
+  const older = answer({
+    recordTotal: 3314,
+    turns: [{ turn: 1, at: 1000, records: [shared(3, [op('w1'), op('w2'), op('w3')])], orphanCalls: [], hostOps: [], checkpoints: [] }],
+  })
+  const merged = M.mergeOlder(windowed, older)
+  const record = merged.turns[0].records.find((item) => item.seq === 2)
+  assert.equal(record.opsTotal, 3, 'the whole parse\'s record wins')
+  assert.equal(record.ops.length, 3)
 })
 
 test('a whole answer keeps the older-records count', () => {

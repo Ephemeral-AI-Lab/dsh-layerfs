@@ -123,7 +123,7 @@ export function OlderFooter({ answer, busy, t, onLoadOlder }: {
         <span className={css.note}>{t('trajWindowRecords', { n: totalRecords(answer) })}</span>
         <span className={css.note} aria-hidden="true">·</span>
         <Button variant="outline" size="sm" onClick={onLoadOlder} disabled={busy}>
-          {busy ? t('loading') : t('trajLoadFullHistory')}
+          {busy ? t('loading') : t('trajLoadOlderWindow')}
         </Button>
       </div>
     )

@@ -70,7 +70,11 @@ if (!page0) {
 }
 const windowInput = {
   ...base, events: page0.events, invocations: page0.invocations,
-  window: { fromSeq: page0.window.fromSeq, fromTurn: page0.window.fromTurn, logKey: page0.window.logKey, ...(page0.window.prompt ? { prompt: page0.window.prompt } : {}) },
+  window: {
+    fromSeq: page0.window.fromSeq, fromTurn: page0.window.fromTurn, logKey: page0.window.logKey,
+    ...(page0.window.prompt ? { prompt: page0.window.prompt } : {}),
+    ...(page0.window.seenCalls ? { seenCalls: page0.window.seenCalls } : {}),
+  },
 }
 const windowBuild = median(Array.from({ length: REPS }, () => time(() => buildTrajectory(windowInput, { newest: FIRST_PAGE_RECORDS })).ms))
 const windowAnswer = buildTrajectory(windowInput, { newest: FIRST_PAGE_RECORDS })

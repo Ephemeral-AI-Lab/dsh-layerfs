@@ -587,11 +587,14 @@ export function TrajectoryView(props: ViewProps): ReactNode {
                   <div className={css.more}>
                     <Button variant="outline" size="sm" onClick={() => setLimit((n) => n + ROW_PAGE)}>{t('trajShowMore', { n: rows.length - limit })}</Button>
                   </div>
-                ) : answer.hasMore && answer.olderBefore !== undefined ? (
-                  OlderFooter({ answer, busy: olderBusy, t, onLoadOlder: loadOlder })
                 ) : null}
               </>
             )}
+          {/* Outside the rows' branch: a filter can empty the table, and a
+              windowed answer must still offer its older records. */}
+          {rows.length <= limit && answer.hasMore && answer.olderBefore !== undefined
+            ? OlderFooter({ answer, busy: olderBusy, t, onLoadOlder: loadOlder })
+            : null}
         </div>
         {inspected ? (
           <TrajectoryInspector api={api} sessionId={sessionId} inspected={inspected} tab={tab} onTab={setTab} layerfs={layerfs}

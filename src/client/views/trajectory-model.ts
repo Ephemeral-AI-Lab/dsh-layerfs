@@ -43,6 +43,9 @@ export function olderRecords(answer: TrajectoryAnswer): number {
 export function mergeOlder(answer: TrajectoryAnswer, older: TrajectoryAnswer): TrajectoryAnswer {
   const turns = answer.turns.slice()
   const at = new Map(turns.map((turn, index) => [turn.turn, index]))
+  // The older page reads the whole log, so the window's records lose to it
+  // where they overlap (the whole build's ops are complete).
+  const wholeLog = answer.windowed === true && older.windowed !== true
   for (const page of older.turns) {
     const index = at.get(page.turn)
     if (index === undefined) {
@@ -53,7 +56,11 @@ export function mergeOlder(answer: TrajectoryAnswer, older: TrajectoryAnswer): T
     const have = turns[index]!
     if (!page.records.length) continue
     const seqs = new Set(have.records.map((record) => record.seq))
-    const records = [...page.records.filter((record) => !seqs.has(record.seq)), ...have.records].sort((a, b) => a.seq - b.seq)
+    const bySeq = wholeLog ? new Map(page.records.map((record) => [record.seq, record])) : undefined
+    const records = [
+      ...page.records.filter((record) => !seqs.has(record.seq)),
+      ...have.records.map((record) => bySeq?.get(record.seq) ?? record),
+    ].sort((a, b) => a.seq - b.seq)
     turns[index] = {
       ...have, records,
       ...(have.totalRecords === undefined && page.totalRecords !== undefined ? { totalRecords: page.totalRecords } : {}),
@@ -72,6 +79,9 @@ export function mergeOlder(answer: TrajectoryAnswer, older: TrajectoryAnswer): T
     delete merged.windowed
     delete merged.windowFromSeq
     delete merged.recordTotalKnown
+    // The full answer's counts, not the window's (a version created in an
+    // earlier turn is not in the window's receipts).
+    merged.counts = older.counts
   }
   if (older.hasMore && older.olderBefore !== undefined) {
     merged.hasMore = true

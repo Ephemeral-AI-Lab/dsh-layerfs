@@ -111,7 +111,11 @@ worker or a second parser. It is explicit that the first answer is a window.
 **When.** Only for a session DSH has **not** loaded whose log is at least
 `TAIL_LOG_BYTES` (8 MiB), with the split receipts layout (`receipts.jsonl`
 beside the log). A loaded session, a shorter log, or a legacy combined sidecar
-keeps the whole parse.
+keeps the whole parse. When a half-migrated session has both, the split file
+wins for the whole path (`receiptsFor`) as well as for the window, so the two
+answers cannot diverge. Receipts are read, not the sidecar's `invocations`
+array, so the first page never parses the receipts file whole; the OBSERVATION
+row's counter comes from the sidecar metadata.
 
 **What is read.** The log's tail from a `turn/start` to EOF (`TAIL_START_BYTES`
 = 2 MiB first, doubled until it holds the newest 400 records), trimmed to the
@@ -119,12 +123,26 @@ turn of the oldest record a page can keep, plus `receipts.jsonl`'s rows for
 those turns (a binary search finds the first row of the window's turn, then one
 read). Every turn in the window is complete, so record content, call/result
 pairing, step timing and per-turn totals are exactly the whole parse's for
-those turns. The page's first `request/header` needs its predecessor's tool
-catalog: the last header before the window is read as a **seed** (its `seq`
-and tools), so `toolsChanged` and `promptChanged.previousSeq` match the whole
-build. A page `system/message` needs the effective prompt text, which cannot be
-seeded: the window reaches back to the last system message's turn, or the whole
-parse runs.
+those turns. Two details keep page parity:
+
+- **Duplicate tool calls.** A `tool/call` whose callId first appeared before
+  the window is a repeat; the whole parse keeps the first occurrence, so the
+  window's dropped prefix seeds the seen-call set (`seenCalls`) and the repeat
+  is not a record, a `recordTotal` or a `counts` entry.
+- **The prompt predecessor.** The page's first `request/header` needs its
+  predecessor's tool catalog: the last header before the window is read as a
+  **seed** (its `seq` and tools), so `toolsChanged` and
+  `promptChanged.previousSeq` match the whole build. That seed carries no
+  system text, so if a system message or a surface replacement sits between the
+  seeded header and the window the window falls back to the whole parse. A page
+  `system/message` needs the effective prompt text instead: the window reaches
+  back to the last system message's turn, or the whole parse runs.
+
+A stat is a point in time. The reader re-stats before and after its read; a log
+or receipts file that grew meanwhile is read again from its current end (up to
+three times, then the whole parse), so a page never comes from a slice that
+ends at an old size. The window and its revision name the identity actually
+read — size, mtime, inode and ctime — and not the caller's stat.
 
 **The answer says so.** A windowed first page carries `windowed: true`,
 `windowFromSeq` (the window's oldest event seq) and `recordTotalKnown: false`;
@@ -133,19 +151,23 @@ and `counts`/`opsTotal` are window values too. `hasMore` is always true.
 Everything the page carries (records, checkpoint strip, the observation row)
 is identical to the whole build's first page: 397 records, 255,626 bytes whole
 and 255,719 windowed — the 93 bytes are the three window fields, the window's
-`recordTotal`, `counts` and `revision`.
+`recordTotal`, `counts` and `revision`. The OBSERVATION row itself (the folded
+read counter) is session-wide, not a window figure, and the UI says so.
 
-**Older history stays exact.** The client's first "Load full history" (the
-existing `{before}` cursor, unchanged) runs the whole parse once and answers
-with the session's full `recordTotal` (3,314) and `counts`; every later older
-page reuses that answer. Walking the measured session takes 18 pages / 4.185
-MiB at the 250 KiB byte budget and reaches every record exactly once. The first
-older page paying the whole parse (~755 ms + ~399 ms here) is the accepted
-trade.
+**Older history stays exact.** The client's first "Load older records
+(window)" (the existing `{before}` cursor, unchanged) runs the whole parse once
+and answers with the session's full `recordTotal` (3,314) and `counts`; every
+later older page reuses that answer. It is one page, not a load of the whole
+history — the label says so, and the next presses keep walking. Merging it
+adopts the whole answer's `counts`, and any record the whole page also carries
+takes the whole build's copy (its `opsTotal` is complete). Walking the measured
+session takes 18 pages / 4.185 MiB at the 250 KiB byte budget and reaches every
+record exactly once, each page strictly older than its cursor. The first older
+page paying the whole parse (~755 ms + ~399 ms here) is the accepted trade.
 
 **`since` stays cheap.** The window is cached per session keyed by both files'
-`size:mtimeMs`; a poll that passes `since` computes the same revision from the
-cache (two stats, ~0.1 ms) and answers `unchanged` 25/25, as before. A whole-log
+identity; a poll that passes `since` computes the same revision from the cache
+(two stats, ~0.1 ms) and answers `unchanged` 25/25, as before. A whole-log
 parse cached by a record read does not switch the first page back to the whole
 log: the window input, and so its revision, stays.
 
@@ -154,20 +176,33 @@ it can be read safely. The whole parse runs when: the log is under 8 MiB; the
 session is loaded; there is no split `receipts.jsonl` (legacy combined
 sidecar); the header is not a v4 session header; the file is not JSONL; a row
 lacks an integer `seq` or the seqs do not increase; a line other than a torn
-last one does not parse; a surface replacement's endpoints predate the window
-after the window has shown a prompt state it would reset; a page
-`system/message` has no earlier system message; or the window would be the
-whole file. A fallback answer is today's answer, never a partial page passed
-off as the session. `windowed` is omitted rather than `false` (the contract is
-`windowed?: true`), so a reader tests presence, not the value; a fallback
-answer never carries `windowFromSeq` or `recordTotalKnown` either.
+last one does not parse; a prompt line (a request header) is longer than 16 MiB
+(`LINE_MAX_BYTES`) and cannot be read; a surface replacement's endpoints
+predate the window after the window has shown a prompt state it would reset; a
+page `system/message` has no earlier system message; a prompt state change sits
+between the seeded header and the window; the window would be the whole log
+(its first event, or turn 1 with no record before it); or the file keeps
+changing while it is read. A fallback answer is today's answer, never a partial
+page passed off as the session. `windowed` is omitted rather than `false` (the
+contract is `windowed?: true`), so a reader tests presence, not the value; a
+fallback answer never carries `windowFromSeq` or `recordTotalKnown` either.
+
+**Limits.** A receipt without a `turn` is not part of any window's turns; DSH
+stamps `turn` on every tool receipt, so a window call's ops are not lost this
+way, but a hand-written turn-less receipt would be attached at turn 0 by the
+whole build and not by a window. A window is only as fresh as the last stat: a
+writer that appends while the page is read is caught by the re-stat and read
+again, and an append after the answer moves the next read's revision.
 
 **UI.** Window numbers are never shown as session totals. The table footer says
-`402 in the loaded window · Load full history` and the button runs the whole
-parse; the counts line gains "· in the loaded window"; the phone summary says
-"N versions in the loaded window", and a note under the toolbar says totals,
-counts and per-turn counts cover the loaded records only. After the merge, the
-footer returns to "Load older records (n not loaded)" with the full counts.
+`402 in the loaded window · Load older records (window)` and the action runs the
+whole parse behind that cursor; the footer stays visible when a filter empties
+the table, so the full history can still be loaded. The counts line gains "· in
+the loaded window"; the phone summary says "N versions in the loaded window",
+and a note under the toolbar says totals, counts and per-turn counts cover the
+loaded records only, while the OBSERVATION row keeps counting the whole
+session. After the merge, the footer returns to "Load older records (n not
+loaded)" with the full counts.
 
 ## 5. Limits
 

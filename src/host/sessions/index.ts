@@ -451,6 +451,8 @@ export function apply(ctx: Context): void {
         // A legacy combined sidecar keeps its receipts in one JSON object that
         // cannot be bounded to the window, so only a split layout (`receipts.jsonl`
         // beside the log) takes this path; everything else keeps the whole parse.
+        // If both exist (a half-migrated session), `receiptsFor` reads the split
+        // file for the whole path too, so the window and the whole parse agree.
         const receiptsFile = file ? tailFile(join(dirname(file.path), 'receipts.jsonl')) : undefined
         if (file && mayReadTail(file.size, { loaded: false, splitReceipts: receiptsFile !== undefined })) {
           const page = tailPages(id, {
