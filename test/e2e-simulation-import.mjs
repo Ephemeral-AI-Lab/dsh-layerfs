@@ -11,16 +11,31 @@ assert.ok(A_DIR && B_DIR && sessionId && project, 'A_DIR, B_DIR, SIMULATION_SESS
 const a = await openDev({ url: readFileSync(join(A_DIR, 'url.txt'), 'utf8').trim() })
 const b = await openDev({ url: readFileSync(join(B_DIR, 'url.txt'), 'utf8').trim() })
 const op = (page, name, args = {}) => page.evaluate(([name, args]) => window.__dshLayerfs.op(name, args), [name, args])
+/** Every retained receipt, one bounded page at a time: annotations answers metadata only. */
+const receiptsOf = async (page, sessionId) => {
+  const rows = []
+  for (let from = 0; ;) {
+    const pageOfReceipts = await op(page, 'session.receipts', { sessionId, from, limit: 1000 })
+    rows.push(...pageOfReceipts.invocations)
+    from = pageOfReceipts.from + pageOfReceipts.invocations.length
+    if (!pageOfReceipts.invocations.length || from >= pageOfReceipts.total) return rows
+  }
+}
 try {
   const before = await op(a.page, 'session.state', { sessionId })
   assert.equal((await op(a.page, 'simulation.script', { sessionId })).state, 'completed')
   const originalAnnotations = await op(a.page, 'session.annotations', { sessionId })
+  assert.equal('invocations' in originalAnnotations, false, 'annotations answers metadata, not the receipts')
+  assert.equal(originalAnnotations.sessionId, sessionId)
+  const originalReceipts = await receiptsOf(a.page, sessionId)
   await op(a.page, 'session.mirror', { sessionId })
   await op(b.page, 'sessions.open', { sessionId, project })
   const source = await op(b.page, 'simulation.script', { sessionId })
   assert.equal(source.script.source, null, 'the second installation does not need the private run package')
   const archivedAnnotations = await op(b.page, 'session.annotations', { sessionId })
-  for (const row of originalAnnotations.invocations ?? []) assert.ok(archivedAnnotations.invocations?.some(imported => imported.id === row.id), 'the full annotation history survives import')
+  assert.equal('invocations' in archivedAnnotations, false, 'annotations answers metadata after import too')
+  const archivedReceipts = await receiptsOf(b.page, sessionId)
+  for (const row of originalReceipts) assert.ok(archivedReceipts.some(imported => imported.id === row.id), 'the full receipt history survives import')
   const result = await runTurn(b.page, { newSession: false, model: 'Fake scripted', message: 'bash: test -n "$DSH_LAYERFS_WS" && "$DSH_LAYERFS_CLI" workspace exec "$DSH_LAYERFS_WS" \'ls\' --stream', expect: /done: 1 commands/, timeoutMs: 60000 })
   assert.ok(result.ok, result.error)
   assert.equal(result.sessionId, sessionId)

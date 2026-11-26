@@ -47,6 +47,17 @@ async function open(dir) {
   return { page, op, http, openProject }
 }
 
+/** Every retained receipt of a client's session, one bounded `session.receipts` page at a time. */
+const receiptsOf = async (client, sessionId) => {
+  const rows = []
+  for (let from = 0; ;) {
+    const page = await client.op('session.receipts', { sessionId, from, limit: 1000 })
+    rows.push(...page.invocations)
+    from = page.from + page.invocations.length
+    if (!page.invocations.length || from >= page.total) return rows
+  }
+}
+
 let failed = false
 try {
   const A = await open(dirA)
@@ -63,7 +74,8 @@ try {
   const t1 = await runTurn(A.page, { message: projectCommand('echo from-a > a.txt'), newSession: false })
   assert.ok(t1.ok, t1.error)
   const observed = await A.op('session.annotations', { sessionId: placed1.sessionId })
-  const invocations = observed.invocations ?? []
+  assert.equal('invocations' in observed, false, 'annotations answers metadata, not the receipts')
+  const invocations = await receiptsOf(A, placed1.sessionId)
   const exec = invocations.find((row) => row.operation === 'workspace.exec' && row.origin === 'tool')
   assert.ok(exec?.toolCallId, 'managed CLI invocation has exact tool provenance')
   assert.deepEqual(exec.versions, [], 'workspace.exec receives no checkpoint links')
@@ -100,7 +112,9 @@ try {
   const opened = await B.op('sessions.open', { sessionId: sid, project })
   assert.equal(opened.imported, true)
   const importedAnnotations = await B.op('session.annotations', { sessionId: sid })
-  assert.ok(importedAnnotations.invocations?.some((row) => row.id === exec.id), 'portable sidecar preserves invocation identities')
+  assert.equal('invocations' in importedAnnotations, false, 'annotations answers metadata after import too')
+  const importedReceipts = await receiptsOf(B, sid)
+  assert.ok(importedReceipts.some((row) => row.id === exec.id), 'portable sidecar preserves invocation identities')
   step('B: the Logs view shows the imported session from its receipts')
   const receiptLog = await B.op('logs.list', { tag: `dsh:${sid}:`, limit: 1000 })
   const execLine = receiptLog.lines.find((line) => line.tag === exec.tag)

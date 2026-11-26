@@ -1726,3 +1726,63 @@ test('a cold sessions.list answers known rows at once, then the walk lands and i
   assert.equal(branchLists, 4, 'a moved head re-walks the Store')
   assert.equal(manifestReads, 2)
 })
+
+// The metadata projection the UI's annotations read uses: title, checkpoints,
+// the receipt counter and archive, never the lazy receipts array. The lazy
+// getter throwing proves the op never materializes it; the paged receipts op is
+// the only way to read rows, and it is bounded.
+test('session.annotations answers sidecar metadata only; session.receipts pages the rows', async () => {
+  const ops = {}
+  const calls = []
+  let reads = 0
+  const sidecar = {
+    version: 1, sessionId: 'live', project: 'st/app', title: 'A long session',
+    checkpoints: [{ commit: 'c1' }, { commit: 'c2' }],
+    receipts: { version: 1, reads: { 'workspace.status': { count: 83_250, lastAt: 1, lastOutcome: 'success' } }, readsTotal: 83_250, dropped: 0, cap: 5000, truncated: false },
+    archive: { count: 1, updatedAt: 2 },
+  }
+  Object.defineProperty(sidecar, 'invocations', {
+    enumerable: true, configurable: true,
+    get: () => { reads++; throw new Error('session.annotations read the receipts array') },
+  })
+  const persistence = {
+    readSidecar: async (id, options) => { calls.push({ read: 'sidecar', id, options }); return sidecar },
+    readReceipts: async (id, options) => {
+      calls.push({ read: 'receipts', id, options })
+      return { invocations: [{ id: 'r1' }], total: 1, from: 0, truncated: false, dropped: 0, skipped: 0, bytes: 0 }
+    },
+  }
+  const ctx = {
+    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
+    layerfsSessions: {},
+    layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
+    plugin() {},
+    inject: (deps, callback) => { if (deps.includes('layerfsSessions')) callback(ctx) },
+    on() {},
+    effect() {},
+    get: (name) => name === 'sessionPersistence' ? persistence : undefined,
+    logger: () => ({ warn() {}, info() {} }),
+    workspaceRegistry: { archivedSessionIds: [] },
+  }
+  S.applySessionsIndex(ctx)
+  const annotations = await ops['session.annotations']({ sessionId: 'live' })
+  assert.equal(reads, 0, 'the metadata answer never touched the receipts array')
+  assert.deepEqual(calls, [{ read: 'sidecar', id: 'live', options: { cached: true } }])
+  assert.equal('invocations' in annotations, false, 'no receipts array in the answer')
+  assert.equal(annotations.title, 'A long session')
+  assert.deepEqual(annotations.checkpoints, [{ commit: 'c1' }, { commit: 'c2' }])
+  assert.equal(annotations.receipts.readsTotal, 83_250)
+  assert.deepEqual(annotations.archive, { count: 1, updatedAt: 2 })
+  assert.ok(Buffer.byteLength(JSON.stringify(annotations)) < 2048, 'metadata-sized, not sidecar-sized')
+
+  const page = await ops['session.receipts']({ sessionId: 'live', from: -1 })
+  assert.deepEqual(page.invocations, [{ id: 'r1' }])
+  assert.deepEqual(calls.at(-1), { read: 'receipts', id: 'live', options: { from: -1, limit: 1000 } })
+  await ops['session.receipts']({ sessionId: 'live' })
+  assert.deepEqual(calls.at(-1), { read: 'receipts', id: 'live', options: { limit: 1000 } })
+
+  for (const bad of [{}, { sessionId: '' }, { sessionId: 'live', from: 1.5 }, { sessionId: 'live', from: '1' },
+    { sessionId: 'live', limit: 0 }, { sessionId: 'live', limit: 1001 }, { sessionId: 'live', limit: 1.5 }]) {
+    await assert.rejects(() => ops['session.receipts'](bad), (error) => error.code === 'InvalidInput')
+  }
+})

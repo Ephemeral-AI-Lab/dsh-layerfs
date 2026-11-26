@@ -15,7 +15,7 @@ mkdirSync(join(root, 'lib'), { recursive: true })
 const out = mkdtempSync(join(root, 'lib', '.test-sidecar-receipts-'))
 await build({
   absWorkingDir: root,
-  stdin: { contents: "export * as persistence from './src/host/session-persistence.ts'\n", resolveDir: root, loader: 'ts' },
+  stdin: { contents: "export * as persistence from './src/host/session-persistence.ts'\nexport { apply as applySessionsIndex } from './src/host/sessions/index.ts'\n", resolveDir: root, loader: 'ts' },
   outfile: join(out, 'persistence.mjs'),
   bundle: true,
   format: 'esm',
@@ -251,4 +251,51 @@ test('20k receipts: the receipts read is bounded and readSidecar stays metadata-
   const median = times[2]
   assert.ok(median < 5, `readSidecar median ${median.toFixed(2)} ms (20k receipts: ${receiptsMs.toFixed(1)} ms for ${(bytes / 1e6).toFixed(1)} MB)`)
   console.log(`# 20k receipts: readReceipts ${receiptsMs.toFixed(1)} ms / ${(bytes / 1e6).toFixed(1)} MB; readSidecar median ${median.toFixed(2)} ms`)
+})
+
+// The op a long session used to answer with its whole sidecar: 83,250 receipts
+// were cloned and serialized (40.75 MB, 482 ms + 375 ms). The metadata answer
+// must never open the receipts file, and the paged reader is the only way in.
+test('the annotations op stays metadata-sized on an 83,250-receipt session', async () => {
+  const f = session('long-annotations')
+  const checkpoints = Array.from({ length: 8 }, (_, index) => ({ commit: `${'c'.repeat(63)}${String(index).padStart(3, '0')}`, turn: index + 1 }))
+  const counter = {
+    version: 1, reads: { 'workspace.status': { count: 83_250, lastAt: 1_700_000_000_000, lastOutcome: 'success' } },
+    readsTotal: 83_250, dropped: 0, cap: 5000, truncated: false,
+  }
+  writeFileSync(f.sidecar, JSON.stringify({ ...meta('s1'), title: 'The long session', checkpoints, archive: { count: 8, updatedAt: 1_700_000_000_000 }, receipts: counter }))
+  const text = Array.from({ length: 83_250 }, (_, index) => JSON.stringify(receipt(`r${String(index).padStart(6, '0')}`))).join('\n') + '\n'
+  writeFileSync(f.receipts, text)
+  const w = persistence(f)
+  const reads = countingReceiptReads(w)
+  const ops = {}
+  const ctx = {
+    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
+    layerfsSessions: {},
+    layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
+    plugin() {},
+    inject: (deps, callback) => { if (deps.includes('layerfsSessions')) callback(ctx) },
+    on() {},
+    effect() {},
+    get: (name) => name === 'sessionPersistence' ? w : undefined,
+    logger: () => ({ warn() {}, info() {} }),
+    workspaceRegistry: { archivedSessionIds: [] },
+  }
+  P.applySessionsIndex(ctx)
+  const annotationsAt = performance.now()
+  const annotations = await ops['session.annotations']({ sessionId: 's1' })
+  const annotationsMs = performance.now() - annotationsAt
+  const bytes = Buffer.byteLength(JSON.stringify(annotations))
+  assert.equal(reads.reads, 0, 'annotations never opened receipts.jsonl')
+  assert.equal('invocations' in annotations, false, 'no receipts array')
+  assert.equal(annotations.title, 'The long session')
+  assert.equal(annotations.checkpoints.length, 8)
+  assert.equal(annotations.receipts.readsTotal, 83_250)
+  assert.deepEqual(annotations.archive, { count: 8, updatedAt: 1_700_000_000_000 })
+  assert.ok(bytes <= 4096, `annotations answer is ${bytes} B`)
+  assert.ok(annotationsMs < 50, `annotations answered in ${annotationsMs.toFixed(2)} ms`)
+  const page = await ops['session.receipts']({ sessionId: 's1', from: -2, limit: 2 })
+  assert.deepEqual(page.invocations.map((row) => row.id), ['r083248', 'r083249'])
+  assert.equal(page.total, 83_250)
+  console.log(`# 83,250 receipts: annotations ${bytes} B / ${annotationsMs.toFixed(2)} ms; receipts page ${page.invocations.length} of ${page.total}`)
 })

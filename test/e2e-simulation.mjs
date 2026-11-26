@@ -53,6 +53,16 @@ const model = () => page.locator('button[aria-label^="Select model, current"]').
 const mixed = process.env.DSH_SIMULATION_MIXED === '1'
 const cycles = Number(process.env.DSH_SIMULATION_CYCLES ?? 1)
 const launch = (options = {}) => op('simulation.launch', { project: 'design', machine: 'native', mixed, cycles, ordinaryModel: { provider: 'fake', model: 'scripted' }, ...options })
+/** Every retained receipt, one bounded page at a time: annotations answers metadata only. */
+const receiptsOf = async (sessionId) => {
+  const rows = []
+  for (let from = 0; ;) {
+    const page = await op('session.receipts', { sessionId, from, limit: 1000 })
+    rows.push(...page.invocations)
+    from = page.from + page.invocations.length
+    if (!page.invocations.length || from >= page.total) return rows
+  }
+}
 const settled = (id) => until('settled script', async () => {
   const value = await op('simulation.script', { sessionId: id })
   return ['completed', 'stopped', 'uncertain', 'failed'].includes(value.state) ? value : null
@@ -69,8 +79,8 @@ async function continueNormally(id, marker) {
   assert.doesNotMatch(result.transcript, /done: \d+ commands \([1-9]\d* failed\)/, 'ordinary followup tools succeed')
   assert.equal(result.sessionId, id, 'ordinary followup keeps the session identity')
   assert.match(result.transcript, new RegExp(marker), 'ordinary tool appears in the same conversation')
-  const annotations = await op('session.annotations', { sessionId: id })
-  assert.ok(annotations.invocations.some(row => row.operation === 'workspace.exec' && row.toolCallId && row.outcome === 'success'), 'continuation runs a successful real project tool')
+  const receipts = await receiptsOf(id)
+  assert.ok(receipts.some(row => row.operation === 'workspace.exec' && row.toolCallId && row.outcome === 'success'), 'continuation runs a successful real project tool')
 }
 
 let active
@@ -99,7 +109,7 @@ try {
     const childKeys = journal.filter(row => row.type === 'binding' && !row.agentKey.endsWith('-main')).map(row => row.agentKey)
     assert.ok(childKeys.some(key => journal.filter(row => row.type === 'turn-settled' && row.agentKey === key).length > 1), 'later assignments reuse one native child session')
   }
-  const invocations = (await Promise.all(sessionIds.map(sessionId => op('session.annotations', { sessionId })))).flatMap(sidecar => sidecar.invocations)
+  const invocations = (await Promise.all(sessionIds.map(receiptsOf))).flat()
   assert.ok(invocations.some(row => row.operation === 'branch.publish' && row.toolCallId && row.versions.some(version => version.kind === 'Layer' && version.effect === 'created')), 'real CLI publications label their exact tool calls')
   assert.ok(invocations.filter(row => row.operation === 'workspace.exec').every(row => row.versions.length === 0), 'workspace.exec never gains checkpoint links')
   if (mixed) assert.ok(invocations.some(row => row.operation === 'workspace.commit' && row.toolCallId && row.versions.some(version => version.kind === 'Commit' && version.effect === 'created')), 'Mixed workspace commits label their exact tool calls')

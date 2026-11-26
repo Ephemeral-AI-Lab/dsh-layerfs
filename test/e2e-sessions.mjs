@@ -25,6 +25,16 @@ const op = (name, args = {}) => page.evaluate(async ([n, a]) => {
   try { return { ok: true, value: await window.__dshLayerfs.op(n, a) } } catch (e) { return { ok: false, code: e.code, message: e.message } }
 }, [name, args])
 const must = async (name, args) => { const r = await op(name, args); if (!r.ok) throw new Error(`${name}: ${r.code} ${r.message}`); return r.value }
+/** Every retained receipt, one bounded page at a time: annotations answers metadata only. */
+const receiptsOf = async (sessionId) => {
+  const rows = []
+  for (let from = 0; ;) {
+    const page = await must('session.receipts', { sessionId, from, limit: 1000 })
+    rows.push(...page.invocations)
+    from = page.from + page.invocations.length
+    if (!page.invocations.length || from >= page.total) return rows
+  }
+}
 // A session in the currently selected workspace, placed in the project.
 const openProject = (key) => page.evaluate(async (k) => window.__dshLayerfs.openProjectSession(k), key)
 const http = async (method, path, body) => {
@@ -140,9 +150,11 @@ try {
   assert.ok(existsSync(b.scratch), 'scratch folder')
   assert.ok(existsSync(join(b.scratch, 'scratch-note.txt')), 'local shell writes selected scratch')
   const annotations = await must('session.annotations', { sessionId: sid })
-  const execs = annotations.invocations.filter((item) => item.operation === 'workspace.exec')
+  assert.equal('invocations' in annotations, false, 'annotations answers metadata, not the receipts')
+  const receipts = await receiptsOf(sid)
+  const execs = receipts.filter((item) => item.operation === 'workspace.exec')
   assert.ok(execs.length > 0 && execs.every((item) => item.origin === 'tool' && item.toolCallId && item.versions.length === 0), 'exec calls retain exact tool identities with no checkpoint links')
-  assert.ok(annotations.invocations.some((item) => item.operation === 'workspace.commit' && item.origin === 'host' && item.versions.some((version) => version.effect === 'created')), 'host save owns its confirmed checkpoint')
+  assert.ok(receipts.some((item) => item.operation === 'workspace.commit' && item.origin === 'host' && item.versions.some((version) => version.effect === 'created')), 'host save owns its confirmed checkpoint')
   const cp1 = state.checkpoints.find((c) => c.kind === 'turn')
   assert.ok(cp1.commit, 'turn 1 committed')
 

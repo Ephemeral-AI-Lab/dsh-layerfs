@@ -32,6 +32,10 @@
  *   session.place {sessionId}           the project a live session works in (New Session control)
  *   session.trajectory {sessionId, since?, before?}  the Trajectory tab's records, LayerFS calls and checkpoints by turn;
  *                    `since` answers `unchanged` when nothing moved, `before` reads the older page
+ *   session.annotations {sessionId}     a session's sidecar metadata (title, checkpoints, receipt counter,
+ *                    archive) without its receipts array
+ *   session.receipts {sessionId, from?, limit?}  a page of the session's receipts (`from` is a retained
+ *                    index, negative counts back from the newest; `limit` defaults to and is capped at 1000)
  *   session.trajectory.record {sessionId, seq} one trajectory record in full (NotFound when not in the loaded log)
  *   session.trajectory.prompt-diff {sessionId, seq} a record's system/tools line diff (NotFound when it has none)
  *   checkpoints.create {sessionId, message?}
@@ -54,6 +58,7 @@ import { branchFields } from '../../shared/session-branch.ts'
 import { UNCLAIMED } from './catalog.ts'
 import { LayerfsSessions } from './service.ts'
 import { localPersistence, SessionStore } from './store.ts'
+import { sidecarMetadata } from '../session-persistence.ts'
 import { promptDiff } from './prompt-diff.ts'
 import { normalizeKind } from '../../shared/trajectory.ts'
 import { trajectoryDetail, trajectoryReader, type TrajectoryInput } from './trace.ts'
@@ -85,6 +90,9 @@ const AVAILABILITY_POLL_MS = 10_000
 
 /** The most session ids one `sessions.places` batch accepts. */
 const PLACES_MAX = 200
+
+/** The most receipts one `session.receipts` page returns; the default too. */
+const RECEIPTS_PAGE_MAX = 1000
 
 /**
  * One recent-project row's per-session facts, kept while every value they were
@@ -768,10 +776,30 @@ export function apply(ctx: Context): void {
       // `observe: true` (the views' polls and effect reads): a read that changes nothing
       'session.state': (args: any) => sessions.view(need(args, 'sessionId'), { observe: args?.observe === true, debug: args?.debug === true }),
       'sessions.availability': async () => { await sessions.refreshAvailability(); return { stores: sessions.availability() } },
+      // Metadata only. The receipts array is deliberately omitted, not
+      // materialized: `readSidecar` keeps it lazy (a long session holds tens of
+      // MB), and no live surface wants the whole projection. A caller that
+      // needs receipts pages `session.receipts` instead.
       'session.annotations': async (args: any) => {
         const id = need(args, 'sessionId')
         const persistence = ctx.get('sessionPersistence' as never) as any
-        return await persistence?.readSidecar?.(id) ?? { invocations: [] }
+        const sidecar = await persistence?.readSidecar?.(id, { cached: true })
+        return sidecar ? sidecarMetadata(sidecar) : { version: 1, sessionId: id }
+      },
+      // The paged receipts reader (`readReceipts`) behind a bounded op: the
+      // whole sidecar projection is never an answer, and a page is at most
+      // RECEIPTS_PAGE_MAX rows.
+      'session.receipts': async (args: any) => {
+        const id = need(args, 'sessionId')
+        const from = args?.from
+        if (from !== undefined && !Number.isSafeInteger(from)) throw new CliError('InvalidInput', 'from must be an integer receipt index')
+        const limit = args?.limit === undefined ? RECEIPTS_PAGE_MAX : args.limit
+        if (!Number.isSafeInteger(limit) || limit < 1 || limit > RECEIPTS_PAGE_MAX) {
+          throw new CliError('InvalidInput', `limit must be an integer from 1 to ${RECEIPTS_PAGE_MAX}`)
+        }
+        const persistence = ctx.get('sessionPersistence' as never) as any
+        if (typeof persistence?.readReceipts !== 'function') throw new CliError('Unavailable', 'Project session receipts are not available')
+        return await persistence.readReceipts(id, { ...(from !== undefined ? { from } : {}), limit })
       },
       'session.trajectory': async (args: any) => {
         const id = need(args, 'sessionId')
