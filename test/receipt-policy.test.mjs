@@ -19,7 +19,7 @@ mkdirSync(join(root, 'lib'), { recursive: true })
 const out = mkdtempSync(join(root, 'lib', '.test-receipt-policy-'))
 await build({
   absWorkingDir: root,
-  stdin: { contents: "export * from './src/host/layerfs/tracing.ts'\nexport { isWrite } from './src/shared/logs.ts'\n", resolveDir: root, loader: 'ts' },
+  stdin: { contents: "export * from './src/host/layerfs/tracing.ts'\nexport { isWrite } from './src/shared/logs.ts'\nexport { buildTrajectory, trajectoryRevision, pageTrajectory } from './src/host/sessions/trace.ts'\n", resolveDir: root, loader: 'ts' },
   outfile: join(out, 'policy.mjs'),
   bundle: true,
   format: 'esm',
@@ -237,4 +237,52 @@ test('a write is visible in the very next read: ordering is untouched', async ()
     await P.traceInvocation('file.write', async () => ({ commit: LAYER }), undefined, undefined, () => ({ argv: ['file', 'write', 'store/project', 'dsh.s', '/b'] }))
   })
   assert.deepEqual(order, ['file.write', 'poll:workspace.status', 'file.write'], 'receipts keep their order around folded reads')
+})
+
+test('the trajectory shows one observation row, identical in whole and first-page builds', () => {
+  const counters = {
+    version: 1, readsTotal: 31_597, firstAt: 1_700_000_000_000, lastAt: 1_700_000_002_000,
+    dropped: 0, cap: 5000, truncated: false,
+    reads: {
+      'workspace.status': { count: 31_000, lastAt: 1_700_000_002_000, lastOutcome: 'success' },
+      'home.log': { count: 597, lastAt: 1_700_000_001_000, lastOutcome: 'success' },
+    },
+  }
+  const events = [
+    { type: 'turn/start', seq: 1, time: 10, data: { turn: 1 } },
+    { type: 'user/message', seq: 2, time: 11, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'go' }] } },
+    { type: 'assistant/message', seq: 3, time: 12, data: { turn: 1, message: { content: [{ type: 'text', text: 'done' }] } } },
+    { type: 'turn/end', seq: 4, time: 13, data: { turn: 1 } },
+  ]
+  const input = { sessionId: 'observed', project: 'store/project', branch: 'b1', events, invocations: [], checkpoints: [], receipts: counters }
+  const whole = P.buildTrajectory(input)
+  const row = whole.turns.at(-1).records.at(-1)
+  assert.equal(row.kind, 'observation')
+  assert.equal(row.text, 'polled 31,597 times across 2 read-only operations')
+  assert.deepEqual(row.top, ['workspace status: 31,000', 'home log: 597'])
+  assert.equal(row.reads, 31_597)
+  assert.equal(row.seq, 5, 'it sits just after the newest event')
+  assert.equal(row.turn, 1)
+
+  // A first-page build materializes only the newest records but carries the row
+  // at the same place; its total counts the observation (no double count).
+  const first = P.buildTrajectory(input, { newest: 1 })
+  assert.deepEqual(first.turns.at(-1).records.at(-1), row)
+  assert.equal(first.recordTotal, whole.turns.flatMap((t) => t.records).length, 'the observation is one record in the total')
+  const wholePage = P.pageTrajectory(whole)
+  const firstPage = P.pageTrajectory(first)
+  assert.deepEqual(wholePage.turns.at(-1).records.at(-1), row)
+  assert.deepEqual(firstPage.turns.at(-1).records.at(-1), row, 'whole and first-page builds agree at the same position')
+  assert.ok(JSON.stringify(wholePage).includes('polled 31,597 times'), 'the row is inside the first page, so it counts against its bytes')
+  // The older page starts before the observation (it is the newest content).
+  const older = P.pageTrajectory(whole, 2)
+  assert.ok(!older.turns.some((turn) => turn.records.some((record) => record.kind === 'observation')))
+
+  // The counter is part of the revision: a new poll forces a fresh answer even
+  // though no receipt was written.
+  const revision = P.trajectoryRevision(input)
+  assert.notEqual(P.trajectoryRevision({ ...input, receipts: { ...counters, readsTotal: 31_598 } }), revision)
+  assert.equal(P.trajectoryRevision({ ...input }), revision)
+  // No counter: no row (a write-only session).
+  assert.ok(!P.buildTrajectory({ ...input, receipts: undefined }).turns.some((turn) => turn.records.some((record) => record.kind === 'observation')))
 })

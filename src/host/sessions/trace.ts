@@ -11,7 +11,8 @@ import {
   PREVIEW_MAX, TOOL_DESCRIPTION_MAX, displayKind, kindFamily,
   type AssistantRecord, type RequestRecord, type SystemRecord, type ToolRecord, type ToolsChange, type TrajectoryAnswer,
   type TrajectoryDetail, type TrajectoryRecord, type TrajectoryReply, type TrajectoryTool, type TrajectoryTurn, type TrajectoryUsage,
-  type UserRecord,
+  type UserRecord, type ObservationRecord, type ReceiptMeta,
+  RECEIPT_META_FIELD, receiptAggregateLines,
 } from '../../shared/trajectory.ts'
 import { isWrite } from '../../shared/logs.ts'
 import { promptChanges } from './prompt-diff.ts'
@@ -25,8 +26,22 @@ export interface TrajectoryInput {
   events?: readonly any[]
   /** Receipts from the sidecar, oldest first. */
   invocations: readonly any[]
+  /** The sidecar's read-only receipt counter, when one was folded. */
+  receipts?: ReceiptMeta
   /** Checkpoints, oldest first. */
   checkpoints: readonly any[]
+}
+
+/**
+ * The counter an input carries: explicit, or attached (non-enumerably) to the
+ * receipts array by persistence. `sessions/index.ts` hands the trajectory only
+ * the array, so both channels are read; prefer the explicit field when a caller
+ * can pass it.
+ */
+function receiptCounts(input: TrajectoryInput): ReceiptMeta | undefined {
+  const attached = (input.invocations as any)?.[RECEIPT_META_FIELD] as ReceiptMeta | undefined
+  const counts = input.receipts ?? attached
+  return counts && typeof counts === 'object' ? counts : undefined
 }
 
 /**
@@ -42,6 +57,7 @@ export function trajectoryRevision(input: TrajectoryInput): string {
   const last = events?.length ? events[events.length - 1] : undefined
   const checkpoint = input.checkpoints.length ? input.checkpoints[input.checkpoints.length - 1] : undefined
   const receipt = input.invocations.length ? input.invocations[input.invocations.length - 1] : undefined
+  const counts = receiptCounts(input)
   return [
     events ? 'log' : 'nolog',
     events?.length ?? 0,
@@ -53,6 +69,11 @@ export function trajectoryRevision(input: TrajectoryInput): string {
     checkpoint ? [checkpoint.kind, checkpoint.turn, checkpoint.changed, checkpoint.endSeq ?? '', checkpoint.commit ?? ''].join('.') : '',
     input.invocations.length,
     receipt && typeof receipt === 'object' ? (receipt.id ?? '') : '',
+    // A folded poll writes no receipt, so the revision carries the counter too:
+    // the observation row is never answered as `unchanged` while it moved.
+    counts?.readsTotal ?? 0,
+    counts?.dropped ?? 0,
+    counts?.truncated ? 'truncated' : '',
   ].join(':')
 }
 
@@ -516,6 +537,8 @@ export function buildTrajectory(input: TrajectoryInput, scope: TrajectoryBuildSc
   const stepUsages = new Map<string, TrajectoryUsage>()
   let open: number | undefined
   let last: number | undefined
+  /** The last event seq: the observation row sits just after it, once per session. */
+  let lastSeq: number | undefined
   /** The previous request header's catalog, for this request's change marks. */
   let previousTools: Map<string, string> | undefined
   /** The step currently open between `step/start` and `step/end`. */
@@ -525,6 +548,7 @@ export function buildTrajectory(input: TrajectoryInput, scope: TrajectoryBuildSc
     const type = event?.type
     const data = event?.data
     const seq = integer(event?.seq)
+    if (seq !== undefined) lastSeq = seq
     const at = finite(event?.time)
     if (type === 'turn/start') {
       const n = integer(data?.turn)
@@ -756,6 +780,31 @@ export function buildTrajectory(input: TrajectoryInput, scope: TrajectoryBuildSc
       if (records.length && t.turn < boundary) boundary = t.turn
     }
     if (boundary !== Number.POSITIVE_INFINITY) for (const n of [...turns.keys()]) if (n < boundary) turns.delete(n)
+  }
+
+  // The session-level observation row: one line for the read-only host calls the
+  // receipt counter folded, after the newest record (the same place in a whole
+  // build and a first-page build). It is a record like any other, so a page's
+  // byte budget and count include it; when it is kept in both builds, it is
+  // identical. No counters: a write-only session shows no row.
+  const counts = receiptCounts(input)
+  const observation = receiptAggregateLines(counts)
+  if (observation.length) {
+    const target = last ?? 0
+    const record: ObservationRecord = {
+      kind: 'observation',
+      seq: (lastSeq ?? 0) + 1,
+      turn: target,
+      ...(finite(counts?.lastAt) !== undefined ? { at: counts!.lastAt } : {}),
+      text: observation[0]!,
+      top: observation.slice(1),
+      reads: counts!.readsTotal,
+      ...(counts!.truncated ? { truncated: true } : {}),
+    }
+    turn(target).records.push(record)
+    // The first-page total counts every record the whole log holds; the
+    // observation is one of them (and is always among the newest kept).
+    if (keepSeqs) firstPageTotal = (firstPageTotal ?? allSeqs!.length) + 1
   }
 
   // B2 #3: every version the session made (its turns' checkpoints too), and the tool calls that made one. A saving
