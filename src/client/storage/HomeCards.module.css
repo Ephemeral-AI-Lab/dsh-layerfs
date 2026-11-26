@@ -112,8 +112,15 @@
 
 @media (max-width: 480px) {
   .finder { flex-wrap: wrap; }
-  .finderSearch { flex: 1 0 100%; }
+  .finderSearch {
+    box-sizing: border-box;
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
   .finderSpacer { flex: 1; }
+  .finderSort { max-width: 100%; }
 }
 
 /* Touch: the finder is a thumb target. */

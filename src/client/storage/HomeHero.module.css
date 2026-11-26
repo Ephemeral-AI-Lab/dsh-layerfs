@@ -386,8 +386,37 @@
     gap: 14px;
   }
 
+  /* The host-status callout is its own band under the hero's tools: the word
+     takes the width it needs (wrapping), and its one action takes the next
+     line at thumb size, so neither sits over the row above. */
+  /* The lockup is wider than the column the two tools would leave: let the
+     heading have the full width and the tools take their own row. */
+  .heroTop {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .tools {
+    justify-self: end;
+  }
+
+  .status {
+    gap: 8px;
+    margin-top: 4px;
+    padding-top: 10px;
+    border-top: 0.5px solid var(--ov-border, var(--dsw-alias-border-l2));
+  }
+
+  .headline {
+    flex: 1 1 0;
+    max-width: 100%;
+    line-height: 18px;
+  }
+
   .statusActions {
+    flex: 1 1 100%;
     margin-left: 0;
+    justify-content: flex-end;
   }
 }
 

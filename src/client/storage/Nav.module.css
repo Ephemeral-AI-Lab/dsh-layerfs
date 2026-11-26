@@ -510,3 +510,100 @@ button.crumb[aria-expanded='true'],
     min-width: var(--lfs-tap, 44px);
   }
 }
+
+/* ---------- phone tools ---------- */
+
+/* The one 44 px menu that stands in for Doctor, Logs, Settings and Refresh
+   when the bar is a phone's width. It is in the DOM everywhere (so its menu
+   keeps one behaviour) and shows only where the others collapse. */
+.moreTool {
+  position: relative;
+  display: none;
+}
+
+.moreDot {
+  position: absolute;
+  top: 11px;
+  right: 10px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  corner-shape: round;
+  background: var(--lf-tone-warning-dot);
+  box-shadow: var(--lf-tone-warning-halo);
+}
+
+.moreDot[data-tone='danger'] {
+  background: var(--lf-tone-danger-dot);
+  box-shadow: var(--lf-tone-danger-halo);
+}
+
+@media (max-width: 1180px), (pointer: coarse) {
+  .moreList [role='menuitem'] {
+    min-height: var(--lfs-tap, 44px);
+  }
+}
+
+/* A phone: one row. Back and Forward, the page's crumb, then search, Add and
+   the tools menu — each a thumb target, none squeezed off the edge. */
+@media (max-width: 480px) {
+  .bar {
+    flex-wrap: nowrap;
+    min-height: 0;
+    padding: 6px 10px;
+    gap: 4px;
+  }
+
+  .history {
+    gap: 0;
+  }
+
+  .crumbs {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .crumbList {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .crumbList::-webkit-scrollbar {
+    display: none;
+  }
+
+  .crumb {
+    max-width: 100%;
+  }
+
+  .tools {
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+    gap: 4px;
+    margin-left: auto;
+  }
+
+  .jumpField {
+    width: var(--lfs-tap, 44px);
+    min-width: var(--lfs-tap, 44px);
+    margin-inline-end: 0;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .jumpText,
+  .jumpKeys,
+  .secondaryTool,
+  .jobs {
+    display: none;
+  }
+
+  .moreTool {
+    display: inline-flex;
+  }
+
+  .addButton {
+    padding: 0 10px;
+  }
+}

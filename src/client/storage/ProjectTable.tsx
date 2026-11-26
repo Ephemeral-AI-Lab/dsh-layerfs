@@ -126,29 +126,31 @@ export function ProjectGrid({ api, t, now, rows, label, showStore, order, onOrde
     )
   }
   return (
-    <Card className={css.card}>
-      <div className={css.table} role="table" aria-label={label} data-store-column={showStore || undefined}>
-        <div className={clsx(css.row, css.head)} role="row">
-          <span role="columnheader" aria-hidden="true" />
-          <span role="columnheader">
-            {onOrder
-              ? <button type="button" className={css.sort} data-active={order === 'name' || undefined} aria-pressed={order === 'name'}
-                  title={t('spSortBy', { column: t('ptProject') })} onClick={() => onOrder('name')}>{t('ptProject')}</button>
-              : t('ptProject')}
-          </span>
-          {showStore ? <span role="columnheader" className={css.colStore}>{t('ptStore')}</span> : null}
-          <span role="columnheader" className={css.colSessions}>{t('ptSessions')}</span>
-          <span role="columnheader" className={css.colSandboxes}>{t('ptSandboxes')}</span>
-          {COLUMNS.map(heading)}
-          <span role="columnheader" aria-hidden="true" />
+    <div className={css.frame}>
+      <Card className={css.card}>
+        <div className={css.table} role="table" aria-label={label} data-store-column={showStore || undefined}>
+          <div className={clsx(css.row, css.head)} role="row">
+            <span role="columnheader" aria-hidden="true" />
+            <span role="columnheader">
+              {onOrder
+                ? <button type="button" className={css.sort} data-active={order === 'name' || undefined} aria-pressed={order === 'name'}
+                    title={t('spSortBy', { column: t('ptProject') })} onClick={() => onOrder('name')}>{t('ptProject')}</button>
+                : t('ptProject')}
+            </span>
+            {showStore ? <span role="columnheader" className={css.colStore}>{t('ptStore')}</span> : null}
+            <span role="columnheader" className={css.colSessions}>{t('ptSessions')}</span>
+            <span role="columnheader" className={css.colSandboxes}>{t('ptSandboxes')}</span>
+            {COLUMNS.map(heading)}
+            <span role="columnheader" aria-hidden="true" />
+          </div>
+          {rows.map((r) => (
+            <ProjectRow key={r.key} api={api} r={r} t={t} now={now} tick={tick} showStore={showStore}
+              fleet={fleet} place={place} open={opened[r.key] ?? false} lastList={lastList} onSetOpen={(list) => setOpen(r.key, list)}
+              onOpen={onOpen} onRemove={onRemove} onRestart={onRestart} />
+            ))}
         </div>
-        {rows.map((r) => (
-          <ProjectRow key={r.key} api={api} r={r} t={t} now={now} tick={tick} showStore={showStore}
-            fleet={fleet} place={place} open={opened[r.key] ?? false} lastList={lastList} onSetOpen={(list) => setOpen(r.key, list)}
-            onOpen={onOpen} onRemove={onRemove} onRestart={onRestart} />
-        ))}
-      </div>
-    </Card>
+      </Card>
+    </div>
   )
 }
 
@@ -360,6 +362,10 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
                     action={troubleAction(trouble, t, onRestart)} />
                 </span>
               ) : null}
+            </span>
+            <span className={css.phoneWhen} title={lastSession !== null ? when(lastSession) : undefined}>
+              <span className={css.phoneWhenLabel}>{t('ptLastSession')}</span>
+              <span className={css.phoneWhenValue}>{lastSession !== null ? ago(lastSession, now, tt) : local == null ? '…' : '—'}</span>
             </span>
             <span className={css.commitLine} title={line?.message || undefined}>
               {line ? (

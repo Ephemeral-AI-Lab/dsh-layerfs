@@ -107,12 +107,14 @@ test('FAIL 5: a stop refused InUse names the Sandboxes from its sandboxes field,
   assert.match(page, /onClick=\{\(\) => setTab\('sandboxes'\)\}>\{t\('inUseOpenSandboxes'\)\}/, 'one action: the Sandboxes tab')
 })
 
-test('FAIL 6: at phone width the project table keeps the name column (Sessions and Sandboxes leave the row)', () => {
+test('FAIL 6: at phone width the project table is a card (the name keeps the room, the desktop headings and figure cells leave the row)', () => {
   const css = src('src/client/storage/ProjectTable.module.css')
   const phone = css.slice(css.indexOf('@container (max-width: 480px)'))
   assert.ok(phone.length > 30, 'a phone rule')
-  assert.match(phone, /grid-template-columns: 20px minmax\(0, 1fr\) minmax\(56px, auto\) 28px/)
-  assert.match(phone, /\.colSessions,\s*\.colSandboxes \{\s*display: none;/)
+  assert.match(phone, /grid-template-columns: var\(--lfs-tap, 44px\) minmax\(0, 1fr\) var\(--lfs-tap, 44px\)/)
+  assert.match(phone, /\.head \{\s*display: none;/)
+  assert.match(phone, /\.colSession,[\s\S]*?\.colSessions,[\s\S]*?\.colSandboxes \{\s*display: none;/)
+  assert.match(phone, /\.name,[\s\S]*?flex: 1 1 auto;/)
   assert.match(css, /\.head > \[role='columnheader'\] \{[^}]*text-overflow: ellipsis/)
 })
 

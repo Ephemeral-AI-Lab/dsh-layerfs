@@ -68,6 +68,13 @@
   }
 }
 
+/* A phone's home indicator sits over the last card: keep the page's foot clear. */
+@media (max-width: 480px) {
+  .page {
+    padding-bottom: calc(12px + var(--lfs-safe-bottom, 0px));
+  }
+}
+
 :where(.page) :where(button, input, select, textarea, summary) { font-family: inherit; }
 
 /* Touch: the status link and its signal are thumb targets. */
