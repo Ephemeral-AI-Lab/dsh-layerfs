@@ -23,14 +23,24 @@
   flex-direction: column;
   gap: var(--lfs-section-gap);
   box-sizing: border-box;
+  /* The map is a data surface: keep the built inline layout room on a desktop
+     while the column itself is centred under DSH's full-width tab row. */
+  --lfs-read-column: max(var(--dsh-chat-content-width, 680px), 880px);
   width: 100%;
   min-width: 0;
-  padding: var(--lfs-section-gap) 24px;
+  padding: var(--lfs-section-gap) max(24px, var(--lfs-safe-right, 0px)) calc(var(--lfs-section-gap) + var(--lfs-safe-bottom, 0px)) max(24px, var(--lfs-safe-left, 0px));
   color: var(--dsw-alias-label-primary);
   font-size: 12px;
 }
 
 .page * { min-width: 0; }
+
+@media (min-width: 1024px) {
+  .page {
+    width: min(100%, var(--lfs-read-column));
+    margin-inline: auto;
+  }
+}
 
 /* Toolbar */
 

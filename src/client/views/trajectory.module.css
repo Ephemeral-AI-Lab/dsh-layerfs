@@ -10,7 +10,9 @@
 
   isolation: isolate;
   gap: var(--lfs-section-gap, clamp(22px, 2.5vw, 32px));
-  padding: clamp(12px, 2vw, 24px);
+  /* Keep the comfortable trajectory gutters and add the phone's safe area. */
+  --lfs-frame-inset: clamp(12px, 2vw, 24px);
+  padding: var(--lfs-frame-inset) max(var(--lfs-frame-inset), var(--lfs-safe-right, 0px)) calc(var(--lfs-frame-inset) + var(--lfs-safe-bottom, 0px)) max(var(--lfs-frame-inset), var(--lfs-safe-left, 0px));
   background: var(--dsw-alias-bg-layer-1);
   font: var(--dsw-font-xxs-12);
 }

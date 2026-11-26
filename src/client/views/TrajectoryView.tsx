@@ -482,11 +482,11 @@ export function TrajectoryView(props: ViewProps): ReactNode {
     onToggleContext: (turn, open) => setContextOpen((s) => { const n = new Set(s); if (open) n.add(turn); else n.delete(turn); return n }),
   }
 
-  if (!answer && error) return <div className={views.frame}><ErrorState title={t('readFailed')} error={error} retryLabel={t('retry')} onRetry={reload} /></div>
-  if (!answer) return <div className={views.frame}><Loading label={t('loading')} /></div>
+  if (!answer && error) return <div className={clsx(views.frame, views.dataFrame)}><ErrorState title={t('readFailed')} error={error} retryLabel={t('retry')} onRetry={reload} /></div>
+  if (!answer) return <div className={clsx(views.frame, views.dataFrame)}><Loading label={t('loading')} /></div>
   const empty = !turns.some((turn) => turn.records.length || turn.orphanCalls.length || turn.hostOps.length || turn.checkpoints.length)
   return (
-    <div className={clsx(views.frame, css.frame)}>
+    <div className={clsx(views.frame, views.dataFrame, css.frame)}>
       <div className={css.controlsCard}>
         <div className={css.toolbar} role="toolbar" aria-label={t('trajToolbar')}>
           <div className={css.actions}>
