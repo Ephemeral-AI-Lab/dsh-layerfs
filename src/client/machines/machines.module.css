@@ -121,7 +121,7 @@
 
 .runtimeCommit {
   font-family: var(--ds-font-family-code);
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 400;
   color: var(--dsw-alias-label-tertiary);
 }
@@ -155,7 +155,7 @@
 
 .rows th {
   padding: 10px 12px 6px 0;
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 16px;
   font-weight: 400;
   color: var(--dsw-alias-label-tertiary);
@@ -245,6 +245,15 @@
 .dialogContent {
   min-height: 0;
   overflow-y: auto;
+}
+
+/* A machine page's head actions (power and menu) keep one line and wrap as
+   a group when the head is narrow. */
+.headActions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 .form {
@@ -948,7 +957,7 @@
   padding: 0 5px;
   border: 0.5px solid var(--dsw-alias-border-l3);
   border-radius: var(--dsw-radius-xs);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 16px;
   color: var(--dsw-alias-label-secondary);
   text-overflow: ellipsis;
@@ -1675,7 +1684,10 @@
 }
 .sbFigure .mxWhy {
   max-width: 100%;
-  white-space: nowrap;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
 }
 .sbFigure .sbMeter,
 .sbBar {
@@ -1960,7 +1972,7 @@
 }
 
 .dtItem dt {
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 16px;
   color: var(--dsw-alias-label-tertiary);
 }
@@ -2344,7 +2356,7 @@
   background: var(--dsw-alias-bg-module-platform);
   color: var(--dsw-alias-label-secondary);
   font-family: var(--dsw-font-mono, ui-monospace, monospace);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 18px;
   white-space: nowrap;
 }
@@ -2407,7 +2419,7 @@
   corner-shape: round;
   background: color-mix(in srgb, var(--dsw-alias-link) 12%, transparent);
   color: var(--dsw-alias-link);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 18px;
 }
 .imgFacts {
@@ -2416,7 +2428,7 @@
   margin: 0;
 }
 .imgFacts dt {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--dsw-alias-label-tertiary);
 }
 .imgFacts dd {
@@ -2523,7 +2535,7 @@
   corner-shape: round;
   background: color-mix(in srgb, var(--dsw-alias-link) 12%, transparent);
   color: var(--dsw-alias-link);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 18px;
   font-variant-numeric: tabular-nums;
 }
@@ -2566,7 +2578,7 @@
   border-radius: 4px;
   background: var(--dsw-alias-settings-card-fill);
   font-family: var(--dsw-font-mono, ui-monospace, monospace);
-  font-size: 11.5px;
+  font-size: 12px;
   white-space: nowrap;
 }
 @container (max-width: 640px) {
@@ -3125,5 +3137,402 @@
 
   .fleetRow .blockGlyph {
     display: none;
+  }
+}
+
+/* ---------- touch and narrow pages ----------
+   One scale, from ../ui/responsive.css: a coarse pointer (an iPad at any
+   width) and every page at or under 1180 px get 44 px controls; the phone
+   breakpoints then reflow the boards, cards and dialogs instead of cutting
+   their words. No new breakpoints beyond phone 480, compact 640,
+   tablet 834 and wide 1180. */
+
+@media (max-width: 1180px), (pointer: coarse) {
+  /* the board's own controls: the row handle, the machine's name, its
+     columns' add verbs and every power/menu button */
+  .fleet :is(button, a[href], input, select) {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .fleet button {
+    min-width: var(--lfs-tap, 44px);
+  }
+
+  .fleetToggle {
+    width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+  }
+
+  .fleetRow .blockName,
+  .blockName {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .columnAction {
+    height: var(--lfs-tap, 44px);
+    padding-inline: 8px;
+  }
+
+  /* a row's detail actions (Set up, New Sandbox) stay reachable */
+  .fleetDetail :is(button, a[href]) {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  /* dialogs: every action, field and row is a thumb target */
+  .dialog :is(button, a[href], input, select),
+  .wideDialog :is(button, a[href], input, select),
+  .spaceDialog :is(button, a[href], input, select),
+  .dialogContent :is(button, a[href], input, select) {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .dialogContent button {
+    min-width: var(--lfs-tap, 44px);
+  }
+
+  .dialogContent :global(span[class*='_wrap_']) {
+    height: var(--lfs-tap, 44px);
+  }
+
+  /* the dialog's last action keeps the device's bottom inset, at a tablet's
+     coarse pointer as much as on a phone */
+  .dialogContent {
+    padding-bottom: max(16px, var(--lfs-safe-bottom, 0px));
+  }
+
+  /* a machine page's head actions live outside the tab panel */
+  .headActions :is(button, a[href]) {
+    min-height: var(--lfs-tap, 44px);
+    min-width: var(--lfs-tap, 44px);
+  }
+
+  /* the Sandbox card's choose tick and its name open the whole card */
+  .sbCardHead :global(label) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: var(--lfs-tap, 44px);
+    min-height: var(--lfs-tap, 44px);
+    margin-inline: -8px;
+  }
+
+  .sbCardHead .mxRowName {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  /* A board cell's sentence, a card's subtitle, an image's registry and tag
+     and the disk legend wrap to two lines instead of being cut: a 1180 px
+     iPad has the room, just not in one line. */
+  .cellText,
+  .blockSub,
+  .sbCardSub {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+  }
+
+  .cellText {
+    line-height: 16px;
+  }
+
+  .imgRegistry {
+    flex: none;
+    max-width: 100%;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .imgTagChip {
+    flex: none;
+    max-width: 100%;
+  }
+
+  .imgDiskSub,
+  .imgLegendName {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+  }
+
+  .imgLegendItem {
+    max-width: 100%;
+  }
+}
+
+/* Tablet: a metric's long aside wraps, and two image cards share a row. */
+@media (max-width: 834px) {
+  .ovColHead {
+    overflow: visible;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+  }
+
+  .imgCards {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  }
+}
+
+/* Compact and phone: tables become stacked cards, metrics stack, and the
+   wide dialog narrows to the page it is on. */
+@media (max-width: 640px) {
+  /* The board: the handle and the name on the first line, the state beside
+     them, the actions on their own line under the name; memory, disk and what
+     the machine holds are the open row's business. */
+  .fleetTable {
+    grid-template-columns: var(--lfs-tap, 44px) minmax(0, 1fr) auto;
+  }
+
+  .fleetMemory,
+  .fleetDisk,
+  .fleetHolds {
+    display: none;
+  }
+
+  .fleetRow {
+    row-gap: 2px;
+    padding-block: 8px;
+  }
+
+  .fleetHead {
+    display: none;
+  }
+
+  .fleetToggle {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .blockIdentity {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .fleetState {
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: end;
+  }
+
+  .fleetActions {
+    grid-column: 2 / -1;
+    grid-row: 2;
+    justify-content: flex-start;
+  }
+
+  /* the tab bar's actions keep their own row (the tab strip already scrolls) */
+  .fleetDetail .inventory {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fleetDetail .inventoryColumn + .inventoryColumn {
+    border-left: 0;
+    border-top: 0.5px solid var(--dsw-alias-border-l2);
+  }
+
+  /* Overview: the three metrics become one column of wide rows, and their
+     long asides wrap rather than being cut. */
+  .ovCols,
+  .ovCols[data-cols='2'],
+  .ovCols[data-cols='4'] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ovCol + .ovCol,
+  .ovCols[data-cols='4'] > .ovCol:nth-child(3) {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-left: 0;
+    border-top: 0.5px solid var(--dsw-alias-border-l2);
+  }
+
+  .ovCols[data-cols='4'] > .ovCol:nth-child(n + 3) {
+    margin-top: 12px;
+  }
+
+  .ovColHead {
+    overflow: visible;
+    white-space: normal;
+    text-overflow: clip;
+  }
+
+  /* a Sandbox card's three figures stack under their labels */
+  .sbFigures {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .sbFigure {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: baseline;
+    gap: 2px 10px;
+  }
+
+  .sbFigure dt {
+    grid-column: 1;
+  }
+
+  .sbFigure dd {
+    grid-column: 2;
+    text-align: end;
+  }
+
+  .sbFigure .sbMeter,
+  .sbFigure .sbBar {
+    grid-column: 1 / -1;
+  }
+
+  .sbFigure .mxDash {
+    grid-column: 1 / -1;
+    align-items: flex-end;
+  }
+
+  /* the Sandboxes toolbar's sort and New Sandbox take a line of their own */
+  .tabToolbar {
+    gap: 8px;
+  }
+
+  .sbSort {
+    flex: 1 1 140px;
+  }
+
+  /* Images: one or two cards a row, Docker rows without their size column,
+     and the build hint wraps its command. */
+  .imgCards {
+    max-height: none;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .imgRow {
+    grid-template-columns: 32px minmax(0, 1fr);
+  }
+
+  .imgRowSize {
+    display: none;
+  }
+
+  .imgRowAction {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+
+  .imgHint {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .imgHintText,
+  .imgCode {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  /* A Sandbox's Overview: its name wraps, the pair stacks (also when the
+     container query cannot see the page width), and the head's actions wrap. */
+  .sbovHeadName {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .sbovPair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sbovHeadActions {
+    flex: 1 1 100%;
+  }
+
+  .sbovGrid {
+    gap: 10px 16px;
+  }
+
+  /* dialogs run to the page's edges (16 px each side), scroll their content
+     and leave the safe area at the bottom for the form's last action */
+  .dialog,
+  .wideDialog,
+  .spaceDialog {
+    width: calc(100vw - 32px);
+    max-height: min(760px, calc(100dvh - 32px));
+  }
+
+  .dialogContent {
+    padding-bottom: max(16px, var(--lfs-safe-bottom, 0px));
+  }
+
+  .platformRow {
+    flex-wrap: wrap;
+  }
+
+  .platformSub,
+  .platformMissing {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+  }
+
+  .elsewhereToggle {
+    min-height: var(--lfs-tap, 44px);
+  }
+}
+
+/* Phone: the rows keep one control per line and every word wraps. */
+@media (max-width: 480px) {
+  .fleetRow {
+    padding-inline: 8px 10px;
+  }
+
+  .fleetActions :is(button, a[href]) {
+    flex: none;
+  }
+
+  .fleetDetail {
+    padding-inline: 8px;
+  }
+
+  .sbFigure {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sbFigure dd {
+    grid-column: 1;
+    text-align: start;
+  }
+
+  .sbFigure .sbMeter,
+  .sbFigure .sbBar {
+    grid-column: 1 / -1;
+  }
+
+  .sbCardHead {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .tabToolbar > button {
+    white-space: normal;
+  }
+
+  .imgCardActions {
+    flex-wrap: wrap;
+  }
+
+  .ovUsageHead {
+    padding-inline: 12px;
+  }
+
+  .ovCol,
+  .ovDetails,
+  .sbovHead {
+    padding-inline: 12px;
   }
 }
