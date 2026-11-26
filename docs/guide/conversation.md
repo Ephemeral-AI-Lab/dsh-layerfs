@@ -28,6 +28,19 @@ The conversation header (title, the **LayerFS** preset label, and, for a scripte
 the message box steps aside: the composer is hidden while Trajectory, Files, History, Sandbox
 or Stats is on screen, and comes back on **Chat** with your draft intact. Approvals and questions still show.
 
+The five LayerFS views draw in one centred reading column, as wide as Chat's own column;
+Trajectory and Sandbox take a wider one on a desktop, and a phone gives them the pane.
+Chat's column is DSH's, not ours. On a phone (640 px or less) DSH folds non-core
+conversation tabs into its **⋯** menu, so each LayerFS view carries a one-line marker at
+the top: **Trajectory · this session**, **Files · this session**, **History · this
+session**, **Sandbox · this session** or **Stats · this session**. Chat carries none: it
+is DSH's.
+
+While a conversation opens — from the sidebar, a Home project row, a Logs row's session
+name or **Open session** — a centred **Opening the conversation…** status sits over the
+conversation pane. It is a status pill, not a backdrop: no dimming layer, no click
+target, and it goes as soon as the open lands or is refused.
+
 **When the tabs appear.** The tabs are added only while a project session (or one of its
 subagents) is on screen, and removed when you switch to a DSH session, which gets DSH's
 Chat and stock Trajectory back. Each conversation header asks the host whether its session
@@ -59,10 +72,10 @@ the session runs.
 |---|---|---|---|---|
 | ⊟ **Turns** (1) | Folds every turn, or unfolds them (⊞). By default the last 3 turns are open | Press → all turns fold / unfold | — (view state) | |
 | ⊟ **LayerFS calls** (2) | Folds the LayerFS call lines under every tool call (⊞ unfolds) | Press → **Collapse LayerFS calls** / **Expand LayerFS calls** for all | — | Only for project sessions |
-| **Only LayerFS writes** (3) | A filter | On → only tool calls whose LayerFS calls wrote something (or saved a version) stay | — | Only for project sessions. **Nothing matches the filter** when none did |
-| Counts (4) | **Versions created: *n* · by tool calls: *m* · Total *duration*** | — | `session.trajectory` (no LayerFS call: the session log and its annotations) | In the fixture every version came from a turn checkpoint, so **by tool calls: 0** |
+| **Only LayerFS writes** (3) | A filter | On → only tool calls whose LayerFS calls wrote something (or saved a version) stay | — | Only for project sessions. **Nothing matches the filter** when none did. On a phone it is inside **Filters** |
+| Counts (4) | **Versions created: *n* · by tool calls: *m* · Total *duration*** | — | `session.trajectory` (no LayerFS call: the session log and its annotations) | In the fixture every version came from a turn checkpoint, so **by tool calls: 0**. On a phone the counts line gives way to the timeline's summary line: duration and versions, plus checkpoints when there are any |
 | **Search** (5) | Filters records by their text | Type → matching records, with their turns open and context messages shown in place | — | |
-| Timeline (6) | Four lanes: **Input**, **Model**, **Tools**, **LayerFS**, over the conversation's time | Click a mark → that record is selected, its turn opens, filters that hide it are lifted, and the table scrolls to it | — | **No timing data**; *label* **(and *n* more nearby)** on crowded marks |
+| Timeline (6) | Four lanes: **Input**, **Model**, **Tools**, **LayerFS**, over the conversation's time. The **LayerFS** lane ticks every checkpoint the session has, including turns this page has not loaded | Click a mark → that record is selected, its turn opens, filters that hide it are lifted, and the table scrolls to it. A checkpoint tick whose turn is loaded selects that row; one whose turn is not loaded opens the **History** tab at that commit | — | **No timing data**; *label* **(and *n* more nearby)** on crowded marks. On a phone the whole timeline folds behind one summary line |
 | **By DSH** (7) | A **LAYERFS** row per turn for the calls DSH itself made (the Sandbox create, the Workspace mount, a save). Writes and refusals are listed; reads are counted | Click → the inspector lists them | — | **Reads not shown: *n***. A refusal here (`sandbox get … Refused: NotFound` before the first create) is normal |
 | Turn header (8) | **Turn *n*** · start time · duration; **Before the first turn** for what came before | Click → fold / unfold that turn | — | |
 | **Context messages: *n*** (9) | Messages DSH added to the turn (instructions, reminders) | Click → show them (**Hide context messages** folds them again) | — | |
@@ -70,13 +83,35 @@ the session runs.
 | LayerFS call count (10) | The number of LayerFS calls the tool call made, tinted when one wrote | — | — | |
 | LayerFS call line (11) | `layerfs workspace exec dsh-…:main '<92 bytes>' --stream` · **exit 0**, and its versions. Arguments that carry content show as their size | Chevron at the row's left → fold / unfold. Click the line → the inspector's LayerFS tab | — | **Refused: *code***, **Outcome unknown**, **exit *n*** in red when it failed |
 | Version chip (12) | `+ 127a92356fc83f`: **+** a new version, **=** saved unchanged, **→** points to an existing one (dashed) | Click → the **History** tab at that Commit on its Branch | — (opens History, which reads) | Disabled when its Branch is not known |
-| Checkpoint rows | **Turn checkpoint** / **Start checkpoint** / **Manual** / **Restore** / **Close**, its message (`dsh turn 1`), **Changes saved: *n*** or **Unchanged** | Click → the inspector | — | **Not saved: *code*** when the save was refused |
+| Checkpoint rows | **Turn checkpoint** / **Start checkpoint** / **Manual** / **Restore** / **Close**, its message (`dsh turn 1`), **Changes saved: *n*** or **Unchanged** | Click → the inspector; its tick on the timeline selects it (an unloaded turn's tick opens History) | — | **Not saved: *code*** when the save was refused |
 | **Show more rows (*n* hidden)** | After 400 rows | Press → 400 more | — | |
 | Orphan rows | **Call outside the loaded log** and the call id: receipts whose tool call is not in the loaded log | Click → the inspector | — | |
 
 DSH's **Inspect** on a tool call in Chat opens this tab on that call (the row is selected,
 its turn opened and filters lifted). **The conversation log is not loaded: only LayerFS calls
 from saved receipts are shown.** appears for a session stored in LayerFS but not loaded here.
+
+### On a phone
+
+The pane belongs to the turn list: the filters and the timeline fold away, and the turns
+fill what is left.
+
+- **Filters**, a 44 px target, replaces the toolbar row. Press it to show the fold buttons,
+  **Only LayerFS writes** and **Search**; press it again to put them away.
+- The timeline becomes one line: the span's duration, **N versions** and — when there are
+  any — **N checkpoints**, with **Timeline** at its end. Press the line to unfold the four
+  lanes, press it again to fold them. The choice is remembered for the session while the
+  page stays open, and the counts line inside the unfolded timeline is not repeated: the
+  summary line carries those numbers.
+- Every checkpoint is a tick on the **LayerFS** lane, including those whose turns are not
+  loaded yet (the base checkpoint included), so the lane is the session's whole save
+  history, not just the page's. A tick whose turn is loaded selects that checkpoint row; a
+  tick whose turn is not loaded opens the **History** tab at its commit (when its Branch
+  is known), exactly as a version chip does. The tick is a thin mark, not a 44 px button:
+  neighbouring checkpoints can be a few pixels apart, and a larger target would open the
+  wrong one.
+
+A wider window keeps the filters and the timeline open, as before.
 
 ### Inspector
 
@@ -116,8 +151,9 @@ A changed file clicked in a History Commit's file list opens here, at that Commi
 
 The same [history views](components.md#history-views) as the project page, opened on this
 session's Branch. Differences: a version chip in the Trajectory opens this tab with that
-Commit selected, and a changed file clicked in a selected Commit's file list opens in the
-**Files** tab at that Commit.
+Commit selected (and so does the timeline tick of a checkpoint whose turn is not loaded),
+and a changed file clicked in a selected Commit's file list opens in the **Files** tab at
+that Commit.
 LayerFS calls are those of the history views (`branch list`, `commit list`, `commit diff`,
 read).
 

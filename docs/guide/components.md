@@ -12,6 +12,11 @@ elsewhere, and adds things.
 
 On the current Home navigation bar, 1 opens Doctor, 2 opens Logs and 3 opens Settings.
 
+On a phone (480 px wide or less) the bar becomes one row: Back and Forward, the crumb you
+are on, Jump to as its icon, **+ Add**, and one **⋯ More** menu. Doctor, Logs, Settings,
+any transfer and — where the page shows one — Refresh move into **More**; everything else
+stays put.
+
 ![Home navigation with 1 Doctor, 2 Logs and 3 Settings (current UI, isolated fixture data)](img/home-navigation.png)
 
 *Isolated fixture data.*
@@ -23,15 +28,16 @@ The earlier multi-Store example below shows the breadcrumb switcher.
 | # | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|---|
 | 1, 2 | Back · Forward | Arrows | Press → the previous or next Center page (up to 50 are kept) | — (local history) | Off at either end |
-| 3 | Breadcrumb | `Home › Stores › demo-starter › bookshelf` | Press a crumb → that page | — | The last crumb is the page you're on |
+| 3 | Breadcrumb | `Home › Stores › demo-starter › bookshelf` | Press a crumb → that page | — | The last crumb is the page you're on. On a touch-sized window every crumb is at least 44 px wide, so a short name is still easy to press; the current one keeps its natural width and never ends in an ellipsis, while the ancestors shrink or scroll aside and the list follows the current page |
 | 4 | Crumb switcher | A chevron after a crumb (**Switch from {name}**), or a caret on the current crumb, when that place has siblings | Press → a menu of its siblings (every Store, every project in this Store, …) with their kind and place → open one | — (uses what Center already read) | Only when there is more than one sibling |
 | | Transfers | **{n} transfers**, with a percentage and a progress track, while moves, backups or restores run | Press → that Store's page (one job), or a menu of them (several) | — (the jobs Center already tracks) | Hidden when nothing is running |
-| 5 | **Jump to…** | A field with **⌘K** (**Ctrl+K**) | Press it or use the shortcut → **Jump to a session, project, Store, machine, Sandbox or bucket**, grouped as Projects, Stores, Machines, Sandboxes, Buckets, Pages and Sessions. Session hits show the title and ID and open the conversation. **↑ ↓ to move · Enter to open · Esc to close** | — (searches what Center already read) | **Nothing matches “{q}”**. At most 60 hits. The shortcut is off while a dialog is open |
+| 5 | **Jump to…** | A field with **⌘K** (**Ctrl+K**); on a phone a 44 px icon | Press it or use the shortcut → **Jump to a session, project, Store, machine, Sandbox or bucket**, grouped as Projects, Stores, Machines, Sandboxes, Buckets, Pages and Sessions. Session hits show the title and ID and open the conversation. **↑ ↓ to move · Enter to open · Esc to close** | — (searches what Center already read) | **Nothing matches “{q}”**. At most 60 hits. The shortcut is off while a dialog is open |
 | 6 | Refresh | A circular arrow, on every page except Home, Doctor and Logs (each has its own) | Press → the page reads its data again | The page's own reads | A dot while reading |
 | 7 | **+ Add** | **New session**, **New project**, **Import a folder**, **New Sandbox**, **New Store** (set to the machine when opened from a machine page), **Connect a database**, **New machine**, **Add bucket**, **Try a preset** | Opens that dialog | `store create` · `store connect`, `store get` · `machine create` · `backup connect` · the preset's script. New project: `store create`, `project init`, `store move` | New machine and New Sandbox stay visible with the reason when unavailable |
-| | Doctor | A shield with a count badge. Title: **Doctor: {n} findings** | Press → `LayerFS › Doctor` ([Doctor](health.md)) | The results the host holds. When none are held, the home checks run once as Home opens: `home doctor` | Red badge for an error, amber for a warning |
-| | Logs | A list icon | Press → `LayerFS › Logs` ([Logs](logs.md)) | — | |
-| | Settings | A gear | Press → Set up LayerFS | `home get` (read) | |
+| | Doctor | A shield with a count badge. Title: **Doctor: {n} findings**; on a phone, in **More** | Press → `LayerFS › Doctor` ([Doctor](health.md)) | The results the host holds. When none are held, the home checks run once as Home opens: `home doctor` | Red badge for an error, amber for a warning |
+| | Logs | A list icon; on a phone, in **More** | Press → `LayerFS › Logs` ([Logs](logs.md)) | — | |
+| | Settings | A gear; on a phone, in **More** | Press → Set up LayerFS | `home get` (read) | |
+| | More | **⋯ More**, the phone's one tools menu | Press → **Doctor** with its count, **Logs**, **Settings**, **Refresh** where the page has one, and any running transfer | each item's own call | On a phone; a dot when a Doctor finding needs you, red for an error |
 
 ![A crumb's switcher](img/home-crumb-switcher.png)
 
@@ -63,6 +69,10 @@ you. It is one row of text, not a card: no wordmark, no box.
 | 3 | Status line | The most urgent need, or **Nothing needs your attention** | The need's buttons (see [Needs-you notices](#needs-you-notices)) | The button's call | A dot before a need: red for a problem, amber for a warning; no dot when nothing needs you. **+{n} more** when there are several |
 | 4 | Try a preset | The preset icon | Press → [Presets](presets.md) | — | |
 | 5 | Refresh | A circular arrow. Tip: **Read the Stores, machines and buckets again, and re-run the home checks · Checked {ago}** | Press → reads Stores, machines and buckets again and re-runs the home checks | `home get`, `project list`, `store list` (read), then `home doctor` | A dot while the checks run |
+
+On a phone the status line is its own band under the heading: the words wrap to the width
+they need, and the action takes the next line at thumb size, so neither sits over the row
+above.
 
 When Docker cannot run, a **Docker unavailable** chip sits beside the title; press it to
 see why and which docker machines it names. Use **+{n} more** to show or hide the remaining
@@ -144,6 +154,13 @@ That covers the CLI line in a [fix](components.md#fix-buttons) or a Doctor row's
 the pins in [Set up LayerFS](entry-points.md#set-up-layerfs), the paths and ids on the
 [Files tab](project.md#files), a runtime or commit badge, and the folder, Store name,
 database URL, login name and user fields of the [project dialog](entry-points.md#project-dialog).
+
+## Text contrast
+
+Small muted labels and links pass WCAG AA (4.5:1) in both themes. In the light theme the
+muted label colour reads at 5.8:1 and a link at 5.4:1 on their surfaces; the dark theme's
+shared link reads at 5.99:1 and keeps its token. A Branch tag's label picks a light
+or a dark ink per lane colour, so a tag stays readable whatever colour its family got.
 
 ## File views
 
@@ -282,6 +299,10 @@ One dialog in three forms: type the name to confirm, plain, or red without a nam
 | **Cancel** / × / Escape | | Closes. Nothing runs | — | Off while running |
 | Action button | Red for removals (**Remove**, **Delete**, **Disconnect**, **Run the steps**), plain for **Compact** | Runs the action. A refusal stays under the form | The caller's call | Spinner while running |
 
+On a phone the confirm dialog is a bottom sheet: full width, anchored to the bottom of the
+pane, with the head and the actions fixed, the body scrolling between them, and the footer
+clear of the home indicator. Each action takes half the width so a thumb can reach it.
+
 Used by:
 
 - Remove a Store (typed name, `store remove`).
@@ -293,6 +314,19 @@ Used by:
 - Logs **Reset…** (`logs.reset`).
 - Doctor **Delete project** (`project delete`).
 - Fix chains that remove data (typed name).
+
+## Dialogs
+
+Every LayerFS dialog is mounted in DSH's modal shell: the shell sets the width and the
+margin around the card, and only the content inside it is ours. On a coarse pointer (a
+phone or a tablet) every control in a dialog is a 44 px target, a footer clears the home
+indicator, and a long dialog scrolls its body between a head and a footer that stay put.
+
+Two dialogs take the whole phone: the [call detail](logs.md#call-detail) and
+[Set up LayerFS](entry-points.md#set-up-layerfs) become full-height sheets. The
+[confirm dialog](#confirm-dialog) is a bottom sheet; the
+[project dialog](entry-points.md#project-dialog) keeps the shell's card and grows to the
+height the shell allows, with its head and its footer fixed.
 
 ## Fix buttons
 

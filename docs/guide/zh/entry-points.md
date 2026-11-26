@@ -40,7 +40,8 @@ DSH 的侧边栏里有 **LayerFS** 行（和 Plugins、Automation tasks、More �
 ![Workspaces 列表的 LayerFS 视图](../img/entry-layerfs-view.png)
 
 这个开关把 DSH 的 Workspaces 列表（文件夹）换成 LayerFS 的列表（在这个 DSH 上有会话的项目），再按一次换回来。
-你的选择会记在这个浏览器里。
+你的选择会记在这个浏览器里。在手机或平板（粗指针）上，每个项目行和会话行都是 44 px 的点击目标，
+行上的操作不需要悬停就会显示。
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
@@ -50,15 +51,20 @@ DSH 的侧边栏里有 **LayerFS** 行（和 Plugins、Automation tasks、More �
 | 4 ⚙ | **设置 {project}**（Set up {project}，悬停或键盘聚焦时出现） | 按下 → 打开这个项目的[项目对话框](#project-dialog) | —（打开对话框） | — |
 | 5 + | **在 {project} 中新建会话**（New session in {project}，悬停时出现） | 按下 → 一个新的项目对话（见[下文](#new-session-in-a-project)） | `sessions.choose`：`project get`（第一次认领时还有 `branch list`、`branch fork`） | 不可用，并显示 **无法在此新建会话：{reason}**（Can’t start a session here: {reason}） |
 | | **启动 {machine}**（Start {machine}） | 项目的机器停止时代替 + 出现；按下 → 启动它 | `machine start` | 操作结束后才能再按 |
-| 6 会话行 | 对话标题，然后是非普通本地会话的说明词：**正在启动**（Starting）、**活动中**（Active）、**已中断**（Interrupted）、**存储在其他位置**（Stored elsewhere）、**不可用**（Unavailable）或 **未开始**（Not started） | 按下 → 打开那个对话；项目不能运行时这一行不能打开，下方的原因说明原因 | `sessions.open`：日志在本机时没有调用；否则 `branch list`、`project export` | **已中断**（Interrupted），提示文字是错误信息；宿主状态没有对应词时不显示 |
-| | 这一行的唯一操作 | **打开**（Open）→ 打开或导入对话；**启动 {machine}**（Start {machine}）→ 启动项目的机器；**打开 Store**（Open Store）→ 打开失败信息里的 Store | **打开**：`sessions.open`；**启动**：`machine start`；**打开 Store**：—（打开存储页） | 操作进行时禁用 |
-| | 归档图标 | **归档 {session}**（Archive {session}）→ 它离开列表（在 DSH 的 Archived 列表里可以找回） | —（DSH 的归档） | **未归档**（Not archived），附 **重试**（Try again） |
+| 6 会话行 | 对话标题，然后是非普通本地会话的说明词：**正在启动**（Starting）、**活动中**（Active）、**已中断**（Interrupted）、**存储在其他位置**（Stored elsewhere）、**不可用**（Unavailable）或 **未开始**（Not started） | 按下这一行 → 打开那个对话；项目不能运行时这一行不可用，下方的原因说明为什么 | `sessions.open`：日志在本机时没有调用；否则 `branch list`、`project export` | **已中断**（Interrupted），提示文字是错误信息；宿主状态没有对应词时不显示 |
+| | 归档图标 | **归档 {session}**（Archive {session}）→ 它离开列表（在 DSH 的 Archived 列表里可以找回） | —（DSH 的归档） | **未归档**（Not archived），附 **重试**（Try again）；触摸设备上不需要悬停就会显示 |
 
-会话行的词说明它现在能不能运行。**存储在其他位置**（Stored elsewhere）表示对话只在项目的 Store 里：
-**打开**（Open）会先把它导入这个 DSH。**不可用**（Unavailable）表示项目不能运行（机器已停止或损坏，
-或 Store 打不开）：下方的原因说明为什么，这一行本身不能打开，它的唯一操作会启动机器
-（**启动 {machine}**，Start {machine}）或打开 Store（**打开 Store**，Open Store）。**正在启动**
-（Starting）、**活动中**（Active）和 **未开始**（Not started）是宿主自己的状态；没有对应词的状态不显示。
+会话行只用文字说明它现在能不能运行：标题旁的说明词，以及行下方的原因（如果有）。会话行上没有
+**打开**（Open）、**启动 {machine}**（Start {machine}）或 **打开 Store**（Open Store）按钮——
+行本身就是打开或导入对话的地方。**不可用**（Unavailable）表示项目不能运行（机器已停止或损坏，
+或 Store 打不开）：这一行不可用，原因写在下面；机器停止时，上方的项目行有 **启动 {machine}**。
+**正在启动**（Starting）、**活动中**（Active）和 **未开始**（Not started）是宿主自己的状态；
+没有对应词的状态不显示。
+
+打开过、但从未收到消息的项目对话不会列出：保存的日志里只有创建元数据的对话，在它有标题或第一条
+消息之前，不会出现在侧边栏（也不会出现在项目的会话列表里）。宿主可以用
+`sessions.pruneNeverStarted` 彻底清掉这些草稿——默认只是试运行，传入 `dryRun: false` 才删除；
+`node tools/prune-never-started.mjs` 列出候选，`--apply` 执行删除，并保留当前打开的和所有已加载的对话。
 
 会话列表每 15 秒读一次本地会话，每 60 秒读一次 Store 里归档的对话（`sessions.list`：`branch list`、
 `file read`，读取）。为空时显示 **还没有项目会话**（No project sessions yet）和 **新建项目**（New project）。
@@ -96,7 +102,9 @@ DSH 的侧边栏里有 **LayerFS** 行（和 Plugins、Automation tasks、More �
 如果没选文件夹，就建一个 **Scratch** DSH 工作区，把它接为会话的文件夹，然后把会话放进项目
 （`sessions.choose`：`project get`，项目第一次被认领时还有 `branch list` 和 `branch fork`）。
 放置被拒绝时不会留下会话：空白会话会被归档，拒绝信息会在按下按钮的地方显示。
-对话打开时带 **LayerFS** 智能体预设。
+对话打开时带 **LayerFS** 智能体预设。打开期间，面板中央会显示 **正在打开对话…**
+（Opening the conversation…）：它是一枚状态胶囊，不是遮罩，不会让任何东西变暗，也不会挡住操作；
+打开成功或被拒绝时立刻消失。
 
 ## 草稿目录选择器
 
@@ -118,7 +126,7 @@ DSH 的侧边栏里有 **LayerFS** 行（和 Plugins、Automation tasks、More �
 | Workspaces 列表（DSH 视图） | 项目会话不在这里：LayerFS 给每个项目会话的行打上标记并把它藏起来，所以它们只列在 LayerFS 视图里各自的项目下面。它所在的 DSH 分组可能为空。 | 切到 LayerFS 视图才能看到它们 | 每行一次 `session.place`（主机状态，没有调用） | — |
 | 1 草稿目录 · 2 项目 | **Scratch: default-workspace** 和 **handbook** | 点击可打开各自的选择器 | `sessions.scratchOptions` / `session.place` | — |
 | 3 智能体预设 | 草稿控件里的 **LayerFS**；提示文字：“LayerFS project sessions: everything through bash and the LayerFS CLI ($DSH_LAYERFS_CLI), so a project on any machine works the same way.” | — | — | — |
-| 标签 | **轨迹**（Trajectory）、**文件**（Files）、**历史**（History）、**Sandbox**、**统计**（Stats） | → [对话](conversation.md) | 见那里 | — |
+| 标签 | **轨迹**（Trajectory）、**文件**（Files）、**历史**（History）、**Sandbox**、**统计**（Stats） | → [对话](conversation.md) | 见那里 | 手机上 DSH 把它们收进 **⋯**；这时每个视图开头会写 **<视图> · 本会话** |
 
 ## 项目对话框
 
@@ -134,6 +142,11 @@ DSH 的侧边栏里有 **LayerFS** 行（和 Plugins、Automation tasks、More �
 **取消**（Cancel）和 **创建并打开**（Create and open）在底部。没有需要按顺序走完的步骤栏：按你的顺序填好需要的内容，
 按钮旁的一行会说明还缺什么、缺在哪一部分（**项目：尚未命名**（Project: Not named yet）、
 **存储：需要名称**（Store: Needs a name））。
+
+对话框的宽度和外边距由 DSH 的外壳决定，里面只有我们的内容。手机上，对话框会长到外壳允许的高度：
+带 **关闭**（Close）的头部和带 **取消** / **创建并打开** 的底部固定不动，中间的表单区域滚动。
+每个控件——输入框、磁贴、链接和按钮——都是 44 px 的点击目标，底部会绕过手机的主屏幕指示条；
+过长的说明和错误会换行，而不是以省略号结尾。
 
 | # | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|---|

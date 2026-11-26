@@ -185,12 +185,13 @@ The table is local first: it lists this DSH's sessions and adds the ones found i
 project's session store. A session archived in DSH leaves the list until it is
 unarchived.
 
-A session row's readiness word says whether it can run right now. **Stored elsewhere** means
+A session row's state word says whether it can run right now. **Stored elsewhere** means
 the conversation is only in the project's Store: **Open** imports it. **Unavailable** means
-the project cannot run: the reason under the row says why, the row cannot open, and its one
-action starts the machine (**Start {machine}**) or opens the Store (**Open Store**).
+the project cannot run: the reason under the row says why, and **Open** is refused (start
+the machine from the sidebar's project row, which carries **Start {machine}**).
 **Starting**, **Active** and **Not started** are the host's own states; a state with no word
-stays hidden.
+stays hidden. Conversations that never started — opened but never given a message — are not
+listed; the [sidebar](entry-points.md#workspaces-switch) explains how the host prunes them.
 
 ## Stats
 
@@ -233,6 +234,11 @@ imported belongs to the Store, not to a save.
 
 ## Modals opened here
 
+The shell sets these dialogs' width and margin; only the content inside is ours. On a
+coarse pointer every control is a 44 px target, a footer clears the home indicator, and a
+long body scrolls between a fixed head and footer (see [Components ›
+Dialogs](components.md#dialogs)).
+
 | Modal | Opened by | What it does | LayerFS call | Undo |
 |---|---|---|---|---|
 | [Confirm dialog](components.md#confirm-dialog) **Delete `<project>`?** | **⋯ › Delete project…** | *The project and all its history are deleted from its Store. This cannot be undone.* Type the name, then **Delete**; the page closes and its Store opens | `project delete` | none |
@@ -259,6 +265,9 @@ imported belongs to the Store, not to a save.
   of the tree stays.
 - **Could not read `<what>`** with **Retry** (or a fix): a read was refused; its tip has
   LayerFS's words and code.
+- Muted counts and links pass WCAG AA in both themes, and a Branch tag's label picks the
+  light or dark ink that reads on its lane colour (see [Components › Text
+  contrast](components.md#text-contrast)).
 
 ## Where next
 

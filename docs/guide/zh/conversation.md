@@ -26,6 +26,16 @@ LayerFS 的几个标签：轨迹，显示每次工具调用在 LayerFS 里做了
 再下面是标签内容。在项目会话的 LayerFS 标签上，消息框都会让开：轨迹、文件、历史、Sandbox 或统计显示时，
 输入框是隐藏的，回到 **Chat** 时它会回来，草稿原样保留。审批和提问仍然会显示。
 
+五个 LayerFS 视图都画在同一条居中的阅读栏里，宽度和 Chat 自己的栏一样；桌面上的轨迹和
+Sandbox 用更宽的一条，手机上则占满整个面板。Chat 的栏是 DSH 的，不是我们的。手机上
+（640 px 及以下）DSH 会把非核心的对话标签折进它的 **⋯** 菜单，所以每个 LayerFS 视图
+顶部都有一行标记：**轨迹 · 本会话**（Trajectory · this session）、**文件 · 本会话**、
+**历史 · 本会话**、**Sandbox · 本会话** 或 **统计 · 本会话**。Chat 没有：它是 DSH 的。
+
+从侧边栏、主页的项目行、日志行里的会话名或 **打开会话**（Open session）打开对话时，
+对话面板中央会显示 **正在打开对话…**（Opening the conversation…）。它是一枚状态胶囊，
+不是遮罩：没有变暗层，也不接收点击；打开成功或被拒绝时立刻消失。
+
 **标签什么时候出现。** 只有项目会话（或它的子智能体）在屏幕上时才会加上这些标签；切到 DSH 会话时
 它们会被移除，DSH 会话恢复 DSH 的 Chat 和自带的轨迹。每个对话标题栏都会问主机：这个会话有没有
 LayerFS 项目（`session.place`，没有 LayerFS 调用），标签稍后跟着出现，所以切换对话时轨迹标签不会闪。
@@ -50,10 +60,10 @@ DSH 关闭 **显示代码工作视图**（Show coding view，即 Developer tools
 |---|---|---|---|---|
 | ⊟ **轮次**（Turns）（1） | 折叠所有轮次，或展开（⊞）。默认展开最后 3 轮 | 按下 → 所有轮次折叠 / 展开 | —（视图状态） | |
 | ⊟ **LayerFS 调用**（LayerFS calls）（2） | 折叠每次工具调用下的 LayerFS 调用行（⊞ 展开） | 按下 → 对全部 **折叠 LayerFS 调用**（Collapse LayerFS calls）/ **展开 LayerFS 调用**（Expand LayerFS calls） | — | 只在项目会话里有 |
-| **只看 LayerFS 写入**（Only LayerFS writes）（3） | 一个筛选开关 | 打开 → 只留下其 LayerFS 调用写过东西（或保存了版本）的工具调用 | — | 只在项目会话里有。一个都没有时显示 **没有符合筛选条件的记录**（Nothing matches the filter） |
-| 计数（4） | **新版本：*n* · 来自工具调用：*m* · 总计 *时长***（Versions created: *n* · by tool calls: *m* · Total *duration*） | — | `session.trajectory`（没有 LayerFS 调用：读会话日志和它的注释） | 示例里所有版本都来自轮次检查点，所以 **来自工具调用：0**（by tool calls: 0） |
+| **只看 LayerFS 写入**（Only LayerFS writes）（3） | 一个筛选开关 | 打开 → 只留下其 LayerFS 调用写过东西（或保存了版本）的工具调用 | — | 只在项目会话里有。一个都没有时显示 **没有符合筛选条件的记录**（Nothing matches the filter）。手机上它在 **筛选**（Filters）里面 |
+| 计数（4） | **新版本：*n* · 来自工具调用：*m* · 总计 *时长***（Versions created: *n* · by tool calls: *m* · Total *duration*） | — | `session.trajectory`（没有 LayerFS 调用：读会话日志和它的注释） | 示例里所有版本都来自轮次检查点，所以 **来自工具调用：0**（by tool calls: 0）。手机上这行计数让位给时间线的摘要行：时长和版本数，有检查点时再加上检查点数 |
 | **搜索**（Search）（5） | 按文字筛选记录 | 输入 → 显示匹配的记录，所在轮次自动展开，上下文消息就地显示 | — | |
-| 时间线（6） | 四条泳道：**输入**（Input）、**模型**（Model）、**工具**（Tools）、**LayerFS**，横轴是对话的时间 | 点一个标记 → 选中那条记录，展开它的轮次，解除挡住它的筛选，表格滚动到它 | — | **无计时数据**（No timing data）；标记密集处显示 *标签* **（附近另有 *n* 项）**（(and *n* more nearby)） |
+| 时间线（6） | 四条泳道：**输入**（Input）、**模型**（Model）、**工具**（Tools）、**LayerFS**，横轴是对话的时间。**LayerFS** 泳道给会话的每个检查点都画一根刻度，包括这一页还没加载的轮次 | 点一个标记 → 选中那条记录，展开它的轮次，解除挡住它的筛选，表格滚动到它。轮次已加载时，检查点刻度选中那一行；轮次没加载时，刻度打开 **历史** 标签并停在那个提交 | — | **无计时数据**（No timing data）；标记密集处显示 *标签* **（附近另有 *n* 项）**（(and *n* more nearby)）。手机上整条时间线折成一行摘要 |
 | **由 DSH 发起**（By DSH）（7） | 每轮一行 **LAYERFS**，列出 DSH 自己发出的调用（创建 Sandbox、挂载 Workspace、一次保存）。写入和被拒绝的调用逐条列出，读取只计数 | 点击 → 检查器列出它们 | — | **未显示的读取：*n***（Reads not shown: *n*）。这里出现拒绝是正常的（第一次创建之前的 `sandbox get … Refused: NotFound`） |
 | 轮次标题（8） | **第 *n* 轮**（Turn *n*）· 开始时间 · 时长；之前的内容显示为 **第一轮之前**（Before the first turn） | 点击 → 折叠 / 展开这一轮 | — | |
 | **上下文消息：*n***（Context messages: *n*）（9） | DSH 加进这一轮的消息（指令、提醒） | 点击 → 显示它们（**隐藏上下文消息**（Hide context messages）再折起来） | — | |
@@ -61,13 +71,31 @@ DSH 关闭 **显示代码工作视图**（Show coding view，即 Developer tools
 | LayerFS 调用数（10） | 这次工具调用发出的 LayerFS 调用个数，有写入时带颜色 | — | — | |
 | LayerFS 调用行（11） | `layerfs workspace exec dsh-…:main '<92 bytes>' --stream` · **退出码 0**（exit 0），以及它的版本。带内容的参数只显示大小 | 行左侧的箭头 → 折叠 / 展开。点这一行 → 检查器的 LayerFS 标签 | — | 失败时显示红色的 **被拒绝：*code***（Refused: *code*）、**结果未知**（Outcome unknown）、**退出码 *n***（exit *n*） |
 | 版本块（12） | `+ 127a92356fc83f`：**+** 新版本，**=** 保存但无更改，**→** 指向已有版本（虚线） | 点击 → **历史**（History）标签，停在它所在分支的那个提交 | —（打开历史，历史会读取） | 分支未知时不可用 |
-| 检查点行 | **轮次检查点**（Turn checkpoint）/ **起点检查点**（Start checkpoint）/ **手动**（Manual）/ **恢复**（Restore）/ **关闭**（Close），它的消息（`dsh turn 1`），**已保存更改：*n***（Changes saved: *n*）或 **无更改**（Unchanged） | 点击 → 检查器 | — | 保存被拒绝时显示 **未保存：*code***（Not saved: *code*） |
+| 检查点行 | **轮次检查点**（Turn checkpoint）/ **起点检查点**（Start checkpoint）/ **手动**（Manual）/ **恢复**（Restore）/ **关闭**（Close），它的消息（`dsh turn 1`），**已保存更改：*n***（Changes saved: *n*）或 **无更改**（Unchanged） | 点击 → 检查器；它在时间线上的刻度会选中这一行（轮次没加载时，刻度打开历史） | — | 保存被拒绝时显示 **未保存：*code***（Not saved: *code*） |
 | **显示更多行（隐藏 *n* 行）**（Show more rows (*n* hidden)） | 超过 400 行之后 | 按下 → 再显示 400 行 | — | |
 | 孤立行 | **不在已加载日志中的调用**（Call outside the loaded log）和调用 id：工具调用不在已加载日志里的回执 | 点击 → 检查器 | — | |
 
 在 Chat 里对工具调用点 DSH 的 **Inspect**，会在这个标签上打开那次调用（选中那一行，展开它的轮次，解除筛选）。
 存在 LayerFS 里、但没在这里加载的会话，会显示 **对话日志未加载：只显示来自保存回执的 LayerFS 调用。**
 （The conversation log is not loaded: only LayerFS calls from saved receipts are shown.）
+
+### 在手机上
+
+面板留给轮次列表：筛选和时间线默认折起来，剩下的空间全给轮次。
+
+- **筛选**（Filters）是一个 44 px 的目标，替换整行工具栏。按下才显示折叠按钮、
+  **只看 LayerFS 写入**（Only LayerFS writes）和 **搜索**（Search）；再按一次收起。
+- 时间线变成一行：时间跨度的时长、**N 个版本**（N versions），有检查点时还有
+  **N 个检查点**（N checkpoints），行尾是 **时间线**（Timeline）。按下展开四条泳道，
+  再按收起。页面不关时，这个选择按会话记住；展开后的时间线里不再重复计数行，
+  这些数字就在摘要行上。
+- 每个检查点都是 **LayerFS** 泳道上的一根刻度，包括还没加载轮次的检查点（起点检查点
+  也在内），所以这条泳道是会话完整的保存历史，而不只是这一页的。轮次已加载时，点刻度
+  会选中那一行检查点；轮次没加载时，点刻度会打开 **历史** 标签并停在那个提交（分支已知时），和点版本块
+  一样。刻度是一根细线，不是 44 px 的按钮：相邻检查点有时只差几个像素，放大点击区会打开
+  错误的那一个。
+
+更宽的窗口仍然把筛选和时间线展开着，和以前一样。
 
 ### 检查器
 
@@ -106,8 +134,8 @@ DSH 关闭 **显示代码工作视图**（Show coding view，即 Developer tools
 ![历史标签](../img/conversation-history.png)
 
 和项目页一样的[历史视图](components.md#history-views)，打开时停在这个会话的分支上。不同之处：
-在轨迹里点版本块，会打开这个标签并选中那个提交；在选中提交的文件列表里点一个改动过的文件，
-会在 **文件**（Files）标签里打开它在那个提交时的样子。
+在轨迹里点版本块，会打开这个标签并选中那个提交（轮次还没加载的检查点刻度也一样）；
+在选中提交的文件列表里点一个改动过的文件，会在 **文件**（Files）标签里打开它在那个提交时的样子。
 LayerFS 调用就是历史视图的那些（`branch list`、`commit list`、`commit diff`，读取）。
 
 ## Sandbox

@@ -41,7 +41,8 @@ and the Files, History and Sandbox tabs ([Conversation](conversation.md)).
 ![The LayerFS view of the Workspaces list](img/entry-layerfs-view.png)
 
 The switch trades DSH's Workspaces list (folders) for LayerFS's (projects with sessions on
-this DSH), and back. The choice is remembered in this browser.
+this DSH), and back. The choice is remembered in this browser. On a phone or a tablet every
+project and session row is a 44 px target, and the row's actions show without hover.
 
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
@@ -51,15 +52,23 @@ this DSH), and back. The choice is remembered in this browser.
 | 4 ⚙ | **Set up {project}** (on hover or keyboard focus) | Press → the [project dialog](#project-dialog) on that project | — (opens a dialog) | — |
 | 5 + | **New session in {project}** (on hover) | Press → a new project conversation (see [below](#new-session-in-a-project)) | `sessions.choose`: `project get` (+ `branch list`, `branch fork` on the first claim) | disabled, with **Can’t start a session here: {reason}** |
 | | **Start {machine}** | Shown in place of + when the project's machine is stopped; press → it starts | `machine start` | settles before it can be pressed again |
-| 6 Session line | The conversation's title, then a readiness word when it is not a plain local session: **Starting**, **Active**, **Interrupted**, **Stored elsewhere**, **Unavailable** or **Not started** | Press → that conversation; while the project cannot run the row cannot open, and the reason under it says why | `sessions.open`: none when its log is here; else `branch list`, `project export` | **Interrupted** with its error as the tip; a host state with no word stays hidden |
-| | The row's one action | **Open** → opens or imports the conversation; **Start {machine}** → starts the project's machine; **Open Store** → opens the Store the failure names | **Open**: `sessions.open`; **Start**: `machine start`; **Open Store**: — (opens Storage) | disabled while it runs |
-| | Archive icon | **Archive {session}** → it leaves the list (DSH's Archived list brings it back) | — (DSH's archive) | **Not archived** with **Try again** |
+| 6 Session line | The conversation's title, then a readiness word when it is not a plain local session: **Starting**, **Active**, **Interrupted**, **Stored elsewhere**, **Unavailable** or **Not started** | Press the row → that conversation; while the project cannot run the row is disabled, and the reason under it says why | `sessions.open`: none when its log is here; else `branch list`, `project export` | **Interrupted** with its error as the tip; a host state with no word stays hidden |
+| | Archive icon | **Archive {session}** → it leaves the list (DSH's Archived list brings it back) | — (DSH's archive) | **Not archived** with **Try again**; shown without hover on touch |
 
-A session row's word says whether it can run right now. **Stored elsewhere** means the conversation is only in the
-project's Store: **Open** imports it into this DSH first. **Unavailable** means the project cannot run (its machine
-is stopped or broken, or its Store does not open): the reason under the row says why, the row itself cannot open,
-and its one action starts the machine (**Start {machine}**) or opens the Store (**Open Store**). **Starting**,
+A session row says whether it can run right now in words only: the readiness word beside the
+title and, when there is one, the reason under the row. There is no **Open**, **Start
+{machine}** or **Open Store** button on a session row — the row itself opens or imports the
+conversation. **Unavailable** means the project cannot run (its machine is stopped or
+broken, or its Store does not open): the row is disabled and its reason says why; the
+project row above carries **Start {machine}** when the machine is stopped. **Starting**,
 **Active** and **Not started** are the host's own states; a state with no word stays hidden.
+
+A project conversation that was opened but never received a message is not listed: a
+conversation whose saved log holds only its creation metadata stays out of the sidebar (and
+out of the project's Sessions list) until it gets a title or a first message. The host can
+clean these drafts up for good with `sessions.pruneNeverStarted` — a dry run unless called
+with `dryRun: false`; `node tools/prune-never-started.mjs` lists the candidates and
+`--apply` deletes them, keeping the open conversation and every loaded one.
 
 The sessions list reads local sessions every 15 s and the Store's archived conversations every
 60 s (`sessions.list`: `branch list`, `file read`, read). Empty: **No project sessions yet** with
@@ -99,7 +108,10 @@ does the same: if no folder is selected it makes the **Scratch** DSH workspace, 
 as the session's folder, then places the session in the project (`sessions.choose`: `project get`,
 plus `branch list` and `branch fork` the first time a project is claimed). A refused placement
 creates no conversation: the blank session is archived and the refusal is shown where the button
-was pressed. The conversation opens with the **LayerFS** agent preset.
+was pressed. The conversation opens with the **LayerFS** agent preset. While it opens, a centred
+**Opening the conversation…** status sits over the pane: a status pill, not a backdrop, so
+nothing is dimmed and nothing is blocked, and it goes as soon as the open lands or is
+refused.
 
 ## Scratch folder picker
 
@@ -121,7 +133,7 @@ In the project draft pictured below, **Scratch: default-workspace** (1) opens th
 | Workspaces list (DSH view) | Project sessions are left out: LayerFS marks each one's row and hides it, so they are listed only under their project in LayerFS view. Its DSH group can look empty. | Switch to LayerFS view to see them | `session.place` per row (host state, no call) | — |
 | 1 Scratch folder · 2 Project | **Scratch: default-workspace** and **handbook** | Press either control to open its picker | `sessions.scratchOptions` / `session.place` | — |
 | 3 Agent preset | **LayerFS** in the draft controls; its tip: "LayerFS project sessions: everything through bash and the LayerFS CLI ($DSH_LAYERFS_CLI), so a project on any machine works the same way." | — | — | — |
-| Tabs | **Trajectory**, **Files**, **History**, **Sandbox**, **Stats** | → [Conversation](conversation.md) | see there | — |
+| Tabs | **Trajectory**, **Files**, **History**, **Sandbox**, **Stats** | → [Conversation](conversation.md) | see there | on a phone DSH hides them behind its **⋯**; each view then opens with **<view> · this session** |
 
 ## Project dialog
 
@@ -137,6 +149,12 @@ The dialog is one scrolling form in three parts — **Project**, **Store** and *
 with **Cancel** and **Create and open** at the bottom. There is no steps rail to walk: fill
 what you need, in any order, and the line beside the buttons says what is still missing and
 in which part (**Project: Not named yet**, **Store: Needs a name**).
+
+The shell sets the dialog's width and margin; only the content inside is ours. On a phone
+the dialog grows to the height the shell allows: the head with **Close**, and the footer with
+**Cancel** and **Create and open**, stay put while the form between them scrolls. Every
+control — fields, tiles, links and buttons — is a 44 px target, and the footer wraps above
+the home indicator. Long notes and errors wrap instead of ending in an ellipsis.
 
 | # | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|---|
