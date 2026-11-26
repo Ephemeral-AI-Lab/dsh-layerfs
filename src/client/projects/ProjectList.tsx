@@ -160,7 +160,7 @@ export function SessionLine({ session, title, selected, t, failure, readiness, o
   // that answer belongs beside this row, not only at the project, and one Retry
   // asks again. Keeping it per row leaves the other sessions pressable.
   const [opening, setOpening] = useState(false)
-  const [openFailure, setOpenFailure] = useState<{ sessionId: string, message: string } | null>(null)
+  const [openFailure, setOpenFailure] = useState<{ sessionId: string, code?: string, message: string } | null>(null)
   const archive = () => { setBusy(true); setRefusal(null); void onArchive().then(setRefusal).finally(() => setBusy(false)) }
   const open = () => {
     if (opening) return
@@ -168,7 +168,7 @@ export function SessionLine({ session, title, selected, t, failure, readiness, o
     setOpenFailure(null)
     void Promise.resolve().then(onOpen).then(
       () => setOpenFailure(null),
-      (e: unknown) => setOpenFailure({ sessionId: session.sessionId, message: String((e as Error)?.message ?? e) }),
+      (e: unknown) => setOpenFailure({ sessionId: session.sessionId, message: String((e as Error)?.message ?? e), ...((e as { code?: unknown })?.code ? { code: String((e as { code?: unknown }).code) } : {}) }),
     ).finally(() => setOpening(false))
   }
   // The row's session list is read again on events and on a slow poll; a read
@@ -209,7 +209,7 @@ export function SessionLine({ session, title, selected, t, failure, readiness, o
       <Button variant="ghost" size="sm" disabled={busy} onClick={archive}>{t('archiveAgain')}</Button>
     </li> : null}
     {openFailure !== null ? <li className={clsx(css.notice, css.error)} data-open-refused={openFailure.sessionId}>
-      <span role="alert">{openFailure.message}</span>
+      <span role="alert">{openFailure.code === 'session/not-listed' ? t('notListed') : openFailure.message}</span>
       <Button variant="ghost" size="sm" disabled={opening} onClick={open}>{t('openAgain')}</Button>
     </li> : null}
   </>

@@ -398,6 +398,44 @@ export function apply(ctx: Context): void {
       }
     }
 
+    /**
+     * Publish one opened Session to clients exactly as DSH's own list does.
+     *
+     * `api-session/added` is only emitted by DSH's Session controller from
+     * `session/created` (a cold resume) and `agent/created`/`agent/disposed`
+     * (only while the Agent's Session is the published one). An open that
+     * resolves an Agent which is *already live* therefore announces nothing,
+     * and an announcement the client's event stream lost leaves its catalog
+     * without the id — navigating to it is then refused (`sessions.retain:
+     * unknown session`) and the pane stays on New Session. Rebuild the summary
+     * from the same list state the controller publishes and emit it (an
+     * idempotent upsert by session id), and hand it back in the open's answer
+     * so the client can seed its catalog even when the event was lost.
+     * @param sessionId - Session just opened.
+     * @param agent - its resolved live Agent, when the open resolved one.
+     * @returns the current list summary, when one can be built.
+     */
+    const publishSession = (sessionId: string, agent?: any): any => {
+      const sessionsService = ctx.get('sessions' as never) as any
+      const session = agent?.session ?? sessionsService?.get?.(sessionId)
+      const controller = ctx.get('sessionController' as never) as any
+      let summary: any
+      try { summary = session && controller?.listState?.summaryFor?.(session) } catch (error: any) {
+        ctx.logger('layerfs').warn('session %s: could not build its catalog summary: %s', sessionId, String(error?.message ?? error))
+      }
+      summary ??= {
+        sessionId,
+        updatedAt: Number(session?.header?.createdAt ?? Date.now()),
+        agentAvailable: !!agent,
+        running: String(agent?.status ?? '') === 'running',
+        blank: false,
+      }
+      try { ctx.emit('api-session/added' as never, summary as never) } catch (error: any) {
+        ctx.logger('layerfs').warn('session %s: could not announce it to clients: %s', sessionId, String(error?.message ?? error))
+      }
+      return summary
+    }
+
     ctx.layerfsRemote.operate(ctx, {
       'projects.catalog': async () => {
         const provider = ctx.get('sessionPersistence' as never) as any
@@ -655,11 +693,11 @@ export function apply(ctx: Context): void {
           if (resolved && 'error' in resolved && resolved.error?.code === 'session/not-found') {
             throw new CliError('NotFound', 'This session is not stored locally or in any LayerFS project this DSH knows')
           }
+          const summary = publishSession(sessionId, resolved?.agent)
           // DSH's client catalog lists the sessions of a workspace. A project
           // session is kept out of the folder workspaces (`attach` would detach
           // it), so the row's open attaches it to the workspace the person is in,
-          // without the project guard: that is what announces it to the clients.
-          // Without it the open landed on New Session.
+          // without the project guard: the catalog's list read then includes it.
           if (sessions.placeOfId(sessionId)?.project) {
             if (workspaceId) {
               try { await ctx.workspaceRegistry?.get?.(workspaceId as never)?.attachSession?.(sessionId as never) } catch (error: any) {
@@ -669,7 +707,7 @@ export function apply(ctx: Context): void {
           } else {
             await sessions.attach(workspaceId, sessionId)
           }
-          return { sessionId, imported: false, navigate: { sessionId } }
+          return { sessionId, imported: false, navigate: { sessionId }, ...(summary ? { session: summary } : {}) }
         }
         // A project hint imports from that project; otherwise DSH's resume reaches the
         // session persistence row, which finds and imports the session itself.
@@ -684,8 +722,9 @@ export function apply(ctx: Context): void {
           if (resolved.error?.code === 'session/not-found') throw new CliError('NotFound', 'This session is not stored locally or in any LayerFS project this DSH knows')
           throw resolved.error
         }
+        const summary = publishSession(sessionId, resolved?.agent)
         await sessions.attach(workspaceId, sessionId)
-        return { ...out, navigate: { sessionId } }
+        return { ...out, navigate: { sessionId }, ...(summary ? { session: summary } : {}) }
       },
       'sessions.close': async (args: any) => { await sessions.close(need(args, 'sessionId'), 'user'); return { ok: true } },
       'sessions.forget': async (args: any) => { await sessions.forget(need(args, 'sessionId')); return { ok: true } },

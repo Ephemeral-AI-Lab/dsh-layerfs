@@ -86,6 +86,15 @@ export interface Navigator {
    * project session, a just-imported one), so navigation waits for the catalog.
    */
   knowsSession?(sessionId: string): boolean
+  /**
+   * Seed DSH's client catalog with the host's own summary of the opened session.
+   * The host emits `api-session/added`, but an event can be lost (a list read that
+   * timed out, a dropped stream); the same summary travels in the open's answer so
+   * the row can open even then.
+   */
+  admitSession?(summary: unknown): void
+  /** Read DSH's session catalog again (used once when the opened id is missing). */
+  refreshSessions?(): Promise<void> | void
 }
 
 /** Encode one path segment. */
@@ -205,16 +214,26 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
     const off = subscribe('connection', (e) => { if (e.data?.connected) done() })
   })
 
-  /** Open a session once DSH's client catalog lists it (a short wait, then give up silently). */
-  async function reveal(sessionId: string): Promise<void> {
+  /**
+   * Open a session once DSH's client catalog lists it. The host's ordinary
+   * announcement (`api-session/added`) can be lost while its list read is slow
+   * or failed; then the open used to be retried once with the refusal swallowed,
+   * which left the pane on New Session. Instead wait, read the catalog again
+   * once, and if the id still is not there answer with a refusal the row shows.
+   */
+  async function reveal(sessionId: string, summary?: unknown): Promise<void> {
     const known = () => nav.knowsSession ? nav.knowsSession(sessionId) : true
+    // The host's own summary is authoritative: seed the catalog with it first.
+    if (summary !== undefined) { try { nav.admitSession?.(summary) } catch { /* the event still may */ } }
     // A closed session's resume can announce it a moment after the op answers.
     for (let i = 0; i < 20 && !known(); i++) await new Promise((resolve) => setTimeout(resolve, 100))
+    if (!known() && nav.refreshSessions) {
+      // The catalog read itself may have timed out at page load; ask once more.
+      try { await Promise.race([nav.refreshSessions(), new Promise((resolve) => setTimeout(resolve, 1500))]) } catch { /* the wait below decides */ }
+      for (let i = 0; i < 20 && !known(); i++) await new Promise((resolve) => setTimeout(resolve, 100))
+    }
     if (known()) { nav.openSession(sessionId); return }
-    // The host attached it to the workspace we are in, which announces it to the
-    // clients; an announcement that lost the race is harmless to retry, and DSH's
-    // refusal is swallowed here rather than leaving the pane on New Session.
-    try { nav.openSession(sessionId) } catch { /* not in the catalog yet */ }
+    throw new HostError('session/not-listed', 'This conversation is not in this window\'s session list yet — Retry', 0)
   }
 
   async function op<T>(name: string, args?: unknown, timeout?: number): Promise<T> {
@@ -226,7 +245,7 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
     // announced yet is refused by the client (`sessions.retain: unknown session`),
     // which surfaced at the row that asked for the open.
     const go = value && typeof value === 'object' ? value.navigate : undefined
-    if (go?.sessionId) await reveal(String(go.sessionId))
+    if (go?.sessionId) await reveal(String(go.sessionId), value?.session)
     else if (go?.workspaceId) await nav.openWorkspace(String(go.workspaceId))
     return value as T
   }

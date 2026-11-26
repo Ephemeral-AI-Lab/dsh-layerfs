@@ -57,6 +57,14 @@ export function apply(ctx: any): void {
     // DSH's client catalog: an id it has not announced cannot be opened
     // (`sessions.retain: unknown session`), so a host navigation waits for it.
     knowsSession: (id) => !!ctx.get?.('sessions')?.list?.getSnapshot?.()?.byId?.[id],
+    // The host's open answer carries the same summary `api-session/added` does:
+    // seeding the catalog with it keeps the open working when that event is lost.
+    admitSession: (summary) => {
+      try { ctx.get?.('sessions')?.handleSessionAdded?.(summary) } catch (error) { console.warn('[dsh-layerfs] could not admit the opened session', error) }
+    },
+    // The page's catalog read may have failed or timed out; one explicit read
+    // makes the opened id appear before the row gives up and shows a refusal.
+    refreshSessions: async () => { await ctx.get?.('sessions')?.refresh?.() },
   }, workspace)
   ctx.effect(() => () => api.dispose(), 'dsh-layerfs: api')
   // Browser automation handle (tools/, test/): opt-in per browser profile.

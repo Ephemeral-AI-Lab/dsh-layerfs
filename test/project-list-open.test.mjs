@@ -265,3 +265,76 @@ test('B2: the pill takes no pointer events and never covers the composer or tabs
   assert.doesNotMatch(rule, /inset:\s*0/, 'it is a pill, not a full-frame backdrop')
   for (const lang of ['en', 'zh']) assert.ok(M.listLocales[lang].openingConversation, `${lang}.openingConversation`)
 })
+
+// ------------------------------------------------- catalog publication on open
+
+test('the open hands the host summary to the catalog before navigating', async () => {
+  const admitted = []
+  const opened = []
+  let known = false
+  const summary = { sessionId: 'closed-1', updatedAt: 7, running: false, blank: false }
+  const web = {
+    call: async () => ({ ok: true, value: { sessionId: 'closed-1', navigate: { sessionId: 'closed-1' }, session: summary } }),
+    events: async function* () { yield { type: 'ready' }; await new Promise(() => {}) },
+  }
+  const nav = {
+    createSession: async () => 'new', openPanel() {}, openWorkspace: async () => {},
+    openSession: (id) => { opened.push(id) },
+    knowsSession: () => known,
+    admitSession: (s) => { admitted.push(s); known = s?.sessionId === 'closed-1' },
+    currentSessionId: () => undefined,
+  }
+  const api = M.createApi(() => web, nav, () => undefined)
+  await api.op('sessions.open', { sessionId: 'closed-1' })
+  assert.deepEqual(admitted, [summary], 'the host summary seeds the catalog')
+  assert.deepEqual(opened, ['closed-1'], 'the selected id is then opened')
+  api.dispose()
+})
+
+test('an id missing after the wait and one catalog refresh refuses instead of opening', async () => {
+  const opened = []
+  let refreshes = 0
+  const web = {
+    call: async () => ({ ok: true, value: { sessionId: 'missing-1', navigate: { sessionId: 'missing-1' } } }),
+    events: async function* () { yield { type: 'ready' }; await new Promise(() => {}) },
+  }
+  const nav = {
+    createSession: async () => 'new', openPanel() {}, openWorkspace: async () => {},
+    openSession: (id) => { opened.push(id) },
+    knowsSession: () => false,
+    refreshSessions: async () => { refreshes++ },
+    currentSessionId: () => undefined,
+  }
+  const api = M.createApi(() => web, nav, () => undefined)
+  const failure = await api.op('sessions.open', { sessionId: 'missing-1' }).then(() => null, (e) => e)
+  assert.ok(failure, 'the open is refused')
+  assert.equal(failure.code, 'session/not-listed', 'a stable code the row can localize')
+  assert.match(failure.message, /not in this window.s session list yet/, 'a clear refusal, not a silent blank')
+  assert.equal(refreshes, 1, 'the catalog is read again once before refusing')
+  assert.deepEqual(opened, [], 'no navigation to an id the catalog does not hold')
+  api.dispose()
+})
+
+test('a not-listed refusal is localized at the row and offers Retry', async () => {
+  const error = Object.assign(new Error('This conversation is not in this window’s session list yet — Retry'), { code: 'session/not-listed' })
+  const view = M.mount(M.SessionLine, props(() => Promise.reject(error)))
+  const after = await pressOpen(view)
+  const notice = noticeOf(after)
+  assert.equal(notice.length, 1, 'the refusal is at the session row')
+  const word = find(notice[0], (p) => p.role === 'alert')[0]
+  assert.equal(M.text(word), t('notListed'), 'the row words it for the reader')
+  assert.doesNotMatch(M.text(word), /sessions\.retain|unknown session/, 'DSH internals are not shown')
+  assert.equal(find(notice[0], (p) => typeof p.onClick === 'function').length, 1, 'one Retry')
+  assert.ok(M.listLocales.en.notListed && M.listLocales.zh.notListed, 'both locales word it')
+})
+
+test('the host publishes the opened session summary (event + open answer)', () => {
+  const host = readFileSync(join(root, 'src/host/sessions/index.ts'), 'utf8')
+  assert.match(host, /const publishSession = \(sessionId: string, agent\?: any\)/, 'the host builds the summary it publishes')
+  assert.match(host, /ctx\.emit\('api-session\/added' as never, summary as never\)/, 'it emits the same event DSH publishes on session/created')
+  assert.match(host, /summaryFor\?\.\(session\)/, 'from the controller list state, not a hand-made shape')
+  const open = host.slice(host.indexOf("'sessions.open'"), host.indexOf("'sessions.close'"))
+  assert.match(open, /const summary = publishSession\(sessionId, resolved\?\.agent\)/, 'every open publishes, live agent or not')
+  assert.match(open, /session: summary/, 'the answer carries it for a client whose event was lost')
+  assert.doesNotMatch(open, /catch \{ \/\* not in the catalog yet \*\/ \}/, 'no swallowed navigation')
+})
