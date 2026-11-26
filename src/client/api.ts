@@ -335,14 +335,15 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
    */
   const SHARE_INVALIDATION: Readonly<Record<string, (key: string) => boolean>> = {
     connection: () => true,
-    storage: (key) => key.startsWith('GET /api/storage') || key.startsWith('GET /api/machines') || key.startsWith('op projects.catalog'),
-    'storage-changed': (key) => key.startsWith('GET /api/storage') || key.startsWith('GET /api/machines') || key.startsWith('op projects.catalog'),
-    'machine-progress': (key) => key.startsWith('GET /api/machines') || key.startsWith('GET /api/storage'),
-    'layerfs-availability': (key) => key.startsWith('GET /api/machines') || key.startsWith('GET /api/storage'),
+    storage: (key) => key.startsWith('GET /api/storage') || key.startsWith('GET /api/machines') || key.startsWith('op projects.catalog') || key.startsWith('op sessions.list'),
+    'storage-changed': (key) => key.startsWith('GET /api/storage') || key.startsWith('GET /api/machines') || key.startsWith('op projects.catalog') || key.startsWith('op sessions.list'),
+    'machine-progress': (key) => key.startsWith('GET /api/machines') || key.startsWith('GET /api/storage') || key.startsWith('op sessions.list'),
+    'layerfs-availability': (key) => key.startsWith('GET /api/machines') || key.startsWith('GET /api/storage') || key.startsWith('op sessions.list'),
     'runtime-changed': (key) => key.startsWith('GET /api/machines') || key.startsWith('op setup.status'),
     projects: (key) => key.startsWith('op projects.catalog') || key.startsWith('GET /api/projects'),
     'projects-changed': (key) => key.startsWith('op projects.catalog') || key.startsWith('GET /api/projects'),
-    'layerfs-workspaces-changed': (key) => key.startsWith('op projects.catalog'),
+    'layerfs-workspaces-changed': (key) => key.startsWith('op projects.catalog') || key.startsWith('op sessions.list'),
+    'layerfs-session': (key) => key.startsWith('op sessions.list'),
     'setup-changed': (key) => key.startsWith('op setup.status'),
   }
   const dispatch = (event: HostEvent) => {

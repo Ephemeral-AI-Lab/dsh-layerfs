@@ -15,6 +15,7 @@ import type { LayerfsApi } from '../api.ts'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { ownershipStore, useOwnership, type OwnershipEntry } from '../session/ownership.ts'
 import { listProjects, messageOf, type ProjectInitJob, type ProjectRow } from '../picker/NewProjectForm.tsx'
+import { keepPrefetched } from '../ui/use-query.ts'
 import { ProjectDialogMount, projectDialog } from '../projects/dialog.ts'
 import { runsOn } from '../projects/setup/model.ts'
 import type { StorageView } from '../storage/types.ts'
@@ -112,9 +113,19 @@ export function HeroProjectControl({ sessionId, api, t, imports, ownership, retr
 
   const loadProjects = () => {
     setLoadError(false)
-    listProjects(api, { share: true }).then(({ rows: list, scratchKey: key }) => { setRows(list); setScratchKey(key) }, () => setLoadError(true))
+    // The New Session surface is often mounted before Center is opened: hand its
+    // two answers to Home's first render (a paint hint; Center reads on mount).
+    const started = Date.now()
+    listProjects(api, { share: true }).then((catalog) => {
+      const { rows: list, scratchKey: key } = catalog
+      setRows(list); setScratchKey(key)
+      keepPrefetched('projects.catalog', catalog, started)
+    }, () => setLoadError(true))
     // Where each project runs (its SQLite Store's machine, or the machine its PostgreSQL Store's sessions run on).
-    api.call<StorageView>('GET', '/api/storage', undefined, { share: true }).then(setStorage, () => {})
+    api.call<StorageView>('GET', '/api/storage', undefined, { share: true }).then((view) => {
+      setStorage(view)
+      keepPrefetched('GET /api/storage', view, started)
+    }, () => {})
   }
   useEffect(loadProjects, [api])
   // Store health and project changes reach an open picker too (it never polls).

@@ -781,3 +781,41 @@
     padding: 0 8px 8px;
   }
 }
+
+
+/* The first card's first paint (before the table's grid): one line with the
+   fields already known, in the card's frame. The full table replaces it on the
+   next frame. */
+.earlyCard {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  min-height: 60px;
+  padding: 18px 16px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-lg, 12px);
+  background: var(--dsw-alias-bg-module-platform);
+}
+
+.earlySep {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.earlyFacts {
+  margin-left: auto;
+  overflow: hidden;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 640px) {
+  .earlyFacts {
+    width: 100%;
+    margin-left: 0;
+  }
+}
