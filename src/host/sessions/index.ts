@@ -655,11 +655,20 @@ export function apply(ctx: Context): void {
           if (resolved && 'error' in resolved && resolved.error?.code === 'session/not-found') {
             throw new CliError('NotFound', 'This session is not stored locally or in any LayerFS project this DSH knows')
           }
-          // A project-owned session must stay out of the folder workspaces: attach
-          // detaches it from them, and doing that right after the resume announced
-          // it took it back out of the client's catalog, so the open landed on New
-          // Session. Only a session without a project is attached.
-          if (!sessions.placeOfId(sessionId)?.project) await sessions.attach(workspaceId, sessionId)
+          // DSH's client catalog lists the sessions of a workspace. A project
+          // session is kept out of the folder workspaces (`attach` would detach
+          // it), so the row's open attaches it to the workspace the person is in,
+          // without the project guard: that is what announces it to the clients.
+          // Without it the open landed on New Session.
+          if (sessions.placeOfId(sessionId)?.project) {
+            if (workspaceId) {
+              try { await ctx.workspaceRegistry?.get?.(workspaceId as never)?.attachSession?.(sessionId as never) } catch (error: any) {
+                ctx.logger('layerfs').warn('session %s not listed in workspace %s: %s', sessionId, workspaceId, error?.message ?? error)
+              }
+            }
+          } else {
+            await sessions.attach(workspaceId, sessionId)
+          }
           return { sessionId, imported: false, navigate: { sessionId } }
         }
         // A project hint imports from that project; otherwise DSH's resume reaches the

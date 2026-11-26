@@ -210,7 +210,11 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
     const known = () => nav.knowsSession ? nav.knowsSession(sessionId) : true
     // A closed session's resume can announce it a moment after the op answers.
     for (let i = 0; i < 20 && !known(); i++) await new Promise((resolve) => setTimeout(resolve, 100))
-    if (known()) nav.openSession(sessionId)
+    if (known()) { nav.openSession(sessionId); return }
+    // The host attached it to the workspace we are in, which announces it to the
+    // clients; an announcement that lost the race is harmless to retry, and DSH's
+    // refusal is swallowed here rather than leaving the pane on New Session.
+    try { nav.openSession(sessionId) } catch { /* not in the catalog yet */ }
   }
 
   async function op<T>(name: string, args?: unknown, timeout?: number): Promise<T> {
