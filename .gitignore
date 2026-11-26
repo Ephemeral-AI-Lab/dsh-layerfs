@@ -7,3 +7,9 @@ lib/
 
 # impeccable design tooling (installed locally, not product code)
 .claude/
+
+# skills CLI output (installed locally, not product code)
+.agents/
+agent/
+skills/
+skills-lock.json
