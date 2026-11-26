@@ -95,9 +95,10 @@
   font-size: 12px;
   line-height: 18px;
   color: var(--dsw-alias-label-tertiary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .close {
@@ -118,9 +119,11 @@
 /* ---------- create: one scrolling page ---------- */
 /* The page scrolls inside the cap; the head and the footer stay put. */
 .wizard {
-  max-height: min(640px, calc(100vh - 200px));
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
   scroll-padding-top: 12px;
 }
 
@@ -387,12 +390,13 @@
 }
 
 .storeNote {
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
   text-align: right;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
   font-size: 12px;
   color: var(--dsw-alias-label-tertiary);
 }
@@ -611,9 +615,10 @@
 }
 
 .machineNote > span:last-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .dot {
@@ -903,7 +908,6 @@
 
 /* ---------- narrow ---------- */
 @media (max-width: 600px) {
-  .wizard { max-height: calc(100vh - 160px); }
   .pair { grid-template-columns: minmax(0, 1fr); }
   .machines { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .foot { flex-wrap: wrap; }
@@ -986,7 +990,7 @@
   padding: 1px 6px;
   border-radius: 999px;
   corner-shape: round;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 16px;
   font-weight: 500;
   white-space: nowrap;
@@ -1010,7 +1014,7 @@
 
 .storeGroup {
   padding: 8px 12px 4px;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 16px;
   color: var(--dsw-alias-label-tertiary);
 }
@@ -1111,9 +1115,10 @@
 
 .footNote {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .storeName {
@@ -1145,5 +1150,40 @@
   .footActions {
     width: 100%;
     justify-content: flex-end;
+  }
+}
+
+/* Touch: every control in this dialog is a thumb target. The card is the DSH
+   shell's width; only the content inside it is ours. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .dialog button {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .close {
+    width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+    padding: 0;
+    justify-content: center;
+  }
+
+  .back {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .dialog input:not([type='checkbox']):not([type='radio']) {
+    height: var(--lfs-tap, 44px);
+  }
+
+  .saveFilter,
+  .saveFilter .search {
+    height: var(--lfs-tap, 44px);
+  }
+
+  .inlineLink {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--lfs-tap, 44px);
+    vertical-align: middle;
   }
 }
