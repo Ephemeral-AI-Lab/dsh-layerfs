@@ -14,7 +14,7 @@ import { StatusDot } from '../ui/StatusDot.tsx'
 import type { LayerfsApi } from '../api.ts'
 import { EmptyState, ErrorState, Loading } from '../files/States.tsx'
 import { cachedAnswer, useQuery } from '../files/use-query.ts'
-import { isUnchanged, type RequestRecord, type ToolRecord, type TraceVersion, type TrajectoryAnswer, type TrajectoryRecord, type TrajectoryReply, type TrajectoryTurn } from '../../shared/trajectory.ts'
+import { isUnchanged, type RequestRecord, type ToolRecord, type TraceCheckpointRow, type TraceVersion, type TrajectoryAnswer, type TrajectoryRecord, type TrajectoryReply, type TrajectoryTurn } from '../../shared/trajectory.ts'
 import { HISTORY_VIEW, useNoComposer, type ViewProps } from './FileViews.tsx'
 import { useSessionRows } from './hooks.ts'
 import { isStreamingAssistant, mergeLiveSteps, useLiveSteps } from './live-step.ts'
@@ -44,6 +44,8 @@ const REFRESH_MS = 1000
 const FOCUS_PAGES = 40
 /** Host events after which the trajectory may have changed (`{sessionId}` or none). */
 const EVENTS = ['layerfs-operation', 'layerfs-checkpoint', 'layerfs-session'] as const
+/** A stable empty set for an older answer/test fixture that predates top-level checkpoints. */
+const NO_CHECKPOINTS: readonly TraceCheckpointRow[] = []
 
 /**
  * `session.trajectory` of `sessionId`, read again on its LayerFS events, on reconnect and
@@ -98,7 +100,7 @@ function inspectedOf(answer: TrajectoryAnswer, key: Selection, t: Translate): In
       if (record) return { kind: 'record', turn: turn.turn, record }
     } else if (kind === 'c' && turn.turn === Number(a)) {
       const checkpoint = turn.checkpoints[Number(b)]
-      return checkpoint ? { kind: 'checkpoint', turn: turn.turn, checkpoint } : null
+      if (checkpoint) return { kind: 'checkpoint', turn: turn.turn, checkpoint }
     } else if (kind === 'h' && turn.turn === Number(a)) {
       return turn.hostOps.length ? { kind: 'ops', turn: turn.turn, title: t('trajHost'), ops: turn.hostOps } : null
     } else if (kind === 'o') {
@@ -467,9 +469,28 @@ export function TrajectoryView(props: ViewProps): ReactNode {
     if (el) { el.scrollIntoView({ block: 'center' }); setScrollTo(null) }
   }, [scrollTo, rows, limit])
 
-  const onTimeline = useCallback((key: Selection) => { select(key); reveal(key) }, [select, reveal])
-
-  const span = useMemo(() => timeSpan(filtered, now), [filtered, now])
+  const checkpoints = answer?.checkpoints ?? NO_CHECKPOINTS
+  const onTimeline = useCallback((key: Selection) => {
+    // A checkpoint outside the loaded turns has no row to select: its tick is
+    // the navigation affordance, so open History at its commit exactly as a
+    // record's version chip does. A loaded turn keeps the row selection.
+    if (key.startsWith('c:') && onOpen) {
+      const [, turnText, indexText] = key.split(':')
+      const turn = Number(turnText)
+      if (!answer?.turns.some((row) => row.turn === turn)) {
+        let seen = 0
+        for (const checkpoint of checkpoints) {
+          if (checkpoint.turn !== turn) continue
+          if (seen++ !== Number(indexText)) continue
+          const version = checkpointVersion(checkpoint)
+          if (version?.branch) { onOpen(version); return }
+          break
+        }
+      }
+    }
+    select(key); reveal(key)
+  }, [answer, checkpoints, onOpen, select, reveal])
+  const span = useMemo(() => timeSpan(filtered, now, checkpoints), [filtered, now, checkpoints])
   const allTurnsFolded = filtered.length > 0 && filtered.every((turn) => !turnOpen(turn.turn))
   const allCallsFolded = filtered.some((turn) => turn.records.some((r) => r.kind === 'tool' && r.ops.length))
     && filtered.every((turn) => turn.records.every((r) => r.kind !== 'tool' || !r.ops.length || !callOpen(r)))
@@ -519,7 +540,8 @@ export function TrajectoryView(props: ViewProps): ReactNode {
             ].filter(Boolean).join(' · ')}
           </span>
         </div>
-        <TrajectoryTimeline turns={filtered} now={now} span={span} selected={selected} onSelect={onTimeline} t={t} layerfs={layerfs} />
+        <TrajectoryTimeline turns={filtered} now={now} span={span} selected={selected} onSelect={onTimeline} t={t} layerfs={layerfs}
+          checkpoints={checkpoints} />
       </div>
       <div className={css.body}>
         <div className={css.table} ref={scroller}>

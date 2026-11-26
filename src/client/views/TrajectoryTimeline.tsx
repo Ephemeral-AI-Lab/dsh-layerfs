@@ -5,14 +5,16 @@
  */
 import { memo, useMemo, type ReactNode } from 'react'
 import clsx from 'clsx'
-import type { TrajectoryTurn } from '../../shared/trajectory.ts'
+import type { TraceCheckpointRow, TrajectoryTurn } from '../../shared/trajectory.ts'
 import type { Translate } from './locale.ts'
 import { LANES, laneItems, place, thinLane, type Selection } from './trajectory-model.ts'
 import { durationText } from './TrajectoryParts.tsx'
 import css from './trajectory.module.css'
 
-export const TrajectoryTimeline = memo(function TrajectoryTimeline({ turns, now, span, selected, onSelect, t, layerfs = true }: {
+export const TrajectoryTimeline = memo(function TrajectoryTimeline({ turns, now, span, selected, onSelect, t, checkpoints = [], layerfs = true }: {
   turns: readonly TrajectoryTurn[]
+  /** The session's full checkpoint set, so ticks survive a page that cut their turns. */
+  checkpoints?: readonly TraceCheckpointRow[]
   /** Draw the LayerFS lane (a project session); a normal session has three lanes. */
   layerfs?: boolean
   now: number
@@ -22,7 +24,7 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({ turns, now,
   onSelect: (key: Selection) => void
   t: Translate
 }): ReactNode {
-  const items = useMemo(() => laneItems(turns, now), [turns, now])
+  const items = useMemo(() => laneItems(turns, now, checkpoints), [turns, now, checkpoints])
   const lanes = layerfs ? LANES : LANES.filter((lane) => lane !== 'layerfs')
   // Each lane at most LANE_BINS marks: nearby items share one (the selected one always shows).
   const marks = useMemo(() => new Map(lanes.map((lane) => [lane, span ? thinLane(items.filter((item) => item.lane === lane), span, selected) : []])),
@@ -44,7 +46,7 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({ turns, now,
               const tick = lane === 'layerfs'
               const label = item.more ? t('trajMarkMore', { label: item.label || t(`trajLane_${lane}`), n: item.more }) : item.label
               return (
-                <button key={item.key} type="button" tabIndex={-1}
+                <button key={item.key} type="button" tabIndex={-1} data-mark={item.key}
                   className={clsx(tick ? css.tick : css.bar, css[`lane_${lane}`],
                     item.tone && css[`tone_${item.tone}`], item.select && item.select === selected && css.markSelected)}
                   style={tick ? { left: `${left}%` } : { left: `${left}%`, width: `${width}%` }}

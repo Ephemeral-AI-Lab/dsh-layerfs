@@ -713,3 +713,42 @@ test('a page budgets a shell loop\'s calls but always keeps the saves and refusa
   assert.ok(record.ops.some((op) => op.id === `r${MAX_OPS + 4}`), 'the newest reads are kept')
   assert.equal(record.ops.some((op) => op.id === 'r0'), false, 'the oldest reads fall off the page')
 })
+
+test('every checkpoint rides at the top level on the first and older pages', () => {
+  const checkpoints = []
+  const log = []
+  let seq = 0
+  const turns = [0, 7, 46, 171, 188, 195, 199, 210]
+  // The newest turn alone fills the first page, so turns 7–199 (and the base
+  // checkpoint's turn 0) are outside its record window.
+  log.push(ev(++seq, 'turn/start', { turn: 210 }))
+  for (let i = 0; i < FIRST_PAGE_RECORDS + 50; i++) log.push(user(++seq, `record ${i}`))
+  for (const turn of turns) {
+    checkpoints.push({
+      kind: turn === 0 ? 'base' : 'turn', turn, commit: C1, branch: 'dsh.s',
+      changed: turn === 0 ? 0 : 1, message: `checkpoint ${turn}`, at: 1000 + turn,
+    })
+  }
+  const input = { sessionId: 's', project: 'st/p', branch: 'dsh.s', events: log, invocations: [], checkpoints }
+  const full = buildTrajectory(input)
+  const first = pageTrajectory(full)
+
+  assert.equal(first.checkpoints.length, 8, 'the first page carries all 8 checkpoints')
+  assert.ok(JSON.stringify(first).length <= FIRST_PAGE_BYTES, `the page stays under the byte budget (${JSON.stringify(first).length} bytes)`)
+  assert.deepEqual(first.checkpoints.map((checkpoint) => checkpoint.turn), turns, 'oldest first, even when unloaded')
+  assert.deepEqual(Object.keys(first.checkpoints[0]).sort(), ['at', 'branch', 'changed', 'commit', 'kind', 'message', 'turn'])
+  assert.equal(first.turns.length, 1)
+  assert.equal(first.turns[0].turn, 210, 'the page starts in the newest turn')
+  assert.equal(first.turns[0].checkpoints.length, 1, 'the loaded turn keeps its own checkpoint row')
+
+  const older = pageTrajectory(full, first.olderBefore)
+  assert.deepEqual(older.checkpoints, first.checkpoints, 'the older page carries the same full set')
+
+  const partial = pageTrajectory(buildTrajectory(input, { newest: FIRST_PAGE_RECORDS }))
+  assert.deepEqual(partial.checkpoints, first.checkpoints, 'a first-page build carries the full set too')
+  assert.equal(JSON.stringify(partial), JSON.stringify(first), 'the partial first page is still byte-for-byte the full one')
+
+  const unchanged = trajectoryReader()(input, { since: first.revision })
+  assert.equal(unchanged.unchanged, true)
+  assert.ok(JSON.stringify(unchanged).length < 400, `unchanged stays small (${JSON.stringify(unchanged).length} bytes)`)
+})

@@ -9,7 +9,8 @@ import type { TraceCheckpoint, TraceOp, TraceVersion } from '../../shared/trace.
 import {
   DETAIL_MAX, FIRST_PAGE_BYTES, FIRST_PAGE_OPS, FIRST_PAGE_RECORDS, MAX_OPS, MAX_RECORDS, MAX_RECORD_OPS,
   PREVIEW_MAX, TOOL_DESCRIPTION_MAX, displayKind, kindFamily,
-  type AssistantRecord, type RequestRecord, type SystemRecord, type ToolRecord, type ToolsChange, type TrajectoryAnswer,
+  type AssistantRecord, type RequestRecord, type SystemRecord, type ToolRecord, type ToolsChange, type TraceCheckpointRow,
+  type TrajectoryAnswer,
   type TrajectoryDetail, type TrajectoryRecord, type TrajectoryReply, type TrajectoryTool, type TrajectoryTurn, type TrajectoryUsage,
   type UserRecord, type ObservationRecord, type ReceiptMeta,
   RECEIPT_META_FIELD, receiptAggregateLines,
@@ -682,7 +683,9 @@ export function buildTrajectory(input: TrajectoryInput, scope: TrajectoryBuildSc
     for (const r of pending) { r.turn = n; t.records.push(r) }
   }
 
-  const allCheckpoints: TraceCheckpoint[] = []
+  const allCheckpoints: TraceCheckpointRow[] = []
+  /** The per-turn objects, with their errors and receipt op, for counting only. */
+  const allCheckpointModels: TraceCheckpoint[] = []
   const byReceipt = new Map<string, TraceCheckpoint>()
   for (const c of checkpoints) {
     if (!c || !Number.isInteger(c.turn)) continue
@@ -692,7 +695,13 @@ export function buildTrajectory(input: TrajectoryInput, scope: TrajectoryBuildSc
       ...(c.error && text(c.error.code) ? { error: { code: c.error.code, message: String(c.error.message ?? '') } } : {}),
     }
     turn(c.turn).checkpoints.push(checkpoint)
-    allCheckpoints.push(checkpoint)
+    allCheckpointModels.push(checkpoint)
+    // The strip and the lane are navigation, not records: keep the row lean
+    // (no receipt op, no error) and independent of which turns a page keeps.
+    allCheckpoints.push({
+      turn: c.turn, kind: checkpoint.kind, commit: checkpoint.commit, branch: checkpoint.branch,
+      changed: checkpoint.changed, message: checkpoint.message, at: checkpoint.at,
+    })
     if (text(c.receipt)) byReceipt.set(c.receipt, checkpoint)
   }
 
@@ -813,7 +822,7 @@ export function buildTrajectory(input: TrajectoryInput, scope: TrajectoryBuildSc
     // The first page already counted every receipt; only the checkpoint's own
     // commit can still add a version when its call created none.
     callsWithVersions = callMade.size
-    for (const c of allCheckpoints) {
+    for (const c of allCheckpointModels) {
       const linked = checkpointMade.get(c) ?? false
       if (!linked && c.commit && !c.error && c.changed > 0) created.add(c.commit)
     }
@@ -839,6 +848,8 @@ export function buildTrajectory(input: TrajectoryInput, scope: TrajectoryBuildSc
   return {
     sessionId: input.sessionId, project: input.project, branch,
     turns: [...turns.values()].sort((a, b) => a.turn - b.turn),
+    // Every page spreads this answer, so every page carries the whole set.
+    checkpoints: allCheckpoints,
     logLoaded: input.events !== undefined,
     counts: { versionsCreated: created.size + unnamed, callsWithVersions },
     revision: trajectoryRevision(input),

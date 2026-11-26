@@ -19,6 +19,9 @@ await build({
     contents: [
       "export { mount, elements, text } from 'react'",
       "export { TrajectoryView } from './src/client/views/TrajectoryView.tsx'",
+      "export { TrajectoryTimeline } from './src/client/views/TrajectoryTimeline.tsx'",
+      "export { TrajectoryInspector } from './src/client/views/TrajectoryInspector.tsx'",
+      "export { HISTORY_VIEW } from './src/client/views/FileViews.tsx'",
       "export { locales } from './src/client/views/locale.ts'",
     ].join('\n'),
     resolveDir: root, loader: 'tsx',
@@ -165,5 +168,35 @@ test('Chat\'s inspect reads older pages until it finds the call', async () => {
   assert.deepEqual(recordRows(tree).map((record) => record.seq), [5, 30], 'the older call is on screen, under the newest turn')
   const row = M.elements(tree).find((e) => e.props?.row?.record?.seq === 5)
   assert.equal(row?.props.h.selected, 'r:5', 'the inspector opens on the found call')
+  view.unmount()
+})
+
+
+test('a checkpoint tick outside the loaded turns opens History; a loaded one still selects it', async () => {
+  const sessionId = 'session-checkpoint-tick'
+  const base = { turn: 0, kind: 'base', commit: '12' + '0'.repeat(64), branch: 'b1', changed: 0, message: 'base', at: 900 }
+  const loadedCommit = '12' + '2'.repeat(64)
+  const loadedRow = { kind: 'turn', commit: loadedCommit, branch: 'b1', changed: 1, message: 'turn 2', at: 1002 }
+  const loadedTurn = turn(2, [record(20, 2, 'newest turn text')], { checkpoints: [loadedRow] })
+  const first = answerOf(sessionId, 'r1', [loadedTurn], { recordTotal: 1, checkpoints: [base, { ...loadedRow, turn: 2 }] })
+  const { api } = fakeApi([first])
+  const opened = []
+  const view = mount(api, sessionId, { openView: (name, focus) => opened.push([name, focus]) })
+  const tree = await view.settle()
+
+  const timeline = M.elements(tree).find((element) => element.type === M.TrajectoryTimeline)
+  assert.ok(timeline, 'the timeline is mounted')
+  assert.equal(timeline.props.checkpoints.length, 2, 'the full set reaches the lane')
+  timeline.props.onSelect('c:0:0')
+  await view.settle()
+  assert.deepEqual(opened, [[M.HISTORY_VIEW, JSON.stringify({ branch: 'b1', commit: base.commit })]],
+    'the unloaded base tick opens History at its commit')
+
+  timeline.props.onSelect('c:2:0')
+  const after = await view.settle()
+  assert.equal(opened.length, 1, 'a loaded turn does not navigate away')
+  const inspector = M.elements(after).find((element) => element.type === M.TrajectoryInspector)
+  assert.equal(inspector?.props.inspected?.kind, 'checkpoint')
+  assert.equal(inspector?.props.inspected?.checkpoint.commit, loadedCommit, 'the loaded checkpoint is selected')
   view.unmount()
 })

@@ -321,6 +321,16 @@ export interface TrajectoryTurn {
   checkpoints: TraceCheckpoint[]
 }
 
+/**
+ * One checkpoint at the answer's top level. A page cuts records by turn, but
+ * every checkpoint is small and navigationally useful, so the whole set rides
+ * with every page instead of only the checkpoints of the turns a page keeps.
+ */
+export interface TraceCheckpointRow extends TraceCheckpoint {
+  /** The turn whose save it records; 0 for the base checkpoint. */
+  turn: number
+}
+
 export interface TrajectoryAnswer {
   sessionId: string
   project: string | null
@@ -328,6 +338,12 @@ export interface TrajectoryAnswer {
   branch: string | null
   /** Oldest first; turn 0 (bind, start checkpoint) first when present. */
   turns: TrajectoryTurn[]
+  /**
+   * Every checkpoint the session has, oldest first, independent of the page's
+   * turns: a first page keeps its newest records, and an older page carries
+   * the same full set so the strip and LayerFS lane never lose a checkpoint.
+   */
+  checkpoints: TraceCheckpointRow[]
   /** False when the session log was not loaded: records are empty, calls come from receipts. */
   logLoaded: boolean
   /** Distinct versions the session created (tool calls, its own calls and its turns' checkpoints), and the tool calls that created any. */

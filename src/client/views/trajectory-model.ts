@@ -5,8 +5,8 @@
  */
 import { isWrite, shellCommand } from '../../shared/logs.ts'
 import type {
-  ToolRecord, ToolsChange, TraceCheckpoint, TraceOp, TraceVersion, TrajectoryAnswer, TrajectoryRecord, TrajectoryTool,
-  TrajectoryTurn,
+  ToolRecord, ToolsChange, TraceCheckpoint, TraceCheckpointRow, TraceOp, TraceVersion, TrajectoryAnswer, TrajectoryRecord,
+  TrajectoryTool, TrajectoryTurn,
 } from '../../shared/trajectory.ts'
 
 /** Turns open by default: the newest few (older ones collapse so long sessions stay fast). */
@@ -213,8 +213,12 @@ export interface LaneItem {
   label: string
 }
 
-/** Every time the answer holds, plus `now` when something is still running. */
-export function timeSpan(turns: readonly TrajectoryTurn[], now: number): { start: number, end: number } | null {
+/**
+ * Every time the answer holds, plus `now` when something is still running.
+ * `checkpoints` is the answer's full top-level set: a page can start after the
+ * base checkpoint's turn, and the axis still has to reach back to it.
+ */
+export function timeSpan(turns: readonly TrajectoryTurn[], now: number, checkpoints: readonly TraceCheckpointRow[] = []): { start: number, end: number } | null {
   let start = Infinity, end = -Infinity
   const see = (at: number | undefined) => { if (typeof at === 'number' && Number.isFinite(at)) { if (at < start) start = at; if (at > end) end = at } }
   for (const turn of turns) {
@@ -228,6 +232,9 @@ export function timeSpan(turns: readonly TrajectoryTurn[], now: number): { start
     turn.hostOps.forEach((op) => see(op.at))
     turn.checkpoints.forEach((c) => see(c.at))
   }
+  // The loaded turns' checkpoints above cover their own turns; the rest of the
+  // session's checkpoints still pin the timeline's left edge.
+  checkpoints.forEach((c) => see(c.at))
   if (start === Infinity) return null
   // A single instant still needs a width.
   if (end - start < 1000) end = start + 1000
@@ -236,9 +243,16 @@ export function timeSpan(turns: readonly TrajectoryTurn[], now: number): { start
 
 const opTone = (op: TraceOp): LaneItem['tone'] => opCreated(op) ? 'created' : op.outcome !== 'success' ? 'refused' : undefined
 
-/** The strip's marks: user records, model steps, tool calls, and one tick per LayerFS call or checkpoint. */
-export function laneItems(turns: readonly TrajectoryTurn[], now: number): LaneItem[] {
+/**
+ * The strip's marks: user records, model steps, tool calls, and one tick per
+ * LayerFS call or checkpoint. `checkpoints` is the answer's full top-level set,
+ * so a checkpoint outside the page's turns still ticks; the loaded turns'
+ * checkpoints are keyed by turn and index and are not ticked twice.
+ */
+export function laneItems(turns: readonly TrajectoryTurn[], now: number, checkpoints: readonly TraceCheckpointRow[] = []): LaneItem[] {
   const items: LaneItem[] = []
+  /** Checkpoints already ticked from a loaded turn: `turn:index`. */
+  const ticked = new Set<string>()
   const tick = (key: string, at: number | undefined, tone: LaneItem['tone'], label: string, select?: Selection) => {
     if (at === undefined) return
     items.push({ lane: 'layerfs', key, start: at, end: at, label, ...(tone ? { tone } : {}), ...(select ? { select } : {}) })
@@ -266,8 +280,20 @@ export function laneItems(turns: readonly TrajectoryTurn[], now: number): LaneIt
     for (const op of turn.hostOps) tick(`op${op.id}`, op.at, opTone(op), opCommand(op), hostKey(turn.turn))
     turn.checkpoints.forEach((c, i) => {
       const v = checkpointVersion(c)
+      ticked.add(`${turn.turn}:${i}`)
       tick(`cp${turn.turn}:${i}`, c.at, c.error ? 'refused' : v?.effect === 'created' ? 'created' : undefined, c.message, checkpointKey(turn.turn, i))
     })
+  }
+  // The full set, oldest first. A turn can have several checkpoints, so the
+  // index is the checkpoint's place within its turn — the same key the loaded
+  // turn uses, which is how the two sources dedupe.
+  const index = new Map<number, number>()
+  for (const c of checkpoints) {
+    const i = index.get(c.turn) ?? 0
+    index.set(c.turn, i + 1)
+    if (ticked.has(`${c.turn}:${i}`)) continue
+    const v = checkpointVersion(c)
+    tick(`cp${c.turn}:${i}`, c.at, v?.effect === 'created' ? 'created' : undefined, c.message, checkpointKey(c.turn, i))
   }
   return items
 }

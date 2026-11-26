@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  checkpointVersion, compactNumber, durationParts, filterTurns, flattenRows, focusTarget, laneItems, loadedRecords, mergeOlder, opCommand,
+  checkpointKey, checkpointVersion, compactNumber, durationParts, filterTurns, flattenRows, focusTarget, laneItems, loadedRecords, mergeOlder, opCommand,
   opWrites, place, prettyArgs, recentTurns, recordMatches, selectionTurn, shownHostOp, thinLane, timeSpan, toolEntries,
 } from '../src/client/views/trajectory-model.ts'
 
@@ -329,4 +329,31 @@ test('mergeOlder keeps the older cursor while records remain, and never repeats 
   assert.equal(merged.turns.find((t) => t.turn === 2).records.length, 2, 'the already loaded record is not repeated')
   const again = mergeOlder(merged, more)
   assert.equal(again.turns.find((t) => t.turn === 2).records.length, 2)
+})
+
+const cpRow = (turn, at, kind = 'turn') => ({
+  turn, kind, commit: `12${String(turn).padStart(64, '0')}`, branch: 'b1',
+  changed: kind === 'base' ? 0 : 1, message: `${kind} ${turn}`, at,
+})
+const checkpointTicks = (items) => items.filter((item) => item.lane === 'layerfs' && item.select?.startsWith('c:'))
+
+test('a page whose turns are newer than every checkpoint still ticks the base and all eight', () => {
+  const newer = { ...turn2, records: [turn2.records[0]], orphanCalls: [], hostOps: [], checkpoints: [] }
+  const base = cpRow(0, T0 - 5000, 'base')
+  assert.equal(checkpointTicks(laneItems([newer], T0 + 20_000, [base])).length, 1, 'the base tick at 0:00')
+  const eight = [base, ...[7, 46, 171, 188, 195, 199, 210].map((turn, i) => cpRow(turn, T0 + 30_000 + i))]
+  const items = laneItems([newer], T0 + 40_000, eight)
+  assert.equal(checkpointTicks(items).length, 8, 'one LayerFS tick per checkpoint even with no turn loaded')
+  assert.equal(timeSpan([newer], T0 + 40_000, eight)?.start, base.at, 'the axis reaches the base checkpoint')
+})
+
+test('a loaded turn\'s checkpoints are not ticked twice, and a checkpoint outside it still ticks', () => {
+  const loaded = { ...turn1, checkpoints: [{ ...turn1.checkpoints[0], turn: 1 }] }
+  const base = cpRow(0, T0 - 5000, 'base')
+  const outside = cpRow(2, T0 + 20_000)
+  const items = laneItems([loaded], T0 + 20_000, [base, { ...loaded.checkpoints[0], turn: 1 }, outside])
+  const ticks = checkpointTicks(items)
+  assert.equal(ticks.length, 3, 'base, the loaded turn, and the unloaded turn once each')
+  assert.deepEqual(ticks.map((item) => item.select), [checkpointKey(1, 0), checkpointKey(0, 0), checkpointKey(2, 0)])
+  assert.equal(new Set(items.map((item) => item.key)).size, items.length, 'no duplicate keys')
 })
