@@ -54,7 +54,7 @@ test('ProjectHistory: the fork-base row is read-only, selected by initialCommit,
   assert.match(tsx, /\{forkBase \? \([\s\S]*?css\.forkBaseRow[\s\S]*?files_forkBase[\s\S]*?forkBaseNote/)
   assert.match(tsx, /data-selected=\{view\.selected === forkBase\.base \|\| initialCommit === forkBase\.base/)
   assert.match(tsx, /onClick=\{\(\) => writeView\(\{ selected: forkBase\.base, branch: view\.branch \}\)\}/, 'read-only selection, never a diff')
-  assert.match(tsx, /filesApi\.commit\(api, project, forkBaseSource, forkBaseId\)/, 'the base commit names its source branch')
+  assert.match(tsx, /forkBaseRead\(api, project, forkBaseSource, forkBaseId\)/, 'the base commit names its source branch, header only')
   const locale = readFileSync(join(root, 'src/client/files/locale.ts'), 'utf8')
   assert.match(locale, /files_forkBase: 'Started from \{branch\} · \{id\}'/)
   assert.match(locale, /files_forkBaseNote: 'No changes since the fork\.'/)

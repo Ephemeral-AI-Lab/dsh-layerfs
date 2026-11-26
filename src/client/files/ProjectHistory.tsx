@@ -9,8 +9,8 @@ import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import { Button, IconBranchOutlineRegular, IconCompareSplitOutlineRegular, IconChevronRightOutlineRegular, IconCloseOutlineRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, Modal, Tag, useAnchoredPosition, useDismissOnOutsidePointer } from '@deepseek-ai/dsh-client-ui-primitives'
 import { StatusDot } from '../ui/StatusDot.tsx'
-import type { LayerfsApi } from '../api.ts'
-import { filesApi } from './api.ts'
+import { q, type LayerfsApi } from '../api.ts'
+import { filesApi, projectPath } from './api.ts'
 import { BranchCompare, type CompareEnd } from './BranchCompare.tsx'
 import { changeKind, CommitDiff } from './CommitDiff.tsx'
 import { shortId, when } from './format.ts'
@@ -21,7 +21,7 @@ import { branchLabel } from './labels.ts'
 import { EmptyState, Loading } from './States.tsx'
 import { CopyId, toneScope } from '../ui/index.tsx'
 import { ExportChip, ExportInline } from '../exports/Export.tsx'
-import type { CommitInfo, HistoryBranch, HistoryPage, Translate } from './types.ts'
+import type { CommitDetail, CommitInfo, HistoryBranch, HistoryPage, Translate } from './types.ts'
 import css from './History.module.css'
 
 /** Pages read past the first to reach a deep-linked Commit. */
@@ -63,6 +63,14 @@ const remember = (project: string, data: HistoryData) => {
   dataCache.set(project, data)
 }
 const newView = (): View => ({ query: '', branch: '', selected: null, families: new Set(), left: 0, zoom: 0 })
+
+/**
+ * The fork point's header: that row reads only `source_branch`, so the route is
+ * asked not to read the Commit's diff (`?changes=0`). The selected Commit's page
+ * and its More still read the changes (`filesApi.commit`), which their views draw.
+ */
+export const forkBaseRead = (api: LayerfsApi, project: string, branch: string, commit: string): Promise<CommitDetail> =>
+  api.call<CommitDetail>('GET', `${projectPath(project)}/history${q({ branch, commit, changes: 0 })}`)
 
 export interface ProjectHistoryProps {
   api: LayerfsApi
@@ -393,7 +401,7 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
     let live = true
     // The base's own `source_branch` names the Branch it was published from;
     // the Branch list's parent is the fallback when the read gives none.
-    void filesApi.commit(api, project, forkBaseSource, forkBaseId)
+    void forkBaseRead(api, project, forkBaseSource, forkBaseId)
       .then((r) => { if (live) setForkSource(r.item.sourceBranch || null) }, () => {})
     return () => { live = false }
   }, [api, project, forkBaseId, forkBaseSource])
