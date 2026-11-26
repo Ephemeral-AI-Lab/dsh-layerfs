@@ -468,7 +468,7 @@ export function LoadError({ title, error, labels, retryLabel, onRetry }: { title
     <Card tone="danger" className={css.error}>
       <p className={css.errorTitle}><IconWarningOutlineRegular size={16} />{title}</p>
       <Refusal error={error} labels={labels} />
-      {onRetry && <Button variant="outline" size="sm" icon={<IconRefreshOutlineRegular size={13} />} onClick={onRetry}>{retryLabel}</Button>}
+      {onRetry && <Button variant="outline" size="sm" className={css.retry} icon={<IconRefreshOutlineRegular size={13} />} onClick={onRetry}>{retryLabel}</Button>}
     </Card>
   )
 }

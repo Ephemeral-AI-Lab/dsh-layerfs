@@ -1,14 +1,14 @@
 /* Logs page: filters, the call table, More, and the Reset confirm. */
 
 .muted {
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .note {
   margin: 0;
   font-size: 12px;
   line-height: 18px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
 }
 
 /* ---------- filters ---------- */
@@ -93,7 +93,7 @@
   font-size: 12px;
   line-height: 18px;
   font-weight: 500;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
   text-align: left;
   white-space: nowrap;
 }
@@ -174,7 +174,7 @@
 
 /* `layerfs` quiet, the operation strong, the arguments plain. */
 .cmdBin {
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .cmdVerb {
@@ -219,7 +219,7 @@
 .hex {
   font-family: var(--ds-font-family-code);
   font-size: 12px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .sessionLabel {

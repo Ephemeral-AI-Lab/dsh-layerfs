@@ -153,7 +153,7 @@
   min-width: 0;
   font-size: 12.5px;
   line-height: 18px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .crumb {
@@ -297,7 +297,7 @@
 
 .fact[data-tone='muted'] dd,
 .fact[data-empty] dd {
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .mono {
@@ -361,7 +361,7 @@
   overflow: hidden;
   font-family: var(--ds-font-family-code);
   font-size: 11.5px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
   text-overflow: ellipsis;
 }
 
@@ -503,7 +503,7 @@
 }
 
 .refusalCategory {
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 16px;
   opacity: 0.8;
 }
@@ -557,7 +557,7 @@
   padding: 24px 0;
   font-size: 13px;
   line-height: 20px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .empty {
@@ -604,6 +604,14 @@
   gap: 10px;
   padding: 16px;
   color: var(--lf-tone-danger-fg);
+}
+
+/* LoadError's Retry is a size="sm" DSH Button (28px). It is the one action a
+   failed read offers, so on a touch surface it is a thumb target. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .retry {
+    min-height: var(--lfs-tap, 44px);
+  }
 }
 
 .errorTitle {
@@ -654,11 +662,19 @@
   padding: 0;
   border: 0;
   background: none;
-  color: var(--dsw-alias-link);
+  /* --dsw-alias-link (#4176e6) is 4.23:1 on the light surface, short of the
+     4.5:1 a 13px link needs. Small text takes the palette's next step darker
+     (deepseek-600 #4868b2, 5.4:1); the dark theme's link already passes and
+     keeps the shared token. */
+  color: var(--dsw-static-deepseek-600);
   font: inherit;
   font-weight: 500;
   text-align: start;
   cursor: pointer;
+}
+
+:global(body[data-ds-dark-theme]) .link {
+  color: var(--dsw-alias-link);
 }
 
 @media (hover: hover) {
@@ -694,7 +710,7 @@
 .fieldError {
   font-size: 12px;
   line-height: 18px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .fieldError {

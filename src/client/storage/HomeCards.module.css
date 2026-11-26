@@ -16,7 +16,7 @@
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: var(--dsw-alias-state-business-primary);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .bar {
