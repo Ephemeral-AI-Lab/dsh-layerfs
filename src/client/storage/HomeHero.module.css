@@ -214,7 +214,7 @@
   line-height: 20px;
   font-weight: 500;
   letter-spacing: -0.01em;
-  color: var(--ov-ink-tertiary, var(--dsw-alias-label-tertiary));
+  color: var(--ov-ink-secondary, var(--dsw-alias-label-secondary));
   cursor: pointer;
   white-space: nowrap;
   transition: color 140ms var(--ov-ease, cubic-bezier(0.16, 1, 0.3, 1)),
@@ -249,7 +249,7 @@
   line-height: 18px;
   font-weight: 400;
   font-variant-numeric: tabular-nums;
-  color: var(--ov-ink-tertiary, var(--dsw-alias-label-tertiary));
+  color: var(--ov-ink-secondary, var(--dsw-alias-label-secondary));
 }
 
 .tab[data-active] .count:not([data-tone]) {
@@ -284,7 +284,7 @@
   font-size: 12px;
   line-height: 18px;
   font-variant-numeric: tabular-nums;
-  color: var(--ov-ink-tertiary, var(--dsw-alias-label-tertiary));
+  color: var(--ov-ink-secondary, var(--dsw-alias-label-secondary));
   white-space: nowrap;
   cursor: pointer;
   transition: background-color 140ms var(--ov-ease, cubic-bezier(0.16, 1, 0.3, 1)),

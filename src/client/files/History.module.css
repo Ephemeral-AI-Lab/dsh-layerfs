@@ -60,7 +60,7 @@
 
 .count {
   font-size: 12px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .actions {
@@ -208,7 +208,7 @@
 }
 
 .tickLabel {
-  fill: var(--dsw-alias-label-tertiary);
+  fill: var(--dsw-alias-label-secondary);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
@@ -229,7 +229,7 @@
 }
 
 .layerLabel {
-  fill: var(--lf-tone-success-dot);
+  fill: var(--lf-tone-success-fg);
   font-family: var(--ds-font-family-code);
   font-size: 12px;
   font-weight: 600;
@@ -340,7 +340,7 @@
 }
 
 .branchTag > text {
-  fill: var(--dsw-alias-bg-base);
+  fill: var(--bough-ink, var(--dsw-alias-bg-base));
   font-weight: 500;
   pointer-events: none;
 }
@@ -794,7 +794,7 @@
   padding: 3px 8px;
   border-radius: var(--dsw-radius-md);
   background: color-mix(in srgb, var(--dsw-alias-bg-base) 86%, transparent);
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
   font-size: 12px;
   pointer-events: none;
 }

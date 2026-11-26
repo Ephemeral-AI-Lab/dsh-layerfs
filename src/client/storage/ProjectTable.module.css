@@ -63,7 +63,7 @@
   font-size: 12px;
   line-height: 17px;
   font-weight: 500;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
   cursor: default;
 }
 
@@ -145,7 +145,7 @@
   min-width: 0;
   font-size: 12px;
   line-height: 16px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
 }
 
 /* The phone card's second line (when a session last changed): the desktop
@@ -329,7 +329,7 @@
 }
 
 .muted {
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .dim {
@@ -420,7 +420,7 @@
   padding: 4px 0;
   font-size: 12.5px;
   line-height: 18px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .error {
@@ -473,7 +473,7 @@
   margin-left: 8px;
   font-family: var(--ds-font-family-code);
   font-size: 11.5px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
 }
 
 /* A hairline between the list switch and the add verb. */
@@ -724,7 +724,7 @@
     min-width: 0;
     font-size: 12px;
     line-height: 16px;
-    color: var(--dsw-alias-label-tertiary);
+    color: var(--dsw-alias-label-secondary);
     white-space: nowrap;
   }
 

@@ -90,7 +90,7 @@
   margin: 0;
   font-size: 12px;
   line-height: 16px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
   font-variant-numeric: tabular-nums;
 }
 
@@ -337,7 +337,11 @@
   padding: 4px 8px 4px calc(26px + var(--files-depth) * 14px);
   border: 0;
   background: none;
-  color: var(--dsw-alias-link);
+  /* Light theme: the shared link (deepseek-500 #4176e6) is 4.23:1 on the
+     sidebar at 12.5px; deepseek-600 (#4868b2) is 5.39:1. Dark keeps the
+     shared token. A disabled control is exempt (WCAG 1.4.3), so it stays
+     tertiary. */
+  color: var(--dsw-static-deepseek-600);
   font: inherit;
   font-size: 12.5px;
   line-height: 18px;
@@ -353,6 +357,10 @@
 .linkButton:disabled {
   color: var(--dsw-alias-label-tertiary);
   cursor: default;
+}
+
+:global(body[data-ds-dark-theme]) .linkButton:not(:disabled) {
+  color: var(--dsw-alias-link);
 }
 
 /* ---------- open files and the viewer ---------- */
