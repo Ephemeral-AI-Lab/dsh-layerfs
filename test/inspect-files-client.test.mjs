@@ -155,6 +155,9 @@ test('readFiles: a read in flight that is dropped tells the host, frees its slot
   assert.equal(api.calls.length, 2)
   stop.abort()
   await assert.rejects(sent, F.isDropped)
+  // The cancel waits one microtask, so an immediate remount can join instead of
+  // sending the same request again; with no joiner it lands right after.
+  await tick()
   assert.deepEqual(api.ops, [{ name: 'inspect.cancel', args: { rid: api.calls[0].rid } }], 'inspect.cancel names the read\'s own id')
   await tick()
   assert.equal(api.calls.length, 3, 'the waiting read starts at once')
@@ -163,6 +166,8 @@ test('readFiles: a read in flight that is dropped tells the host, frees its slot
   api.calls[2].resolve(folder('/c'))
   assert.equal((await next).path, '/c')
   assert.equal(api.ops.length, 1)
+  // settle the unrelated read this test left on the wire (the share map must not leak into the next test)
+  api.calls[1].resolve(folder('/b'))
 })
 
 test('readFiles: a host failure is passed on; the host\'s own Cancelled reads as dropped', async () => {
@@ -330,4 +335,41 @@ test('a Workspace is read from its saved files: its Branch at its base, under th
   assert.equal(F.readKey(F.SB_ROOTS), F.ROOTS)
   assert.equal(F.isWorkspaceEntry({ path: root, depth: 1, kind: 'mount', size: null, mode: null, mtime: null, role: 'workspace' }), true)
   assert.equal(F.isWorkspaceEntry({ path: '/tmp', depth: 1, kind: 'folder', size: null, mode: null, mtime: null, role: 'home' }), false)
+})
+
+test('readFiles: identical roots reads are one request, and a remount joins it', async () => {
+  const api = fakeApi(), queue = new F.ReadQueue()
+  const stop = new AbortController()
+  const first = F.readFiles(api, queue, '/api/machines/m/files', {}, stop.signal)
+  assert.equal(api.calls.length, 1)
+  // The first mount effect's cleanup aborts, then the effect runs again: the
+  // second ask must join the roots request already on the wire.
+  stop.abort()
+  const remount = F.readFiles(api, queue, '/api/machines/m/files', {})
+  await assert.rejects(first, F.isDropped)
+  assert.equal(api.calls.length, 1, 'the remount did not send the identical roots request again')
+  assert.equal(api.ops.length, 0, 'the second waiter kept it alive')
+  api.calls[0].resolve(folder(null))
+  assert.equal((await remount).kind, 'folder')
+})
+
+test('readFiles: when the last waiter goes, the host is still told to cancel', async () => {
+  const api = fakeApi(), queue = new F.ReadQueue()
+  const stop = new AbortController()
+  const sent = F.readFiles(api, queue, '/api/machines/m/files', {}, stop.signal)
+  stop.abort()
+  await assert.rejects(sent, F.isDropped)
+  await tick()
+  assert.deepEqual(api.ops, [{ name: 'inspect.cancel', args: { rid: api.calls[0].rid } }])
+})
+
+test('readFiles: an answer that settled is not kept for a later read', async () => {
+  const api = fakeApi(), queue = new F.ReadQueue()
+  const one = F.readFiles(api, queue, '/api/machines/m/files', { path: '/x' })
+  api.calls[0].resolve(folder('/x'))
+  assert.equal((await one).path, '/x')
+  const two = F.readFiles(api, queue, '/api/machines/m/files', { path: '/x' })
+  assert.equal(api.calls.length, 2, 'a read after the answer sends its own request')
+  api.calls[1].resolve(folder('/x'))
+  assert.equal((await two).path, '/x')
 })

@@ -17,7 +17,7 @@ await build({
   stdin: {
     contents: `
       export { mount } from 'react'
-      export { useSetupStatus } from './src/client/setup/store.ts'
+      export { useSetupStatus, SETUP_SHARE_MAX_AGE_MS } from './src/client/setup/store.ts'
       export { useDoctorCount } from './src/client/doctor/use-doctor-count.ts'
     `,
     resolveDir: root,
@@ -86,8 +86,35 @@ test('Home reads held for the first paint land after it, once each and fresh', a
   waiting.shift()()
   await view.settle()
   assert.equal(setupCalls().length, 2, "Home's second setup check landed")
-  assert.equal(setupCalls()[1].options?.share, true, 'and shares an in-flight check rather than reading twice')
+  assert.equal(setupCalls()[1].options?.share?.maxAgeMs, M.SETUP_SHARE_MAX_AGE_MS, 'and shares a recent check rather than reading twice')
   assert.ok(doctorCalls().length >= 1, 'the Doctor count landed')
   assert.equal(doctorCalls()[0].options?.priority, 'background', 'the Doctor count is admitted as decoration')
+  view.unmount()
+})
+
+test('Check again reads past the shared setup answer', async () => {
+  const calls = []
+  const api = {
+    op: async (name, args, options) => {
+      calls.push({ kind: 'op', name, options })
+      return { needs: [], runtime: { ok: true }, folder: { state: 'current' }, pieces: {}, warnings: [] }
+    },
+    call: async () => ({}),
+    onEvent: () => () => {},
+  }
+  let check
+  function Boot({ api }) {
+    check = M.useSetupStatus(api).check
+    return null
+  }
+  const view = M.mount(Boot, { api })
+  await view.settle()
+  assert.equal(calls.length, 1, 'the boot read used the shared answer age')
+  assert.equal(calls[0].options?.share?.maxAgeMs, M.SETUP_SHARE_MAX_AGE_MS)
+  check()
+  await view.settle()
+  assert.equal(calls.length, 2)
+  assert.equal(calls[1].name, 'setup.status')
+  assert.equal(calls[1].options?.fresh, true, 'Check again bypasses the shared answer')
   view.unmount()
 })

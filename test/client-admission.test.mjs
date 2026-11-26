@@ -140,7 +140,7 @@ test('a rejected send releases its slot', async (t) => {
   assert.deepEqual(await after, { status: 200, body: {} })
 })
 
-test('an identical storage read already in flight answers both callers, then reads anew', async (t) => {
+test('an identical storage read answers both callers, then a forced read reads anew', async (t) => {
   const { api, state } = await newApi(t)
   const one = api.call('GET', '/api/storage', undefined, { share: true })
   const two = api.call('GET', '/api/storage', undefined, { share: true })
@@ -149,12 +149,17 @@ test('an identical storage read already in flight answers both callers, then rea
   state.held.shift().settle(true, { status: 200, body: { stores: ['one'] } })
   assert.deepEqual(await one, { stores: ['one'] })
   assert.deepEqual(await two, { stores: ['one'] })
-  // Once it has settled, a later mount reads again: no answer is kept by time.
+  // B3's in-flight answer is now also a recent answer, so a staggered mount
+  // reuses it; only a forced read (the page's Refresh) reads the host again.
   const three = api.call('GET', '/api/storage', undefined, { share: true })
+  await flush()
+  assert.equal(state.calls.length, 1)
+  assert.deepEqual(await three, { stores: ['one'] })
+  const four = api.call('GET', '/api/storage', undefined, { share: true, fresh: true })
   await flush()
   assert.equal(state.calls.length, 2)
   state.held.shift().settle(true, { status: 200, body: { stores: ['two'] } })
-  assert.deepEqual(await three, { stores: ['two'] })
+  assert.deepEqual(await four, { stores: ['two'] })
 })
 
 test('the boot catalog op shares while in flight too', async (t) => {
@@ -166,4 +171,181 @@ test('the boot catalog op shares while in flight too', async (t) => {
   state.held.shift().settle(true, { rows: [], scratchKey: null })
   assert.deepEqual(await one, { rows: [], scratchKey: null })
   assert.deepEqual(await two, { rows: [], scratchKey: null })
+})
+
+// ---------------------------------------------------------------- shared recent answers
+/** A host that answers at once and lets the test push host events. */
+function liveHost() {
+  const state = { calls: [], events: [] }
+  let wake = null
+  const remote = {
+    call(request) {
+      state.calls.push(request)
+      return Promise.resolve({ ok: true, value: { answer: state.calls.length } })
+    },
+    events() {
+      return {
+        [Symbol.asyncIterator]() {
+          return {
+            next() {
+              if (state.events.length) return Promise.resolve({ value: state.events.shift() })
+              return new Promise((resolve) => { wake = () => resolve({ value: state.events.shift() }) })
+            },
+          }
+        },
+        dispose() {},
+      }
+    },
+  }
+  const emit = (event) => {
+    state.events.push(event)
+    const resume = wake
+    wake = null
+    resume?.()
+  }
+  return { state, remote: () => remote, emit }
+}
+
+async function newLiveApi(t) {
+  const host = liveHost()
+  const api = A.createApi(host.remote, {
+    createSession: async () => 'session-x',
+    openPanel() {},
+    openWorkspace: async () => {},
+    openSession() {},
+  }, () => undefined)
+  t.after(() => api.dispose())
+  await flush()
+  return { api, state: host.state, emit: host.emit }
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+test('a shared answer serves the staggered mount, then ages out', async (t) => {
+  assert.ok(A.SHARE_MAX_AGE_MS >= 250 && A.SHARE_MAX_AGE_MS <= 2_000, 'the answer age stays a burst, never a TTL')
+  const { api, state } = await newLiveApi(t)
+  const one = await api.call('GET', '/api/machines', undefined, { share: true })
+  const two = await api.call('GET', '/api/machines', undefined, { share: true })
+  assert.equal(state.calls.length, 1, 'the second surface of the visit reused the answer')
+  assert.deepEqual(two, one)
+  // Its own bounded age: once past it, the host is read again.
+  const quick = { share: { maxAgeMs: 20 } }
+  await api.call('GET', '/api/machines/recent', undefined, quick)
+  await sleep(35)
+  await api.call('GET', '/api/machines/recent', undefined, quick)
+  assert.equal(state.calls.length, 3, 'past its age, a shared read sends')
+})
+
+test('the events that change a view drop the shared answer', async (t) => {
+  const { api, state, emit } = await newLiveApi(t)
+  const machine = () => api.call('GET', '/api/machines', undefined, { share: true })
+  await machine()
+  await machine()
+  assert.equal(state.calls.length, 1)
+  emit({ type: 'machine-progress', data: { name: 'docker' } })
+  await flush()
+  await machine()
+  assert.equal(state.calls.length, 2, 'machine-progress invalidates the machines answer')
+  emit({ type: 'sandbox-progress', data: {} })
+  await flush()
+  await machine()
+  assert.equal(state.calls.length, 2, 'an unrelated event keeps it')
+  emit({ type: 'storage', data: {} })
+  await flush()
+  await machine()
+  assert.equal(state.calls.length, 3, 'storage invalidates the machines answer')
+
+  const catalog = () => api.op('projects.catalog', undefined, { share: true })
+  await catalog()
+  await catalog()
+  assert.equal(state.calls.length, 4)
+  emit({ type: 'projects-changed', data: {} })
+  await flush()
+  await catalog()
+  assert.equal(state.calls.length, 5, 'projects-changed invalidates the catalog answer')
+
+  const setup = () => api.op('setup.status', undefined, { share: true })
+  await setup()
+  await setup()
+  assert.equal(state.calls.length, 6)
+  emit({ type: 'setup-changed', data: {} })
+  await flush()
+  await setup()
+  assert.equal(state.calls.length, 7, 'setup-changed invalidates the setup answer')
+
+  emit({ type: 'connection', data: { connected: false } })
+  await flush()
+  await machine()
+  await catalog()
+  await setup()
+  assert.equal(state.calls.length, 10, 'a reconnect drops every answer')
+})
+
+test('a forced refresh bypasses the shared answer', async (t) => {
+  const { api, state } = await newLiveApi(t)
+  await api.call('GET', '/api/machines', undefined, { share: true })
+  await api.call('GET', '/api/machines', undefined, { share: true })
+  assert.equal(state.calls.length, 1)
+  await api.call('GET', '/api/machines', undefined, { share: true, fresh: true })
+  assert.equal(state.calls.length, 2, 'the Refresh button reads the host even right after a shared answer')
+  await api.call('GET', '/api/machines?fresh=1', undefined, { share: true })
+  assert.equal(state.calls.length, 3, '?fresh=1 has its own key and also reads')
+})
+
+test('a write drops the recent answers it may invalidate', async (t) => {
+  const { api, state } = await newLiveApi(t)
+  await api.call('GET', '/api/machines', undefined, { share: true })
+  await api.call('GET', '/api/machines', undefined, { share: true })
+  assert.equal(state.calls.length, 1)
+  await api.call('POST', '/api/machines/docker/start')
+  await api.call('GET', '/api/machines', undefined, { share: true })
+  assert.equal(state.calls.length, 3, 'the write and the reread both reached the host')
+})
+
+test('an answer that an event invalidated while in flight is not kept', async (t) => {
+  const state = { calls: [], held: [], events: [] }
+  let wake = null
+  const remote = {
+    call(request) {
+      state.calls.push(request)
+      return new Promise((resolve, reject) => { state.held.push({ request, resolve, reject }) })
+    },
+    events() {
+      return {
+        [Symbol.asyncIterator]() {
+          return {
+            next() {
+              if (state.events.length) return Promise.resolve({ value: state.events.shift() })
+              return new Promise((resolve) => { wake = () => resolve({ value: state.events.shift() }) })
+            },
+          }
+        },
+        dispose() {},
+      }
+    },
+  }
+  const api = A.createApi(() => remote, {
+    createSession: async () => 'session-x',
+    openPanel() {},
+    openWorkspace: async () => {},
+    openSession() {},
+  }, () => undefined)
+  t.after(() => api.dispose())
+  await flush()
+  const first = api.call('GET', '/api/machines', undefined, { share: true })
+  await flush()
+  assert.equal(state.calls.length, 1)
+  // The event lands while the host read is still in flight.
+  state.events.push({ type: 'machine-progress', data: {} })
+  const resume = wake
+  wake = null
+  resume?.()
+  await flush()
+  state.held.shift().resolve({ ok: true, value: { status: 200, body: { before: true } } })
+  assert.deepEqual(await first, { before: true })
+  const second = api.call('GET', '/api/machines', undefined, { share: true })
+  await flush()
+  assert.equal(state.calls.length, 2, 'the invalidated in-flight answer is not reused')
+  state.held.shift().resolve({ ok: true, value: { status: 200, body: { after: true } } })
+  assert.deepEqual(await second, { after: true })
 })

@@ -4,7 +4,7 @@
  * events, and the Set up LayerFS modal's open state. Any view opens the modal
  * with `setupDialog.open(section)`; Later is remembered per viewer.
  */
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { LayerfsApi } from '../api.ts'
 import { afterFirstPaint } from '../ui/first-paint.ts'
 import { useQuery } from '../ui/use-query.ts'
@@ -139,6 +139,15 @@ export function useSetupDialog(): SetupSection | null {
 const EVENTS = ['setup-changed', 'runtime-changed', 'connection']
 
 /**
+ * How long a `setup.status` answer may serve the sidebar's other mounts (the
+ * modal, Home's decoration). The check changes only on setup events, which
+ * clear the shared answer, and the open modal rereads it every 5 s; so one
+ * answer covers the boot→panel gap (2.7 s measured on the 3194 rig) without
+ * outliving the modal's own poll. This is a client answer age, not a host TTL.
+ */
+export const SETUP_SHARE_MAX_AGE_MS = 5_000
+
+/**
  * `setup.status`, kept across remounts and reread on setup events; `visible`
  * also rereads every 5 s while the page is visible (the modal, Settings).
  * `afterPaint` holds the first read for {@link afterFirstPaint}: Home's second
@@ -148,8 +157,17 @@ const EVENTS = ['setup-changed', 'runtime-changed', 'connection']
  */
 export function useSetupStatus(api: LayerfsApi, visible = false, afterPaint = false) {
   const [tick, bump] = useTick()
+  /** Set by `check`: Check/Check again is a forced read, past the shared answer. */
+  const forced = useRef(false)
+  const load = () => {
+    const options = forced.current
+      ? { share: true as const, fresh: true }
+      : { share: { maxAgeMs: SETUP_SHARE_MAX_AGE_MS } }
+    forced.current = false
+    return api.op<SetupStatus>('setup.status', undefined, options)
+  }
   const read = useQuery(
-    () => (afterPaint ? afterFirstPaint().then(() => api.op<SetupStatus>('setup.status', undefined, { share: true })) : api.op<SetupStatus>('setup.status', undefined, { share: true })),
+    () => (afterPaint ? afterFirstPaint().then(load) : load()),
     [api, afterPaint],
     { refresh: [tick], cache: 'op setup.status' },
   )
@@ -164,7 +182,9 @@ export function useSetupStatus(api: LayerfsApi, visible = false, afterPaint = fa
     const id = setInterval(() => { if (document.visibilityState === 'visible') bump() }, 5000)
     return () => clearInterval(id)
   }, [visible])
-  return { ...read, check: bump }
+  // Check/Check again reads the host; an event tick (`bump`) may reuse a recent answer.
+  const check = () => { forced.current = true; bump() }
+  return { ...read, check }
 }
 
 /** `runtime.installed`, reread on setup events. */

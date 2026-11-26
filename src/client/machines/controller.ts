@@ -129,6 +129,10 @@ export class MachinesController {
   private readonly finished = new Map<string, number>()
   private settleTimer: ReturnType<typeof setTimeout> | undefined
   private active = 0
+  /** The visit's token: one machines read serves the visit; a panel focus that begins a new visit reads again. */
+  private visit = 0
+  /** The visit whose view a read has started for (`-1`: none yet). */
+  private readVisit = -1
   private timer: ReturnType<typeof setInterval> | undefined
   private reading: Promise<void> | null = null
   private again = false
@@ -172,7 +176,7 @@ export class MachinesController {
       reload: () => this.reload(),
       recheck: async () => {
         try {
-          const data = await api.call<MachinesView>('GET', '/api/machines?fresh=1')
+          const data = await api.call<MachinesView>('GET', '/api/machines?fresh=1', undefined, { fresh: true })
           this.machines.set({ status: 'ready', data, error: null, observedAt: Date.now() })
         } catch (error) {
           const prev = this.machines.getSnapshot()
@@ -225,6 +229,7 @@ export class MachinesController {
   private activate(): () => void {
     this.active++
     if (this.active === 1) {
+      this.visit++
       this.reload()
       // The pinned runtime and the background-creates list decorate the first
       // screen; the machines view itself draws it. A later page (after paint)
@@ -248,15 +253,34 @@ export class MachinesController {
     }
   }
 
+  /**
+   * The panel came back into view while a page was already showing it: read
+   * again. A fresh mount reads through {@link activate}, so a focus that
+   * arrives before or just after that mount adds no second read.
+   */
+  refocus(): void {
+    if (this.active > 0 && this.readVisit !== this.visit) this.reload()
+  }
+
+  /** The panel left: the next focus is a return, not this visit's mount. */
+  hide(): void {
+    this.readVisit = -1
+  }
+
   /** One read at a time; a reload asked during a read runs once after it. */
   reload(): void {
+    // A reload during a read still belongs to this visit: the queued read is
+    // that visit's answer, so a focus arriving after it does not add a third.
+    this.readVisit = this.visit
     if (this.reading) { this.again = true; return }
     const current = this.machines.getSnapshot()
     if (current.status === 'idle') this.machines.set({ ...current, status: 'loading' })
     const began = Date.now()
     this.reading = (async () => {
       try {
-        const data = await this.api.call<MachinesView>('GET', '/api/machines')
+        // One answer per visit: the sidebar and the board read the same view,
+        // and a recheck/focus inside the share's short age joins that answer.
+        const data = await this.api.call<MachinesView>('GET', '/api/machines', undefined, { share: true })
         this.machines.set({ status: 'ready', data, error: null, observedAt: Date.now() })
         this.forgetFinished(began)
       } catch (error) {

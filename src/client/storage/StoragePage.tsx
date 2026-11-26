@@ -243,7 +243,8 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
       freshCatalog.current = true
       reloadCatalog()
     }
-    if (fleetPage) mc.reload()
+    // A refresh must not reuse a shared answer: recheck reads the host past its view cache too.
+    if (fleetPage) void mc.recheck()
   }
 
   // The machines board is the Overview's Machines tab: `machines` opens that tab.

@@ -137,13 +137,38 @@ export interface HostCallOptions {
    */
   priority?: HostPriority
   /**
-   * Read-only calls only: an identical call already in flight answers this one
-   * too. Nothing is reused after it settles, so a mount still starts its own
-   * read: a call that begins while another identical read is in flight joins
-   * that read, and a call after it has settled sends its own.
+   * Read-only calls only. An identical call already in flight answers this one
+   * too; so does one that settled within {@link SHARE_MAX_AGE_MS} (a mount's
+   * surfaces are staggered, so an in-flight-only join misses the second one).
+   * The recent answer is dropped by the events that change what it describes,
+   * and a fresh call bypasses both. Nothing is kept longer than that age.
    */
-  share?: boolean
+  share?: boolean | ShareOptions
+  /**
+   * A forced refresh (the Refresh button, a recheck): never join an in-flight
+   * read or reuse a recent answer. The same `?fresh=1` path also has its own
+   * share key, so the host reads again either way.
+   */
+  fresh?: boolean
 }
+
+/** How a share may reuse an answer. */
+export interface ShareOptions {
+  /** How long a settled answer may answer another call; defaults to {@link SHARE_MAX_AGE_MS}. */
+  maxAgeMs?: number
+}
+
+/**
+ * How long one shared read's answer may serve a later identical call. A mount's
+ * duplicates are staggered, not overlapping: the Machines board read the view
+ * at 425 ms and again at 258 ms, and the entry surfaces read the catalog at
+ * 208/87/94 ms. One second also covers the one-frame + one-idle first-paint
+ * gate (B3), and is short enough that a 15 s poll, a person's Refresh, or any
+ * read after the event stream has moved on reaches the host. This is a client
+ * answer age, never a host TTL: nothing outlives the visit's own duplicate
+ * burst, and the data-changing events clear it.
+ */
+export const SHARE_MAX_AGE_MS = 1_000
 
 /**
  * At most this many host operations in flight from one page. The host nearly
@@ -231,6 +256,12 @@ class LostCall extends Error {
   }
 }
 
+/** The share age a call asks for: the default, or its own bounded age. */
+function shareMaxAge(share: true | ShareOptions): number {
+  const asked = typeof share === 'object' ? share.maxAgeMs : undefined
+  return typeof asked === 'number' && asked >= 0 ? asked : SHARE_MAX_AGE_MS
+}
+
 /**
  * Build the API over the `remote.layerfs` namespace. The namespace is resolved
  * per call (it remounts when the connection resets), so the API and the pages
@@ -245,14 +276,26 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
   const admission = new HostAdmission()
   /** Identical reads already in flight; a joiner gets that answer and takes no slot of its own. */
   const sharedSends = new Map<string, Promise<any>>()
-  const shared = <T>(key: string, start: () => Promise<T>): Promise<T> => {
+  /** Settled shared answers, by when they settled: one burst's staggered surfaces reuse them, no longer. */
+  const recentSends = new Map<string, { value: any, at: number }>()
+  const shared = <T>(key: string, start: () => Promise<T>, maxAgeMs: number): Promise<T> => {
     const held = sharedSends.get(key)
     if (held) return held as Promise<T>
+    const kept = recentSends.get(key)
+    if (kept && Date.now() - kept.at <= maxAgeMs) return Promise.resolve(kept.value as T)
     const promise = start()
     sharedSends.set(key, promise)
     const forget = () => { if (sharedSends.get(key) === promise) sharedSends.delete(key) }
-    promise.then(forget, forget)
+    // An event that invalidated this key while it was in flight deleted the
+    // flight: its answer still lands for the callers already waiting, but it is
+    // not kept to answer a later one.
+    promise.then((value) => { if (sharedSends.get(key) === promise) recentSends.set(key, { value, at: Date.now() }); forget() }, forget)
     return promise
+  }
+  /** Forget the shared answers a host event makes wrong: late joiners read again, in-flight answers still land. */
+  const invalidateShared = (matches: (key: string) => boolean): void => {
+    for (const key of recentSends.keys()) if (matches(key)) recentSends.delete(key)
+    for (const key of sharedSends.keys()) if (matches(key)) sharedSends.delete(key)
   }
   /** Calls waiting on an answer: each fails when the event stream drops (its connection is gone). */
   const inFlight = new Set<(e: LostCall) => void>()
@@ -282,7 +325,27 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
   let disposed = false
   let handle: any
 
+  /**
+   * The events that make a shared answer wrong. They are the events the reading
+   * surfaces already reread on: a machine or store moved, a project was saved or
+   * removed, the setup check changed, or the connection came back (every answer
+   * may have been produced on the lost one).
+   */
+  const SHARE_INVALIDATION: Readonly<Record<string, (key: string) => boolean>> = {
+    connection: () => true,
+    storage: (key) => key.startsWith('GET /api/storage') || key.startsWith('GET /api/machines') || key.startsWith('op projects.catalog'),
+    'storage-changed': (key) => key.startsWith('GET /api/storage') || key.startsWith('GET /api/machines') || key.startsWith('op projects.catalog'),
+    'machine-progress': (key) => key.startsWith('GET /api/machines') || key.startsWith('GET /api/storage'),
+    'layerfs-availability': (key) => key.startsWith('GET /api/machines') || key.startsWith('GET /api/storage'),
+    'runtime-changed': (key) => key.startsWith('GET /api/machines') || key.startsWith('op setup.status'),
+    projects: (key) => key.startsWith('op projects.catalog') || key.startsWith('GET /api/projects'),
+    'projects-changed': (key) => key.startsWith('op projects.catalog') || key.startsWith('GET /api/projects'),
+    'layerfs-workspaces-changed': (key) => key.startsWith('op projects.catalog'),
+    'setup-changed': (key) => key.startsWith('op setup.status'),
+  }
   const dispatch = (event: HostEvent) => {
+    const matches = SHARE_INVALIDATION[event.type]
+    if (matches) invalidateShared(matches)
     for (const key of [event.type, '*']) for (const l of listeners.get(key) ?? []) {
       try { l(event) } catch (error) { console.error('[dsh-layerfs] event listener failed', error) }
     }
@@ -402,9 +465,17 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
       }
       return value as T
     }
-    // An identical GET already in flight answers both callers; its answer is read
-    // once and never kept past its settle.
-    return options.share && method.toUpperCase() === 'GET' ? shared(`GET ${path} ${callKey(body)}`, run) : run()
+    // An identical GET already in flight (or just answered) answers both callers;
+    // a forced refresh reads the host. A write drops every recent answer: the
+    // event may not have reached the page yet.
+    if (!options.share || method.toUpperCase() !== 'GET' || options.fresh) {
+      const answer = run()
+      // A write's outcome may be unknown (it failed after an effect): drop the
+      // recent answers either way, and let the event stream confirm.
+      if (method.toUpperCase() !== 'GET') answer.then(() => recentSends.clear(), () => recentSends.clear())
+      return answer
+    }
+    return shared(`GET ${path} ${callKey(body)}`, run, shareMaxAge(options.share))
   }
 
   // One logical event stream, reopened after a drop until disposal.
@@ -454,7 +525,7 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
         if (error instanceof LostCall) throw new HostError('no-host', error.message, 0, null, false, 'transport-unknown')
         throw error
       }).finally(() => { settle?.() })
-      return options?.share ? shared(`op ${name} ${callKey(args)}`, run) : run()
+      return options?.share && !options.fresh ? shared(`op ${name} ${callKey(args)}`, run, shareMaxAge(options.share)) : run()
     },
     openPanel: (id) => nav.openPanel(id),
     openWorkspace: (id) => nav.openWorkspace(id),

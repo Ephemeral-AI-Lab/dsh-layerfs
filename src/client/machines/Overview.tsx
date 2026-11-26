@@ -62,7 +62,7 @@ export function MachineOverview({ m, view, live, troubled, notices, fallback, ac
     <div className={css.ovStack} data-machine-overview={m.name}>
       {notices}
       {!clear && <OverviewAttention m={m} view={view} onTab={onTab} onDisk={onDisk} />}
-      {read ? <UsageCard m={m} healthy={clear} onDisk={onDisk} /> : fallback}
+      {read ? <UsageCard m={m} healthy={clear} onDisk={onDisk} space={space} /> : fallback}
       <MachineDetailsCard m={m} live={live} view={view} actions={actions} onTab={onTab} />
       <DangerZone m={m} pending={pending} onRemove={onRemove} />
     </div>
@@ -88,11 +88,11 @@ function NotRead({ why }: { why: string }): ReactNode {
 }
 
 /** Processor, memory and data disk side by side, as the last read found them. */
-function UsageCard({ m, healthy, onDisk }: { m: MachineInfo, healthy: boolean, onDisk: (() => void) | null }): ReactNode {
+function UsageCard({ m, healthy, onDisk, space }: { m: MachineInfo, healthy: boolean, onDisk: (() => void) | null, space: ReturnType<typeof useMachineSpace> }): ReactNode {
   const { t, tw } = useMachinesContext()
   const w = useWords()
   const { snapshot } = useMetrics(m.name)
-  const space = useMachineSpace(m)
+  // The overview reads the space once and hands the one answer to both cards.
   const { level } = useDiskLevel(m)
   const entry = snapshot.machines[m.name]
   const cpu = useMemo(() => (entry ? machineCpu(entry.points, snapshot.tick) : []), [entry, snapshot.tick])

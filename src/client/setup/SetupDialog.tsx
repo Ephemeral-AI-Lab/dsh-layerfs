@@ -89,7 +89,7 @@ export function SetupDialog({ api, t, tm, section }: { api: LayerfsApi, t: Setup
   const checking = manual && status.loading
   const close = () => setupDialog.close()
   // Check (a machine row) and Check again: a fresh probe of the platforms, then the view rereads
-  const recheck = async () => { try { if (usable) await api.call('GET', '/api/machines?fresh=1') } finally { setTick((n) => n + 1) } }
+  const recheck = async () => { try { if (usable) await api.call('GET', '/api/machines?fresh=1', undefined, { fresh: true }) } finally { setTick((n) => n + 1) } }
   return (
     <Modal open headless onClose={close} title={t('title')} className={clsx(dialog.dialog, css.modal)}>
       <div className={dialog.form} data-setup-modal="">

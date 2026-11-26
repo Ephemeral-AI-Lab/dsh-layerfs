@@ -59,7 +59,7 @@ export function useMachineSpace(m: Pick<MachineInfo, 'name' | 'state'>): { offer
     if (!askable) return null
     const now = fresh.current
     fresh.current = false
-    return api.call('GET', `/api/machines/${enc(m.name)}/space${now ? '?fresh=1' : ''}`)
+    return api.call('GET', `/api/machines/${enc(m.name)}/space${now ? '?fresh=1' : ''}`, undefined, { share: true })
   }, [m.name, askable], { refresh: [tick], cache: `space:${m.name}` })
   return { offered, askable, read, refresh: () => { fresh.current = true; read.reload() } }
 }

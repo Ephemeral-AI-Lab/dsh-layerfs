@@ -162,6 +162,10 @@ function useInspectFolders(kind: DetailKind, name: string, reader: MutableRefObj
    */
   const load = useCallback((asked: string, view: FilesViewId, cursor: string | null = null, quiet = false) => {
     const key = readKey(asked)
+    // A tab reads each folder once: a second mount effect (or a refresh while
+    // its first page is already on the wire) joins that read instead of
+    // issuing the identical roots request again with another `rid`.
+    if (cursor === null && controllers.current.has(key)) return
     controllers.current.get(key)?.abort()
     const controller = new AbortController()
     controllers.current.set(key, controller)
