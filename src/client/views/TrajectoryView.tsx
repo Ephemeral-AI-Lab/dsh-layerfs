@@ -164,6 +164,16 @@ export function RecordText({ record, t }: { record: TrajectoryRecord, t: Transla
       </span>
     )
   }
+  if (record.kind === 'observation') {
+    // One session-level line for the read-only calls folded into a counter: the
+    // sentence and its top operations, never a per-poll row.
+    return (
+      <span className={css.text}>
+        <span className={css.plain}>{record.text}</span>
+        {record.top?.length ? <span className={css.muted} title={record.top.join(' · ')}>{record.top.slice(0, 3).join(' · ')}{record.top.length > 3 ? ' …' : ''}</span> : null}
+      </span>
+    )
+  }
   return (
     <span className={css.text}>
       {record.kind === 'context' ? <span className={css.badge}>{record.source}</span> : null}
