@@ -25,6 +25,7 @@ await build({
       export * as U from './src/client/ui/use-query.ts'
       export * as S from './src/client/storage/session-cache.ts'
       export * as H from './src/client/ui/paint-hints.ts'
+      export * as I from './src/client/invalidation.ts'
       export * as A from './src/client/api.ts'
       export { useSessionLists, ProjectTable, ProjectGrid, EarlyCard } from './src/client/storage/ProjectTable.tsx'
     `,
@@ -348,6 +349,98 @@ test('an event between the prefetch and the mount drops the paint hints and the 
   const control = M.mount(Control, { api: never })
   assert.equal(control.tree.props.view, before, 'a hint kept since the last event still paints')
   control.unmount()
+})
+
+test('machine-progress and layerfs-availability drop the hints between the prefetch and the mount', async (t) => {
+  const before = view([{ name: 'perf', projects: ['demo'] }])
+  const answers = {
+    'http GET /api/storage': { value: { status: 200, body: before } },
+    'http GET /api/projects': { value: { status: 200, body: [] } },
+    'projects.catalog': { value: { rows: [], scratchKey: null } },
+    'sessions.list': { value: { sessions: [session('old-session')] } },
+  }
+  const rig = await newApi(t, answers)
+  const emit = async (event) => { rig.state.emit(event); await flush(); await flush() }
+  const never = { call: () => new Promise(() => {}), op: () => new Promise(() => {}), onEvent: () => () => {} }
+  function Card({ api }) {
+    const q = M.U.useQuery(() => api.call(), [api], { cache: 'GET /api/storage' })
+    return { type: 'card', props: { view: q.data, loading: q.loading } }
+  }
+  function Rows({ api }) {
+    const r = M.useSessionLists(api, ['perf/demo'])
+    return { type: 'rows', props: { sessions: r.lists.get('perf/demo'), ready: r.ready } }
+  }
+
+  // Control: a prefetch with no event after it still paints the primed list.
+  M.H.forgetPaintHints()
+  M.P.resetHomePrefetch()
+  await M.P.prefetchHome(rig.api)
+  assert.deepEqual(M.S.knownSessionList('perf/demo'), [session('old-session')], 'the prefetch primed the session list')
+  const warm = M.mount(Rows, { api: never })
+  assert.equal(warm.tree.props.sessions.length, 1, 'without an event, the primed list paints')
+  assert.equal(warm.tree.props.ready, true, 'and the read on mount still starts')
+  warm.unmount()
+
+  for (const type of ['machine-progress', 'layerfs-availability']) {
+    M.P.resetHomePrefetch()
+    await M.P.prefetchHome(rig.api)
+    assert.deepEqual(M.S.knownSessionList('perf/demo'), [session('old-session')], `${type}: the prefetch primed the session list`)
+    // The prefetched-answers map, on a key of this test's own: the one the
+    // prefetch leaves (`GET /api/storage`) may already have been painted into
+    // the remount cache by an earlier test, which is not what is under test here.
+    M.U.keepPrefetched(`test:${type}`, before)
+    await emit({ type })
+    assert.equal(M.S.knownSessionList('perf/demo'), undefined, `${type} drops the primed session list`)
+
+    const rows = M.mount(Rows, { api: never })
+    assert.equal(rows.tree.props.sessions, undefined, `${type}: the primed session list does not paint`)
+    assert.equal(rows.tree.props.ready, false, `${type}: the row waits for its own read`)
+    rows.unmount()
+
+    function Hint({ api }) {
+      const q = M.U.useQuery(() => api.call(), [api], { cache: `test:${type}` })
+      return { type: 'hint', props: { view: q.data, loading: q.loading } }
+    }
+    const hint = M.mount(Hint, { api: never })
+    assert.equal(hint.tree.props.view, undefined, `${type}: the first render does not paint the prefetched answer`)
+    assert.equal(hint.tree.props.loading, true, `${type}: the mount starts its own read`)
+    hint.unmount()
+
+    // A hint kept after the event still paints, so the event is the only
+    // thing that dropped the ones above.
+    M.U.keepPrefetched(`test:${type}-control`, before)
+    function Control({ api }) {
+      const q = M.U.useQuery(() => api.call(), [api], { cache: `test:${type}-control` })
+      return { type: 'control', props: { view: q.data } }
+    }
+    const control = M.mount(Control, { api: never })
+    assert.equal(control.tree.props.view, before, 'a hint kept after the event still paints')
+    control.unmount()
+    M.H.forgetPaintHints()
+  }
+})
+
+test('the hint events are the shared invalidation table, so neither list can drift', async (t) => {
+  const rig = await newApi(t, {})
+  const emit = async (event) => { rig.state.emit(event); await flush(); await flush() }
+  assert.deepEqual(
+    [...M.H.PAINT_HINT_EVENTS].sort(),
+    Object.keys(M.I.SHARE_INVALIDATION).sort(),
+    'the paint hint events are the shared invalidation events, not a copy',
+  )
+  for (const type of Object.keys(M.I.SHARE_INVALIDATION)) {
+    M.U.keepPrefetched(`test:${type}`, { type })
+    M.S.keepSessionList('perf/demo', [session('kept')])
+    await emit({ type })
+    assert.equal(M.U.cachedAnswer(`test:${type}`), undefined, `${type} drops the prefetched answer`)
+    assert.equal(M.S.knownSessionList('perf/demo'), undefined, `${type} drops the cached session list`)
+  }
+  // An event outside the table invalidates no shared answer, so it keeps the hints.
+  M.U.keepPrefetched('test:outside', { kept: true })
+  M.S.keepSessionList('perf/demo', [session('kept')])
+  await emit({ type: 'layerfs-checkpoint' })
+  assert.deepEqual(M.U.cachedAnswer('test:outside'), { kept: true }, 'an event outside the table leaves the prefetch hint')
+  assert.deepEqual(M.S.knownSessionList('perf/demo'), [session('kept')], 'and the cached session list')
 })
 
 test('the first card paints what the row already knows, with no blank line', async () => {

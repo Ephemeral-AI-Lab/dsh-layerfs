@@ -7,11 +7,19 @@
  * not a cache lifetime).
  *
  * Both hint caches register their clear here, so forgetting every hint is one
- * call, and `PAINT_HINT_EVENTS` is the one event list to edit when a surface
- * starts rereading on a new event. `api.ts` runs the clear from its event
- * dispatch, before any mounted surface hears the event, so even a mount that
- * starts in the same turn as the event cannot paint a stale hint.
+ * call, and the event set is derived from the shared invalidation table
+ * (`invalidation.ts`): the events that make a shared answer wrong are the ones
+ * that may make a hint wrong, and one table cannot omit an event the other
+ * already handles. A few of them (`runtime-changed`, `setup-changed`) do not
+ * touch a hint cache's reads; they drop the hints anyway, which costs a first
+ * paint, never a stale one.
+ *
+ * `api.ts` runs the clear from its event dispatch, before any mounted surface
+ * hears the event, so even a mount that starts in the same turn as the event
+ * cannot paint a stale hint.
  */
+import { SHARE_INVALIDATION } from '../invalidation.ts'
+
 const clears: (() => void)[] = []
 
 /** Register one hint cache's clear (each cache does this once, at module load). */
@@ -25,18 +33,10 @@ export function forgetPaintHints(): void {
 }
 
 /**
- * The events after which no hint may paint: the Store view or a project moved,
- * a session changed, or the connection came back (every answer may have been
- * read on the lost connection). A disconnect clears too: the drop itself is the
- * event. These are the events the reading surfaces already reread on
- * (`storage/StoragePage.tsx`, `storage/ProjectTable.tsx`).
+ * The events after which no hint may paint: every event that invalidates a
+ * shared answer — a Store view, catalog or session moved, a machine or Store
+ * changed readiness, the setup check changed, or the connection came back. It
+ * is derived from `invalidation.ts`, not listed, so a new event there cannot
+ * leave a prefetched answer painting after it.
  */
-export const PAINT_HINT_EVENTS: ReadonlySet<string> = new Set([
-  'storage',
-  'storage-changed',
-  'projects',
-  'projects-changed',
-  'layerfs-session',
-  'layerfs-workspaces-changed',
-  'connection',
-])
+export const PAINT_HINT_EVENTS: ReadonlySet<string> = new Set(Object.keys(SHARE_INVALIDATION))

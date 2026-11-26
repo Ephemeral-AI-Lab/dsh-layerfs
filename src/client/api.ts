@@ -5,6 +5,7 @@
  * from the `layerfs/events` stream. Pages receive one `LayerfsApi` through
  * their slot `inject`; nothing here is a module-level singleton.
  */
+import { SHARE_INVALIDATION } from './invalidation.ts'
 import { forgetPaintHints, PAINT_HINT_EVENTS } from './ui/paint-hints.ts'
 
 /** A refused call: LayerFS's code, its message, detail and `fix` line, and the HTTP-like status. */
@@ -328,25 +329,6 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
   let disposed = false
   let handle: any
 
-  /**
-   * The events that make a shared answer wrong. They are the events the reading
-   * surfaces already reread on: a machine or store moved, a project was saved or
-   * removed, the setup check changed, or the connection came back (every answer
-   * may have been produced on the lost one).
-   */
-  const SHARE_INVALIDATION: Readonly<Record<string, (key: string) => boolean>> = {
-    connection: () => true,
-    storage: (key) => key.startsWith('GET /api/storage') || key.startsWith('GET /api/machines') || key.startsWith('op projects.catalog') || key.startsWith('op sessions.list'),
-    'storage-changed': (key) => key.startsWith('GET /api/storage') || key.startsWith('GET /api/machines') || key.startsWith('op projects.catalog') || key.startsWith('op sessions.list'),
-    'machine-progress': (key) => key.startsWith('GET /api/machines') || key.startsWith('GET /api/storage') || key.startsWith('op sessions.list'),
-    'layerfs-availability': (key) => key.startsWith('GET /api/machines') || key.startsWith('GET /api/storage') || key.startsWith('op sessions.list'),
-    'runtime-changed': (key) => key.startsWith('GET /api/machines') || key.startsWith('op setup.status'),
-    projects: (key) => key.startsWith('op projects.catalog') || key.startsWith('GET /api/projects'),
-    'projects-changed': (key) => key.startsWith('op projects.catalog') || key.startsWith('GET /api/projects'),
-    'layerfs-workspaces-changed': (key) => key.startsWith('op projects.catalog') || key.startsWith('op sessions.list'),
-    'layerfs-session': (key) => key.startsWith('op sessions.list'),
-    'setup-changed': (key) => key.startsWith('op setup.status'),
-  }
   const dispatch = (event: HostEvent) => {
     // Home's paint hints live in module maps with no mounted surface to hear
     // the event: drop them here, before listeners run, so a panel that mounts

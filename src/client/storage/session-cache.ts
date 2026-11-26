@@ -12,7 +12,10 @@ const sessionAnswers = new Map<string, readonly ProjectSession[]>()
 // Keyed by `store/project`, so a list only paints its own project's rows. A
 // project that left the Store is dropped with every other hint by the event
 // invalidation (`ui/paint-hints.ts`), so a removed project's answer cannot
-// resurface on the first render.
+// resurface on the first render. The list kept here is the local one (no Store
+// walk), so `machine-progress` and `layerfs-availability` cannot change it; they
+// still drop it with every other hint, which costs a first paint, never a wrong
+// row.
 registerPaintHints(() => sessionAnswers.clear())
 
 /** The last answer for a project key (`store/project`), if any. */
