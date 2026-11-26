@@ -1333,3 +1333,24 @@
   .row:not(.opRow) .kind { justify-self: start; }
   .row:not(.opRow) .meta { font-size: 12px; }
 }
+/* A phone: the drawer takes the whole body width, its footer keeps clear of the
+   home indicator, and the header's close target stays a thumb target. */
+@container trajectory-body (max-width: 480px) {
+  .inspector {
+    right: 0;
+    left: 0;
+    width: 100%;
+    max-width: none;
+    border-radius: 0;
+    box-shadow: none;
+  }
+}
+
+@media (max-width: 1180px), (pointer: coarse) {
+  /* The "Open in History" action and the version chips are thumb targets; the
+     chips keep their inline look (a chip is not a 44px row) but get height. */
+  .versionLine .openHistory {
+    min-height: var(--lfs-tap, 44px);
+  }
+}
+

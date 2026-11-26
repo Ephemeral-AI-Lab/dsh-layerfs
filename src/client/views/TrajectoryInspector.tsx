@@ -5,7 +5,7 @@
  * changed also gets DSH's Diff tab (`session.trajectory.prompt-diff`), read
  * lazily when the tab opens.
  */
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { Button, IconCloseOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
@@ -508,6 +508,26 @@ export function TrajectoryInspector({ api, sessionId, inspected, tab, onTab, onC
       : inspected.kind === 'ops' ? inspected.title : null,
   ].filter(Boolean).join(' · ')
   const tabId = (value: Tab) => `${uid}-tab-${value}`
+  // A phone's tab row scrolls sideways: keep the selected tab in sight when it
+  // opens, when the tab changes and when the drawer resizes.
+  const tabRow = useRef<HTMLDivElement | null>(null)
+  useLayoutEffect(() => {
+    const row = tabRow.current
+    const el = row?.querySelector<HTMLElement>(`[data-tab="${current}"]`)
+    if (!row || !el) return
+    const reveal = () => {
+      const r = el.getBoundingClientRect(), box = row.getBoundingClientRect()
+      const left = r.left - box.left + row.scrollLeft
+      const right = left + r.width
+      if (left < row.scrollLeft) row.scrollLeft = Math.max(0, left - 8)
+      else if (right > row.scrollLeft + row.clientWidth) row.scrollLeft = right - row.clientWidth + 8
+    }
+    reveal()
+    window.addEventListener('resize', reveal)
+    const watch = typeof ResizeObserver === 'function' ? new ResizeObserver(reveal) : null
+    if (watch) watch.observe(row)
+    return () => { window.removeEventListener('resize', reveal); watch?.disconnect() }
+  }, [current, tabs.length])
   /** Arrow keys move between tabs (the WAI-ARIA tabs pattern). */
   const onTabKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
@@ -525,9 +545,9 @@ export function TrajectoryInspector({ api, sessionId, inspected, tab, onTab, onC
         <Button variant="ghost" size="sm" icon={<IconCloseOutlineRegular size={14} />} aria-label={t('trajClose')} title={t('trajClose')} onClick={onClose} />
       </header>
       {tabs.length > 1 ? (
-        <div className={css.tabs} role="tablist" aria-label={t('trajDetails')} onKeyDown={onTabKey}>
+        <div className={css.tabs} role="tablist" aria-label={t('trajDetails')} onKeyDown={onTabKey} ref={tabRow}>
           {tabs.map((value) => (
-            <button key={value} type="button" role="tab" id={tabId(value)} className={css.tab} aria-selected={value === current}
+            <button key={value} type="button" role="tab" id={tabId(value)} data-tab={value} className={css.tab} aria-selected={value === current}
               aria-controls={`${uid}-panel`} tabIndex={value === current ? 0 : -1} onClick={() => onTab(value)}>
               {t(`trajTab_${value}`)}
             </button>
