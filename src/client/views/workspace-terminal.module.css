@@ -86,3 +86,36 @@
 
 
 .quiet { margin: 0; color: var(--dsw-alias-label-tertiary); }
+
+/* Thumb target for the live-terminal link at a coarse pointer. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .live { min-height: var(--lfs-tap, 44px); }
+}
+
+/* A phone: the transcript takes the card's full width and scrolls sideways for
+   long commands and output (a terminal does not reflow); the header text comes
+   up to 12px and the live link keeps its 44px target. */
+@container sandbox-map (max-width: 620px) {
+  .panel {
+    width: 100%;
+    margin: 0 0 8px;
+  }
+
+  .header { font-size: 12px; }
+
+  .terminal {
+    overflow-x: auto;
+    font-size: 12px;
+  }
+
+  .command,
+  .output {
+    white-space: pre;
+    overflow-wrap: normal;
+  }
+
+  .output { max-height: 220px; }
+
+  .bad,
+  .waiting { font-size: 12px; }
+}
