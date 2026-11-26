@@ -831,6 +831,15 @@
   outline-offset: 1px;
 }
 
+/* The short id stays a 12px inline label, but a finger gets a 44px-tall target.
+   Only the button's box grows; the text and the full-id tip do not change. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .copyId {
+    min-height: var(--lfs-tap, 44px);
+    align-items: center;
+  }
+}
+
 /* ExplainedButton: matches DSH Button:disabled while using aria-disabled so Tooltip fires on hover/focus. */
 .disabledButton[aria-disabled='true'] {
   cursor: not-allowed;
@@ -885,6 +894,7 @@
 }
 
 .confirmFooter {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -936,6 +946,69 @@
   .title {
     overflow-wrap: anywhere;
     white-space: normal;
+  }
+}
+
+/* A phone sheet: edge to edge, anchored above the home indicator, with the
+   head and footer fixed and only the body scrolling. The footer clears
+   --lfs-safe-bottom, and each action takes half the width so it is reachable
+   with a thumb. Above 640px the dialog keeps its desktop card. */
+@media (max-width: 640px) {
+  .confirmModal {
+    position: fixed;
+    inset: auto 0 0 0;
+    width: 100%;
+    max-width: none;
+    max-height: 100%;
+    margin: 0;
+    padding: 0;
+    gap: 0;
+    border-radius: var(--dsw-radius-lg) var(--dsw-radius-lg) 0 0;
+  }
+
+  .confirmModal > :global([class*='_content_']) {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .confirmModal :global([class*='_header_']) {
+    flex: none;
+    padding-top: 18px;
+    padding-bottom: 10px;
+  }
+
+  .confirmModal :global([class*='_description_']) {
+    flex: none;
+    max-height: 30%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .confirmModal :global([class*='_body_']) {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding-bottom: 12px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .confirmFooter {
+    flex: none;
+    padding: 12px max(20px, var(--lfs-safe-right, 0px)) calc(12px + var(--lfs-safe-bottom, 0px)) max(20px, var(--lfs-safe-left, 0px));
+    border-top: 0.5px solid var(--dsw-alias-border-l2);
+    background: var(--dsw-alias-bg-layer-2);
+  }
+
+  .confirmFooter > button {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .confirmModal :global(button[aria-label]) {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
   }
 }
 
