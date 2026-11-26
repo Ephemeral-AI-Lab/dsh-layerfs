@@ -19,7 +19,7 @@ import { LOGS_EVENT, shellCommand, type LabeledLine, type LogsListAnswer, type L
 import { MachineGlyph, SandboxGlyph } from '../machines/icons.tsx'
 import { openStorage } from '../projects/navigation.ts'
 import type { MachinesView } from '../machines/model.ts'
-import { Gate, useNoComposer, type ViewProps } from './FileViews.tsx'
+import { Gate, useNoComposer, ViewCrumb, type ViewProps } from './FileViews.tsx'
 import { useRootState } from './hooks.ts'
 import type { Translate } from './locale.ts'
 import { useLocaleRevision } from '../ui/locale-sync.ts'
@@ -330,7 +330,7 @@ function ChatSandboxMap({ api, t, sessionId, project, binding, root, byId, title
   return (
     <SandboxMap api={api} t={t} project={project} agents={agents} calls={calls} loaded={loaded} binding={binding}
       sessionId={sessionId} startLive={agents.some((a) => a.running)} name={name} groupTitle={groupTitle}
-      note={backfilling ? t('olderLoading') : undefined} />
+      note={backfilling ? t('olderLoading') : undefined} crumbs={<ViewCrumb label={t('tabSandbox')} t={t} />} />
   )
 }
 
@@ -359,6 +359,8 @@ export interface SandboxMapProps {
   boxActions?: (name: string) => ReactNode
   /** A line under the toolbar (what the calls shown cover). */
   note?: ReactNode
+  /** A phone's one-line view marker (the conversation view only; the project page has its own tab). */
+  crumbs?: ReactNode
   /** The inspector's copy while there are no calls. */
   emptyCopy?: { title: string, body: string }
 }
@@ -439,7 +441,7 @@ function chainOf(L: Layout, e: MapEvent): { d: string, target: string } | null {
 }
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
-export function SandboxMap({ api, t, project, agents, calls, loaded, binding, live, sessionId, startLive, name, groupTitle, boxState, boxActions, note, emptyCopy }: SandboxMapProps): ReactNode {
+export function SandboxMap({ api, t, project, agents, calls, loaded, binding, live, sessionId, startLive, name, groupTitle, boxState, boxActions, note, emptyCopy, crumbs }: SandboxMapProps): ReactNode {
   const full = useMemo(() => buildSandboxMap(agents, binding, calls, live), [agents, binding, calls, live])
   const clock = useClock(full.duration, startLive)
   // Only the Branches active in the 5 minutes before the playhead (Live: before
@@ -782,6 +784,7 @@ export function SandboxMap({ api, t, project, agents, calls, loaded, binding, li
 
   return (
     <div className={css.page} data-playing={clock.playing || undefined}>
+      {crumbs}
       <div className={css.toolbar}>
         <span className={css.facts}><IconUsersOutlineRegular size={13} />{[count(t, shownAgents.length, 'factAgentOne', 'factAgents'), count(t, model.branches.length, 'factBranchOne', 'factBranches'), count(t, model.sandboxes.length, 'factSandboxOne', 'factSandboxes')].join(' · ')}
           {hiddenBranches > 0 ? <span className={css.muted} title={t('recentBranchesHint')}> · {t('recentBranches', { n: full.branches.length })}</span> : null}</span>
@@ -843,11 +846,11 @@ export function SandboxMap({ api, t, project, agents, calls, loaded, binding, li
           ) : null}
         </svg>
 
-        <div className={css.zone} style={{ left: frame.pad + 4 }}><IconUsersOutlineRegular size={13} /><b>{t('agents')}</b><span className={css.count}>{shownAgents.length}</span></div>
+        <div className={css.zone} data-zone="agents" style={{ left: frame.pad + 4 }}><IconUsersOutlineRegular size={13} /><b>{t('agents')}</b><span className={css.count}>{shownAgents.length}</span></div>
         <div className={css.zone} data-zone="hub" style={{ left: L?.hubLabelLeft ?? frame.cz0 + 8, maxWidth: frame.czW - 16 }}>
           <b>{t('layerfs')}</b><span className={css.project} title={project}>{projectName}</span><span className={css.count}>{count(t, model.branches.length, 'factBranchOne', 'factBranches')}</span>
         </div>
-        <div className={css.zone} style={{ left: frame.cz1 + 4 }}><SandboxGlyph size={13} /><b>{t('sandboxes')}</b><span className={css.count}>{model.sandboxes.length}</span></div>
+        <div className={css.zone} data-zone="sandboxes" style={{ left: frame.cz1 + 4 }}><SandboxGlyph size={13} /><b>{t('sandboxes')}</b><span className={css.count}>{model.sandboxes.length}</span></div>
 
         <section className={clsx(css.col, compactAgents && css.compact)} data-col="agents" style={{ left: frame.pad, width: frame.leftW, top: L?.agentsTop ?? frame.top }}>
           {groups.map((group) => {
@@ -905,6 +908,7 @@ export function SandboxMap({ api, t, project, agents, calls, loaded, binding, li
           <LayerfsGlyph size="56%" />
         </button>
 
+        <div className={css.pillRow}>
         {arc.map((branch) => {
           const f = { kind: 'branch', id: branch } as const
           const key = node('branch', branch)
@@ -923,6 +927,7 @@ export function SandboxMap({ api, t, project, agents, calls, loaded, binding, li
             </button>
           )
         })}
+        </div>
 
         <section className={css.col} data-col="boxes" style={{ left: frame.cz1, width: frame.rightW, top: L?.boxesTop ?? frame.top }}>
           {model.sandboxes.length === 0 ? (

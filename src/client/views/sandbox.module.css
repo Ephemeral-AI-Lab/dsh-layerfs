@@ -544,6 +544,11 @@
 @container sandbox-map (max-width: 860px) {
   .eventOwner { display: none; }
   .legend { display: none; }
+  /* A tablet: the map fits the column (two content columns around the hub)
+     instead of scrolling sideways inside it. The Sandboxes column keeps a
+     gutter from the branch pills on the arc. */
+  .map { min-width: 0; }
+  .col[data-col='boxes'] { margin-left: 10px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -556,4 +561,177 @@
   .spacer { display: none; }
   .toolbar { gap: 8px 4px; }
   .playState { min-width: auto; }
+}
+
+/* The branch pills are absolutely placed on the hub's arc; the wrapper lets a
+   phone flow them as a wrapping row without changing the desktop map. */
+.pillRow { display: contents; }
+
+/* Thumb targets for the map's rows and its controls at a coarse pointer (and
+   at the tablet widths where a finger is the input): the measured layout reads
+   the real heights, so the diagram re-spaces itself around the taller rows.
+   The branch pills are placed on the arc by formula, so they grow only in the
+   stacked phone layout below. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .agent,
+  .boxHead,
+  .ws,
+  .fold,
+  .event,
+  .activityToggle,
+  .toolbar button {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .toolbar .speed [role='tab'] {
+    height: var(--lfs-tap, 44px);
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .toolbar .live { min-height: var(--lfs-tap, 44px); }
+
+  /* A tablet reads at 12px too: the map's dense 10.5/11px captions step up. */
+  .podHead,
+  .status,
+  .callLine,
+  .mono,
+  .boxEmpty,
+  .boxOwn,
+  .retired,
+  .legend,
+  .playback,
+  .tag,
+  .saves,
+  .pillName,
+  .fold,
+  .zone,
+  .muted {
+    font-size: 12px;
+  }
+}
+
+/* A phone: the map's three measured columns become one column in reading
+   order — Agents, the LayerFS hub with its branch pills, then Sandboxes — with
+   the wires off (nothing is positioned anymore) and the legend below. The
+   sandbox cards, their Workspaces and every control stay full width. */
+@container sandbox-map (max-width: 620px) {
+  .scroller { overflow: visible; }
+
+  .map {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    box-sizing: border-box;
+    min-width: 0;
+    height: auto !important;
+    padding: 10px 0 4px;
+    overflow: visible;
+  }
+
+  .under { display: none; }
+
+  .zone {
+    position: static;
+    order: 0;
+    max-width: 100% !important;
+    padding: 0 2px;
+    font-size: 12px;
+  }
+
+  .zone[data-zone='hub'] { order: 2; }
+  .zone[data-zone='sandboxes'] { order: 5; }
+
+  .col {
+    position: static;
+    order: 1;
+    width: auto !important;
+  }
+
+  .col[data-col='boxes'] { order: 6; }
+
+  .hub {
+    position: static !important;
+    order: 3;
+    flex: none;
+    align-self: center;
+    margin: 2px auto;
+  }
+
+  .pillRow {
+    display: flex;
+    flex-wrap: wrap;
+    order: 4;
+    gap: 8px;
+    padding: 0 2px;
+  }
+
+  .pill {
+    position: static !important;
+    height: var(--lfs-tap, 44px);
+    max-width: 100% !important;
+  }
+
+  .pillName {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .legend {
+    position: static;
+    order: 7;
+    justify-content: center;
+    padding: 0 2px;
+    transform: none;
+  }
+
+  /* Activity: the call's target takes its own line instead of being squeezed
+     into a 140px slot; the owner already drops out at 860. */
+  .events { max-height: 320px; }
+
+  .event {
+    flex-wrap: wrap;
+    row-gap: 2px;
+    gap: 6px;
+    padding: 8px 9px;
+    font-size: 12px;
+  }
+
+  .eventTarget {
+    flex: 1 1 100%;
+    order: 5;
+    overflow: visible;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .eventMethod { width: auto; max-width: 46%; }
+
+  .detail { padding: 12px 12px 14px; }
+  .detailOutput { font-size: 12px; }
+  .emptyCalls { padding: 14px 12px 16px; }
+
+  /* The toolbar stacks its facts over its controls. */
+  .toolbar { gap: 8px; }
+  .playState { min-width: auto; }
+
+  /* A phone reads at 12px: the map's dense 10.5/11px captions step up. */
+  .podHead,
+  .status,
+  .callLine,
+  .mono,
+  .boxEmpty,
+  .boxOwn,
+  .retired,
+  .legend,
+  .playback,
+  .tag,
+  .saves,
+  .pillName,
+  .fold,
+  .zone,
+  .muted {
+    font-size: 12px;
+  }
 }
