@@ -99,7 +99,7 @@ export function SetupDialog({ api, t, tm, section }: { api: LayerfsApi, t: Setup
             <span className={dialog.headText}>
               <h2 className={dialog.title}>{t('title')}</h2>
             </span>
-            <Button variant="ghost" size="sm" className={dialog.close} icon={<IconCloseOutlineRegular size={16} />} aria-label={t('close')} title={t('close')} onClick={close} />
+            <Button variant="ghost" size="sm" className={clsx(dialog.close, css.close)} icon={<IconCloseOutlineRegular size={16} />} aria-label={t('close')} title={t('close')} onClick={close} />
           </div>
         </header>
         <div ref={pane} className={css.scroll}>
