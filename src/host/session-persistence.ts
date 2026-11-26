@@ -9,6 +9,10 @@ import { dirname, join, relative, sep } from 'node:path'
 import { homedir } from 'node:os'
 import { ProjectCatalog, type ProjectIdentity, type CatalogProject } from './sessions/catalog.ts'
 import { CliError } from './layerfs/cli.ts'
+import {
+  compactInvocations, foldRead, RECEIPT_CAP, RECEIPT_META, receiptDisposition, readOnlyOperation, setReceiptAggregate, withReceiptMeta,
+  type Invocation, type ReceiptMeta,
+} from './layerfs/tracing.ts'
 
 export const name = 'dsh-layerfs-session-persistence'
 export type Config = jsonl.Config
@@ -150,6 +154,8 @@ export interface SessionSidecar {
   sessionId: string
   project: string
   invocations: any[]
+  /** The read-only receipt counter (see `layerfs/tracing.ts`); absent before the first fold. */
+  receipts?: ReceiptMeta
   archive?: { count: number, updatedAt: number, error?: string }
   [key: string]: any
 }
@@ -655,7 +661,9 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     if (project) meta.project = project
     const sourceReceipts = receiptsPathOf(source)
     if (legacy !== undefined) {
-      if (legacy.length) this.writeReceipts(target, legacy)
+      const folded = compactInvocations(meta[RECEIPT_META], legacy)
+      meta[RECEIPT_META] = folded.meta
+      this.writeReceipts(target, folded.invocations)
     } else if (existsSync(sourceReceipts)) {
       // Receipts are durable beside the metadata before it names them; the
       // source folder is retained until the move finishes, so nothing is lost.
@@ -858,23 +866,25 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
   /** What a `cached: true` read shares: metadata plus a lazy receipts property. */
   private sidecarValue(path: string, meta: any, legacy?: any[]): SessionSidecar {
     const value: any = { ...meta }
-    if (legacy !== undefined) value.invocations = legacy
+    // The receipts array carries the counter (non-enumerably) for trajectory
+    // inputs that hand over only the array; `value.receipts` is the same object.
+    if (legacy !== undefined) value.invocations = withReceiptMeta(legacy, meta[RECEIPT_META])
     else Object.defineProperty(value, 'invocations', {
       enumerable: true, configurable: true,
       // Metadata consumers (sessions.list) never pay for this; receipt readers do.
-      get: () => this.receiptsFor(path).receipts,
+      get: () => withReceiptMeta(this.receiptsFor(path).receipts, meta[RECEIPT_META]),
     })
     return value
   }
   /** What an ordinary read returns: metadata deep-copied, receipts copied on access. */
   private sidecarCopy(path: string, meta: any, legacy?: any[]): SessionSidecar {
     const copy: any = structuredClone(meta)
-    if (legacy !== undefined) copy.invocations = structuredClone(legacy)
+    if (legacy !== undefined) copy.invocations = withReceiptMeta(structuredClone(legacy), meta[RECEIPT_META])
     else {
       let memo: any[] | undefined
       Object.defineProperty(copy, 'invocations', {
         enumerable: true, configurable: true,
-        get: () => (memo ??= structuredClone(this.receiptsFor(path).receipts)),
+        get: () => (memo ??= withReceiptMeta(structuredClone(this.receiptsFor(path).receipts), meta[RECEIPT_META])),
       })
     }
     return copy
@@ -927,17 +937,36 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     if (existsSync(backup)) return
     atomicBytes(backup, text)
   }
-  /** Write all receipts (migration and import merge), atomically and durably. */
-  private writeReceipts(sidecarPath: string, rows: readonly any[]): void {
-    let text = ''
+  /** Write all receipts (migration, import merge and the count cap), atomically and durably. */
+  private writeReceipts(sidecarPath: string, rows: readonly any[], dropped = 0): void {
+    // Same marker B1's byte compaction writes: the cumulative count a reader
+    // skips and reports as `dropped`/`truncated`.
+    let text = dropped > 0 ? `${JSON.stringify({ [RECEIPTS_MARKER]: { version: 1, truncated: true, dropped, at: Date.now() } })}\n` : ''
     for (const row of rows) text += `${JSON.stringify(row)}\n`
     const path = receiptsPathOf(sidecarPath)
     atomicBytes(path, text)
     // The rows are already in memory: seed the parsed cache instead of making
     // the next trajectory read parse them back off disk.
     const identity = fileIdentity(path)
-    if (identity) this.rememberReceipts(path, identity.key, { receipts: dedupeReceipts(rows), dropped: 0, skipped: 0, bytes: identity.bytes })
+    if (identity) this.rememberReceipts(path, identity.key, { receipts: dedupeReceipts(rows), dropped, skipped: 0, bytes: identity.bytes })
     else this.forgetReceipts(path)
+  }
+  /** Receipts kept per session; overridable so a test can use a small cap. */
+  private receiptCap?: number
+  private get receiptLimit(): number { return this.receiptCap ?? RECEIPT_CAP }
+  /**
+   * The per-session cap: keep the newest {@link receiptLimit} receipts, drop the
+   * oldest and record the cumulative count in the file's marker. Runs after an
+   * append (the parsed file is already cached, so a steady session costs no
+   * re-read); returns whether it trimmed.
+   */
+  private trimReceipts(sidecarPath: string): boolean {
+    const load = this.receiptsFor(sidecarPath)
+    const cap = this.receiptLimit
+    if (load.receipts.length <= cap) return false
+    const drop = load.receipts.length - cap
+    this.writeReceipts(sidecarPath, load.receipts.slice(drop), load.dropped + drop)
+    return true
   }
   /**
    * Fold one append into the parsed cache, but only when that cache was current
@@ -1048,14 +1077,18 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
       const descriptor = Object.getOwnPropertyDescriptor(value, 'invocations')
       if (!assignedFlag && descriptor && descriptor.get === undefined && Array.isArray(descriptor.value)) { assignedFlag = true; assigned = descriptor.value }
       if (legacy !== undefined) {
-        // Lazy migration: receipts durably beside the file first, then the small
-        // metadata, with the combined original retained as `.bak`. A crash before
-        // the metadata rewrite leaves the old file authoritative, so the retry
-        // reproduces exactly the same receipts.
+        // Lazy migration *and* receipt compaction: writes/refusals go durably
+        // beside the file, read-only receipts fold into the counter, then the
+        // small metadata replaces the combined original (kept as `.bak`). A
+        // crash before the metadata rewrite leaves the old file authoritative:
+        // the retry reproduces the same kept receipts and folds the same reads.
         if (text !== undefined) this.backupSidecar(path, text)
-        if (legacy.length || assignedFlag) this.writeReceipts(path, assignedFlag ? assigned! : legacy)
+        const folded = compactInvocations(value[RECEIPT_META], assignedFlag ? assigned! : legacy)
+        value[RECEIPT_META] = folded.meta
+        this.writeReceipts(path, folded.invocations)
       } else if (assignedFlag) {
         this.writeReceipts(path, assigned!)
+        this.trimReceipts(path)
       }
       delete value.invocations
       // Imported sidecars cannot override the verified destination identity.
@@ -1069,11 +1102,24 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
       else this.forgetSidecar(path)
     })
   }
-  async recordInvocation(invocation: any): Promise<void> {
-    const id = String(invocation.sessionId)
+  /**
+   * Fold one read-only host call into the session's receipt counter instead of
+   * writing a receipt: called by `traceInvocation` through the process-wide
+   * sink. The metadata counter is bumped under the sidecar lock and the cached
+   * read sees it immediately (no TTL); a legacy combined sidecar is compacted
+   * here too, so its first observation folds its read receipts. A refusal is
+   * recorded separately as a receipt but still moves the counter's last
+   * outcome, so the aggregate line stays truthful.
+   */
+  async aggregateInvocation(invocation: Invocation): Promise<void> {
+    const id = String(invocation?.sessionId ?? '')
+    const operation = typeof invocation?.operation === 'string' ? invocation.operation : ''
+    if (!id || !operation) return
     const path = await this.sidecarPath(id)
     const owner = this.owners.sessions[id]
     if (!owner?.project) return
+    const at = Number.isFinite(invocation.at) ? invocation.at! : Date.now()
+    const outcome = invocation.outcome === 'refusal' || invocation.outcome === 'unknown' ? invocation.outcome : 'success'
     withFileLock(`${path}.lock`, () => {
       const text = existsSync(path) ? readFileSync(path, 'utf8') : undefined
       const meta: any = text === undefined ? { version: 1, sessionId: id, project: owner.project } : JSON.parse(text)
@@ -1082,14 +1128,65 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
       if (!meta.version) meta.version = 1
       if (!meta.project) meta.project = owner.project
       if (legacy !== undefined) {
+        // Compatibility: an old combined sidecar compacts on this first
+        // observation, writes/refusals kept beside the file, reads folded.
+        const folded = compactInvocations(meta[RECEIPT_META], legacy)
+        meta[RECEIPT_META] = folded.meta
         if (text !== undefined) this.backupSidecar(path, text)
-        if (legacy.length) this.writeReceipts(path, legacy)
+        this.writeReceipts(path, folded.invocations)
+      }
+      meta[RECEIPT_META] = foldRead(meta[RECEIPT_META], { operation, at, outcome }, { count: outcome === 'success', cap: this.receiptLimit })
+      meta.projectId = this.projectIdOf(id)
+      meta.projectIdentity = owner.identity
+      atomicJson(path, meta)
+      // A cached read sees the bumped counter at once: the file identity moved,
+      // and this entry matches it; no TTL, no receipts re-read.
+      const identity = this.sidecarIdentity(path)
+      if (identity) this.rememberSidecar(path, id, identity.key, identity.bytes, meta)
+      else this.forgetSidecar(path)
+    })
+  }
+  async recordInvocation(invocation: any): Promise<void> {
+    const id = String(invocation.sessionId)
+    const path = await this.sidecarPath(id)
+    const owner = this.owners.sessions[id]
+    if (!owner?.project) return
+    const operation = typeof invocation.operation === 'string' ? invocation.operation : ''
+    const readOnly = !!operation && readOnlyOperation(operation, Array.isArray(invocation.argv) ? invocation.argv : undefined)
+    // A host read that bypassed traceInvocation is still a counter, not a row;
+    // a tool's tagged line is the agent's command and always keeps its receipt.
+    const observe = readOnly && receiptDisposition(invocation, invocation.origin === 'tool' ? 'tool' : 'host') === 'aggregate'
+    withFileLock(`${path}.lock`, () => {
+      const text = existsSync(path) ? readFileSync(path, 'utf8') : undefined
+      const meta: any = text === undefined ? { version: 1, sessionId: id, project: owner.project } : JSON.parse(text)
+      const legacy = Array.isArray(meta.invocations) ? meta.invocations : undefined
+      delete meta.invocations
+      if (!meta.version) meta.version = 1
+      if (!meta.project) meta.project = owner.project
+      if (legacy !== undefined) {
+        // The first write migrates *and* compacts: writes/refusals go durably
+        // beside the file first, reads fold into the counter, then the small
+        // metadata replaces the combined original (retained as `.bak`). A crash
+        // before the metadata rewrite leaves the old file authoritative, so the
+        // retry reproduces the same kept receipts and the same count.
+        if (text !== undefined) this.backupSidecar(path, text)
+        const folded = compactInvocations(meta[RECEIPT_META], legacy)
+        meta[RECEIPT_META] = folded.meta
+        this.writeReceipts(path, folded.invocations)
       }
       // Metadata lands before the append: a crash in between leaves the legacy
       // file (or the prior small one) authoritative, and a retry can only add
       // receipts, never overwrite appended ones with the old in-file array.
       meta.projectId = this.projectIdOf(id)
       meta.projectIdentity = owner.identity
+      if (observe) {
+        meta[RECEIPT_META] = foldRead(meta[RECEIPT_META], { operation, at: Number.isFinite(invocation.at) ? invocation.at : Date.now(), outcome: 'success' }, { cap: this.receiptLimit })
+        atomicJson(path, meta)
+        const foldedIdentity = this.sidecarIdentity(path)
+        if (foldedIdentity) this.rememberSidecar(path, id, foldedIdentity.key, foldedIdentity.bytes, meta)
+        else this.forgetSidecar(path)
+        return
+      }
       atomicJson(path, meta)
       const receiptKey = fileIdentity(receiptsPathOf(path))?.key
       const compacted = this.appendReceipt(path, invocation, { compact: legacy === undefined })
@@ -1098,6 +1195,9 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
       else this.forgetSidecar(path)
       if (compacted) this.forgetReceipts(receiptsPathOf(path))
       else this.noteReceiptAppend(path, invocation, receiptKey)
+      // The cap is a count bound beside the byte bound: the newest receipts
+      // survive, the oldest are dropped and the file marker says how many.
+      this.trimReceipts(path)
     })
   }
 }
@@ -1107,6 +1207,14 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   await inner.plugin(jsonl as any, config).await()
   const local = inner.get('sessionPersistence' as never)
   if (!local) throw new Error('dsh-layerfs: the inner JSONL session persistence did not start')
-  await ctx.plugin({ name: 'dsh-layerfs-session-persistence-service', apply(serviceCtx: Context) { new LayerfsSessionPersistence(serviceCtx, local) } }).await()
+  await ctx.plugin({
+    name: 'dsh-layerfs-session-persistence-service',
+    apply(serviceCtx: Context) {
+      const service = new LayerfsSessionPersistence(serviceCtx, local)
+      // The receipt policy folds host reads here, without tracing.ts knowing
+      // the persistence service (it only exposes the sink).
+      setReceiptAggregate((invocation) => service.aggregateInvocation(invocation))
+    },
+  }).await()
   ctx.logger('layerfs').info('session persistence: stock JSONL at %s; project conversations use owner-routed unpacked JSONL', config.root)
 }

@@ -61,6 +61,64 @@ export const FIRST_PAGE_OPS = 400
  */
 export const MAX_RECORD_OPS = 64
 
+/* ------------------------------------------------------------------ *
+ * Receipt counter (docs: the receipt policy in src/host/layerfs/tracing.ts).
+ * A session's sidecar keeps one small counter for the read-only host calls the
+ * plugin makes itself instead of one receipt per poll; the Trajectory shows one
+ * observation row for it and the inspector can list the busiest operations.
+ * ------------------------------------------------------------------ */
+
+/** One read-only operation's folded observations, as the sidecar metadata holds them. */
+export interface ReadCount {
+  /** Successful host reads folded into the counter. */
+  count: number
+  /** The newest observation's wall-clock time (ms since the epoch). */
+  lastAt: number
+  /** The newest observation's outcome (a refusal is recorded too, and noted here). */
+  lastOutcome: 'success' | 'refusal' | 'unknown'
+}
+
+/** The `receipts` metadata one session's sidecar carries. */
+export interface ReceiptMeta {
+  version: 1
+  /** Folded reads by operation (`workspace.status`, `home.log`, …). */
+  reads: Record<string, ReadCount>
+  /** Successful reads folded; the sum of `reads[*].count`. */
+  readsTotal: number
+  /** Earliest and newest folded read time, when one was folded. */
+  firstAt?: number
+  lastAt?: number
+  /** Receipts a compaction dropped past the cap, cumulative. */
+  dropped: number
+  /** The cap in force. */
+  cap: number
+  /** `dropped > 0`. */
+  truncated: boolean
+  /** The newest legacy receipt a migration folded (crash-retry watermark). */
+  foldedThrough?: string
+}
+
+/**
+ * The aggregated line the Trajectory and inspector show instead of the folded
+ * receipts: one compact summary, then the busiest operations (at most six).
+ * Empty when nothing was folded, so a write-only session shows no line.
+ */
+export function receiptAggregateLines(meta: ReceiptMeta | undefined): string[] {
+  if (!meta || !Number.isFinite(meta.readsTotal) || meta.readsTotal < 1) return []
+  const rows = Object.entries(meta.reads ?? {})
+    .filter(([, read]) => read && Number.isFinite(read.count) && read.count > 0)
+    .sort((a, b) => b[1].count - a[1].count || a[0].localeCompare(b[0]))
+  const total = rows.reduce((sum, [, read]) => sum + read.count, 0)
+  if (total < 1) return []
+  return [
+    `polled ${total.toLocaleString('en-US')} times across ${rows.length} read-only operation${rows.length === 1 ? '' : 's'}`,
+    ...rows.slice(0, 6).map(([operation, read]) => `${operation.replaceAll('.', ' ')}: ${read.count.toLocaleString('en-US')}${read.lastOutcome === 'success' ? '' : ` (last ${read.lastOutcome})`}`),
+  ]
+}
+
+/** The property a receipts array carries its sidecar's counter under (non-enumerable). */
+export const RECEIPT_META_FIELD = 'receipts'
+
 interface RecordBase {
   /** The record's own session event seq (a tool record: its `tool/call`). Unique; the record's id. */
   seq: number
@@ -225,7 +283,24 @@ export interface ToolRecord extends RecordBase {
   opsTotal?: number
 }
 
-export type TrajectoryRecord = UserRecord | AssistantRecord | ToolRecord | SystemRecord | RequestRecord
+/**
+ * The session-level observation line: the read-only host calls folded into the
+ * receipt counter, so no diagnostic silently disappears when its per-call
+ * receipts are not kept. It sits once, after the newest record of the session.
+ */
+export interface ObservationRecord extends RecordBase {
+  kind: 'observation'
+  /** One compact line: `polled 82,726 times across 20 read-only operations`. */
+  text: string
+  /** The busiest folded operations, compact: `workspace status: 31,593`. */
+  top: string[]
+  /** Successful host reads folded into the counter. */
+  reads: number
+  /** The receipt cap dropped older receipts (the counter survives them). */
+  truncated?: boolean
+}
+
+export type TrajectoryRecord = UserRecord | AssistantRecord | ToolRecord | SystemRecord | RequestRecord | ObservationRecord
 
 export interface TrajectoryTurn {
   turn: number
