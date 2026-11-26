@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { afterFirstPaint } from './first-paint.ts'
+import { registerPaintHints } from './paint-hints.ts'
 
 /** One host read: its last answer (kept while a reload runs), its refusal, and whether it runs now. */
 export interface Query<T> {
@@ -39,10 +40,17 @@ function remember(key: string, value: unknown, at = Date.now()): void {
  * are not a cache: an entry is used by one consumer, only while it is younger
  * than {@link PREFETCH_PAINT_MAX_AGE_MS}, and never in place of a newer cached
  * answer. The read on mount still starts (and joins a prefetch in flight).
+ *
+ * The key is the read's identity (the `cache` option: `GET /api/storage`,
+ * `projects.catalog`, a size key, …), never its arguments, so an answer can
+ * only paint the read that asked for it. A host event that may have changed
+ * any answer clears the whole map (`ui/paint-hints.ts`); a mounted surface
+ * then paints its own read, not a hint from before the change.
  */
 const prefetched = new Map<string, Kept>()
 export const PREFETCH_PAINT_MAX_AGE_MS = 30_000
 const PREFETCHED_SIZE = 16
+registerPaintHints(() => prefetched.clear())
 
 /** Keep an answer for the next mount's first render (the prefetch's job); `at` is when its read started. */
 export function keepPrefetched(key: string, value: unknown, at = Date.now()): void {

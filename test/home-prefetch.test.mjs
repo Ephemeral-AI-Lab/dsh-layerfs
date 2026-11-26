@@ -2,8 +2,9 @@
 // the catalogs and the visible projects' sessions through the shared host seam;
 // the panel draws a prefetched answer on its first render while its own read on
 // mount still starts (and joins a prefetch still in flight). The paint hint is
-// bounded and used once; the share age and the read-on-mount contract are the
-// ones the client already had.
+// bounded, used once, and dropped by the host events that can change the answer
+// (a Store or project change, a session change, a connection drop); the share
+// age and the read-on-mount contract are the ones the client already had.
 //   node --test test/home-prefetch.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -23,6 +24,7 @@ await build({
       export * as P from './src/client/storage/prefetch.ts'
       export * as U from './src/client/ui/use-query.ts'
       export * as S from './src/client/storage/session-cache.ts'
+      export * as H from './src/client/ui/paint-hints.ts'
       export * as A from './src/client/api.ts'
       export { useSessionLists, ProjectTable, ProjectGrid, EarlyCard } from './src/client/storage/ProjectTable.tsx'
     `,
@@ -76,7 +78,7 @@ function recordingApi(storeView) {
 
 /** A remote with answers per call; `hold` keeps one pending until the test settles it. */
 function fakeRig(answers) {
-  const state = { calls: [], held: [] }
+  const state = { calls: [], held: [], emit: undefined }
   const remote = {
     call(request) {
       state.calls.push(request)
@@ -95,11 +97,29 @@ function fakeRig(answers) {
     },
     events() {
       let ready = false
+      const queue = []
+      const waiters = []
+      // The test's one hand on the host stream: a pushed event reaches the api's
+      // dispatch exactly as the host's would (the first item is always `ready`).
+      // Items are iterator results, so the api's unwrap sees `{ value: event }`.
+      state.emit = (event) => {
+        const item = { value: event }
+        const waiter = waiters.shift()
+        if (waiter) waiter(item)
+        else queue.push(item)
+      }
       return {
         [Symbol.asyncIterator]() {
-          return { next: () => (ready ? new Promise(() => {}) : ((ready = true), Promise.resolve({ value: { type: 'ready' } }))) }
+          return {
+            next: () => {
+              if (!ready) { ready = true; return Promise.resolve({ value: { type: 'ready' } }) }
+              const queued = queue.shift()
+              if (queued) return Promise.resolve(queued)
+              return new Promise((resolve) => waiters.push(resolve))
+            },
+          }
         },
-        dispose() {},
+        dispose() { state.emit = undefined },
       }
     },
   }
@@ -248,6 +268,86 @@ test('the session lists the table draws are known before its own read settles', 
   await mounted.settle()
   assert.deepEqual(mounted.tree.props.sessions, fresh.sessions, 'the fresh list replaces the primed one')
   mounted.unmount()
+})
+
+test('an event between the prefetch and the mount drops the paint hints and the mount reads fresh', async (t) => {
+  const before = view([{ name: 'perf', projects: ['demo', 'removed'] }])
+  const after = view([{ name: 'perf', projects: ['demo'] }])
+  const answers = {
+    'http GET /api/storage': { value: { status: 200, body: before } },
+    'http GET /api/projects': { value: { status: 200, body: [] } },
+    'projects.catalog': { value: { rows: [], scratchKey: null } },
+    'sessions.list': { value: { sessions: [session('old-session')] } },
+  }
+  const rig = await newApi(t, answers)
+  const emit = async (event) => { rig.state.emit(event); await flush(); await flush() }
+
+  M.H.forgetPaintHints()
+  M.P.resetHomePrefetch()
+  await M.P.prefetchHome(rig.api)
+  assert.deepEqual(M.S.knownSessionList('perf/demo'), [session('old-session')], 'the prefetch primed the session list')
+
+  // A project was removed after the prefetch and before the panel mounted; the
+  // host announces it, and the answers the panel will read are the new ones.
+  answers['http GET /api/storage'] = { value: { status: 200, body: after } }
+  answers['sessions.list'] = { value: { sessions: [session('new-session')] } }
+  await emit({ type: 'projects' })
+  await emit({ type: 'storage' })
+  assert.equal(M.S.knownSessionList('perf/demo'), undefined, 'the event dropped the primed session list')
+
+  const calls = []
+  const api = { ...rig.api, call: (...args) => { calls.push(args); return rig.api.call(...args) } }
+  function Panel({ api }) {
+    const q = M.U.useQuery(() => api.call('GET', '/api/storage', undefined, { share: true }), [api], { cache: 'GET /api/storage' })
+    return { type: 'panel', props: { view: q.data, loading: q.loading } }
+  }
+  const panel = M.mount(Panel, { api })
+  assert.equal(panel.tree.props.view, undefined, 'the first render after the event does not paint the removed project')
+  assert.equal(panel.tree.props.loading, true, 'the mount starts its own read')
+  await panel.settle()
+  assert.equal(panel.tree.props.view, after, 'the fresh answer replaces the hint')
+  assert.deepEqual(panel.tree.props.view.stores[0].projects, ['demo'], 'the removed project is not painted')
+  assert.equal(calls.length, 1, 'the mount read the host')
+  panel.unmount()
+
+  // The session rows start from their own read too.
+  function Rows({ api }) {
+    const r = M.useSessionLists(api, ['perf/demo'])
+    return { type: 'rows', props: { sessions: r.lists.get('perf/demo'), ready: r.ready } }
+  }
+  const rows = M.mount(Rows, { api: rig.api })
+  assert.equal(rows.tree.props.sessions, undefined, 'the primed list does not paint after the event')
+  assert.equal(rows.tree.props.ready, false, 'the row waits for its own read')
+  await rows.settle()
+  assert.deepEqual(rows.tree.props.sessions, [session('new-session')], 'its own read answers')
+  rows.unmount()
+
+  // A disconnect clears both, and a never-answering host proves the first render.
+  M.U.keepPrefetched('test:conn-card', before)
+  M.S.keepSessionList('perf/demo', [session('old-session')])
+  await emit({ type: 'connection', data: { connected: false } })
+  const never = { call: () => new Promise(() => {}), op: () => new Promise(() => {}), onEvent: () => () => {} }
+  function Conn({ api }) {
+    const q = M.U.useQuery(() => api.call(), [api], { cache: 'test:conn-card' })
+    return { type: 'conn', props: { view: q.data } }
+  }
+  const conn = M.mount(Conn, { api: never })
+  assert.equal(conn.tree.props.view, undefined, 'a disconnect drops the card hint')
+  conn.unmount()
+  const connRows = M.mount(Rows, { api: never })
+  assert.equal(connRows.tree.props.sessions, undefined, 'a disconnect drops the session list hint')
+  connRows.unmount()
+
+  // The control: a hint kept after the last event still paints, so the event is
+  // the only thing that changed.
+  M.U.keepPrefetched('test:control', before)
+  function Control({ api }) {
+    const q = M.U.useQuery(() => api.call(), [api], { cache: 'test:control' })
+    return { type: 'control', props: { view: q.data } }
+  }
+  const control = M.mount(Control, { api: never })
+  assert.equal(control.tree.props.view, before, 'a hint kept since the last event still paints')
+  control.unmount()
 })
 
 test('the first card paints what the row already knows, with no blank line', async () => {

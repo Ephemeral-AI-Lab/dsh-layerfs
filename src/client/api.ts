@@ -5,6 +5,7 @@
  * from the `layerfs/events` stream. Pages receive one `LayerfsApi` through
  * their slot `inject`; nothing here is a module-level singleton.
  */
+import { forgetPaintHints, PAINT_HINT_EVENTS } from './ui/paint-hints.ts'
 
 /** A refused call: LayerFS's code, its message, detail and `fix` line, and the HTTP-like status. */
 export class HostError extends Error {
@@ -347,6 +348,10 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
     'setup-changed': (key) => key.startsWith('op setup.status'),
   }
   const dispatch = (event: HostEvent) => {
+    // Home's paint hints live in module maps with no mounted surface to hear
+    // the event: drop them here, before listeners run, so a panel that mounts
+    // after a delete/create reads instead of painting the removed project.
+    if (PAINT_HINT_EVENTS.has(event.type)) forgetPaintHints()
     const matches = SHARE_INVALIDATION[event.type]
     if (matches) invalidateShared(matches)
     for (const key of [event.type, '*']) for (const l of listeners.get(key) ?? []) {

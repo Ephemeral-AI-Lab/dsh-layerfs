@@ -4,9 +4,16 @@
  * the local list for every row, so the prefetch can make those rows complete
  * before the click; an expanded row reuses the same key for its list.
  */
+import { registerPaintHints } from '../ui/paint-hints.ts'
 import type { ProjectSession } from '../projects/hooks.ts'
 
 const sessionAnswers = new Map<string, readonly ProjectSession[]>()
+
+// Keyed by `store/project`, so a list only paints its own project's rows. A
+// project that left the Store is dropped with every other hint by the event
+// invalidation (`ui/paint-hints.ts`), so a removed project's answer cannot
+// resurface on the first render.
+registerPaintHints(() => sessionAnswers.clear())
 
 /** The last answer for a project key (`store/project`), if any. */
 export function knownSessionList(key: string): readonly ProjectSession[] | undefined {
