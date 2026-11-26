@@ -208,7 +208,8 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
   /** Open a session once DSH's client catalog lists it (a short wait, then give up silently). */
   async function reveal(sessionId: string): Promise<void> {
     const known = () => nav.knowsSession ? nav.knowsSession(sessionId) : true
-    for (let i = 0; i < 10 && !known(); i++) await new Promise((resolve) => setTimeout(resolve, 100))
+    // A closed session's resume can announce it a moment after the op answers.
+    for (let i = 0; i < 20 && !known(); i++) await new Promise((resolve) => setTimeout(resolve, 100))
     if (known()) nav.openSession(sessionId)
   }
 

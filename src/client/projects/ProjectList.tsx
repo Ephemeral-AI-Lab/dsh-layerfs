@@ -239,7 +239,10 @@ function SidebarRow({ item, showStore, api, titles, t, onChanged }: { item: Proj
   // a success reloads the list (the opening state and the refusal live there).
   // The open changes this project's local rows only: reloading the archive here
   // walked the Store again on every click (a second of the click-to-open wait).
-  const resume = (sessionId: string) => api.op('sessions.open', { sessionId, project: project.key }).then(() => { read.reloadLocal() })
+  // The workspace matters: DSH announces a session to clients when it is attached
+  // to one, and the client's catalog cannot navigate to an id it has not been
+  // announced. Without it the open silently left the pane on New Session.
+  const resume = (sessionId: string) => api.op('sessions.open', { sessionId, project: project.key, workspaceId: api.selectedWorkspaceId() }).then(() => { read.reloadLocal() })
   const where = item.runsOn.join(', ')
   const archiveFail = read.error ? formatSessionFailure(null, errorMessage(read.error, t), t, storeName, item.store) : null
   const hasInterruptedFailure = sessions.some((s) => s.executionState === 'interrupted' && !!formatSessionFailure(s.failure, s.error, t, storeName, item.store))
