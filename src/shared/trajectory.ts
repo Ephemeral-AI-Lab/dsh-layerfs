@@ -32,13 +32,25 @@ export const MAX_RECORDS = 1500
  */
 export const FIRST_PAGE_RECORDS = 400
 /**
- * Bytes a first page may serialize to (`JSON.stringify` of the answer). The
- * page sheds its oldest records until it fits; a page of very large records
- * (long LayerFS call lines, schemas) is therefore shorter than
+ * Bytes a first page may serialize to: the UTF-8 length of its JSON. The page
+ * sheds its oldest records until it fits; a page of very large records (long
+ * LayerFS call lines, schemas) is therefore shorter than
  * {@link FIRST_PAGE_RECORDS}, and says so through `hasMore`/`olderBefore` and
  * each turn's `totalRecords`.
  */
 export const FIRST_PAGE_BYTES = 250 * 1024
+/**
+ * Bytes an older page may serialize to: the same ceiling as the first page.
+ * Reading older records must not cost more than opening the tab.
+ */
+export const OLDER_PAGE_BYTES = FIRST_PAGE_BYTES
+/**
+ * Bytes one record may serialize to, whichever page carries it. A record with
+ * more preview text or calls than this is cut (its `truncated`/`resultTruncated`
+ * / `summaryTruncated`/`opsTotal` marks say so), so no single record can spend
+ * a page's whole budget.
+ */
+export const MAX_RECORD_BYTES = 64 * 1024
 /**
  * A record's LayerFS calls one trajectory answer carries beyond the ones that
  * matter most: calls that wrote or named a version, and refusals, are always
@@ -257,6 +269,8 @@ export interface RequestRecord extends RecordBase {
   reason?: string
   /** One line, at most {@link PREVIEW_MAX} characters: the model and tool count. */
   summary: string
+  /** The summary was cut at {@link MAX_RECORD_BYTES}. */
+  summaryTruncated?: boolean
   /** This record is where the recorded prompt changed; absent when it did not. */
   promptChanged?: PromptChangeKind
   /** The seq of the recorded prompt state this change is against. */
@@ -270,6 +284,8 @@ export interface ToolRecord extends RecordBase {
   name: string
   /** One line of the arguments (a command, a path …). */
   summary?: string
+  /** The summary was cut at {@link MAX_RECORD_BYTES}. */
+  summaryTruncated?: boolean
   /** The result's text, one line, at most {@link PREVIEW_MAX} characters; absent while running. */
   result?: string
   resultTruncated?: boolean

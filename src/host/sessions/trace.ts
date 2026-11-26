@@ -7,8 +7,8 @@
  */
 import type { TraceCheckpoint, TraceOp, TraceVersion } from '../../shared/trace.ts'
 import {
-  DETAIL_MAX, FIRST_PAGE_BYTES, FIRST_PAGE_OPS, FIRST_PAGE_RECORDS, MAX_OPS, MAX_RECORDS, MAX_RECORD_OPS,
-  PREVIEW_MAX, TOOL_DESCRIPTION_MAX, displayKind, kindFamily,
+  DETAIL_MAX, FIRST_PAGE_BYTES, FIRST_PAGE_OPS, FIRST_PAGE_RECORDS, MAX_OPS, MAX_RECORDS, MAX_RECORD_BYTES, MAX_RECORD_OPS,
+  OLDER_PAGE_BYTES, PREVIEW_MAX, TOOL_DESCRIPTION_MAX, displayKind, kindFamily,
   type AssistantRecord, type RequestRecord, type SystemRecord, type ToolRecord, type ToolsChange, type TraceCheckpointRow,
   type TrajectoryAnswer,
   type TrajectoryDetail, type TrajectoryRecord, type TrajectoryReply, type TrajectoryTool, type TrajectoryTurn, type TrajectoryUsage,
@@ -82,17 +82,27 @@ export function trajectoryRevision(input: TrajectoryInput): string {
 const essentialOp = (op: TraceOp): boolean =>
   op.versions.length > 0 || op.outcome !== 'success' || isWrite(op.argv?.length ? op.argv : op.operation.split('.'))
 
+/** The UTF-8 length of a value's JSON: what actually goes on the wire. */
+const jsonBytes = (value: unknown): number => {
+  const json = JSON.stringify(value)
+  return json === undefined ? 0 : Buffer.byteLength(json)
+}
+
 /**
  * The records and calls one page of this answer carries. `before` (a record
  * seq) selects the next older page; without it the page is the newest
- * {@link FIRST_PAGE_RECORDS} records, and at most {@link FIRST_PAGE_BYTES} of
- * JSON. Older pages carry {@link MAX_RECORDS}. Non-record content (checkpoints,
- * DSH's own calls, receipts without a call) rides with the turn it belongs to;
- * a turn that the record cut only partly keeps `totalRecords`, and tool records
- * that kept only some of their calls keep `opsTotal`. Calls that wrote, named a
- * version or were refused are always kept; the other calls are budgeted per
- * answer and per record, newest first, because a shell loop can log thousands
- * of reads under one call.
+ * {@link FIRST_PAGE_RECORDS} records. Older pages carry {@link MAX_RECORDS}.
+ * Every page stops at its byte budget ({@link FIRST_PAGE_BYTES} for the first,
+ * {@link OLDER_PAGE_BYTES} for an older one) measured as UTF-8 bytes, and no
+ * record may cost more than {@link MAX_RECORD_BYTES} on its own. Non-record
+ * content (checkpoints, DSH's own calls, receipts without a call) rides with
+ * the turn it belongs to; a turn that the record cut only partly keeps
+ * `totalRecords`, and tool records that kept only some of their calls keep
+ * `opsTotal`. Calls that wrote, named a version or were refused are kept ahead
+ * of the other calls, which are budgeted per answer and per record, newest
+ * first (a shell loop can log thousands of reads under one call); only a
+ * record that alone exceeds {@link MAX_RECORD_BYTES} can lose its oldest
+ * calls, and its `opsTotal` says so.
  */
 export function pageTrajectory(answer: TrajectoryAnswer, before?: number): TrajectoryAnswer {
   const entries: { turn: number, record: TrajectoryRecord }[] = []
@@ -104,25 +114,34 @@ export function pageTrajectory(answer: TrajectoryAnswer, before?: number): Traje
   }
   const first = before === undefined
   const cap = first ? FIRST_PAGE_RECORDS : MAX_RECORDS
+  const budget = first ? FIRST_PAGE_BYTES : OLDER_PAGE_BYTES
   let count = Math.min(cap, end)
   let page = buildPage(answer, entries, end, count, first)
-  if (!first) return page
-  // A first page also stops at a byte budget: shed the oldest records until it
-  // fits, rebuilding so its call budget is re-spent on what it keeps. A record
-  // cut this way stays reachable through `hasMore`/`olderBefore` and its turn's
-  // `totalRecords`, so it reads as not loaded, never as missing.
-  let size = JSON.stringify(page).length
-  for (let attempt = 0; size > FIRST_PAGE_BYTES && count > 1 && attempt < 8; attempt++) {
-    const excess = size - FIRST_PAGE_BYTES
+  // A page over its byte budget sheds its oldest records, sized from the page
+  // being built (its calls are already trimmed) rather than from the whole
+  // answer's untrimmed records, then rebuilds so its call budget is re-spent on
+  // what it keeps. `count` falls by at least one each pass, so this terminates;
+  // one record is the hard floor, and `buildPage` bounds that record too. A
+  // record cut this way stays reachable through `hasMore`/`olderBefore` and its
+  // turn's `totalRecords`, so it reads as not loaded, never as missing.
+  for (;;) {
+    const size = jsonBytes(page)
+    if (size <= budget || count <= 1) break
+    const excess = size - budget
     let drop = 0
     let bytes = 0
-    for (let i = 0; i < count && bytes < excess; i++) {
-      bytes += JSON.stringify(entries[end - count + i]!.record).length + 1
-      drop++
+    for (const turn of page.turns) {
+      for (const record of turn.records) {
+        bytes += jsonBytes(record) + 1
+        drop++
+        if (bytes >= excess) break
+      }
+      if (bytes >= excess) break
     }
-    count -= Math.max(1, Math.min(drop || 1, count - 1))
+    const next = count - Math.max(1, Math.min(drop || 1, count - 1))
+    if (next >= count) break
+    count = next
     page = buildPage(answer, entries, end, count, first)
-    size = JSON.stringify(page).length
   }
   return page
 }
@@ -184,7 +203,7 @@ function buildPage(answer: TrajectoryAnswer, entries: { turn: number, record: Tr
   const turns: TrajectoryTurn[] = []
   for (let i = from; i <= to; i++) {
     const turn = answer.turns[i]!
-    const records = turn.records.filter((record) => wanted.has(record)).map((record) => record.kind === 'tool' ? prune(record) : record)
+    const records = turn.records.filter((record) => wanted.has(record)).map((record) => boundRecord(record.kind === 'tool' ? prune(record) : record))
     const orphanCalls = turn.orphanCalls.map(prune)
     turns.push({
       ...turn, records, orphanCalls,
@@ -200,6 +219,72 @@ function buildPage(answer: TrajectoryAnswer, entries: { turn: number, record: Tr
     recordTotal: total,
     ...(hasMore && kept.length ? { hasMore: true, olderBefore: kept[0]!.record.seq } : {}),
   }
+}
+
+/** The string fields a record's bound may cut, and the flag each sets. */
+const RECORD_TEXT_FIELDS = ['text', 'result', 'summary'] as const
+type RecordTextField = (typeof RECORD_TEXT_FIELDS)[number]
+
+/**
+ * `record` with `field` cut to the longest prefix that keeps the whole record
+ * within `max` bytes. The field's `truncated` mark says it was cut; a record
+ * already under the budget is returned as it is.
+ */
+function cutToFit(record: TrajectoryRecord, field: RecordTextField, max: number): TrajectoryRecord {
+  const value = (record as any)[field]
+  if (typeof value !== 'string' || !value) return record
+  if (jsonBytes(record) <= max) return record
+  // The cut's own mark counts against the budget: include it in every measure.
+  const mark = field === 'text' ? { truncated: true } : field === 'result' ? { resultTruncated: true } : { summaryTruncated: true }
+  let lo = 0
+  let hi = value.length
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2)
+    if (jsonBytes({ ...record, [field]: value.slice(0, mid), ...mark }) <= max) lo = mid
+    else hi = mid - 1
+  }
+  return { ...record, [field]: value.slice(0, lo), ...mark } as TrajectoryRecord
+}
+
+/**
+ * `record` cut to {@link MAX_RECORD_BYTES}: one record may not spend a page's
+ * budget alone. The oldest read-only calls go first; then preview text a
+ * fixture or a huge call put past the preview caps; then the remaining calls'
+ * argv; the calls that wrote, named a version or were refused go last.
+ * `opsTotal`, `truncated`, `resultTruncated` and `summaryTruncated` report
+ * every cut. A record already under the budget is returned unchanged, so
+ * normal builds (previews at {@link PREVIEW_MAX} and calls at
+ * {@link MAX_RECORD_OPS}) take the fast path.
+ */
+function boundRecord(record: TrajectoryRecord, max = MAX_RECORD_BYTES): TrajectoryRecord {
+  if (jsonBytes(record) <= max) return record
+  let out: any = { ...record }
+  if (out.kind === 'tool' && out.ops.length) {
+    const total = out.opsTotal ?? out.ops.length
+    let ops: TraceOp[] = out.ops
+    while (ops.length && jsonBytes({ ...out, ops }) > max) {
+      const at = ops.findIndex((op) => !essentialOp(op))
+      if (at < 0) break
+      ops = ops.slice(0, at).concat(ops.slice(at + 1))
+    }
+    if (ops.length !== out.ops.length) out = { ...out, ops, opsTotal: total }
+  }
+  for (const field of RECORD_TEXT_FIELDS) out = cutToFit(out, field, max)
+  if (out.kind === 'observation' && jsonBytes(out) > max) out = { ...out, top: [] }
+  if (out.kind === 'request' && jsonBytes(out) > max) {
+    const { toolsChanged, ...lean } = out
+    out = lean
+  }
+  if (out.kind === 'tool' && jsonBytes(out) > max) {
+    out = { ...out, ops: out.ops.map((op: TraceOp) => op.argv?.length ? { ...op, argv: undefined } : op) }
+  }
+  if (out.kind === 'tool' && out.ops.length) {
+    const total = out.opsTotal ?? out.ops.length
+    let ops: TraceOp[] = out.ops
+    while (ops.length > 1 && jsonBytes({ ...out, ops }) > max) ops = ops.slice(1)
+    if (ops.length !== out.ops.length) out = { ...out, ops, opsTotal: total }
+  }
+  return out as TrajectoryRecord
 }
 
 /**

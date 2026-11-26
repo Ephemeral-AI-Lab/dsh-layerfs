@@ -6,7 +6,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { buildTrajectory, pageTrajectory, summarize, trajectoryDetail, trajectoryReader, usageOf, versionBranch } from '../src/host/sessions/trace.ts'
 import {
-  DETAIL_MAX, FIRST_PAGE_BYTES, FIRST_PAGE_OPS, FIRST_PAGE_RECORDS, MAX_OPS, MAX_RECORDS, MAX_RECORD_OPS, PREVIEW_MAX, TOOL_DESCRIPTION_MAX,
+  DETAIL_MAX, FIRST_PAGE_BYTES, FIRST_PAGE_OPS, FIRST_PAGE_RECORDS, MAX_OPS, MAX_RECORDS, MAX_RECORD_BYTES, MAX_RECORD_OPS,
+  OLDER_PAGE_BYTES, PREVIEW_MAX, TOOL_DESCRIPTION_MAX,
 } from '../src/shared/trajectory.ts'
 
 const C1 = '12' + '1'.repeat(64), C2 = '12' + '2'.repeat(64), C3 = '12' + '3'.repeat(64), L1 = '32' + '4'.repeat(64)
@@ -605,10 +606,22 @@ test('a first page over the byte budget sheds its oldest records, which read as 
   assert.equal(first.turns[0].totalRecords, 600)
   assert.ok(first.turns[0].totalRecords > first.turns[0].records.length)
   assert.equal(JSON.stringify(first).includes(`"seq":${records[0].seq - 1},`), false, 'a record before the cursor is not in the page')
-  // Paging from the cursor still reaches every record.
-  const second = pageTrajectory(answer, first.olderBefore)
-  const all = new Set([...records, ...second.turns.flatMap((turn) => turn.records)].map((record) => record.seq))
-  assert.equal(all.size, 600)
+  // Paging from the cursor still reaches every record, exactly once.
+  const seen = records.map((record) => record.seq)
+  let cursor = first.olderBefore
+  let pages = 1
+  for (;;) {
+    const page = pageTrajectory(answer, cursor)
+    const pageRecords = page.turns.flatMap((turn) => turn.records)
+    assert.ok(Buffer.byteLength(JSON.stringify(page)) <= FIRST_PAGE_BYTES, `${Buffer.byteLength(JSON.stringify(page))} bytes`)
+    seen.push(...pageRecords.map((record) => record.seq))
+    pages++
+    if (!page.hasMore) break
+    cursor = page.olderBefore
+  }
+  assert.equal(seen.length, 600, 'no record repeats across pages')
+  assert.equal(new Set(seen).size, 600, 'the pages together are every record')
+  assert.ok(pages > 2, 'an older page is byte-budgeted too, so the history takes a few pages')
   // A record's calls survive the budget: its version chips still show.
   assert.ok(records.every((record) => record.kind !== 'tool' || record.ops.length === 1))
 })
@@ -654,6 +667,123 @@ test('a first-page build matches the whole build: same page, same totals, same c
   assert.equal(older.revision, first.revision)
   assert.deepEqual(older.turns.flatMap((turn) => turn.records).map((record) => record.seq),
     pageTrajectory(full, first.olderBefore).turns.flatMap((turn) => turn.records).map((record) => record.seq))
+})
+
+/** UTF-8 bytes, the unit the pages are budgeted in (JSON.stringify().length is UTF-16 units). */
+const pageBytes = (value) => Buffer.byteLength(JSON.stringify(value))
+
+/** A one-turn log of `count` user messages, all carrying `text`. */
+function textLog(count, text) {
+  const log = [ev(1, 'turn/start', { turn: 1 })]
+  for (let i = 0; i < count; i++) log.push(user(i + 2, text))
+  log.push(ev(count + 2, 'turn/end', { turn: 1 }))
+  return log
+}
+
+/** Walk every page from the newest, returning the records in page order and the pages' sizes. */
+function walkPages(answer) {
+  const records = []
+  const sizes = []
+  let page = pageTrajectory(answer)
+  for (;;) {
+    const pageRecords = page.turns.flatMap((turn) => turn.records)
+    records.push(...pageRecords)
+    sizes.push(pageBytes(page))
+    if (!page.hasMore) break
+    assert.ok(page.olderBefore !== undefined, 'a page with more carries its cursor')
+    page = pageTrajectory(answer, page.olderBefore)
+  }
+  return { records, sizes, pages: sizes.length }
+}
+
+test('pages are budgeted in UTF-8 bytes: CJK and emoji pages fit, where chars alone would not', () => {
+  for (const [name, text, utf16] of [
+    ['CJK', '中'.repeat(PREVIEW_MAX), 1],
+    ['emoji', '😀'.repeat(PREVIEW_MAX), 2],
+  ]) {
+    const input = { sessionId: 's', project: 'st/p', branch: 'dsh.s', events: textLog(600, text), invocations: [], checkpoints: [] }
+    const full = buildTrajectory(input)
+    // The tab-opening build keeps 400 records: under 250 KiB of UTF-16 units,
+    // but over it in bytes, which is what the page must enforce.
+    const partial = buildTrajectory(input, { newest: FIRST_PAGE_RECORDS })
+    assert.ok(JSON.stringify(partial).length <= FIRST_PAGE_BYTES, `${name}: the untrimmed previews pass a UTF-16 gate`)
+    assert.ok(pageBytes(partial) > FIRST_PAGE_BYTES, `${name}: but not a UTF-8 one (${pageBytes(partial)} bytes)`)
+
+    const page = pageTrajectory(partial)
+    const records = page.turns.flatMap((turn) => turn.records)
+    assert.ok(pageBytes(page) <= FIRST_PAGE_BYTES, `${name}: ${pageBytes(page)} bytes`)
+    assert.ok(records.length < FIRST_PAGE_RECORDS, `${name}: ${records.length} of ${FIRST_PAGE_RECORDS} records after the byte budget`)
+    assert.equal(page.recordTotal, 600)
+    assert.equal(page.hasMore, true)
+    assert.equal(page.olderBefore, records[0].seq)
+    // A UTF-16 count of the real page is smaller than its byte count: the
+    // difference is why the budget is measured in bytes.
+    assert.ok(pageBytes(page) > JSON.stringify(page).length * (utf16 === 1 ? 1.5 : 1.2), `${name}: bytes and chars differ`)
+
+    // The whole history still pages exactly once through every record.
+    const walk = walkPages(full)
+    assert.equal(walk.records.length, 600, `${name}: every record is reached once`)
+    assert.equal(new Set(walk.records.map((record) => record.seq)).size, 600)
+    assert.ok(walk.sizes.every((size) => size <= FIRST_PAGE_BYTES), `${name}: every page fits (${Math.max(...walk.sizes)} bytes)`)
+  }
+})
+
+test('an older page obeys the same byte budget, and the pages still reach every record exactly once', () => {
+  // 2,000 CJK records at the preview cap: an older page's 1,500-record cap
+  // would serialize well over 250 KiB, so the byte budget must bind.
+  const input = { sessionId: 's', project: 'st/p', branch: 'dsh.s', events: textLog(2000, '中'.repeat(PREVIEW_MAX)), invocations: [], checkpoints: [] }
+  const full = buildTrajectory(input)
+  const first = pageTrajectory(full)
+  assert.ok(pageBytes(buildTrajectory(input, { newest: FIRST_PAGE_RECORDS })) > FIRST_PAGE_BYTES, 'the record cap alone would keep 400 records over budget in bytes')
+
+  const walk = walkPages(full)
+  assert.equal(walk.records.length, first.recordTotal, 'every record is reached')
+  assert.equal(new Set(walk.records.map((record) => record.seq)).size, first.recordTotal, 'no record repeats')
+  assert.ok(walk.records.some((record) => record.seq === 2), 'the oldest record is reached')
+  assert.ok(walk.pages > 2, `${walk.pages} pages`)
+  assert.ok(walk.sizes.every((size) => size <= OLDER_PAGE_BYTES), `every page fits (${Math.max(...walk.sizes)} bytes)`)
+  // The revision and the unchanged answer are unaffected by page size.
+  const unchanged = trajectoryReader()(input, { since: first.revision })
+  assert.equal(unchanged.unchanged, true)
+  assert.ok(Buffer.byteLength(JSON.stringify(unchanged)) < 400, 'since/unchanged stays small')
+})
+
+test('one huge record is cut to the record budget instead of blowing the page alone', () => {
+  const huge = '中'.repeat(100_000)
+  const record = { kind: 'user', seq: 1, turn: 1, at: 1000, source: 'user', text: huge }
+  const answer = {
+    sessionId: 's', project: 'st/p', branch: 'dsh.s', logLoaded: true,
+    turns: [{ turn: 1, at: 1000, records: [record], orphanCalls: [], hostOps: [], checkpoints: [] }],
+    checkpoints: [], counts: { versionsCreated: 0, callsWithVersions: 0 }, revision: 'r1', recordTotal: 1,
+  }
+  const page = pageTrajectory(answer)
+  const kept = page.turns[0].records[0]
+  assert.ok(pageBytes(page) <= FIRST_PAGE_BYTES, `${pageBytes(page)} bytes`)
+  assert.ok(pageBytes(kept) <= MAX_RECORD_BYTES, `${pageBytes(kept)} bytes for the record`)
+  assert.ok(kept.text.length < huge.length)
+  assert.equal(kept.truncated, true)
+  assert.equal(page.recordTotal, 1)
+  assert.equal(page.hasMore, undefined, 'the only record is still there, just cut')
+
+  // A tool record can be large through its calls too: the oldest go first, and
+  // `opsTotal` keeps saying how many the session logged.
+  const ops = Array.from({ length: 500 }, (_, i) => ({
+    id: `r${i}`, origin: 'tool', operation: 'workspace.commit', outcome: 'success', kind: 'Committed',
+    versions: [{ kind: 'Commit', id: `12${String(i).padStart(64, '0')}`, effect: 'created', branch: 'dsh.s' }],
+    argv: ['workspace', 'commit', 'sb:main', `message ${i} `.repeat(20)], at: 1000 + i,
+  }))
+  const tool = { kind: 'tool', seq: 2, turn: 1, callId: 'call_big', name: 'bash', summary: 'big', ops }
+  const toolAnswer = {
+    ...answer,
+    turns: [{ turn: 1, records: [tool], orphanCalls: [], hostOps: [], checkpoints: [] }],
+  }
+  const toolPage = pageTrajectory(toolAnswer)
+  const toolKept = toolPage.turns[0].records[0]
+  assert.ok(pageBytes(toolPage) <= FIRST_PAGE_BYTES, `${pageBytes(toolPage)} bytes`)
+  assert.ok(pageBytes(toolKept) <= MAX_RECORD_BYTES, `${pageBytes(toolKept)} bytes for the tool record`)
+  assert.ok(toolKept.ops.length < ops.length)
+  assert.equal(toolKept.opsTotal, ops.length, 'the calls left out read as not loaded')
+  assert.ok(toolKept.ops.every((op) => op.versions.length === 1), 'the kept calls keep their version chips')
 })
 
 test('a first page trimmed again by the byte budget keeps the whole turn\'s not-loaded total', () => {
