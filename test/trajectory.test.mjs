@@ -5,7 +5,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { buildTrajectory, pageTrajectory, summarize, trajectoryDetail, trajectoryReader, usageOf, versionBranch } from '../src/host/sessions/trace.ts'
-import { DETAIL_MAX, MAX_OPS, MAX_RECORDS, PREVIEW_MAX, TOOL_DESCRIPTION_MAX } from '../src/shared/trajectory.ts'
+import {
+  DETAIL_MAX, FIRST_PAGE_BYTES, FIRST_PAGE_OPS, FIRST_PAGE_RECORDS, MAX_OPS, MAX_RECORDS, MAX_RECORD_OPS, PREVIEW_MAX, TOOL_DESCRIPTION_MAX,
+} from '../src/shared/trajectory.ts'
 
 const C1 = '12' + '1'.repeat(64), C2 = '12' + '2'.repeat(64), C3 = '12' + '3'.repeat(64), L1 = '32' + '4'.repeat(64)
 const ev = (seq, type, data, time = 1000 + seq) => ({ seq, type, data, time })
@@ -478,6 +480,7 @@ test('an unchanged since answers unchanged, and builds nothing', () => {
   const again = read(input, { since: first.revision })
   assert.deepEqual(again, { sessionId: 's', revision: first.revision, unchanged: true })
   assert.equal('turns' in again, false, 'no records cross the wire')
+  assert.ok(JSON.stringify(again).length < 400, `${JSON.stringify(again).length} bytes for an unchanged answer`)
   assert.equal(builds, 1, 'nothing was built')
   // A caller without `since` (a tab opening) reuses the memo.
   const warm = read(input)
@@ -487,7 +490,7 @@ test('an unchanged since answers unchanged, and builds nothing', () => {
   assert.equal(JSON.stringify(warm).length, JSON.stringify(first).length)
 })
 
-test('a new event, checkpoint, receipt or Branch changes the revision and forces the full answer', () => {
+test('a new event, checkpoint, receipt or Branch changes the revision and forces a rebuild', () => {
   let builds = 0
   const read = trajectoryReader(8, (input) => { builds++; return buildTrajectory(input) })
   const base = { sessionId: 's', project: 'st/p', branch: 'dsh.s', events, invocations: receipts, checkpoints }
@@ -518,19 +521,20 @@ const bigLog = (() => {
   let seq = 0
   for (let turn = 1; turn <= 40; turn++) {
     log.push(ev(++seq, 'turn/start', { turn }))
-    for (let i = 0; i < 40; i++) log.push(user(++seq, `turn ${turn} record ${i}`))
+    for (let i = 0; i < 39; i++) log.push(user(++seq, `turn ${turn} record ${i}`))
     log.push(ev(++seq, 'turn/end', { turn }))
   }
   return log
 })()
 
-test('a page carries the newest records, with totals and a cursor for the older ones', () => {
+test('a first page carries the newest records, with totals and a cursor for the older ones', () => {
   const read = trajectoryReader()
   const input = { sessionId: 's', project: 'st/p', branch: 'dsh.s', events: bigLog, invocations: [], checkpoints: [] }
   const first = read(input)
   const records = first.turns.flatMap((turn) => turn.records)
-  assert.equal(records.length, MAX_RECORDS)
-  assert.equal(first.recordTotal, 1600)
+  assert.equal(records.length, FIRST_PAGE_RECORDS)
+  assert.equal(first.recordTotal, 1560)
+  assert.ok(JSON.stringify(first).length <= FIRST_PAGE_BYTES, `${JSON.stringify(first).length} bytes`)
   assert.equal(first.hasMore, true)
   assert.equal(first.olderBefore, records[0].seq, 'the oldest seq this answer carries')
   assert.equal(first.turns.at(-1).turn, 40, 'the newest turns are all there')
@@ -544,19 +548,147 @@ test('a page carries the newest records, with totals and a cursor for the older 
   const older = records.filter((r) => r.seq < first.olderBefore)
   assert.equal(older.length, 0)
 
-  const second = read(input, { before: first.olderBefore })
-  const olderRecords = second.turns.flatMap((turn) => turn.records)
-  assert.equal(olderRecords.length, 100)
-  assert.equal(olderRecords[0].seq < first.olderBefore, true)
-  assert.equal(second.hasMore, undefined)
-  assert.equal(second.olderBefore, undefined)
-  assert.equal(second.revision, first.revision, 'an older page keeps the revision it belongs to')
-  // No record is repeated, and the two pages together are the whole log.
+  // Older pages still read every record, one cursor at a time, without repeats.
   const seen = new Set(records.map((r) => r.seq))
-  assert.ok(olderRecords.every((r) => !seen.has(r.seq)))
-  assert.equal(new Set([...records, ...olderRecords].map((r) => r.seq)).size, 1600)
+  let cursor = first.olderBefore
+  let pages = 0
+  for (;;) {
+    const page = read(input, { before: cursor })
+    const pageRecords = page.turns.flatMap((turn) => turn.records)
+    assert.ok(pageRecords.length <= MAX_RECORDS)
+    assert.ok(pageRecords.every((r) => r.seq < cursor), 'strictly older than the cursor')
+    for (const record of pageRecords) {
+      assert.ok(!seen.has(record.seq), `record ${record.seq} repeats`)
+      seen.add(record.seq)
+    }
+    pages++
+    if (!page.hasMore) {
+      assert.equal(page.olderBefore, undefined)
+      break
+    }
+    cursor = page.olderBefore
+  }
+  assert.ok(pages >= 1)
+  assert.equal(seen.size, 1560, 'the pages together are the whole log')
   // Checkpoint-only turns older than the record cut still load with an older page.
-  assert.equal(second.turns[0].turn, 1, 'older pages run from the oldest turn')
+  assert.equal(read(input, { before: first.olderBefore }).turns[0].turn, 1, 'older pages run from the oldest turn')
+  assert.equal(read(input, { before: first.olderBefore }).revision, first.revision, 'an older page keeps the revision it belongs to')
+})
+
+test('a first page over the byte budget sheds its oldest records, which read as not loaded', () => {
+  const log = []
+  const invocations = []
+  let seq = 0
+  log.push(ev(++seq, 'turn/start', { turn: 1 }))
+  for (let i = 0; i < 600; i++) {
+    const id = `call_${i}`
+    log.push(call(++seq, 1, 1, id, 'bash', { command: `read ${i} `.repeat(20) }))
+    log.push(result(++seq, 1, 1, id, [txt(`result ${i} `.repeat(60))]))
+    invocations.push({
+      id: `r${i}`, origin: 'tool', sessionId: 's', turn: 1, toolCallId: id, operation: 'file.read', outcome: 'success',
+      versions: [{ kind: 'Commit', id: `12${String(i).padStart(64, '0')}`, effect: 'referenced' }],
+      argv: ['file', 'read', 'st/p', 'dsh.s', `/file-${i}`], at: 1000 + i,
+    })
+  }
+  log.push(ev(++seq, 'turn/end', { turn: 1 }))
+  const answer = buildTrajectory({ sessionId: 's', project: 'st/p', branch: 'dsh.s', events: log, invocations, checkpoints: [] })
+  const first = pageTrajectory(answer)
+  const records = first.turns.flatMap((turn) => turn.records)
+  assert.ok(records.length < FIRST_PAGE_RECORDS, `${records.length} of ${FIRST_PAGE_RECORDS} after the budget`)
+  assert.ok(records.length > 0)
+  assert.ok(JSON.stringify(first).length <= FIRST_PAGE_BYTES, `${JSON.stringify(first).length} bytes`)
+  assert.equal(first.recordTotal, 600)
+  assert.equal(first.hasMore, true)
+  assert.equal(first.olderBefore, records[0].seq, 'the cursor is the oldest kept record')
+  // The cut is reported, not hidden: the turn knows how many records it holds.
+  assert.equal(first.turns.length, 1)
+  assert.equal(first.turns[0].totalRecords, 600)
+  assert.ok(first.turns[0].totalRecords > first.turns[0].records.length)
+  assert.equal(JSON.stringify(first).includes(`"seq":${records[0].seq - 1},`), false, 'a record before the cursor is not in the page')
+  // Paging from the cursor still reaches every record.
+  const second = pageTrajectory(answer, first.olderBefore)
+  const all = new Set([...records, ...second.turns.flatMap((turn) => turn.records)].map((record) => record.seq))
+  assert.equal(all.size, 600)
+  // A record's calls survive the budget: its version chips still show.
+  assert.ok(records.every((record) => record.kind !== 'tool' || record.ops.length === 1))
+})
+
+test('a first-page build matches the whole build: same page, same totals, same counts', () => {
+  const log = []
+  const invocations = []
+  const checkpoints = []
+  const C4 = '12' + '4'.repeat(64)
+  let seq = 0
+  for (let turn = 1; turn <= 60; turn++) {
+    log.push(ev(++seq, 'turn/start', { turn }))
+    for (let i = 0; i < 10; i++) log.push(user(++seq, `turn ${turn} record ${i}`))
+    const id = `sub_${turn}`
+    log.push(call(++seq, turn, 1, id, 'subagent', { prompt: `review ${turn}` }), result(++seq, turn, 1, id, [txt('done')]))
+    invocations.push({
+      id: `sub_r${turn}`, origin: 'tool', sessionId: 's', turn, toolCallId: id, operation: 'branch.list', outcome: 'success',
+      versions: [], argv: ['branch', 'list', 'st/p'], at: 5000 + turn,
+    })
+    invocations.push({
+      id: `save_${turn}`, origin: 'tool', sessionId: 's', turn, toolCallId: id, operation: 'workspace.commit',
+      outcome: 'success', kind: turn % 2 ? 'Committed' : 'UpToDate', versions: [{ kind: 'Commit', id: C4.slice(0, 64) + turn, effect: turn % 2 ? 'created' : 'unchanged' }],
+      argv: ['workspace', 'commit', 'sb:main'], at: 5100 + turn,
+    })
+  }
+  checkpoints.push({ kind: 'turn', turn: 60, seq, commit: C4, branch: 'dsh.s', changed: 3, message: 'save', at: 6000 })
+  const input = { sessionId: 's', project: 'st/p', branch: 'dsh.s', events: log, invocations, checkpoints }
+
+  const full = buildTrajectory(input)
+  const fromFull = pageTrajectory(full)
+  const partial = buildTrajectory(input, { newest: FIRST_PAGE_RECORDS })
+  const fromPartial = pageTrajectory(partial)
+  assert.ok(partial.recordTotal > FIRST_PAGE_RECORDS)
+  assert.equal(fromPartial.recordTotal, fromFull.recordTotal)
+  assert.deepEqual(partial.counts, full.counts, 'counts cover the whole session')
+  assert.equal(JSON.stringify(fromPartial), JSON.stringify(fromFull), 'the page is byte-for-byte the full build')
+
+  // The reader builds only the page first, then the whole answer for an older cursor.
+  const read = trajectoryReader()
+  const first = read(input)
+  assert.equal(JSON.stringify(first), JSON.stringify(fromFull))
+  const older = read(input, { before: first.olderBefore })
+  assert.equal(older.revision, first.revision)
+  assert.deepEqual(older.turns.flatMap((turn) => turn.records).map((record) => record.seq),
+    pageTrajectory(full, first.olderBefore).turns.flatMap((turn) => turn.records).map((record) => record.seq))
+})
+
+test('a first page trimmed again by the byte budget keeps the whole turn\'s not-loaded total', () => {
+  const log = []
+  const invocations = []
+  let seq = 0
+  for (const [turn, count] of [[1, 500], [2, 100]]) {
+    log.push(ev(++seq, 'turn/start', { turn }))
+    for (let i = 0; i < count; i++) {
+      const id = `t${turn}_c${i}`
+      log.push(call(++seq, turn, 1, id, 'bash', { command: `layerfs file read st/p dsh.s /f-${turn}-${i}` }))
+      log.push(result(++seq, turn, 1, id, [txt('x'.repeat(PREVIEW_MAX))]))
+      invocations.push({
+        id: `r${turn}_${i}`, origin: 'tool', sessionId: 's', turn, toolCallId: id, operation: 'file.read', outcome: 'success',
+        versions: [{ kind: 'Commit', id: `12${String(turn * 1000 + i).padStart(64, '0')}`, effect: 'referenced' }],
+        argv: ['file', 'read', 'st/p', 'dsh.s', `/f-${turn}-${i}`], at: 1000 + i,
+      })
+    }
+    log.push(ev(++seq, 'turn/end', { turn }))
+  }
+  const input = { sessionId: 's', project: 'st/p', branch: 'dsh.s', events: log, invocations, checkpoints: [] }
+  const full = buildTrajectory(input)
+  const partial = buildTrajectory(input, { newest: FIRST_PAGE_RECORDS })
+  assert.equal(partial.recordTotal, 600)
+  const page = pageTrajectory(partial)
+  assert.ok(JSON.stringify(page).length <= FIRST_PAGE_BYTES, `${JSON.stringify(page).length} bytes`)
+  assert.equal(page.recordTotal, 600)
+  assert.equal(page.hasMore, true)
+  const turn1 = page.turns.find((turn) => turn.turn === 1)
+  assert.ok(turn1 && turn1.records.length > 0, 'the trimmed page still carries turn 1')
+  assert.equal(turn1.totalRecords, 500, 'the whole turn\'s count, not the first page\'s')
+  assert.ok(turn1.totalRecords > turn1.records.length)
+  // The trimmed page is still exactly what the whole build pages to.
+  const fromFull = pageTrajectory(full)
+  assert.equal(JSON.stringify(page), JSON.stringify(fromFull))
 })
 
 test('a page budgets a shell loop\'s calls but always keeps the saves and refusals', () => {
@@ -572,7 +704,10 @@ test('a page budgets a shell loop\'s calls but always keeps the saves and refusa
   })
   const record = pageTrajectory(answer).turns[0].records.find((r) => r.kind === 'tool')
   assert.equal(record.opsTotal, loop.length + 2)
-  assert.ok(record.ops.length <= MAX_OPS + 2, `${record.ops.length} calls`)
+  // One record keeps at most MAX_RECORD_OPS read-only calls on a first page.
+  assert.equal(record.ops.length, MAX_RECORD_OPS + 2, `${record.ops.length} calls`)
+  assert.ok(record.opsTotal > record.ops.length, 'the calls left out read as not loaded')
+  assert.ok(record.ops.length <= FIRST_PAGE_OPS + 2, `${record.ops.length} calls`)
   assert.ok(record.ops.some((op) => op.id === 'save'), 'the save keeps its version chip')
   assert.ok(record.ops.some((op) => op.id === 'refused'), 'a refusal stays')
   assert.ok(record.ops.some((op) => op.id === `r${MAX_OPS + 4}`), 'the newest reads are kept')

@@ -20,10 +20,25 @@ export const DETAIL_MAX = 64 * 1024
 /** Characters a request detail keeps of one tool's description. */
 export const TOOL_DESCRIPTION_MAX = 400
 /**
- * Records one trajectory answer carries: the newest. Older records load on
- * request (`{ before }`), so a long session's first paint is bounded.
+ * Records an older page carries (the newest of what is left). Older records
+ * load on request (`{ before }`), so a long session stays bounded; a tab
+ * opening reads the smaller {@link FIRST_PAGE_RECORDS} instead.
  */
 export const MAX_RECORDS = 1500
+/**
+ * Records a tab opening carries: the newest few hundred. Older records load on
+ * request, so the first paint is a fraction of a full page. A page also stops
+ * at {@link FIRST_PAGE_BYTES}, whichever is smaller.
+ */
+export const FIRST_PAGE_RECORDS = 400
+/**
+ * Bytes a first page may serialize to (`JSON.stringify` of the answer). The
+ * page sheds its oldest records until it fits; a page of very large records
+ * (long LayerFS call lines, schemas) is therefore shorter than
+ * {@link FIRST_PAGE_RECORDS}, and says so through `hasMore`/`olderBefore` and
+ * each turn's `totalRecords`.
+ */
+export const FIRST_PAGE_BYTES = 250 * 1024
 /**
  * A record's LayerFS calls one trajectory answer carries beyond the ones that
  * matter most: calls that wrote or named a version, and refusals, are always
@@ -31,6 +46,20 @@ export const MAX_RECORDS = 1500
  * thousands) and the record's `opsTotal` says how many it made.
  */
 export const MAX_OPS = 1200
+/**
+ * Calls one page carries for a tab opening (the first page only): the newest
+ * read-only calls, so the first paint does not pay for a whole session's call
+ * log. Calls past the budget stay out, and `opsTotal` reports them as not
+ * loaded.
+ */
+export const FIRST_PAGE_OPS = 400
+/**
+ * Read-only calls one record carries at most. A single record (a subagent's
+ * call, a shell loop) can log hundreds; the newest {@link MAX_RECORD_OPS} are
+ * kept and `opsTotal` says how many it made. Saves, version-naming calls and
+ * refusals are never dropped.
+ */
+export const MAX_RECORD_OPS = 64
 
 interface RecordBase {
   /** The record's own session event seq (a tool record: its `tool/call`). Unique; the record's id. */

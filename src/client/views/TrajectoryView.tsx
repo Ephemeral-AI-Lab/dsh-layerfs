@@ -36,8 +36,12 @@ export const TRAJECTORY_VIEW = 'trajectory'
 const RUNNING_POLL_MS = 3000
 /** Events wait this long so a burst reads once. */
 const REFRESH_MS = 1000
-/** Older pages a focus request (Chat's inspect) reads to find a call, then it gives up. */
-const FOCUS_PAGES = 4
+/**
+ * Older pages a focus request (Chat's inspect) reads to find a call, then it
+ * gives up. A first page is a few hundred records, so reaching a session's
+ * first turns takes several reads; the bound still covers a long session.
+ */
+const FOCUS_PAGES = 40
 /** Host events after which the trajectory may have changed (`{sessionId}` or none). */
 const EVENTS = ['layerfs-operation', 'layerfs-checkpoint', 'layerfs-session'] as const
 
