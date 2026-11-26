@@ -268,3 +268,19 @@
     opacity: 1;
   }
 }
+
+/* Touch: the project chip and its gear are sized like the other row controls. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .chip {
+    height: max(28px, var(--lfs-control-h, 44px));
+  }
+
+  .optionGear {
+    width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+  }
+
+  .folderChip {
+    min-height: var(--lfs-tap, 44px);
+  }
+}

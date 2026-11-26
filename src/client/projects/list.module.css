@@ -393,3 +393,38 @@
   flex: none;
   color: var(--dsw-alias-label-caption, #888);
 }
+
+/* Touch (iPad/iPhone, and a narrow window): every row is a thumb target and
+   the row's actions are visible without hover. Readiness stays words-only:
+   no action is added to a session row here, only Archive's target is sized. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .projectRow {
+    height: max(32px, var(--lfs-tap, 44px));
+  }
+
+  .session {
+    height: max(32px, var(--lfs-tap, 44px));
+  }
+
+  .rowActions .iconButton {
+    width: var(--lfs-tap, 44px);
+    min-width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+  }
+
+  .start {
+    height: var(--lfs-tap, 44px);
+  }
+
+  .sessionAction {
+    height: var(--lfs-tap, 44px);
+    min-width: var(--lfs-tap, 44px);
+  }
+}
+
+/* A touch screen must not rely on hover to reveal Archive. */
+@media (hover: none), (max-width: 640px) {
+  .sessionAction {
+    opacity: 1;
+  }
+}
