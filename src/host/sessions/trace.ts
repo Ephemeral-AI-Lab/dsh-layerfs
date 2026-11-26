@@ -18,6 +18,27 @@ import {
 import { isWrite } from '../../shared/logs.ts'
 import { promptChanges } from './prompt-diff.ts'
 
+/**
+ * A tail window of the log, instead of the whole log (B9-C): `events` starts at
+ * a `turn/start` and runs to EOF, so every turn it holds is complete. The
+ * answer says `windowed`, its `recordTotal` counts this window's records only,
+ * and `windowFromSeq`/`recordTotalKnown` say what is missing.
+ */
+export interface TrajectoryWindowInput {
+  /** The window's oldest event seq: records before it are not known. */
+  fromSeq: number
+  /** The turn that event opens: receipts before it are not part of the build. */
+  fromTurn: number
+  /** The log's file identity: a grown log is a new revision even before its window's length moves. */
+  logKey: string
+  /**
+   * The last request header before the window: its seq and raw tool catalog.
+   * The page's first request then reads `toolsChanged` and its prompt
+   * predecessor against the real one, not the window's edge.
+   */
+  prompt?: { seq: number, tools: readonly unknown[] }
+}
+
 export interface TrajectoryInput {
   sessionId: string
   project: string | null
@@ -25,6 +46,8 @@ export interface TrajectoryInput {
   branch: string | null
   /** The DSH session log (`snapshotEvents(0)`), or undefined when not loaded. */
   events?: readonly any[]
+  /** Set when `events` is only the log's newest window ({@link TrajectoryWindowInput}). */
+  window?: TrajectoryWindowInput
   /** Receipts from the sidecar, oldest first. */
   invocations: readonly any[]
   /** The sidecar's read-only receipt counter, when one was folded. */
@@ -46,8 +69,8 @@ function receiptCounts(input: TrajectoryInput): ReceiptMeta | undefined {
 }
 
 /**
- * A cheap identity of what `buildTrajectory` would read: the log's length and
- * last seq, the Branch, and the checkpoint and receipt tails. Reading it is
+ * A cheap identity of what `buildTrajectory` would read: the log's length, tail
+ * window and last seq, the Branch, and the checkpoint and receipt tails. Reading it is
  * O(1) over the loaded log and metadata (no walk, no serialization), so an
  * unchanged `session.trajectory` is answered without building or sending the
  * records. Any new event, checkpoint or receipt, a Branch change, a different
@@ -61,6 +84,7 @@ export function trajectoryRevision(input: TrajectoryInput): string {
   const counts = receiptCounts(input)
   return [
     events ? 'log' : 'nolog',
+    input.window ? `w:${input.window.fromSeq}:${input.window.prompt?.seq ?? ''}:${input.window.logKey}` : 'whole',
     events?.length ?? 0,
     Number.isInteger(last?.seq) ? last.seq : '',
     last?.type ?? '',
@@ -213,7 +237,10 @@ function buildPage(answer: TrajectoryAnswer, entries: { turn: number, record: Tr
     })
   }
   const total = answer.recordTotal ?? entries.length
-  const hasMore = start > 0 || (answer.recordTotal !== undefined && total > end && kept.length > 0)
+  // A windowed answer always has an older page: the tail read is only used for
+  // a long, unloaded log, so records before the window exist even when this
+  // page already carries every record the window materialized.
+  const hasMore = start > 0 || answer.windowed === true || (answer.recordTotal !== undefined && total > end && kept.length > 0)
   return {
     ...answer, turns,
     recordTotal: total,
@@ -558,7 +585,7 @@ function toolCatalog(tools: unknown): { tools: TrajectoryTool[], cut: boolean } 
 type ToolEntry = ToolRecord & { turn: number }
 
 /** A record-producing event's seq, in log order; a repeated tool call counts once. */
-function recordEventSeqs(events: readonly any[] | undefined): number[] {
+export function recordEventSeqs(events: readonly any[] | undefined): number[] {
   const out: number[] = []
   if (!events) return out
   const calls = new Set<string>()
@@ -609,8 +636,9 @@ export function buildTrajectory(input: TrajectoryInput, scope: TrajectoryBuildSc
   const keep = (seq: number): boolean => keepSeqs === undefined || keepSeqs.has(seq)
   // The recorded prompt changes (docs/specs/layerfs-trajectory.md): a system or
   // request record gains only a hint and its predecessor's seq here; the diff
-  // text itself stays behind `session.trajectory.prompt-diff`.
-  const prompt = promptChanges(input.events)
+  // text itself stays behind `session.trajectory.prompt-diff`. A window seeds
+  // the predecessor header so its first request compares against the real one.
+  const prompt = promptChanges(input.events, input.window?.prompt)
   const turns = new Map<number, TrajectoryTurn>()
   const turn = (n: number): TrajectoryTurn => {
     let t = turns.get(n)
@@ -625,8 +653,8 @@ export function buildTrajectory(input: TrajectoryInput, scope: TrajectoryBuildSc
   let last: number | undefined
   /** The last event seq: the observation row sits just after it, once per session. */
   let lastSeq: number | undefined
-  /** The previous request header's catalog, for this request's change marks. */
-  let previousTools: Map<string, string> | undefined
+  /** The previous request header's catalog, for this request's change marks; a window seeds it. */
+  let previousTools: Map<string, string> | undefined = input.window?.prompt ? toolFingerprints(input.window.prompt.tools) : undefined
   /** The step currently open between `step/start` and `step/end`. */
   let openStep: { turn: number, step: number } | undefined
   let pending: UserRecord[] = []
@@ -770,7 +798,7 @@ export function buildTrajectory(input: TrajectoryInput, scope: TrajectoryBuildSc
 
   const allCheckpoints: TraceCheckpointRow[] = []
   /** The per-turn objects, with their errors and receipt op, for counting only. */
-  const allCheckpointModels: TraceCheckpoint[] = []
+  const allCheckpointModels: { checkpoint: TraceCheckpoint, turn: number }[] = []
   const byReceipt = new Map<string, TraceCheckpoint>()
   for (const c of checkpoints) {
     if (!c || !Number.isInteger(c.turn)) continue
@@ -780,7 +808,7 @@ export function buildTrajectory(input: TrajectoryInput, scope: TrajectoryBuildSc
       ...(c.error && text(c.error.code) ? { error: { code: c.error.code, message: String(c.error.message ?? '') } } : {}),
     }
     turn(c.turn).checkpoints.push(checkpoint)
-    allCheckpointModels.push(checkpoint)
+    allCheckpointModels.push({ checkpoint, turn: c.turn })
     // The strip and the lane are navigation, not records: keep the row lean
     // (no receipt op, no error) and independent of which turns a page keeps.
     allCheckpoints.push({
@@ -907,9 +935,13 @@ export function buildTrajectory(input: TrajectoryInput, scope: TrajectoryBuildSc
     // The first page already counted every receipt; only the checkpoint's own
     // commit can still add a version when its call created none.
     callsWithVersions = callMade.size
-    for (const c of allCheckpointModels) {
-      const linked = checkpointMade.get(c) ?? false
-      if (!linked && c.commit && !c.error && c.changed > 0) created.add(c.commit)
+    for (const { checkpoint, turn } of allCheckpointModels) {
+      // A window cannot see an older turn's save; its receipt and version are
+      // counted only when the window holds them (otherwise the checkpoint's
+      // commit would read as created by the window).
+      if (input.window && turn < input.window.fromTurn) continue
+      const linked = checkpointMade.get(checkpoint) ?? false
+      if (!linked && checkpoint.commit && !checkpoint.error && checkpoint.changed > 0) created.add(checkpoint.commit)
     }
   } else {
     const madeBy = (op: TraceOp): boolean => {
@@ -922,6 +954,7 @@ export function buildTrajectory(input: TrajectoryInput, scope: TrajectoryBuildSc
     for (const record of tools.values()) count(record.ops)
     for (const orphan of orphans.values()) count(orphan.ops)
     for (const t of turns.values()) {
+      if (input.window && t.turn < input.window.fromTurn) continue
       for (const op of t.hostOps) madeBy(op)
       for (const c of t.checkpoints) {
         const linked = c.op ? madeBy(c.op) : false
@@ -936,6 +969,7 @@ export function buildTrajectory(input: TrajectoryInput, scope: TrajectoryBuildSc
     // Every page spreads this answer, so every page carries the whole set.
     checkpoints: allCheckpoints,
     logLoaded: input.events !== undefined,
+    ...(input.window ? { windowed: true as const, windowFromSeq: input.window.fromSeq, recordTotalKnown: false as const } : {}),
     counts: { versionsCreated: created.size + unnamed, callsWithVersions },
     revision: trajectoryRevision(input),
     ...(firstPageTotal !== undefined ? { recordTotal: firstPageTotal } : {}),

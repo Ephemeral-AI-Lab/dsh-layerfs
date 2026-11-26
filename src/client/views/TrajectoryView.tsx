@@ -21,10 +21,10 @@ import { isStreamingAssistant, mergeLiveSteps, useLiveSteps } from './live-step.
 import type { Translate } from './locale.ts'
 import { TrajectoryInspector, type DetailCache, type Inspected, type InspectorTab, type PromptDiffCache } from './TrajectoryInspector.tsx'
 import { openLogs } from '../logs/request.ts'
-import { clock, durationText, KindCell, OpLine, toolsDelta, usageText, Versions, type OpenVersion } from './TrajectoryParts.tsx'
+import { clock, durationText, KindCell, OlderFooter, OpLine, toolsDelta, usageText, Versions, type OpenVersion } from './TrajectoryParts.tsx'
 import { TrajectoryTimeline } from './TrajectoryTimeline.tsx'
 import {
-  checkpointVersion, filterTurns, flattenRows, focusTarget, loadedRecords, mergeOlder, opWrites, recentTurns, recordMatches, ROW_PAGE, SAVES,
+  checkpointVersion, filterTurns, flattenRows, focusTarget, mergeOlder, opWrites, recentTurns, recordMatches, ROW_PAGE, SAVES, totalRecords,
   selectionTurn, timeSpan, type Row, type Selection,
 } from './trajectory-model.ts'
 import views from './views.module.css'
@@ -506,7 +506,7 @@ export function TrajectoryView(props: ViewProps): ReactNode {
   const timelineSummary = answer
     ? [
       span ? durationText(t, span.end - span.start) : null,
-      t('trajSummaryVersions', { n: answer.counts.versionsCreated }),
+      t(answer.windowed ? 'trajSummaryVersionsWindow' : 'trajSummaryVersions', { n: answer.counts.versionsCreated }),
       checkpoints.length ? t('trajSummaryCheckpoints', { n: checkpoints.length }) : null,
     ].filter(Boolean).join(' · ')
     : ''
@@ -551,6 +551,7 @@ export function TrajectoryView(props: ViewProps): ReactNode {
           </label>
         </div>
         {!answer.logLoaded ? <p className={clsx(css.note, css.frameNote)}>{t('trajNoLog')}</p> : null}
+        {answer.windowed ? <p className={clsx(css.note, css.frameNote)}>{t('trajWindowNote', { n: totalRecords(answer) })}</p> : null}
         <button type="button" className={css.timelineToggle} aria-expanded={timelineOpen}
           onClick={() => setTimelineOpen((open) => {
             const next = !open
@@ -566,7 +567,7 @@ export function TrajectoryView(props: ViewProps): ReactNode {
           <h2>{t('trajTimeline')}</h2>
           <span className={css.counts}>
             {[
-              layerfs ? t('trajCounts', { n: answer.counts.versionsCreated, m: answer.counts.callsWithVersions }) : null,
+              layerfs ? t(answer.windowed ? 'trajCountsWindow' : 'trajCounts', { n: answer.counts.versionsCreated, m: answer.counts.callsWithVersions }) : null,
               span ? t('trajTotal', { duration: durationText(t, span.end - span.start) }) : null,
             ].filter(Boolean).join(' · ')}
           </span>
@@ -587,11 +588,7 @@ export function TrajectoryView(props: ViewProps): ReactNode {
                     <Button variant="outline" size="sm" onClick={() => setLimit((n) => n + ROW_PAGE)}>{t('trajShowMore', { n: rows.length - limit })}</Button>
                   </div>
                 ) : answer.hasMore && answer.olderBefore !== undefined ? (
-                  <div className={css.more}>
-                    <Button variant="outline" size="sm" onClick={loadOlder} disabled={olderBusy}>
-                      {olderBusy ? t('loading') : t('trajShowOlder', { n: Math.max(0, (answer.recordTotal ?? loadedRecords(answer)) - loadedRecords(answer)) })}
-                    </Button>
-                  </div>
+                  OlderFooter({ answer, busy: olderBusy, t, onLoadOlder: loadOlder })
                 ) : null}
               </>
             )}

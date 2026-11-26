@@ -51,7 +51,7 @@ import { pathToFileURL } from 'node:url'
 import { CliError, pages } from '../layerfs/cli.ts'
 import { notifyCallLog } from '../layerfs/call-log.ts'
 import { outputsDir, readOutput } from '../layerfs/call-output.ts'
-import { exitOfOutput, fastForwardOfOutput, receiptFromLine, toolScope, traceEnvironment, withTraceContext, type Invocation, type TraceIdentity } from '../layerfs/tracing.ts'
+import { exitOfOutput, fastForwardOfOutput, RECEIPT_META, receiptFromLine, receiptMetaOf, toolScope, traceEnvironment, withReceiptMeta, withTraceContext, type Invocation, type TraceIdentity } from '../layerfs/tracing.ts'
 import { callsSince } from '../logs/source.ts'
 import { parseTag, TAG_PREFIX } from '../../shared/logs.ts'
 import { branchFields } from '../../shared/session-branch.ts'
@@ -61,7 +61,8 @@ import { localPersistence, SessionStore } from './store.ts'
 import { sidecarMetadata } from '../session-persistence.ts'
 import { promptDiff } from './prompt-diff.ts'
 import { normalizeKind } from '../../shared/trajectory.ts'
-import { trajectoryDetail, trajectoryReader, type TrajectoryInput } from './trace.ts'
+import { trajectoryDetail, trajectoryReader, type TrajectoryInput, type TrajectoryWindowInput } from './trace.ts'
+import { mayReadTail, tailFile, tailPageReader } from './trajectory-tail.ts'
 
 /** Stored session logs kept parsed for the Trajectory (finished subagents' logs, which DSH has unloaded). */
 const STORED_LOGS = 16
@@ -351,12 +352,29 @@ export function apply(ctx: Context): void {
     const storedLogs = new Map<string, { key: string, events: any[] }>()
     /** A loaded session's title, keyed by its log length: the scan is only redone when the log grows. */
     const titles = new Map<string, { seq: number, title: string | null }>()
+    /** A loaded session's events; undefined when DSH has not loaded it (a cold read). */
+    const loadedSessionEvents = (id: string): any[] | undefined => {
+      try {
+        const events = (ctx.get('sessions' as never) as any)?.get?.(id)?.snapshotEvents?.(0)
+        if (Array.isArray(events)) return events
+      } catch { /* not loaded */ }
+      return undefined
+    }
+    /** The log on disk, for a tail read: its path, size and the identity a cached parse uses. */
+    const logFile = async (id: string) => {
+      const persistence = localPersistence(ctx)
+      const snapshot = await Promise.resolve(persistence?.stat?.(id)).catch(() => undefined)
+      const path = snapshot?.location?.path
+      return path ? tailFile(path) : undefined
+    }
     /**
      * The trajectory memo: one built answer per session keyed by its revision,
      * so a tab opening without `since` builds at most once between changes, and
      * an unchanged `since` costs bytes. Bounded by `trajectoryReader`.
      */
     const readTrajectory = trajectoryReader()
+    /** The last cold first page's log and receipts windows, keyed by each file's identity (a `since` poll then costs two stats). */
+    const tailPages = tailPageReader()
     /**
      * Recent-project facts, one per session, keyed by the log and sidecar
      * identities and the binding activity the row reads. A hit skips the
@@ -369,10 +387,8 @@ export function apply(ctx: Context): void {
      * subagent is unloaded, but its log stays on disk). Undefined when neither exists.
      */
     const sessionEvents = async (id: string): Promise<any[] | undefined> => {
-      try {
-        const events = (ctx.get('sessions' as never) as any)?.get?.(id)?.snapshotEvents?.(0)
-        if (Array.isArray(events)) return events
-      } catch { /* not loaded */ }
+      const loaded = loadedSessionEvents(id)
+      if (loaded) return loaded
       try {
         const persistence = localPersistence(ctx)
         const snapshot = await persistence?.stat(id)
@@ -394,8 +410,13 @@ export function apply(ctx: Context): void {
         return read
       } catch { return undefined }
     }
-    /** What `buildTrajectory` reads: the log, receipts and checkpoints (shared subagents follow their parent's binding). */
-    const trajectoryInput = async (id: string): Promise<TrajectoryInput> => {
+    /**
+     * What `buildTrajectory` reads: the log, receipts and checkpoints (shared
+     * subagents follow their parent's binding). A cold first page of a long
+     * session may read only the log's newest window (B9-C), with the window's
+     * receipts; an older page (`whole`) always reads the log whole.
+     */
+    const trajectoryInput = async (id: string, options: { whole?: boolean } = {}): Promise<TrajectoryInput> => {
       const persistence = ctx.get('sessionPersistence' as never) as any
       // Cached by the sidecar's file identity: this read runs on every event and
       // poll, and a long session's receipts are large (the unchanged check must
@@ -404,13 +425,42 @@ export function apply(ctx: Context): void {
       let binding = sessions.binding(id)
       if (binding?.kind === 'shared' && binding.parent) binding = sessions.binding(binding.parent) ?? binding
       const local = sessions.checkpoints(id)
-      const events = await sessionEvents(id)
+      let events: any[] | undefined
+      let window: TrajectoryWindowInput | undefined
+      let invocations: any[] | undefined
+      if (!options.whole && !loadedSessionEvents(id)) {
+        const file = await logFile(id)
+        // A legacy combined sidecar keeps its receipts in one JSON object that
+        // cannot be bounded to the window, so only a split layout (`receipts.jsonl`
+        // beside the log) takes this path; everything else keeps the whole parse.
+        const receiptsFile = file ? tailFile(join(dirname(file.path), 'receipts.jsonl')) : undefined
+        if (file && mayReadTail(file.size, { loaded: false, splitReceipts: receiptsFile !== undefined })) {
+          const page = tailPages(id, {
+            logPath: file.path, logKey: file.key, logSize: file.size,
+            ...(receiptsFile ? { receiptsPath: receiptsFile.path, receiptsKey: receiptsFile.key, receiptsSize: receiptsFile.size } : {}),
+          })
+          if (page) {
+            window = page.window
+            events = page.events
+            // The window's receipts only: the first page builds call lines for the
+            // records it keeps, and its counts are window values too. The receipt
+            // counter rides on the array (the observation row reads it), so it is
+            // re-attached from the sidecar metadata rather than by reading them all.
+            invocations = withReceiptMeta(page.invocations, (sidecar as any)?.[RECEIPT_META])
+          }
+        }
+      }
+      if (!events) {
+        events = await sessionEvents(id)
+        invocations = Array.isArray(sidecar?.invocations) ? sidecar.invocations : []
+      }
       return {
         sessionId: id,
         project: binding?.project ?? persistence?.ownerOf?.(id)?.project ?? null,
         branch: binding?.branch ?? (typeof sidecar?.codeBranch === 'string' ? sidecar.codeBranch : null),
         ...(events ? { events } : {}),
-        invocations: Array.isArray(sidecar?.invocations) ? sidecar.invocations : [],
+        ...(window ? { window } : {}),
+        invocations: invocations ?? [],
         checkpoints: local.length ? local : Array.isArray(sidecar?.checkpoints) ? sidecar.checkpoints : [],
       }
     }
@@ -809,7 +859,7 @@ export function apply(ctx: Context): void {
           if (!Number.isSafeInteger(args.before) || args.before < 0) throw new CliError('InvalidInput', 'before must be a record seq')
           before = args.before
         }
-        return readTrajectory(await trajectoryInput(id), { ...(since ? { since } : {}), ...(before !== undefined ? { before } : {}) })
+        return readTrajectory(await trajectoryInput(id, { whole: before !== undefined }), { ...(since ? { since } : {}), ...(before !== undefined ? { before } : {}) })
       },
       'session.trajectory.record': async (args: any) => {
         const id = need(args, 'sessionId')

@@ -349,7 +349,9 @@
 
 .more {
   display: flex;
+  gap: 8px;
   justify-content: center;
+  align-items: baseline;
   padding: 10px 0;
 }
 

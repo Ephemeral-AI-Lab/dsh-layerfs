@@ -76,11 +76,13 @@ stock Trajectory would let those rows move there and retire this view.
 
 `src/shared/trajectory.ts` is the contract.
 
-- `session.trajectory {sessionId}` → `TrajectoryAnswer`: per turn, records in
-  log order (user/context/assistant previews of at most 300 characters; tool
+- `session.trajectory {sessionId, since?, before?}` → `TrajectoryAnswer`: per
+  turn, records in log order (user/context/assistant previews of at most 300 characters; tool
   calls with a one-line argument summary, a result preview, error and timing,
   and their receipts as `ops`), orphan calls (receipts whose call is not in the
-  loaded log), host ops, checkpoints, and `counts`.
+  loaded log), host ops, checkpoints, and `counts`. `since` answers
+  `{unchanged: true}`; `before` reads the next older page; a cold first page of
+  a long session may be a window (section 4).
 - `session.trajectory.record {sessionId, seq}` → `TrajectoryDetail`: one record
   in full (arguments, result, text, thinking; each cut at 64 KiB), read when
   the inspector opens it.
@@ -96,21 +98,92 @@ Refresh: on `layerfs-operation`, `layerfs-checkpoint`, `layerfs-session` and
 reconnect, and every 3 s while the session runs (shell receipts land when the
 turn settles).
 
-## 4. Limits
+## 4. A cold first page reads a window (B9-C)
+
+A long session's log is read whole by today's parse: 754.8 ms for the measured
+47,132,322 B / 12,876-event log, plus 399.4 ms for its 40.7 MB
+`receipts.jsonl`, 92.7 ms to build the first page and 18.9 ms to page it
+(Node 24.22.2, this box). The first page is capped at 400 records and 250 KiB,
+so a cold read does not need either file whole. Decided 2026-11-26: option C,
+the tail window — the smallest change that removes the log parse without a
+worker or a second parser. It is explicit that the first answer is a window.
+
+**When.** Only for a session DSH has **not** loaded whose log is at least
+`TAIL_LOG_BYTES` (8 MiB), with the split receipts layout (`receipts.jsonl`
+beside the log). A loaded session, a shorter log, or a legacy combined sidecar
+keeps the whole parse.
+
+**What is read.** The log's tail from a `turn/start` to EOF (`TAIL_START_BYTES`
+= 2 MiB first, doubled until it holds the newest 400 records), trimmed to the
+turn of the oldest record a page can keep, plus `receipts.jsonl`'s rows for
+those turns (a binary search finds the first row of the window's turn, then one
+read). Every turn in the window is complete, so record content, call/result
+pairing, step timing and per-turn totals are exactly the whole parse's for
+those turns. The page's first `request/header` needs its predecessor's tool
+catalog: the last header before the window is read as a **seed** (its `seq`
+and tools), so `toolsChanged` and `promptChanged.previousSeq` match the whole
+build. A page `system/message` needs the effective prompt text, which cannot be
+seeded: the window reaches back to the last system message's turn, or the whole
+parse runs.
+
+**The answer says so.** A windowed first page carries `windowed: true`,
+`windowFromSeq` (the window's oldest event seq) and `recordTotalKnown: false`;
+`recordTotal` counts the records in the window (402 on the measured session),
+and `counts`/`opsTotal` are window values too. `hasMore` is always true.
+Everything the page carries (records, checkpoint strip, the observation row)
+is identical to the whole build's first page: 397 records, 255,626 bytes whole
+and 255,719 windowed — the 93 bytes are the three window fields, the window's
+`recordTotal`, `counts` and `revision`.
+
+**Older history stays exact.** The client's first "Load full history" (the
+existing `{before}` cursor, unchanged) runs the whole parse once and answers
+with the session's full `recordTotal` (3,314) and `counts`; every later older
+page reuses that answer. Walking the measured session takes 18 pages / 4.185
+MiB at the 250 KiB byte budget and reaches every record exactly once. The first
+older page paying the whole parse (~755 ms + ~399 ms here) is the accepted
+trade.
+
+**`since` stays cheap.** The window is cached per session keyed by both files'
+`size:mtimeMs`; a poll that passes `since` computes the same revision from the
+cache (two stats, ~0.1 ms) and answers `unchanged` 25/25, as before. A whole-log
+parse cached by a record read does not switch the first page back to the whole
+log: the window input, and so its revision, stays.
+
+**Fallback to the whole parse (`windowed: false`).** The tail is used only when
+it can be read safely. The whole parse runs when: the log is under 8 MiB; the
+session is loaded; there is no split `receipts.jsonl` (legacy combined
+sidecar); the header is not a v4 session header; the file is not JSONL; a row
+lacks an integer `seq` or the seqs do not increase; a line other than a torn
+last one does not parse; a surface replacement's endpoints predate the window
+after the window has shown a prompt state it would reset; a page
+`system/message` has no earlier system message; or the window would be the
+whole file. A fallback answer is today's answer, never a partial page passed
+off as the session.
+
+**UI.** Window numbers are never shown as session totals. The table footer says
+`402 in the loaded window · Load full history` and the button runs the whole
+parse; the counts line gains "· in the loaded window"; the phone summary says
+"N versions in the loaded window", and a note under the toolbar says totals,
+counts and per-turn counts cover the loaded records only. After the merge, the
+footer returns to "Load older records (n not loaded)" with the full counts.
+
+## 5. Limits
 
 - A call that only ran `workspace exec` made no version; its edits are saved
   by the turn's checkpoint. An unchanged turn calls only `workspace status` and
   records no checkpoint.
 - A session that is not loaded has no records; its calls come from receipts.
 
-## 5. Files
+## 6. Files
 
 | File | Role |
 | --- | --- |
 | `src/shared/trajectory.ts` | the contract |
 | `src/host/sessions/trace.ts` | builder, detail, `versionBranch`, `summarize` |
-| `src/host/sessions/index.ts` | the two ops |
+| `src/host/sessions/trajectory-tail.ts` | the cold first page's log/receipts windows and their cache |
+| `src/host/sessions/index.ts` | the ops; the window decision and the sidecar counter |
 | `src/client/views/TrajectoryView.tsx` and parts, `trajectory.module.css`, `trajectory-model.ts` | the view |
 | `src/client/views/index.tsx` | LayerFS/DSH mode and the switch order |
 | `src/client/views/stock-trajectory.ts` | suspends/resumes DSH's stock Trajectory entry; the Inspect target |
-| `test/trajectory.test.mjs`, `test/trajectory-model.test.mjs`, `test/e2e-trajectory.mjs` | tests |
+| `test/trajectory.test.mjs`, `test/trajectory-model.test.mjs`, `test/trajectory-window.test.mjs`, `test/trajectory-window-ui.test.mjs`, `test/e2e-trajectory.mjs` | tests |
+| `test/perf/trajectory-tail.perf.mjs` | the measured whole-vs-window numbers |

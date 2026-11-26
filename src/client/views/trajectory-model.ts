@@ -20,6 +20,20 @@ export function loadedRecords(answer: TrajectoryAnswer): number {
 }
 
 /**
+ * Records the answer covers: the whole log, or — when it was read as its newest
+ * window (`windowed`) — only the records that window holds. A windowed number
+ * is never shown as a session total.
+ */
+export function totalRecords(answer: TrajectoryAnswer): number {
+  return answer.recordTotal ?? loadedRecords(answer)
+}
+
+/** Older records this answer says it does not carry (a windowed answer counts its window only). */
+export function olderRecords(answer: TrajectoryAnswer): number {
+  return Math.max(0, totalRecords(answer) - loadedRecords(answer))
+}
+
+/**
  * An older page merged under the answer on screen: its records join by seq
  * (never twice, in log order), the newer answer keeps its turn metadata,
  * checkpoints and own calls, and the older page's cursor becomes the next
@@ -48,6 +62,17 @@ export function mergeOlder(answer: TrajectoryAnswer, older: TrajectoryAnswer): T
   turns.sort((a, b) => a.turn - b.turn)
   const merged: TrajectoryAnswer = { ...answer, turns }
   if (older.recordTotal !== undefined) merged.recordTotal = older.recordTotal
+  // The older page reads the whole log, so the merged answer is no longer a
+  // window: the totals it now shows are session totals again.
+  if (older.windowed) {
+    merged.windowed = true
+    if (older.windowFromSeq !== undefined) merged.windowFromSeq = older.windowFromSeq
+    if (older.recordTotalKnown === false) merged.recordTotalKnown = false
+  } else {
+    delete merged.windowed
+    delete merged.windowFromSeq
+    delete merged.recordTotalKnown
+  }
   if (older.hasMore && older.olderBefore !== undefined) {
     merged.hasMore = true
     merged.olderBefore = older.olderBefore

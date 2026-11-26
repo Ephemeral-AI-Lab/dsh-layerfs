@@ -88,7 +88,9 @@ function sameTools(a: readonly unknown[], b: readonly unknown[]): boolean {
  * nonempty system node becomes its own `system` change at its seq; its `update`
  * flag then suppresses the duplicate system report at the following header.
  */
-export function promptChanges(events: readonly any[] | undefined): PromptChanges {
+export function promptChanges(
+  events: readonly any[] | undefined, seed?: { seq: number, tools: readonly unknown[] },
+): PromptChanges {
   const changes = new Map<number, PromptChange>()
   const flags = new Map<number, { promptChanged: PromptChangeKind, previousSeq: number }>()
   if (!events?.length) return { changes, flags }
@@ -98,8 +100,12 @@ export function promptChanges(events: readonly any[] | undefined): PromptChanges
   let replacements = new Map<number, number>()
   let firstSeq: number | undefined
   let effective: SystemNode | undefined
-  /** The latest recorded prompt state: the baseline the next change is diffed against. */
-  let last: PromptSnapshot | undefined
+  /**
+   * The latest recorded prompt state: the baseline the next change is diffed
+   * against. A window seed is the last header before it; the effective system
+   * text is not recorded there, and a page `system/message` is anchored instead.
+   */
+  let last: PromptSnapshot | undefined = seed ? { seq: seed.seq, system: '', tools: seed.tools } : undefined
 
   for (const event of events) {
     const seq = integer(event?.seq)

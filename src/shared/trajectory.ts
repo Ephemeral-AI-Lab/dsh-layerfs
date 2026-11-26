@@ -371,8 +371,23 @@ export interface TrajectoryAnswer {
    * instead of these turns.
    */
   revision: string
-  /** Records the whole log holds; `turns` carries at most {@link MAX_RECORDS} of them (the newest). */
+  /**
+   * Records the answer covers: the whole log normally; with {@link windowed},
+   * only the records in the newest window it was built from.
+   */
   recordTotal?: number
+  /**
+   * True when the log was read as its newest window, not whole (a cold first
+   * page of a long session, B9-C). `recordTotal` and `counts` are then window
+   * values, `windowFromSeq` says where the window starts, and an older page
+   * (`{ before }`) makes the host parse the whole log once and answer with the
+   * full totals.
+   */
+  windowed?: true
+  /** The window's oldest event seq: records before it are not known (only with {@link windowed}). */
+  windowFromSeq?: number
+  /** False when {@link recordTotal} counts a window, not the whole log; absent when it is the total. */
+  recordTotalKnown?: false
   /** Older records exist beyond this answer; read them with `{ before: olderBefore }`. */
   hasMore?: boolean
   /** The oldest record seq this answer carries: the cursor that reads the older page. */

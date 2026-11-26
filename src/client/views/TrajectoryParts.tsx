@@ -1,10 +1,11 @@
 /** Small pieces the LayerFS trajectory's table and inspector share: kind pills, version chips, LayerFS call lines, times. */
 import { Fragment, type ReactNode } from 'react'
 import clsx from 'clsx'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { shortId } from '../files/format.ts'
-import type { ToolsChange, TraceOp, TraceVersion, TrajectoryRecord, TrajectoryUsage } from '../../shared/trajectory.ts'
+import type { ToolsChange, TraceOp, TraceVersion, TrajectoryAnswer, TrajectoryRecord, TrajectoryUsage } from '../../shared/trajectory.ts'
 import type { Translate } from './locale.ts'
-import { compactNumber, durationParts, opCommand } from './trajectory-model.ts'
+import { compactNumber, durationParts, olderRecords, opCommand, totalRecords } from './trajectory-model.ts'
 import css from './trajectory.module.css'
 import { clockTime } from '../ui/locale-sync.ts'
 
@@ -101,4 +102,37 @@ export function OpLine({ op, t, onOpen, className }: { op: TraceOp, t: Translate
 /** A record's kind as DSH's tinted pill (the inspector header uses it too). */
 export function KindCell({ kind, t }: { kind: TrajectoryRecord['kind'] | 'checkpoint' | 'layerfs', t: Translate }): ReactNode {
   return <span className={clsx(css.kind, css[`kind_${kind}`])}>{t(`trajKind_${kind}`)}</span>
+}
+
+/**
+ * The table's older-records affordance: a plain function, not a component, so
+ * the view's tree carries its button (and the mini hook runtime can find it).
+ * A windowed answer (a cold first page of a long session) says how many records
+ * its window holds and offers the whole log; its window numbers are never shown
+ * as session totals. A whole answer keeps "Load older records (n not loaded)".
+ */
+export function OlderFooter({ answer, busy, t, onLoadOlder }: {
+  answer: TrajectoryAnswer
+  busy: boolean
+  t: Translate
+  onLoadOlder: () => void
+}): ReactNode {
+  if (answer.windowed) {
+    return (
+      <div className={css.more}>
+        <span className={css.note}>{t('trajWindowRecords', { n: totalRecords(answer) })}</span>
+        <span className={css.note} aria-hidden="true">·</span>
+        <Button variant="outline" size="sm" onClick={onLoadOlder} disabled={busy}>
+          {busy ? t('loading') : t('trajLoadFullHistory')}
+        </Button>
+      </div>
+    )
+  }
+  return (
+    <div className={css.more}>
+      <Button variant="outline" size="sm" onClick={onLoadOlder} disabled={busy}>
+        {busy ? t('loading') : t('trajShowOlder', { n: olderRecords(answer) })}
+      </Button>
+    </div>
+  )
 }
