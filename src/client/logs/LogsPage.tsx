@@ -15,10 +15,11 @@ import {
 import type { LayerfsApi } from '../api.ts'
 import {
   LOGS_EVENT, operationOf, parseTag,
-  type CallClient, type CallLabel, type LabeledLine, type LogsListAnswer, type LogsListArgs, type LogsResetAnswer,
+  type CallLabel, type LabeledLine, type LogsListAnswer, type LogsResetAnswer,
 } from '../../shared/logs.ts'
 import { Card, ConfirmDialog, Empty, LinkButton, LoadError, Loading, MenuSelect, Page, PageHead, Refusal, type RefusalLabels } from '../ui/index.tsx'
 import { CallDetail } from './CallDetail.tsx'
+import { argsOf, DEFAULT_FILTERS, emptyAction, type ClientChoice, type Filters, type OutcomeChoice } from './filters.ts'
 import { CommandCell } from './Command.tsx'
 import { shortId } from '../files/format.ts'
 import { clockTime, dateTime } from '../ui/locale-sync.ts'
@@ -28,21 +29,8 @@ import { openLogs, onLogsRequest, peekLogsRequest, takeLogsRequest, type LogsReq
 import { sessionParts } from './session-words.ts'
 import css from './logs.module.css'
 
-type ClientChoice = 'all' | CallClient
-type OutcomeChoice = 'all' | 'ok' | 'refused'
-
-interface Filters {
-  project: string
-  op: string
-  client: ClientChoice
-  outcome: OutcomeChoice
-  writes: boolean
-  tag?: string | undefined
-}
-
-const DEFAULTS: Filters = { project: '', op: 'all', client: 'all', outcome: 'all', writes: true }
 /** A pre-filtered open shows exactly the tagged calls: every other filter is cleared. */
-const fromRequest = (request: LogsRequest): Filters => ({ ...DEFAULTS, writes: false, tag: request.tag })
+const fromRequest = (request: LogsRequest): Filters => ({ ...DEFAULT_FILTERS, writes: false, tag: request.tag })
 
 interface Loaded {
   lines: LabeledLine[]
@@ -54,24 +42,10 @@ interface Loaded {
   pages: number
 }
 
-const PAGE = 100
 const lineKey = (line: LabeledLine) => `${line.at}|${line.tag ?? ''}|${line.argv.join('\u0000')}`
 const merge = (a: readonly LabeledLine[], b: readonly LabeledLine[]) => [...new Map([...a, ...b].map((line) => [lineKey(line), line])).values()]
 /** A saved id as LayerFS labels it short (its tag kept: a prefix `commit get` accepts); the full id is the tip. */
 const shortHex = (id: string | undefined) => id ? shortId(id) : ''
-
-function argsOf(f: Filters): LogsListArgs {
-  return {
-    limit: PAGE,
-    ...(f.project.trim() ? { project: f.project.trim() } : {}),
-    ...(f.op !== 'all' ? { op: f.op } : {}),
-    ...(f.client !== 'all' ? { client: f.client } : {}),
-    // `refused` is every outcome but `ok`; the contract filters one code, so it is narrowed here.
-    ...(f.outcome === 'ok' ? { outcome: 'ok' } : {}),
-    ...(f.tag ? { tag: f.tag } : {}),
-    ...(f.writes ? { writes: true } : {}),
-  }
-}
 
 function refusalLabels(t: LogsT): RefusalLabels {
   return {
@@ -84,7 +58,7 @@ function refusalLabels(t: LogsT): RefusalLabels {
 }
 
 export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api: LayerfsApi, t: LogsT }): ReactNode {
-  const [filters, setFilters] = useState<Filters>(() => { const r = peekLogsRequest(); return r ? fromRequest(r) : DEFAULTS })
+  const [filters, setFilters] = useState<Filters>(() => { const r = peekLogsRequest(); return r ? fromRequest(r) : DEFAULT_FILTERS })
   const [search, setSearch] = useState(filters.project)
   const [data, setData] = useState<Loaded>()
   const [error, setError] = useState<unknown>()
@@ -224,15 +198,16 @@ export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api:
     if (!data) return
     const args = argsOf(filters)
     const unfiltered = Object.keys(args).every((k) => k === 'limit') && filters.outcome === 'all'
-    if (data.lines.length > 0) { setLogEmpty(false); return }
-    if (data.hasMore) return
-    if (unfiltered) { setLogEmpty(true); return }
+    const action = emptyAction({ lines: data.lines.length, hasMore: data.hasMore, unfiltered, tag: !!filters.tag, known: logEmpty })
+    if (action === 'nonempty') { setLogEmpty(false); return }
+    if (action === 'empty') { setLogEmpty(true); return }
+    if (action !== 'probe') return
     let live = true
     api.op<LogsListAnswer>('logs.list', { limit: 1 })
       .then((answer) => { if (live) setLogEmpty(answer.lines.length === 0 && !answer.has_more) })
       .catch(() => { if (live) setLogEmpty(undefined) })
     return () => { live = false }
-  }, [api, data, filters])
+  }, [api, data, filters, logEmpty])
 
   const reset = async () => {
     const answer = await api.op<LogsResetAnswer>('logs.reset', {})
