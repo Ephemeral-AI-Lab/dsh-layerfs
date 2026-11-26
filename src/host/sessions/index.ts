@@ -485,12 +485,16 @@ export function apply(ctx: Context): void {
           const seq = typeof live.seq === 'number' ? live.seq : -1
           const kept = titles.get(id)
           if (kept && kept.seq === seq) return kept.title
+          const tSnap = performance.now()
           const events: readonly any[] = live.snapshotEvents?.(0) ?? []
+          add('title.snapshot', performance.now() - tSnap)
+          const tScan = performance.now()
           let title: string | null = null
           for (let i = events.length - 1; i >= 0; i--) {
             const event = events[i]
             if (event?.type === 'session/title' && typeof event.data?.title === 'string') { title = event.data.title; break }
           }
+          add('title.scan', performance.now() - tScan)
           titles.set(id, { seq, title })
           while (titles.size > 1024) titles.delete(titles.keys().next().value!)
           return title
