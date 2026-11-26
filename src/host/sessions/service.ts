@@ -35,11 +35,28 @@ import { machineRows } from '../layerfs/machine-records.ts'
 const IDENTITY_FRESH_MS = 15_000
 
 /**
- * How long a successful identity+readiness read stands for an observed read
- * (session.state with observe, the views' polls). Failures never enter it:
- * only a refusal-free pass is remembered.
+ * How long a successful observed identity check (project.get + branch.list)
+ * stands. Identity changes only through a save of the binding here (bind,
+ * mount, detach, restore, interrupt: each clears this), or when another
+ * installation changes the project's identity branch, which this bounds.
  */
-const OBSERVED_READY_MS = 10_000
+const OBSERVED_IDENTITY_MS = 10_000
+
+/**
+ * How long a successful observed machine + Store readiness check stands. Both
+ * change rarely and every change this host sees clears it (`machinesStopped`, a
+ * Store health transition, a save or interrupt); a machine stopped from outside
+ * this host is the worst case, bounded by this window.
+ */
+const OBSERVED_READY_MS = 30_000
+
+/**
+ * How long an observed answer stands while the session's local revision does
+ * not change. Kept under the views' 10 s poll: a repeat inside the window costs
+ * no CLI call, while the poll still reads the Workspace status and the mount, so
+ * an unsaved file or a lost mount shows within one poll as before.
+ */
+const OBSERVED_MEMO_MS = 8_000
 
 /** A Store of this LayerFS home; `id` when the CLI reports Store identity. */
 export interface HomeStore { name: string, id?: string }
@@ -69,6 +86,16 @@ export type Place =
 /** A binding as the views read it: the host also names the branch kind. */
 export type ViewBinding = Binding & BranchFields
 
+/** Where one observed read spent its time, for `session.state {debug: true}`. */
+export interface SessionViewTiming {
+  /** Wall time in ms by step; `other` is the host-side remainder of `total`. */
+  readonly phases: Record<string, number>
+  /** CLI calls this read issued by step (0 when a remembered pass answered). */
+  readonly calls: { readonly identity: number, readonly readiness: number, readonly status: number }
+  /** Whether the answer came from the memo (no CLI call at all). */
+  readonly memo: boolean
+}
+
 /** The state a session panel shows. */
 export interface SessionView {
   readonly sessionId: string
@@ -81,6 +108,8 @@ export interface SessionView {
   readonly mirror: unknown
   readonly execution?: { state: 'inactive' | 'activating' | 'active' | 'interrupted', available: boolean, reason?: string, projectId?: string }
   readonly archive: { localCount: number, savedCount: number, updatedAt?: number, error?: string } | null
+  /** Opt-in (`debug: true`): where an observed read spent its time. */
+  readonly timing?: SessionViewTiming
 }
 
 /** Whether a session has not started its first turn (its preset can still change). */
@@ -99,12 +128,12 @@ export class LayerfsSessions extends Service {
   /** When each PostgreSQL Store's server was last asked (one connection per ask). */
   private readonly serverChecked = new Map<string, number>()
   private availabilityRun: Promise<void> | undefined
-  /**
-   * Successful identity+readiness checks by owner, and the binding they were
-   * made for: observed reads reuse them for OBSERVED_READY_MS. A failure never
-   * enters this map.
-   */
-  private freshReady?: Map<string, { at: number, project: string, machine?: string }>
+  /** Successful observed identity checks by owner, with the row facts they answered. */
+  private freshIdentity?: Map<string, { at: number, project: string, machine?: string, row: { kind?: string | null, machine?: string | null, store: string } }>
+  /** Successful observed machine + Store readiness checks by owner. */
+  private freshReadiness?: Map<string, { at: number, project: string, machine: string, store: string }>
+  /** The last observed answer per requested session, keyed by the revision it answered. */
+  private observedAnswers?: Map<string, { at: number, revision: string, ownerId: string, project: string, machine?: string, view: SessionView }>
   /** Project ids read for sessions.places, reused for the same window. */
   private freshProjectIds?: Map<string, { at: number, id?: string }>
 
@@ -471,30 +500,84 @@ export class LayerfsSessions extends Service {
   }
 
   /**
-   * Clear an owner's remembered reads: a saved binding (a mount, an interrupt,
-   * an activation) can change what identity+readiness would answer.
+   * Clear an owner's remembered reads: a saved binding (a mount, a detach, an
+   * interrupt, an activation) can change what identity+readiness would answer.
+   * A memo of the owner or of a subagent placed under it goes too.
    */
   private forgetFreshReads(sessionId: string): void {
-    this.freshReady?.delete(sessionId)
+    this.freshIdentity?.delete(sessionId)
+    this.freshReadiness?.delete(sessionId)
     this.freshProjectIds?.delete(sessionId)
+    for (const [id, entry] of this.observedAnswers ?? []) {
+      if (id === sessionId || entry.ownerId === sessionId) this.observedAnswers!.delete(id)
+    }
   }
 
   /** Clear remembered reads whose project or machine a transition may have invalidated. */
   private clearFreshReads(test: (entry: { project: string, machine?: string }) => boolean): void {
-    for (const [sessionId, entry] of this.freshReady ?? []) if (test(entry)) this.forgetFreshReads(sessionId)
+    for (const [sessionId, entry] of this.freshIdentity ?? []) if (test(entry)) this.freshIdentity!.delete(sessionId)
+    for (const [sessionId, entry] of this.freshReadiness ?? []) if (test(entry)) this.freshReadiness!.delete(sessionId)
+    for (const [sessionId, entry] of this.observedAnswers ?? []) if (test(entry)) this.forgetFreshReads(sessionId)
   }
 
-  /** A successful observed identity+readiness pass for this binding, still inside its window. */
-  private observedReady(ownerId: string, binding: Binding | null | undefined): boolean {
-    const entry = (this.freshReady ??= new Map()).get(ownerId)
+  /** The row a successful observed identity pass returned, while it still stands for this binding. */
+  private observedIdentity(ownerId: string, binding: Binding | null | undefined): { kind?: string | null, machine?: string | null, store: string } | undefined {
+    const entry = (this.freshIdentity ??= new Map()).get(ownerId)
+    if (!entry) return undefined
+    if (Date.now() - entry.at >= OBSERVED_IDENTITY_MS) { this.freshIdentity.delete(ownerId); return undefined }
+    if (!binding?.project || entry.project !== binding.project || entry.machine !== binding.machine) return undefined
+    return entry.row
+  }
+
+  /** Remember a successful observed identity pass; a refused pass never reaches here. */
+  private rememberObservedIdentity(ownerId: string, binding: Binding | null | undefined, row: { kind?: string | null, machine?: string | null, store: string }): void {
+    if (binding?.project) (this.freshIdentity ??= new Map()).set(ownerId, { at: Date.now(), project: binding.project, machine: binding.machine, row: { kind: row.kind, machine: row.machine, store: row.store } })
+  }
+
+  /** The machine and Store a readiness check reads for one identity row (assertReady's own rule). */
+  private readyTargets(row: { kind?: string | null, machine?: string | null, store: string }, placed?: string | null): { machine: string, store: string } {
+    return { machine: row.kind === 'postgresql' ? (placed ?? 'native') : (row.machine ?? 'native'), store: row.store }
+  }
+
+  /** Whether a successful observed readiness check still stands for this binding and identity row. */
+  private observedReadiness(ownerId: string, binding: Binding | null | undefined, row: { kind?: string | null, machine?: string | null, store: string }): boolean {
+    const entry = (this.freshReadiness ??= new Map()).get(ownerId)
     if (!entry) return false
-    if (Date.now() - entry.at >= OBSERVED_READY_MS) { this.freshReady.delete(ownerId); return false }
-    return !!binding?.project && entry.project === binding.project && entry.machine === binding.machine
+    if (Date.now() - entry.at >= OBSERVED_READY_MS) { this.freshReadiness.delete(ownerId); return false }
+    const target = this.readyTargets(row, binding?.machine)
+    return !!binding?.project && entry.project === binding.project && entry.machine === target.machine && entry.store === target.store
   }
 
-  /** Remember a successful observed pass; a refused pass never reaches here. */
-  private rememberObservedReady(ownerId: string, binding: Binding | null | undefined): void {
-    if (binding?.project) (this.freshReady ??= new Map()).set(ownerId, { at: Date.now(), project: binding.project, machine: binding.machine })
+  /** Remember a successful observed readiness check; a refused pass never reaches here. */
+  private rememberObservedReadiness(ownerId: string, binding: Binding | null | undefined, row: { kind?: string | null, machine?: string | null, store: string }): void {
+    if (!binding?.project) return
+    const target = this.readyTargets(row, binding.machine)
+    ;(this.freshReadiness ??= new Map()).set(ownerId, { at: Date.now(), project: binding.project, machine: target.machine, store: target.store })
+  }
+
+  /**
+   * What an observed answer depends on, from local state only: the binding and
+   * checkpoints it shows, the live log length, the mirror and the Store health.
+   * Equal revisions answer identically, so a repeat can reuse the answer.
+   */
+  private observedRevision(sessionId: string, ownerId: string, binding: Binding | null | undefined, persistence: any): string {
+    const state = this.state.read()
+    const checkpoints = state.checkpoints[ownerId] ?? []
+    const last = checkpoints[checkpoints.length - 1]
+    const mirror = state.mirror[ownerId]
+    const live = this.ctx.sessions?.get?.(sessionId as never) as any
+    const seq = typeof live?.seq === 'number' ? live.seq : live?.snapshotEvents ? live.snapshotEvents(0).length : ''
+    const store = binding?.project ? storeOf(binding.project) : undefined
+    const health = store ? this.storeHealth?.get(store) : undefined
+    return [
+      binding?.updatedAt ?? '', binding?.state ?? '', binding?.executionState ?? '', binding?.branch ?? '',
+      binding?.ws ?? '', binding?.mount ?? '', binding?.restores ?? '', binding?.error ?? '', binding?.interruption?.at ?? '',
+      seq, checkpoints.length,
+      last ? `${last.kind}:${last.turn}:${last.endSeq ?? ''}:${last.commit ?? ''}:${last.changed}` : '',
+      mirror ? `${mirror.count}:${mirror.updatedAt}:${mirror.error ?? ''}` : '',
+      health ? `${health.state}:${health.reason ?? ''}` : '',
+      persistence?.projectIdOf?.(sessionId) ?? '', persistence?.projectIdOf?.(ownerId) ?? '',
+    ].join('|')
   }
 
   /**
@@ -1283,15 +1366,15 @@ export class LayerfsSessions extends Service {
 
   /** The machine and Store a project executes on must be ready now (read-only; starts nothing). */
   private async assertReady(row: { kind?: string | null, machine?: string | null, store: string }, placed?: string | null): Promise<void> {
-    const machine = row.kind === 'postgresql' ? (placed ?? 'native') : (row.machine ?? 'native')
+    const { machine, store: storeName } = this.readyTargets(row, placed)
     // records only (the 2.0 six states): `ready` with no op is ready; anything else is named with its fix
     const status = await this.lfs.machine.get(machine, { detail: true })
     if ((status?.state ?? 'ready') !== 'ready' || status?.op) {
       throw new CliError('Unavailable', `Machine ${machine} is not ready (${status?.state ?? 'unknown'}${status?.reason ? `: ${status.reason}` : ''}). Start or repair it, then send the message again.`, null, 'refusal', typeof status?.fix === 'string' ? status.fix : null)
     }
-    const store = await this.lfs.store.get(row.store, { detail: true })
+    const store = await this.lfs.store.get(storeName, { detail: true })
     const health = classifyStore(store)
-    this.storeHealth.set(row.store, health)
+    this.storeHealth.set(storeName, health)
     if (health.state !== 'available') {
       throw Object.assign(new CliError('Unavailable', health.reason ?? 'The project Store is not ready. Restore access, then send the message again.'), health.failure ? { failure: health.failure } : {})
     }
@@ -1418,15 +1501,48 @@ export class LayerfsSessions extends Service {
    * effect-driven read from the views) changes nothing: a refused machine,
    * Store or Workspace check is answered as unavailable, but the binding is
    * neither interrupted nor saved; that stays with an explicit action or the
-   * host's own availability poll. An observed read also reuses a successful
-   * identity+readiness check for a few seconds (the views poll often); the
-   * Workspace status, and so the unsaved count, is always read fresh.
+   * host's own availability poll.
+   *
+   * An observed read is cheap when nothing moved: a successful identity check
+   * stands for OBSERVED_IDENTITY_MS, machine and Store readiness for
+   * OBSERVED_READY_MS, and an answer whose local revision is unchanged (inside
+   * OBSERVED_MEMO_MS) is returned with no CLI call at all. Every other observed
+   * read still reads the Workspace status and the mount, so the unsaved count
+   * and a lost mount stay current. `debug` adds `timing`, the per-step split.
    */
-  async view(sessionId: string, options: { observe?: boolean } = {}): Promise<SessionView> {
+  async view(sessionId: string, options: { observe?: boolean, debug?: boolean } = {}): Promise<SessionView> {
+    const observe = options.observe === true
+    const profile = options.debug === true
+      ? { at: performance.now(), phases: {} as Record<string, number>, calls: { identity: 0, readiness: 0, status: 0 }, memo: false }
+      : undefined
+    /** Time one awaited step into the opt-in phase split. */
+    const time = async <T,>(name: string, run: () => Promise<T> | T): Promise<T> => {
+      if (!profile) return await run()
+      const at = performance.now()
+      try { return await run() } finally { profile.phases[name] = +((profile.phases[name] ?? 0) + (performance.now() - at)).toFixed(1) }
+    }
+    const timing = (): SessionViewTiming | undefined => {
+      if (!profile) return undefined
+      const total = +(performance.now() - profile.at).toFixed(1)
+      if (profile.memo) return { phases: { total }, calls: { identity: 0, readiness: 0, status: 0 }, memo: true }
+      const named = Object.values(profile.phases).reduce((sum, ms) => sum + ms, 0)
+      return { phases: { ...profile.phases, total, other: +Math.max(0, total - named).toFixed(1) }, calls: profile.calls, memo: false }
+    }
     let binding = this.binding(sessionId) ?? null
     let effective = binding
     if (binding?.kind === 'shared' && binding.parent) effective = this.binding(binding.parent) ?? binding
     const persistence = this.ctx.get?.('sessionPersistence' as never) as any
+    const ownerId = effective?.sessionId ?? sessionId
+    // The cheap path first: while this session's own revision holds, the last
+    // answer still stands, and answering it costs no CLI call at all. Memos are
+    // only kept for a placed session (an archived row has no local binding).
+    if (observe && binding?.project) {
+      const kept = this.observedAnswers?.get(sessionId)
+      if (kept && kept.revision === this.observedRevision(sessionId, ownerId, effective, persistence) && Date.now() - kept.at < OBSERVED_MEMO_MS) {
+        if (profile) profile.memo = true
+        return profile ? { ...kept.view, timing: timing() } : kept.view
+      }
+    }
     let archivedCheckpoints: Checkpoint[] = []
     if (!effective) {
       const project = this.placeOfId(sessionId)?.project
@@ -1439,22 +1555,51 @@ export class LayerfsSessions extends Service {
     }
     let available = true
     let reason: string | undefined
-    const ownerId = effective?.sessionId ?? sessionId
     let refusal: string | undefined
     try {
-      // Observed reads (the views' polls) reuse a successful pass; a refusal is
-      // never cached, and the non-observe path always reads afresh.
-      if (!(options.observe === true && this.observedReady(ownerId, effective))) {
+      // Observed reads (the views' polls) reuse a successful identity check and a
+      // successful readiness check; a refusal is never cached, and the
+      // non-observe path always reads afresh.
+      if (observe) {
+        let row = this.observedIdentity(ownerId, effective)
+        if (!row) {
+          row = await time('identity', () => persistence?.assertSessionIdentity?.(ownerId))
+          if (row) {
+            if (profile) profile.calls.identity = 2
+            this.rememberObservedIdentity(ownerId, effective, row)
+          }
+        }
+        if (row && !this.observedReadiness(ownerId, effective, row)) {
+          await time('readiness', () => this.assertReady(row!, effective?.machine))
+          if (profile) profile.calls.readiness = 2
+          this.rememberObservedReadiness(ownerId, effective, row)
+        }
+      } else {
         const row = await persistence?.assertSessionIdentity?.(ownerId)
         if (row) await this.assertReady(row, effective?.machine)
-        if (row && options.observe === true) this.rememberObservedReady(ownerId, effective)
       }
-    } catch (error: any) { available = false; reason = String(error?.message ?? error); refusal = error?.code }
+    } catch (error: any) {
+      available = false
+      reason = String(error?.message ?? error)
+      refusal = error?.code
+      // A refusal is never cached: the next observed read checks identity and
+      // readiness again, and no older answer may stand in for this one.
+      if (observe) { this.freshIdentity?.delete(ownerId); this.freshReadiness?.delete(ownerId); this.observedAnswers?.delete(sessionId) }
+    }
     let status: unknown = null
     if (available && effective?.kind === 'project' && effective.state === 'bound' && effective.ws) {
-      status = await this.lfs.workspace.status(effective.ws, { detail: true }).catch((error: any) => { available = false; reason = String(error?.message ?? error); refusal = error?.code; return { error: errorOf(error) } })
+      const ws = effective.ws
+      if (profile) profile.calls.status = 1
+      status = await time('status', () => this.lfs.workspace.status(ws, { detail: true }).catch((error: any) => {
+        available = false
+        reason = String(error?.message ?? error)
+        refusal = error?.code
+        // A failed status is never answered from an older successful memo.
+        this.observedAnswers?.delete(sessionId)
+        return { error: errorOf(error) }
+      }))
     }
-    const stored = effective && !options.observe ? this.binding(effective.sessionId) : undefined
+    const stored = effective && !observe ? this.binding(effective.sessionId) : undefined
     if (!available && stored?.state === 'bound') {
       // Same deactivation as the background poll: the panel just noticed first.
       this.interrupt(stored.sessionId, reason ?? 'The project is unavailable.', refusal === 'Unavailable' ? 'availability' : 'blocked')
@@ -1467,10 +1612,10 @@ export class LayerfsSessions extends Service {
       binding = this.binding(sessionId) ?? binding
     }
     const project = effective?.project ?? this.placeOfId(sessionId)?.project ?? null
-    const live = this.ctx.sessions.get(sessionId as never) as any
+    const live = this.ctx.sessions?.get?.(sessionId as never) as any
     const snapshot = project ? await persistence?.local?.stat(sessionId) : undefined
     const mirror = effective ? this.state.read().mirror[effective.sessionId] ?? null : null
-    return {
+    const view: SessionView = {
       sessionId,
       // A new object: the persisted binding never gains these fields.
       binding: effective ? { ...effective, ...branchFields(effective.sessionId, effective.branch) } : null,
@@ -1486,5 +1631,14 @@ export class LayerfsSessions extends Service {
         ...(mirror ? { updatedAt: mirror.updatedAt, ...(mirror.error ? { error: mirror.error } : {}) } : {}),
       } : null,
     }
+    // A successful observed answer stands while its revision holds: the revision
+    // is read again now, after the awaits, so a state change during the read is
+    // never answered stale.
+    if (observe && available && binding?.project) {
+      const kept = (this.observedAnswers ??= new Map())
+      kept.set(sessionId, { at: Date.now(), revision: this.observedRevision(sessionId, ownerId, effective, persistence), ownerId, project: effective?.project ?? project ?? '', machine: effective?.machine, view })
+      while (kept.size > 256) kept.delete(kept.keys().next().value!)
+    }
+    return profile ? { ...view, timing: timing() } : view
   }
 }
