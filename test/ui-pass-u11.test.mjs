@@ -55,7 +55,8 @@ test('FAIL 1: the views\' session read (mount, events, the 10 s poll) asks for t
   walk(join(root, 'src/client'))
   assert.deepEqual(callers, ['src/client/views/hooks.ts'])
   assert.match(src('src/client/views/hooks.ts'), /api\.op<SessionStateView>\('session\.state', \{ sessionId: root, observe: true \}\)/)
-  assert.match(src('src/host/sessions/index.ts'), /sessions\.view\(need\(args, 'sessionId'\), \{ observe: args\?\.observe === true \}\)/)
+  // `debug` (opt-in phase timing) rides along; a caller without it behaves as before.
+  assert.match(src('src/host/sessions/index.ts'), /sessions\.view\(need\(args, 'sessionId'\), \{ observe: args\?\.observe === true(?:, debug: args\?\.debug === true)? \}\)/)
 })
 
 // ---------------------------------------------------------------- FAIL 2

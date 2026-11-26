@@ -26,7 +26,7 @@
  *   sessions.open {sessionId, project?, workspaceId?} open a session, importing it from the project if missing locally
  *   sessions.close {sessionId}          save and close its Sandbox
  *   sessions.forget {sessionId}         close and forget the binding; preserve scratch and history
- *   session.state {sessionId, observe?} binding, checkpoints, Workspace status, store progress (observe: no interrupt or save)
+ *   session.state {sessionId, observe?, debug?} binding, checkpoints, Workspace status, store progress (observe: no interrupt or save)
  *   sessions.availability               poll Store health now (deactivating as needed); last health per Store
  *   session.place {sessionId}           the project a live session works in (New Session control)
  *   session.trajectory {sessionId, since?, before?}  the Trajectory tab's records, LayerFS calls and checkpoints by turn;
@@ -677,7 +677,7 @@ export function apply(ctx: Context): void {
       'sessions.close': async (args: any) => { await sessions.close(need(args, 'sessionId'), 'user'); return { ok: true } },
       'sessions.forget': async (args: any) => { await sessions.forget(need(args, 'sessionId')); return { ok: true } },
       // `observe: true` (the views' polls and effect reads): a read that changes nothing
-      'session.state': (args: any) => sessions.view(need(args, 'sessionId'), { observe: args?.observe === true }),
+      'session.state': (args: any) => sessions.view(need(args, 'sessionId'), { observe: args?.observe === true, debug: args?.debug === true }),
       'sessions.availability': async () => { await sessions.refreshAvailability(); return { stores: sessions.availability() } },
       'session.annotations': async (args: any) => {
         const id = need(args, 'sessionId')
