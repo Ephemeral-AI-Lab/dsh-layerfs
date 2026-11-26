@@ -141,11 +141,12 @@ const EVENTS = ['setup-changed', 'runtime-changed', 'connection']
 /**
  * How long a `setup.status` answer may serve the sidebar's other mounts (the
  * modal, Home's decoration). The check changes only on setup events, which
- * clear the shared answer, and the open modal rereads it every 5 s; so one
- * answer covers the boot→panel gap (2.7 s measured on the 3194 rig) without
- * outliving the modal's own poll. This is a client answer age, not a host TTL.
+ * clear the shared answer; 10 s covers the boot→panel gap on the shared 3194
+ * rig (2.7 s when quiet, ~7 s under load). While the modal is open its 5 s
+ * poll and Check/Check again are forced reads, so being open never waits out
+ * this age. This is a client answer age, not a host TTL.
  */
-export const SETUP_SHARE_MAX_AGE_MS = 5_000
+export const SETUP_SHARE_MAX_AGE_MS = 10_000
 
 /**
  * `setup.status`, kept across remounts and reread on setup events; `visible`
@@ -179,7 +180,13 @@ export function useSetupStatus(api: LayerfsApi, visible = false, afterPaint = fa
   }, [api])
   useEffect(() => {
     if (!visible) return
-    const id = setInterval(() => { if (document.visibilityState === 'visible') bump() }, 5000)
+    // The open modal's own 5 s poll is a read, not a share: it must see a
+    // runtime or folder change that no event reported.
+    const id = setInterval(() => {
+      if (document.visibilityState !== 'visible') return
+      forced.current = true
+      bump()
+    }, 5000)
     return () => clearInterval(id)
   }, [visible])
   // Check/Check again reads the host; an event tick (`bump`) may reuse a recent answer.
