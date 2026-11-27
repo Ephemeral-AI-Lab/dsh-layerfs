@@ -630,6 +630,8 @@ export function TrajectoryView(props: ViewProps): ReactNode {
               ? <ErrorState className={css.more} title={t('trajOlderFailed')} error={olderError} retryLabel={t('retry')} onRetry={loadOlder} />
               : OlderFooter({ answer, busy: olderBusy, t, onLoadOlder: loadOlder })
             : null}
+          {/* the host met its byte budget only by leaving out content beside the records */}
+          {answer.elided ? <div className={css.more}><span className={css.note} data-traj-elided>{t('trajElided')}</span></div> : null}
         </div>
         {inspected ? (
           <TrajectoryInspector api={api} sessionId={sessionId} inspected={inspected} tab={tab} onTab={setTab} layerfs={layerfs}
