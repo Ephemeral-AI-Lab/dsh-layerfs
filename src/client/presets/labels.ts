@@ -22,11 +22,12 @@ export function refusalLabels(t: PresetsT): RefusalLabels {
  * The machines a confirmed plan may start (RV4 NOTE 3), named in its confirm:
  * a Reset starts the machines it needs to reach their resources
  * (`startMachines`); a Build then starts each machine a preset Store is placed
- * on or runs on (`runner.js` startMachine; `native` is never started). A
+ * on or runs on (`runner.js` startMachine; the host machine too when it is
+ * stopped). A
  * stop-only plan starts none.
  */
 export function machinesStarted(preset: Pick<DemoPreset, 'projectGroups'>, plan: PresetResetPlan, build: boolean): string[] {
   if (plan.scope !== 'environment') return []
   const built = build ? preset.projectGroups.map((g) => g.machine) : []
-  return [...new Set([...plan.startMachines, ...built])].filter((name) => name && name !== 'native').sort()
+  return [...new Set([...plan.startMachines, ...built])].filter(Boolean).sort()
 }

@@ -63,7 +63,7 @@ export type PlanLabel = 'create' | 'start' | 'free'
 export function imagePlan(answer: SandboxImagesView | null | undefined, pick: ImagePick | null, state?: string | null): { label: PlanLabel, note: Words | null } {
   const machine = answer?.machine ?? ''
   const stopped = (answer?.state ?? state) === 'stopped'
-  if (answer?.mode === 'host') return { label: stopped ? 'start' : 'create', note: words('nativeOwnSystem') }
+  if (answer?.mode === 'host') return { label: stopped ? 'start' : 'create', note: words('hostOwnSystem') }
   const docker = pick?.from === 'docker' && answer?.docker?.available ? answer.docker.images.find((r) => r.id === pick.id) : undefined
   const noSpace = !!docker && !docker.fits && answer?.free != null
   const label: PlanLabel = stopped ? 'start' : noSpace ? 'free' : 'create'
@@ -260,7 +260,7 @@ export function failureWords(error: Creation['error'] | null | undefined, machin
     case 'Capacity':
       return typeof d.needed_bytes === 'number' && typeof d.free_bytes === 'number' ? words('imageNoSpace', { machine, need: bytes(d.needed_bytes), free: bytes(d.free_bytes) }) : null
     case 'Unsupported':
-      // 2.0 (V19-6): `{architecture}` or `{os}`; macOS native runs no image
+      // 2.0 (V19-6): `{architecture}` or `{os}`; the macOS host machine runs no image
       if (typeof d.architecture === 'string') return words('imageWrongArch', { arch: d.architecture })
       if (typeof d.os === 'string') return /^(macos|darwin)$/i.test(d.os) ? words('imageHostOnly') : words('imageWrongOs', { os: d.os })
       break

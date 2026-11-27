@@ -132,8 +132,8 @@ function runtimes(home, n, { bare = [] } = {}) {
   }
   return made
 }
-// `machine list --detail` (2.0): rows keyed `machine`, the native record's `daemon` path in the long form
-const stopped = (extra = {}) => ({ items: [{ machine: 'native', platform: 'native', state: 'ready', ...extra }, { machine: 'docker', platform: 'docker', state: 'stopped' }] })
+// `machine list --detail` (2.0): rows keyed `machine`, the host machine record's `daemon` path in the long form
+const stopped = (extra = {}) => ({ items: [{ machine: 'macos-host', platform: 'host', state: 'ready', ...extra }, { machine: 'docker', platform: 'docker', state: 'stopped' }] })
 const left = (home) => readdirSync(join(home, 'runtime')).sort()
 const whys = (result) => Object.fromEntries(result.kept.map((k) => [k.id.slice(-1), k.why]))
 
@@ -162,7 +162,7 @@ test('runtime cleanup: a worker machine that is not stopped keeps every runtime 
   try {
     const r = runtimes(f.home, 6, { bare: [1] })
     for (const state of ['ready', 'busy', 'broken', 'blocked', 'unknown', undefined]) {
-      const machines = { items: [{ machine: 'native', platform: 'native', state: 'ready' }, { machine: 'docker', platform: 'docker', state }] }
+      const machines = { items: [{ machine: 'macos-host', platform: 'host', state: 'ready' }, { machine: 'docker', platform: 'docker', state }] }
       const plan = H.planRuntimeCleanup(H.installedRuntimes(f.home), { pinned: [], machines, processes: ['x'] })
       assert.deepEqual(plan.remove.map((x) => x.id), [r[1].id], `state ${state}: only the runtime without a bundle may go`)
       assert.equal(plan.keep.get(r[0].id), 'worker')
@@ -223,7 +223,7 @@ test('runtime cleanup: the service keeps its pin and what machine.list names; an
     const none = await s.cleanRuntimes()
     assert.deepEqual(none.removed, [])
     assert.equal(left(f.home).length, 7)
-    // with a readable machine list (a stand-in SDK): r1 is named by the native record, r2 and r3 go
+    // with a readable machine list (a stand-in SDK): r1 is named by the host machine record, r2 and r3 go
     writeFileSync(join(f.home, 'layerfs.json'), '{}')
     s.sdk = { machine: { list: async () => stopped({ daemon: r[1].daemon }) } }
     const result = await s.cleanRuntimes()

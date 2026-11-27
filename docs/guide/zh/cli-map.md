@@ -55,8 +55,8 @@ LayerFS CLI 调用。各页面指南的表格里也写着同样的调用；这�
 | 项目设置：**移到 {machine}**（Move to {machine}） | 项目对话框 › 设置 | `POST /api/machines/:id/stores` | `store move` |
 | 项目设置：**从侧边栏隐藏**（Hide from sidebar） | 项目对话框 › 设置 | — （当前浏览器） | — |
 | 设置 LayerFS：**检查**（Check）/ **重新检查**（Check again） | 设置 LayerFS | op `setup.status`, `GET /api/machines?fresh=1` | `home get`；`machine get`, `machine list` (读取) |
-| 运行时：**使用**（Use）/ **其他构建…**（Other build…） | 设置 LayerFS › **更改…**（Change…） | op `runtime.save` | `--version --json`, `help --json`, `machine update native` |
-| **使用此守护进程**（Use this daemon） | 设置 LayerFS | op `setup.recordDaemon` | `machine get native`, `machine update native --daemon` |
+| 运行时：**使用**（Use）/ **其他构建…**（Other build…） | 设置 LayerFS › **更改…**（Change…） | op `runtime.save` | `--version --json`, `help --json`, `machine update macos-host` |
+| **使用此守护进程**（Use this daemon） | 设置 LayerFS | op `setup.recordDaemon` | `machine get macos-host`, `machine update macos-host --daemon` |
 
 ## Store 和存储桶
 
@@ -72,8 +72,8 @@ LayerFS CLI 调用。各页面指南的表格里也写着同样的调用；这�
 | 项目会话列 | `… › <store> › 项目` | op `sessions.list` | — （当前这个 DSH） |
 | **检查完整性**（Check integrity）/ **测试连接**（Test connection） | `… › <store>` 头部 | `POST /api/doctor/runs` `{kind: store}` | `store doctor` |
 | **⋯ › 推送到…**（⋯ › Push to…）→ **推送**（Push） | `… › <store> ⋯` | `POST /api/stores/:id/push` | `store move <s> <m>`（一个任务）, `backup list` |
-| **⋯ › 拉回 Home**（⋯ › Pull to native）/ 卡片 **拉取**（Pull） | `… › <store> ⋯` | `POST /api/stores/:id/pull` | `store get`, `store move <s> native` |
-| **⋯ › 迁移到其他机器…**（⋯ › Move to another machine…）→ **迁移**（Move） | `… › <store> ⋯` | `POST /api/stores/:id/move` | `store get`，经 native 两次 `store move` |
+| **⋯ › 拉回 Home**（⋯ › Pull to this computer）/ 卡片 **拉取**（Pull） | `… › <store> ⋯` | `POST /api/stores/:id/pull` | `store get`, `store move <s> macos-host` |
+| **⋯ › 迁移到其他机器…**（⋯ › Move to another machine…）→ **迁移**（Move） | `… › <store> ⋯` | `POST /api/stores/:id/move` | `store get`，经主机两次 `store move` |
 | **⋯ › 备份到…**（⋯ › Back up to…）→ **备份**（Back up）/ **立即备份**（Back up now） | `… › <store> ⋯`、备份标签页 | `POST /api/stores/:id/backup` | `backup create`，然后 `backup list` |
 | **⋯ › 压缩…**（⋯ › Compact…）→ **压缩**（Compact） | `… › <store> ⋯` | `POST /api/stores/:id/compact` | `store get`, `store compact` |
 | **⋯ › 升级…**（⋯ › Upgrade…）→ **升级**（Upgrade） | `… › <store> ⋯`、“格式过旧”提示 | `POST /api/stores/:id/upgrade` | `store get`, `store upgrade` |
@@ -93,7 +93,7 @@ LayerFS CLI 调用。各页面指南的表格里也写着同样的调用；这�
 | 备份标签页 › **恢复…**（Restore…）→ **恢复 Store**（Restore Store） | `… › <store> › 备份` | `POST /api/buckets/:id/restore` | `backup restore`，然后 `backup list` |
 | 备份徽标 → <store> 的备份 | Store 卡片 | `GET /api/buckets/:id/files`（每个关联的存储桶） | `backup list` (读取) |
 | 备份对话框 › **更新**（Update）/ **立即备份**（Back up now） | 备份对话框 | `POST /api/stores/:id/backup` | `backup create`, `backup list` |
-| **添加 › 新建 Store**（Add › New Store）→ **创建 Store**（Create Store） | 导航栏“添加”、主页 › Store、native › Store | `POST /api/stores`（再加 `POST /api/machines/:m/stores`） | `store create` ↻（然后用 `store get`, `store move` 把它放到位） |
+| **添加 › 新建 Store**（Add › New Store）→ **创建 Store**（Create Store） | 导航栏“添加”、主页 › Store、macos-host › Store | `POST /api/stores`（再加 `POST /api/machines/:m/stores`） | `store create` ↻（然后用 `store get`, `store move` 把它放到位） |
 | 新建 Store › 从备份恢复 → **恢复 Store**（Restore Store） | 新建 Store 对话框 | `POST /api/buckets/:id/restore`（再加 `POST /api/machines/:m/stores`） | `backup restore`, `backup list`（然后 `store move`） |
 | 新建 Store › **列出存储桶**（List the bucket） | 新建 Store 对话框 | `GET /api/buckets/:id/files` | `backup list` (读取) |
 | 新建 Store 或推送对话框里的 **启动 <machine>**（Start <machine>） | 对话框 | `POST /api/machines/:id/start` | `machine start` |
@@ -102,10 +102,10 @@ LayerFS CLI 调用。各页面指南的表格里也写着同样的调用；这�
 | 任务 **重试**（Retry） | 任务卡片 | 再次调用该任务的路由 | 该任务自己的调用 |
 | 任务 **关闭**（Dismiss） | 任务卡片 | — | — （当前浏览器） |
 | 待处理提示 **启动 <machine>**（Start <machine>） | Store 页面提示、卡片状态 | `POST /api/machines/:id/start` | `machine start` |
-| **添加 › 添加存储桶**（Add › Add bucket）→ **连接存储桶**（Connect bucket） | 导航栏“添加”、备份对话框、主页 › Store › 存储桶 | `POST /api/buckets` | `backup connect`（密钥经 stdin 传入） ↻ |
+| **添加 › 添加存储桶**（Add › Add bucket）→ **连接存储桶**（Connect bucket） | 导航栏“添加”、备份对话框、主页 › 存储桶 | `POST /api/buckets` | `backup connect`（密钥经 stdin 传入） ↻ |
 | **重新连接…**（Connect again…）→ **重新连接**（Connect again） | 存储桶页面、存储桶卡片 | `POST /api/buckets`, `GET /api/buckets/:id/files` | `backup connect`, `backup list` |
 | 打开存储桶页面、**列出**（List）/ **重新列出**（List again）、卡片 **⋯ › 列出文件**（⋯ › List files） | `LayerFS › … › <bucket>` | `GET /api/buckets/:id/files` | `backup list` (读取) |
-| **列出存储桶文件**（List bucket files） | `主页 › Store › SQLite › 存储桶` | `POST /api/storage/check` | 每个存储桶一次 `backup list`，然后是存储视图的读取 |
+| **列出存储桶文件**（List bucket files） | `主页 › 存储桶` | `POST /api/storage/check` | 每个存储桶一次 `backup list`，然后是存储视图的读取 |
 | 存储桶 **测试连接**（Test connection） | `… › <bucket>` | `POST /api/doctor/runs` `{kind: bucket}` | `backup doctor` |
 | 存储桶 **⋯ › 断开连接**（⋯ › Disconnect）→ **断开连接**（Disconnect） | `… › <bucket>` | `DELETE /api/buckets/:id` | `backup disconnect` ↻ |
 | 存储桶行或文件行的 **立即备份**（Back up now） | `… › <bucket>`, `… › <bucket> › <file>` | `POST /api/stores/:s/backup` `{bucket, file}` | `backup create`, `backup list` |

@@ -49,7 +49,7 @@ const listed = (store, state) => {
 }
 const bucketWith = (store, state) => ({ name: 'b1', provider: 'minio', listed: 1, files: [listed(store, state)], error: null, stores: [] })
 const storeWithLink = (name = 's1') => ({
-  name, kind: 'sqlite', machine: 'native', state: 'ready', projects: [],
+  name, kind: 'sqlite', machine: 'macos-host', state: 'ready', projects: [],
   links: [{ bucket: 'b1', file: name, last: { op: 'backup', at: 1, bytes: 10 } }],
 })
 
@@ -86,7 +86,7 @@ test('healthOf: only missing and both_changed are problem; store_changed and buc
 })
 
 test('storeSignal and bucketSignal: no backup, store_changed and bucket_changed emit no signal; only missing and both_changed emit error', () => {
-  const noBackup = { name: 's0', kind: 'sqlite', machine: 'native', state: 'ready', projects: [], links: [] }
+  const noBackup = { name: 's0', kind: 'sqlite', machine: 'macos-host', state: 'ready', projects: [], links: [] }
   assert.equal(M.storeSignal(noBackup, undefined, 'ready', [], t), null)
   for (const state of ['current', 'store_changed', 'bucket_changed']) {
     assert.equal(M.storeSignal(storeWithLink('s1'), undefined, 'ready', [bucketWith('s1', state)], t), null, `storeSignal(${state})`)

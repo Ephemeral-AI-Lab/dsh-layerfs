@@ -13,7 +13,7 @@ import { Button, IconCloseOutlineRegular, IconCopyOutlineRegular, IconFullscreen
 import { StatusDot } from '../ui/StatusDot.tsx'
 import { enc } from '../api.ts'
 import { bytes, shortId } from '../files/format.ts'
-import { MoreMenu, Refusal } from '../ui/index.tsx'
+import { MoreMenu, Refusal, touchField } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import { sessionParts } from '../logs/session-words.ts'
 import { alsoRunning, runnerOf, workspaceChanges, workspaceName, type RunningCommand, type SandboxCommand, type WorkspaceInfo } from './model.ts'
@@ -280,7 +280,7 @@ function CommitDialog({ ws, name, onClose, onDone }: { ws: WorkspaceInfo, name: 
           <Button variant="primary" disabled={saving} onClick={() => void submit()}>{saving ? t('termCommitting') : t('termCommitAction')}</Button>
         </>
       )}>
-      <Input value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t('termCommitMessage')} aria-label={t('termCommitMessage')}
+      <Input className={touchField} value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t('termCommitMessage')} aria-label={t('termCommitMessage')}
         onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); if (!saving) void submit() } }} autoFocus />
       {failed != null && <Refusal error={failed} labels={refusal} compact />}
     </Modal>

@@ -812,7 +812,7 @@
 }
 
 /* ---------- touch: every preset control is a thumb target ---------- */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .iconButton {
     width: var(--lfs-tap, 44px);
     min-width: var(--lfs-tap, 44px);
@@ -860,8 +860,9 @@
     min-height: var(--lfs-tap, 44px);
   }
 
-  .scriptModal [class*='header'] > button,
-  .confirmModal [class*='close'] {
+  /* the dialogs' close: DSH labels it with our closeLabel */
+  .scriptModal :global(button[aria-label]),
+  .confirmModal :global(button[aria-label]) {
     min-width: var(--lfs-tap, 44px);
     min-height: var(--lfs-tap, 44px);
   }

@@ -6,7 +6,7 @@
 // (read their headers first: the environment, the stand-in and hook contract,
 // and what every row also fails on). This file adds what these rows need.
 //
-//   INSPECT_MACHINE          a running machine whose calls run on this computer (default `native`): scope host / host_fs
+//   INSPECT_MACHINE          a running machine whose calls run on this computer (default `macos-host`): scope host / host_fs
 //   INSPECT_WHOLE_MACHINE    a running machine on Docker's kernel (default with the stand-in: `docker`): scope engine_host / vm_disk
 //   INSPECT_VOLUME_MACHINE   a running VM machine with a data disk of its own (stand-in: `m179-vm`): scope vm / volume
 //   INSPECT_STOPPED_MACHINE  a stopped machine (stand-in: `m179-off`)
@@ -91,8 +91,8 @@ export function setupObserve() {
   setup()
   if (!standin) return
   const now = Date.now()
-  const run = join(home, 'machine', 'native', 'run')
-  // a leftover the native machine's Files tab can open: a run folder no record names
+  const run = join(home, 'machine', 'macos-host', 'run')
+  // a leftover the host machine's Files tab can open: a run folder no record names
   const gone = join(run, 'lfs-0a1b2c3d-gone')
   mkdirSync(join(gone, 'tmp'), { recursive: true })
   if (!existsSync(join(gone, 'owner'))) writeFileSync(join(gone, 'owner'), 'layerfs\n')
@@ -113,14 +113,14 @@ export function setupObserve() {
   const pidOf = (name) => { try { return JSON.parse(readFileSync(join(home, 'sandbox', name, 'record.json'), 'utf8')).daemon?.pid ?? null } catch { return null } }
   const config = {
     machines: {
-      native: { sandboxes: [O.dead.name] },
+      'macos-host': { sandboxes: [O.dead.name] },
       [O.docker.name]: { state: 'running', tool_version: '29.5.2', free_disk: 39_000_000_000, sandboxes: [O.up.name] },
       [O.volume.name]: { add: true, platform: 'lima', backend: 'namespaces', state: 'running', cpus: 4, memory: 8 * GIB, disk: 50 * GIB, free_disk: 30 * GIB, tool_version: '1.2.1' },
       [O.stopped.name]: { add: true, platform: 'lima', backend: 'namespaces', state: 'stopped', cpus: 2, memory: 4 * GIB, disk: 20 * GIB, sandboxes: [O.unseen.name] },
     },
     stats: {
-      native: {
-        platform: 'native', worker: null,
+      'macos-host': {
+        platform: 'host', worker: null,
         resources: { cpus: 14, memory_total: 36 * GIB, memory_used: 29 * GIB, disk_total: 926 * GIB, disk_used: 598 * GIB, disk_free: 328 * GIB, scope: 'host' },
         data_disk: { path: home, fs: 'apfs', scope: 'host_fs', volume: null, inodes_free: 3_446_842_200 },
         stores: [{ name: 'm179f', bytes: 217_088, allocated: 217_088 }], sandboxes: { recorded: 1, live: 0 }, complete: true,
@@ -147,16 +147,16 @@ export function setupObserve() {
     },
     doctor: {
       findings: [
-        finding('native', 'run-folder', gone, 61, 7200),
+        finding('macos-host', 'run-folder', gone, 61, 7200),
         finding(O.docker.name, 'init-copy', '/layerfs/data/incoming/init-00112233aabbccdd', null, 95, { name: '00112233aabbccdd', fixable: false }),
         finding(O.docker.name, 'init-copy', '/layerfs/data/incoming/init-ffeeddccbbaa0099', 3_000_000, 400, { name: 'ffeeddccbbaa0099', not_before: now + 3600_000 }),
-        finding(O.docker.name, 'empty-root', '/layerfs/data/machine/native/root/layerfs-0a1b2c3d-shop', 0, 86_400),
+        finding(O.docker.name, 'empty-root', '/layerfs/data/machine/linux-guest/root/layerfs-0a1b2c3d-shop', 0, 86_400),
         finding(O.docker.name, 'image-tmp', '/layerfs/data/images/.tmp-sha256-1f2e3d', 734_003_200, 5400),
         finding(O.docker.name, 'image-part', '/layerfs/data/images/sha256-77aa.part', 1_288_490_188, 12_000),
         finding(O.volume.name, 'backup-staging', '/layerfs/data/backup/shop/snapshot-20261116.sqlite', 4_194_304, 1900, { name: 'shop/snapshot-20261116.sqlite' }),
       ],
       leftovers: [
-        { machine: 'native', complete: true, image_locks: 0, unmount_markers: 1 },
+        { machine: 'macos-host', complete: true, image_locks: 0, unmount_markers: 1 },
         { machine: O.docker.name, complete: false, image_locks: 3, unmount_markers: 0 },
         { machine: O.volume.name, complete: true, image_locks: 0, unmount_markers: 0 },
       ],

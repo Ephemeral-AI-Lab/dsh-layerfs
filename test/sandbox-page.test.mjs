@@ -42,7 +42,7 @@ test('Workspaces keep creation order: numeric by mount path', () => {
   const ws = (n, name = null) => ({ ws: `sb:${name ?? `/r/workspaces/${n}`}`, name, branch: 'b', path: `/r/workspaces/${n}` })
   const ordered = M.orderWorkspaces([ws(10, 'j'), ws(2, 'b'), ws(1, 'a'), ws(3)])
   assert.deepEqual(ordered.map((w) => w.path.split('/').at(-1)), ['1', '2', '3', '10'])
-  assert.equal(M.mountLabel('/Users/me/.layerfs/machine/native/run/lfs-1-box/workspaces/3'), 'workspaces/3')
+  assert.equal(M.mountLabel('/Users/me/.layerfs/machine/macos-host/run/lfs-1-box/workspaces/3'), 'workspaces/3')
   assert.equal(M.mountLabel('/w'), 'w')
 })
 

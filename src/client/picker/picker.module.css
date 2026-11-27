@@ -164,7 +164,7 @@
    clears the home indicator. (No caller mounts the dialog today: the
    add-workspace flow is stock DSH again.) Breakpoints: ui/responsive.css. */
 
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .row {
     min-height: var(--lfs-tap, 44px);
   }

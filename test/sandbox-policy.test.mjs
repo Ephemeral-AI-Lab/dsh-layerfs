@@ -18,17 +18,17 @@ test.after(() => rmSync(out, { recursive: true, force: true }))
 test('a bound session writes only its own Store, Sandbox and machine in the LayerFS home', () => {
   const home = mkdtempSync(join(tmpdir(), 'dsh-policy-home-'))
   try {
-    for (const dir of ['store/mine', 'store/other', 'sandbox/dsh-a', 'sandbox/dsh-b', 'machine/native', 'machine/vm']) mkdirSync(join(home, dir), { recursive: true })
-    assert.deepEqual(sessionHomeRoots(home, { project: 'mine/app', sandbox: 'dsh-a', machine: 'native' }),
-      [join(home, 'store/mine'), join(home, 'sandbox/dsh-a'), join(home, 'machine/native')])
-    assert.deepEqual(sessionHomeRoots(home, { project: 'mine/app', sandbox: 'dsh-a' }).at(-1), join(home, 'machine/native'), 'no machine recorded means native')
+    for (const dir of ['store/mine', 'store/other', 'sandbox/dsh-a', 'sandbox/dsh-b', 'machine/macos-host', 'machine/vm']) mkdirSync(join(home, dir), { recursive: true })
+    assert.deepEqual(sessionHomeRoots(home, { project: 'mine/app', sandbox: 'dsh-a', machine: 'macos-host' }),
+      [join(home, 'store/mine'), join(home, 'sandbox/dsh-a'), join(home, 'machine/macos-host')])
+    assert.deepEqual(sessionHomeRoots(home, { project: 'mine/app', sandbox: 'dsh-a' }).at(-1), join(home, 'machine/macos-host'), 'no machine recorded means the host machine')
     assert.deepEqual(sessionHomeRoots(home, { project: 'pg/app', sandbox: 'dsh-missing', machine: 'vm' }), [join(home, 'machine/vm')], 'missing directories are not granted')
     assert.deepEqual(sessionHomeRoots(home, { project: '../x', sandbox: '..', machine: '../../etc' }), [], 'path traversal is never granted')
     assert.deepEqual(sessionHomeRoots(undefined, { project: 'mine/app' }), [])
-    assert.deepEqual(sessionHomeRoots(home, { project: 'mine/app', sandbox: 'dsh-a', machine: 'native' }, { createSandboxes: true }),
-      [join(home, 'store/mine'), join(home, 'sandbox'), join(home, 'machine/native')], 'a session that may create Sandboxes gets the records folder')
+    assert.deepEqual(sessionHomeRoots(home, { project: 'mine/app', sandbox: 'dsh-a', machine: 'macos-host' }, { createSandboxes: true }),
+      [join(home, 'store/mine'), join(home, 'sandbox'), join(home, 'machine/macos-host')], 'a session that may create Sandboxes gets the records folder')
     writeFileSync(join(home, 'layerfs.lock'), '')
-    for (const opts of [{}, { createSandboxes: true }]) for (const root of sessionHomeRoots(home, { project: 'mine/app', sandbox: 'dsh-a', machine: 'native' }, opts))
+    for (const opts of [{}, { createSandboxes: true }]) for (const root of sessionHomeRoots(home, { project: 'mine/app', sandbox: 'dsh-a', machine: 'macos-host' }, opts))
       assert.ok(statSync(root).isDirectory(), `only directories are granted (DSH refuses file roots): ${root}`)
   } finally { rmSync(home, { recursive: true, force: true }) }
 })

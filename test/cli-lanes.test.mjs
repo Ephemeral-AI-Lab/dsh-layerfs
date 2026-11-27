@@ -1,7 +1,7 @@
 // The pinned-CLI SDK under load and failure (src/host/layerfs/cli.ts): admission lanes keep short
 // reads clear of long work and terminals, reads have a default time budget, a timed-out call ends
 // its whole process group and settles, every call is one attempt (a Store-lease refusal is not run again),
-// argument shapes that would shift or invent CLI words are refused, the native daemon record is
+// argument shapes that would shift or invent CLI words are refused, the host daemon record is
 // retried after a failure (service.ts), and preset long work gets a long budget (presets/driver.ts).
 //   node --test test/cli-lanes.test.mjs
 import { test } from 'node:test'
@@ -251,7 +251,7 @@ test('null options are left out; an omitted optional positional followed by a gi
   assert.ok(!f.log().some((argv) => argv[1] === 'stats' && argv.includes('c1')), 'the shifted call never ran')
 })
 
-test('ensureNative retries after a failed record and caches a success', { skip: process.platform !== 'darwin' && 'macOS only', timeout: 20000 }, async (t) => {
+test('ensureHostDaemon retries after a failed record and caches a success', { skip: process.platform !== 'darwin' && 'macOS only', timeout: 20000 }, async (t) => {
   const f = fresh()
   rmSync(join(f.home, 'layerfs.json'))
   const daemon = join(f.dir, 'layerfs-daemon'); writeFileSync(daemon, '')
@@ -259,11 +259,11 @@ test('ensureNative retries after a failed record and caches a success', { skip: 
   t.after(() => { delete process.env.FAKE_UPDATE_FAILS })
   const service = new C.LayerfsService(new C.Context(), { cli: f.cli, daemon, home: f.home, root: join(f.dir, 'root') })
   const updates = () => f.log().filter((argv) => argv[0] === 'machine' && argv[1] === 'update').length
-  await service.ensureNative()
+  await service.ensureHostDaemon()
   assert.equal(updates(), 1)
-  await service.ensureNative()
+  await service.ensureHostDaemon()
   assert.equal(updates(), 2, 'the failed attempt is not kept')
-  await service.ensureNative()
+  await service.ensureHostDaemon()
   assert.equal(updates(), 2, 'a recorded daemon is kept')
 })
 

@@ -2,7 +2,8 @@
  * The closed check lists of the LayerFS 2.0 doctors: for each kind, every
  * check its doctor can make, in order, with what the check is (LayerFS's own
  * words, shown as they are) and whether only a Full check makes it. A copy of
- * the frozen call surface's `doctor.checks` (calls.json v23, 2026-11-19);
+ * the frozen call surface's `doctor.checks` (calls.json v23 at layerfs_v2_0_0
+ * 1bbcd8b05e: `home.host_daemon`, `machine.worker.retained`, `store.gc_audit`);
  * `test/doctor-model.test.mjs` fails when it differs from the copied contract.
  *
  * The page never decides from this table which checks a thing has: it draws
@@ -19,7 +20,7 @@ export const CHECKS: Readonly<Record<string, readonly CheckEntry[]>> = {
     { check: 'home.layout', what: 'the home folder is a current-layout home this build reads', full_only: false },
     { check: 'home.records', what: 'every record in the home: references between records, file modes, leases and half-finished operations', full_only: false },
     { check: 'home.bundle', what: 'the Linux bundle is present and complete, where a recorded machine needs it', full_only: false },
-    { check: 'home.native_daemon', what: 'the daemon for this computer is present and from this build', full_only: false },
+    { check: 'home.host_daemon', what: 'the daemon for this computer is present and from this build', full_only: false },
     { check: 'home.artifacts', what: 'each machine\'s configured daemon file is present and can run', full_only: false },
     { check: 'home.capacity', what: 'free space on the disk that holds the home can be measured', full_only: false },
   ],
@@ -33,21 +34,23 @@ export const CHECKS: Readonly<Record<string, readonly CheckEntry[]>> = {
     { check: 'machine.worker.auth', what: 'the worker accepts the secret and answers hello', full_only: false },
     { check: 'machine.worker.compatibility', what: 'the worker is from this build', full_only: false },
     { check: 'machine.worker.ping', what: 'the worker answers a request', full_only: false },
+    { check: 'machine.worker.retained', what: 'the host worker keeps no write outcome its caller may not know', full_only: false },
     { check: 'machine.capacity', what: 'its data disk has room', full_only: false },
+    { check: 'machine.network', what: 'its Sandboxes\' network is in place: forwarding on, the firewall table present, and no host end of a Sandbox that is gone', full_only: false },
   ],
   store: [
     { check: 'store.record', what: 'its record is valid: name, engine and the saved id', full_only: false },
-    { check: 'store.operation', what: "no operation on it is half-finished or left with its outcome not known, in the home's record or, for a sqlite Store, beside its file on its machine; and no lease is stale", full_only: false },
+    { check: 'store.operation', what: 'no operation on it is half-finished or left with its outcome not known, in the home\'s record or, for a sqlite Store, beside its file on its machine; and no lease is stale', full_only: false },
     { check: 'store.connection', what: 'it is reached where it lives: a sqlite Store through its machine; a PostgreSQL Store from this computer, and once more from each machine that has a Sandbox of it, with `from` naming that machine', full_only: false },
     { check: 'store.identity', what: 'the id in its data is the id in its record', full_only: false },
     { check: 'store.schema', what: 'its schema is the one this build reads', full_only: false },
-    { check: 'store.mount_holders', what: 'durable mount holders have matching recorded workspaces', full_only: false },
     { check: 'store.backups', what: 'no backup of it is behind: its heads against each bucket link (sqlite; a notice per bucket)', full_only: false },
+    { check: 'store.mount_holders', what: 'live mount admissions are verified against this home\'s records; one that blocks removal or compaction is a warning, and the doctor never releases or settles it', full_only: false },
+    { check: 'store.gc_audit', what: 'one bounded page of the retained done operator-audit rows, as evidence; the doctor changes nothing', full_only: false },
   ],
   project: [
     { check: 'project.record', what: 'the home\'s record of the project and its folder read, and the Store the record sits under is on record', full_only: false },
     { check: 'project.listed', what: 'the Store\'s own list holds the project the record names, by its stack id, or by its name for a record without one', full_only: false },
-    { check: 'project.mount_holders', what: 'durable mount holders have matching recorded workspaces', full_only: true },
     { check: 'project.data', what: 'everything reachable from main\'s head and from each Branch\'s head is read and checked', full_only: true },
   ],
   sandbox: [
@@ -58,6 +61,7 @@ export const CHECKS: Readonly<Record<string, readonly CheckEntry[]>> = {
     { check: 'sandbox.store_placement', what: 'a sqlite Store and the Sandbox are on the same machine', full_only: false },
     { check: 'sandbox.operation', what: 'no operation of an ended owner is left on its record', full_only: false },
     { check: 'sandbox.runtime', what: 'its recorded runtime process runs, by id, start time and boot', full_only: false },
+    { check: 'sandbox.network', what: 'its commands\' network namespace is its own, not the machine\'s', full_only: false },
     { check: 'sandbox.route', what: 'the saved route to its daemon can be used: its machine\'s worker, or its forward', full_only: false },
     { check: 'sandbox.forward_process', what: 'the forward\'s process runs, where the route has one', full_only: false },
     { check: 'sandbox.worker_compatibility', what: 'its machine\'s worker is from this build, where the worker makes the report', full_only: false },

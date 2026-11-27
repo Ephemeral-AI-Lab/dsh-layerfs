@@ -17,6 +17,7 @@ import { createHash } from 'node:crypto'
 import { sessionFormatCatalog } from '@deepseek-ai/dsh-session-format-catalog'
 import { mergeInvocations, withoutTraceContext } from '../layerfs/tracing.ts'
 import { CliError, pages } from '../layerfs/cli.ts'
+import { HOST_MACHINE } from '../layerfs/machine-records.ts'
 import type { LayerfsSessions } from './service.ts'
 import type { ArchivePiece, StreamMark, SimulationBinding } from './state.ts'
 
@@ -291,6 +292,12 @@ export class SessionStore {
   private readonly manifests = new Map<string, { head: string, manifest: any }>()
   /** Discovery walks in flight by project: concurrent callers share one walk. */
   private readonly discovering = new Map<string, Promise<StoredSession[]>>()
+  /** How each running walk started: fresh or not, and under which invalidation epoch ({@link epochOf}). */
+  private readonly walkStart = new WeakMap<Promise<StoredSession[]>, { fresh: boolean, epoch: string }>()
+  /** Invalidations by project, and of every project: a walk that started before one is stale. */
+  private readonly epochs = new Map<string, number>()
+  private allEpoch = 0
+  private epochOf(project: string): string { return `${this.allEpoch}.${this.epochs.get(project) ?? 0}` }
   /**
    * The last completed discovery answer by `project\0identity`, with the Branch
    * heads it was built from: a listing still lists the Branches (one kept read),
@@ -317,9 +324,15 @@ export class SessionStore {
   discover(project: string, { fresh = false, identity, local }: { fresh?: boolean, identity?: string, local?: (sessionId: string) => boolean | undefined } = {}): Promise<StoredSession[]> {
     const key = `${project}\0${identity ?? ''}`
     if (!fresh && (identity !== undefined || local !== undefined)) return this.listing(project, key, local)
+    // Join a running walk only when it began after the last invalidation; a
+    // fresh lookup also never joins a walk that may answer from a kept memo or a
+    // Branch list seeded before the request (a listing's walk behind).
     const running = this.discovering.get(project)
-    if (running) return running
-    const walk = this.discoverNow(project, key, fresh, local).finally(() => this.discovering.delete(project))
+    const started = running && this.walkStart.get(running)
+    if (running && started && started.epoch === this.epochOf(project) && (started.fresh || !fresh)) return running
+    const epoch = this.epochOf(project)
+    const walk: Promise<StoredSession[]> = this.discoverNow(project, key, fresh, local, undefined, epoch).finally(() => { if (this.discovering.get(project) === walk) this.discovering.delete(project) })
+    this.walkStart.set(walk, { fresh, epoch })
     this.discovering.set(project, walk)
     return walk
   }
@@ -331,24 +344,31 @@ export class SessionStore {
    * listing to walk.
    */
   invalidateDiscovery(project?: string): void {
+    // A walk running now finishes under the old epoch: its answer is stored stale.
+    if (project === undefined) this.allEpoch++
+    else this.epochs.set(project, (this.epochs.get(project) ?? 0) + 1)
     for (const [key, value] of this.discoveries) if (project === undefined || key.startsWith(`${project}\0`)) this.discoveries.set(key, { ...value, at: 0 })
   }
 
   /** A list read: one Branch list inline (the change token), the last walk's answer, the walk behind. */
   private async listing(project: string, key: string, local?: (sessionId: string) => boolean | undefined): Promise<StoredSession[]> {
     const kept = this.discoveries.get(key)
+    const epoch = this.epochOf(project)
     const stored = await this.storedBranches(project)
     const heads = storedHeads(stored)
     if (kept && kept.heads === heads && Date.now() - kept.at < DISCOVERY_MS) return copyRows(kept.value)
-    this.walkBehind(project, key, local, { stored, heads })
+    this.walkBehind(project, key, local, { stored, heads, epoch })
     return kept ? copyRows(kept.value) : []
   }
 
   /** Start the walk a listing could not wait for, unless one already runs; emit once when it lands with a changed answer. */
-  private walkBehind(project: string, key: string, local: ((sessionId: string) => boolean | undefined) | undefined, seed: { stored: any[], heads: string }): void {
-    if (this.discovering.has(project)) return
+  private walkBehind(project: string, key: string, local: ((sessionId: string) => boolean | undefined) | undefined, seed: { stored: any[], heads: string, epoch: string }): void {
+    // a walk that began before an invalidation does not stand in for this one
+    const running = this.discovering.get(project)
+    if (running && this.walkStart.get(running)?.epoch === seed.epoch) return
     const before = this.discoveries.get(key)?.value
-    const walk = this.discoverNow(project, key, false, local, seed)
+    const walk = this.discoverNow(project, key, false, local, seed, seed.epoch)
+    this.walkStart.set(walk, { fresh: false, epoch: seed.epoch })
     this.discovering.set(project, walk)
     void walk.then(() => {
       const after = this.discoveries.get(key)?.value
@@ -364,7 +384,7 @@ export class SessionStore {
     return branches.filter((b: any) => typeof b.name === 'string' && b.name.startsWith(STORE_PREFIX))
   }
 
-  private async discoverNow(project: string, key: string, fresh: boolean, local?: (sessionId: string) => boolean | undefined, seed?: { stored: any[], heads: string }): Promise<StoredSession[]> {
+  private async discoverNow(project: string, key: string, fresh: boolean, local?: (sessionId: string) => boolean | undefined, seed?: { stored: any[], heads: string }, epoch = this.epochOf(project)): Promise<StoredSession[]> {
     const stored = seed?.stored ?? await this.storedBranches(project)
     // The Branch list is the change token for every stored session: a save appends
     // a Commit (head moves), a new session adds a Branch, a deletion removes one.
@@ -401,7 +421,8 @@ export class SessionStore {
     }
     // Branches gone from the project leave nothing kept.
     for (const name of this.manifests.keys()) if (name.startsWith(`${project}\0`) && !seen.has(name)) this.manifests.delete(name)
-    this.discoveries.set(key, { at: Date.now(), heads, value: out.map((row) => ({ ...row })) })
+    // An invalidation while this walk ran wins: its answer is kept, but stale.
+    this.discoveries.set(key, { at: epoch === this.epochOf(project) ? Date.now() : 0, heads, value: out.map((row) => ({ ...row })) })
     while (this.discoveries.size > 64) this.discoveries.delete(this.discoveries.keys().next().value as string)
     return out
   }
@@ -577,7 +598,7 @@ export class SessionStore {
       if ((manifest.codeBranch || simulation) && !s.sessions[sessionId]) {
         s.sessions[sessionId] = {
           sessionId, kind: manifest.bindingKind === 'shared' && manifest.sharedParent ? 'shared' : 'project',
-          ...(manifest.bindingKind === 'shared' && manifest.sharedParent ? { parent: manifest.sharedParent } : {}), project, anchor, scratch, scratchManaged: true, machine: 'native',
+          ...(manifest.bindingKind === 'shared' && manifest.sharedParent ? { parent: manifest.sharedParent } : {}), project, anchor, scratch, scratchManaged: true, machine: HOST_MACHINE,
           branch: manifest.codeBranch, sandbox: `dsh-${compact(sessionId).slice(0, 20)}`, ws: `dsh-${compact(sessionId).slice(0, 20)}:main`,
           ...(simulation ? { simulation, resumeFromArchive: true, sandbox: undefined, ws: undefined, branch: undefined } : {}),
           state: 'closed', createdAt: Date.now(), updatedAt: Date.now(),

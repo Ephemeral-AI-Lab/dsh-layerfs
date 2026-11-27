@@ -5,6 +5,17 @@
  * routes and the session service, so each reads a machine one way.
  */
 import type { Lfs } from './cli.ts'
+import { hostNameFor, type HostMachineName } from '../../shared/host-machine.ts'
+
+export { HOST_PLATFORM, PROCESS_BACKEND, isHostMachine, isHostName } from '../../shared/host-machine.ts'
+
+/**
+ * This computer's host machine (layerfs #835): `macos-host` on macOS,
+ * `linux-host` on Linux (a Windows host reaches LayerFS through a Linux
+ * worker, whose host is `linux-host`). The default where a caller needs a name
+ * before anything is read; listed machines say it by `platform: "host"`.
+ */
+export const HOST_MACHINE: HostMachineName = hostNameFor(process.platform) ?? 'linux-host'
 
 const text = (value: unknown): string | null => (typeof value === 'string' && value ? value : null)
 const num = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null)

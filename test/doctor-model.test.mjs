@@ -66,14 +66,14 @@ test('the rows are the tree: every thing once, under its parent, with the facts 
   assert.equal(w.homeKey, `home:${HOME}`)
   const dev = p.thing('machine:dev')
   assert.deepEqual([dev.platform, dev.cpus, dev.memoryBytes, dev.parent], ['lima', 4, 8 * 1024 ** 3, w.homeKey])
-  assert.deepEqual([p.thing('machine:native').cpus, p.thing('machine:native').memoryBytes], [null, null])
+  assert.deepEqual([p.thing('machine:macos-host').cpus, p.thing('machine:macos-host').memoryBytes], [null, null])
   // a Store's projects are bare names in the tree; a project's handle is store/project
   const api = p.thing('project:shop/api')
   assert.deepEqual([api.name, api.label, api.store, api.parent, api.machine], ['shop/api', 'api', 'shop', 'store:shop', 'machine:dev'])
   const pg = p.thing('store:analytics')
   assert.deepEqual([pg.engine, pg.parent, pg.machine], ['postgresql', w.homeKey, null])
   const ws = p.thing('workspace:tests:agent')
-  assert.deepEqual([ws.label, ws.branch, ws.sandbox, ws.parent, ws.machine], ['agent', 'agent', 'tests', 'sandbox:tests', 'machine:native'])
+  assert.deepEqual([ws.label, ws.branch, ws.sandbox, ws.parent, ws.machine], ['agent', 'agent', 'tests', 'sandbox:tests', 'machine:macos-host'])
   const box = p.thing('sandbox:sdk-1')
   assert.deepEqual([box.project, box.image, box.notListed], ['shop/api', 'node:22', false])
   // a Sandbox on a stopped machine: its Workspaces are not read
@@ -333,7 +333,7 @@ test('Check all: the home doctor and one doctor per Store and Sandbox it can rea
   // what the mixed home reads afterwards
   assert.equal(st(p, 'machine:demo-build'), 'problem')
   // the checks after the failed one were not made
-  assert.deepEqual(p.view('machine:demo-build').marks.filter((m) => m.r !== 'ok').map((m) => [m.check, m.r, m.reason]), [['machine.worker.compatibility', 'bad', null], ['machine.worker.ping', 'nc', 'outdated'], ['machine.capacity', 'nc', 'outdated']])
+  assert.deepEqual(p.view('machine:demo-build').marks.filter((m) => m.r !== 'ok').map((m) => [m.check, m.r, m.reason]), [['machine.worker.compatibility', 'bad', null], ['machine.worker.ping', 'nc', 'outdated'], ['machine.worker.retained', 'nc', 'outdated'], ['machine.capacity', 'nc', 'outdated'], ['machine.network', 'nc', 'outdated']])
   assert.equal(st(p, 'store:demo-build-cache'), 'nc:waiting')
   assert.equal(st(p, 'sandbox:build-1'), 'nc:waiting')
   assert.equal(st(p, 'sandbox:exp-1'), 'problem')
@@ -403,7 +403,7 @@ test('a Full check covers its thing alone; a stopped one says how long it ran', 
   assert.equal(p.state.notes['project:shop/api'].fullAt, undefined)
   // run to its end: the data check is on the node, and the row remembers when its data was read
   p.run('project', 'shop/api', { full: true })
-  assert.deepEqual(p.view('project:shop/api').marks.map((m) => m.check), ['project.record', 'project.listed', 'project.mount_holders', 'project.data'])
+  assert.deepEqual(p.view('project:shop/api').marks.map((m) => m.check), ['project.record', 'project.listed', 'project.data'])
   assert.ok(p.state.notes['project:shop/api'].fullAt > 0)
   p.run('project', 'shop/api')
   assert.deepEqual(p.view('project:shop/api').marks.map((m) => m.check), ['project.record', 'project.listed'])
@@ -427,12 +427,12 @@ test('a page that opens later is seeded with what the host holds', () => {
 test('a Store some of whose probes could not be made reads Not checked with the checks that were', () => {
   const p = page('healthy')
   const node = { store: 'analytics', status: 'not_checked', coverage: 'shallow', blocked_by: null, reason: null,
-    checks: [{ check: 'store.record', outcome: 'pass', from: null }, { check: 'store.connection', outcome: 'pass', from: 'native' }, { check: 'store.connection', outcome: 'not_checked', from: 'dev' }] }
+    checks: [{ check: 'store.record', outcome: 'pass', from: null }, { check: 'store.connection', outcome: 'pass', from: 'macos-host' }, { check: 'store.connection', outcome: 'not_checked', from: 'dev' }] }
   const report = { ok: false, findings: [], not_checked: [{ store: 'analytics', check: 'store.connection', blocked_by: { machine: 'dev', reason: 'stopped' }, reason: null }], status: 'not_checked', counts: {}, observed_at: new Date(NOW).toISOString(), tree: { ...node, projects: [] } }
   p.state = M.onRun(p.state, { id: 'run-pg', kind: 'store', name: 'analytics', full: false, group: null, state: 'done', started: NOW, ended: NOW, report }, NOW)
   const v = p.view('store:analytics')
   assert.deepEqual([v.seen.st, v.seen.why, v.blocked, v.canCheck], ['nc', 'partial', false, true])
-  assert.deepEqual(v.marks.map((m) => [m.check, m.from, m.r, m.reason]), [['store.record', null, 'ok', null], ['store.connection', 'native', 'ok', null], ['store.connection', 'dev', 'nc', 'stopped']])
+  assert.deepEqual(v.marks.map((m) => [m.check, m.from, m.r, m.reason]), [['store.record', null, 'ok', null], ['store.connection', 'macos-host', 'ok', null], ['store.connection', 'dev', 'nc', 'stopped']])
 })
 
 test('a refusal\'s fix line the page runs: exactly the listed lines, any other option or command stays a tip', () => {

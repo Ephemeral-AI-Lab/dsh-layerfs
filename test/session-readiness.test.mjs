@@ -33,21 +33,20 @@ const canRun = (over = {}) => ({ state: 'available', machine: 'docker', canStart
 const session = (over = {}) => ({ sessionId: 's-1', title: 'Chat', local: true, updatedAt: 1, state: 'local', ...over })
 const pgStore = (over = {}) => ({ name: 'pg', kind: 'postgresql', state: 'broken', reason: 'missing', postgresql: { passwordSaved: false }, attached: [], ...over })
 
-test('a project that cannot run is unavailable; a stopped machine offers Start <machine>', () => {
+test('a project that cannot run is unavailable and says why, in words only', () => {
   const r = sessionReadiness(session({ executionState: 'inactive' }), { state: 'stopped', machine: 'docker', canStart: true, canRun: false, storageBlocked: false }, 'demo', en)
   assert.equal(r.key, 'unavailable')
   assert.equal(r.word, 'Unavailable')
   assert.match(r.reason, /Machine stopped/, 'the existing status wording says why')
-  assert.deepEqual(r.action, { label: 'Start docker', kind: 'start' })
+  assert.ok(!('action' in r), 'no row action: the project row carries Start <machine>')
 })
 
-test('a Store failure says its own words and offers exactly one Open Store action', () => {
+test('a Store failure says its own words, with no Open Store action on the row', () => {
   const r = sessionReadiness(session(), { state: 'available', machine: 'docker', canStart: false, canRun: false, storageBlocked: true }, 'pg', en, pgStore())
   assert.equal(r.key, 'unavailable')
   assert.equal(r.word, 'Unavailable')
   assert.match(r.reason, /has no saved password/)
-  assert.equal(r.action?.kind, 'store')
-  assert.equal(r.action.label, 'Open Store')
+  assert.ok(!('action' in r), 'the project row carries the Store link')
 })
 
 test('unavailable wins over the host state, but checking is not an answer yet', () => {
@@ -55,28 +54,28 @@ test('unavailable wins over the host state, but checking is not an answer yet', 
   assert.equal(sessionReadiness(stored, canRun({ canRun: false, state: 'stopped', machine: 'docker', canStart: true }), 'demo', en).key, 'unavailable')
   // while the machine list is being read the session state still shows
   assert.deepEqual(sessionReadiness(stored, canRun({ canRun: false, state: 'checking', machine: null }), 'demo', en), {
-    key: 'stored', word: 'Stored elsewhere', reason: en('storedWhy'), action: { label: 'Open', kind: 'open' },
+    key: 'stored', word: 'Stored elsewhere', reason: en('storedWhy'),
   })
 })
 
-test('a session only in LayerFS is stored elsewhere and Open imports it', () => {
+test('a session only in LayerFS is stored elsewhere (opening the row imports it)', () => {
   const r = sessionReadiness(session({ state: 'stored', local: false }), canRun(), 'demo', en)
   assert.equal(r.key, 'stored')
   assert.equal(r.word, 'Stored elsewhere')
   assert.match(r.reason, /only in LayerFS/)
-  assert.deepEqual(r.action, { label: 'Open', kind: 'open' })
+  assert.ok(!('action' in r))
   // a stored row this DSH also holds locally is not "elsewhere"
   assert.deepEqual(sessionReadiness(session({ state: 'stored', local: true, executionState: 'inactive' }), canRun(), 'demo', en), {
     key: 'notStarted', word: 'Not started',
   })
 })
 
-test('an interrupted execution says why and offers Open', () => {
+test('an interrupted execution says why', () => {
   const r = sessionReadiness(session({ state: 'bound', executionState: 'interrupted', error: 'the sandbox was lost' }), canRun(), 'demo', en)
   assert.equal(r.key, 'interrupted')
   assert.equal(r.word, 'Interrupted')
   assert.equal(r.reason, en('interruptedHint'), 'an unclassified error falls back to the hint')
-  assert.deepEqual(r.action, { label: 'Open', kind: 'open' })
+  assert.ok(!('action' in r))
   const fail = sessionReadiness(session({ executionState: 'interrupted', failure: { code: 'store_unresolved', store: 'demo' } }), canRun(), 'demo', en)
   assert.match(fail.reason, /cannot verify Store demo/)
 })
@@ -103,16 +102,14 @@ test('every word and reason resolves in en and zh', () => {
   const start = sessionReadiness(session(), { state: 'stopped', machine: 'docker', canStart: true, canRun: false, storageBlocked: false }, 'demo', zh)
   assert.equal(start.word, '不可用')
   assert.match(start.reason, /机器已停止/)
-  assert.deepEqual(start.action, { label: '启动 docker', kind: 'start' })
   const stored = sessionReadiness(session({ state: 'stored', local: false }), canRun(), 'demo', zh)
   assert.equal(stored.word, '存储在其他位置')
   assert.equal(stored.reason, listLocales.zh.storedWhy)
-  assert.deepEqual(stored.action, { label: '打开', kind: 'open' })
   assert.equal(sessionReadiness(session({ executionState: 'activating' }), canRun(), 'demo', zh).word, '正在启动')
   assert.equal(sessionReadiness(session({ state: 'pending', executionState: 'activating' }), canRun(), 'demo', zh).word, '正在启动')
   assert.equal(sessionReadiness(session({ executionState: 'active' }), canRun(), 'demo', zh).word, '活动中')
   assert.equal(sessionReadiness(session({ executionState: 'inactive' }), canRun(), 'demo', zh).word, '未开始')
-  for (const k of ['active', 'sessionStarting', 'notStarted', 'storedElsewhere', 'storedWhy', 'unavailableWhy', 'open']) {
+  for (const k of ['active', 'sessionStarting', 'notStarted', 'storedElsewhere', 'storedWhy', 'unavailableWhy']) {
     assert.ok(listLocales.en[k], `en.${k}`)
     assert.ok(listLocales.zh[k], `zh.${k}`)
   }

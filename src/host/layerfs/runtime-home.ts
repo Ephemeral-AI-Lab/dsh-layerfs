@@ -3,7 +3,7 @@
  *
  *   <home>/runtime/<version>-<cli sha256, 12>/
  *     bin/layerfs            the CLI
- *     bin/layerfs-daemon     the native machine's daemon (macOS)
+ *     bin/layerfs-daemon     the host machine's daemon (macOS, `macos-host`)
  *     bundle/<platform>/     the Linux bundle (bundle.json) docker/VM machines start from
  *
  * One folder per CLI build, so hosts sharing a home can pin different builds.
@@ -262,7 +262,7 @@ export type KeptWhy =
   | 'newest'
   /** `machine.list()` names a path inside it (a machine record's `daemon`, …). */
   | 'machine'
-  /** A running process was started from it (a native Sandbox's daemon, a CLI call). */
+  /** A running process was started from it (a host machine Sandbox's daemon, a CLI call). */
   | 'process'
   /** It has a Linux bundle and a worker machine is not stopped: its worker may have the bundle mounted. */
   | 'worker'
@@ -304,11 +304,12 @@ function strings(value: unknown, out: string[] = [], depth = 0): string[] {
  * Whether a worker may have a runtime's bundle mounted. LayerFS does not
  * report which bundle folder a running docker worker bind-mounts
  * (`machine.list`/`status` carry no path), so this answers for all bundles at
- * once: true unless every machine that is not `native` is `stopped`. A machine
+ * once: true unless every machine that is not the host (platform `host`,
+ * which mounts no bundle) is `stopped`. A machine
  * with no readable platform or state counts as running.
  */
 function workersMayRun(machines: readonly unknown[]): boolean {
-  return machines.some((m: any) => !(m && typeof m === 'object' && (m.platform === 'native' || m.state === 'stopped')))
+  return machines.some((m: any) => !(m && typeof m === 'object' && (m.platform === 'host' || m.state === 'stopped')))
 }
 
 /**

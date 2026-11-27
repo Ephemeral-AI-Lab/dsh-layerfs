@@ -133,7 +133,7 @@ function SandboxCardView({ m, card, image, onImages, cpus, memoryTotal, metricsO
   ].filter(Boolean).join(' · ')
   const s = card.space
   const spaceWhy = s && s.bytes == null ? sandboxSpaceReason(s.reason) : null
-  // neither processor nor memory read (a native Sandbox has no cgroup, say): one line with why, not two cut-off dashes
+  // neither processor nor memory read (a macOS host `process` Sandbox has no cgroup, say): one line with why, not two cut-off dashes
   const unread = metricsOffered && mx && mx.cpu?.v == null && usage?.memoryCurrent == null && why ? w.reason(why) : null
   const showMetrics = metricsOffered && !unread
   const showFigures = !gone && (showMetrics || spaceOffered)
@@ -200,8 +200,8 @@ function SandboxCardView({ m, card, image, onImages, cpus, memoryTotal, metricsO
 type TabProps = { m: MachineInfo, view: AvailableView, canCreate: boolean, onCreate: () => void, onImages?: (() => void) | undefined }
 
 export function SandboxesTab(props: TabProps): ReactNode {
-  // Stage 1 machines that run images (not macOS native) read their image copies, for the cards' image names
-  return props.view.features?.imageStage === 1 && props.m.backend !== 'native' ? <WithImages {...props} /> : <SandboxesBody {...props} images={null} />
+  // Stage 1 machines that run images (not the macOS host machine) read their image copies, for the cards' image names
+  return props.view.features?.imageStage === 1 && props.m.backend !== 'process' ? <WithImages {...props} /> : <SandboxesBody {...props} images={null} />
 }
 
 function WithImages(props: TabProps): ReactNode {
@@ -264,7 +264,7 @@ function SandboxesBody({ m, view, canCreate, onCreate, onImages, images }: TabPr
         <div className={css.sbGrid} aria-label={t('sandboxesOnMachine', { name: m.name })} role="list">
           {cards.map((card) => (
             <div key={card.name} role="listitem" className={css.sbGridItem}>
-              <SandboxCardView m={m} card={card} onImages={onImages} image={m.backend === 'native' ? null : imageWord(card.record?.image, imageNames)} cpus={resources?.cpus ?? null} memoryTotal={resources?.memoryTotal ?? null}
+              <SandboxCardView m={m} card={card} onImages={onImages} image={m.backend === 'process' ? null : imageWord(card.record?.image, imageNames)} cpus={resources?.cpus ?? null} memoryTotal={resources?.memoryTotal ?? null}
                 metricsOffered={metrics.offered} spaceOffered={space.offered} now={now} />
             </div>
           ))}

@@ -43,7 +43,7 @@ function sessions({ state = S.initialState(), lfs = {}, layerfsRoot = '/lfs-root
   const s = Object.create(S.LayerfsSessions.prototype)
   const events = []
   const ctx = {
-    layerfs: { root: layerfsRoot, scratchProject: 'dsh-scratch/scratch', lfs, emit: (type, data) => events.push({ type, data }), ensureNative: async () => {} },
+    layerfs: { root: layerfsRoot, scratchProject: 'dsh-scratch/scratch', lfs, emit: (type, data) => events.push({ type, data }), ensureHostDaemon: async () => {} },
     sessions: { get: () => undefined },
     logger: () => ({ warn() {}, info() {} }),
   }
@@ -153,7 +153,7 @@ test('choose: a blank session takes the layerfs preset with its project and the 
 test('checkPlacement passes for a ready project, and reads the machine a PostgreSQL project would use, without writing anything', async () => {
   // A plain project on a ready machine and Store.
   const ready = sessions({ lfs: {
-    project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'native', state: 'ready' }) },
+    project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'macos-host', state: 'ready' }) },
     machine: { get: async (name) => ({ machine: name, state: 'ready' }) },
     store: { get: async () => ({ store: 'st', engine: 'sqlite', state: 'ready' }) },
     branch: { fork: async () => { throw new Error('checkPlacement must never claim an identity branch') } },
@@ -163,13 +163,13 @@ test('checkPlacement passes for a ready project, and reads the machine a Postgre
   assert.deepEqual(ready.state().sessions, {})
 
   // A PostgreSQL project with no pick uses its last Sandbox's ready machine
-  // (the choice `mount` makes), never a stopped native one.
+  // (the choice `mount` makes), never a stopped host one.
   const got = []
   const pg = sessions({ lfs: {
     project: { get: async () => ({ store: 'st', engine: 'postgresql', state: 'ready' }) },
     machine: {
       list: async () => ({ items: [
-        { machine: 'native', state: 'ready', supports: ['sqlite'] },
+        { machine: 'macos-host', state: 'ready', supports: ['sqlite'] },
         { machine: 'docker', state: 'ready', supports: ['sqlite', 'postgresql_sandbox'] },
       ] }),
       get: async (name) => { got.push(name); return { machine: name, state: 'ready' } },
@@ -218,9 +218,9 @@ test('checkPlacement refuses an identity mismatch, missing project, stopped mach
   }, machine: 'vm2', code: 'Unavailable' })
   // A Store that is blocked by its machine.
   await refused({ lfs: {
-    project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'native', state: 'ready' }) },
+    project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'macos-host', state: 'ready' }) },
     machine: { get: async (name) => ({ machine: name, state: 'ready' }) },
-    store: { get: async () => ({ store: 'st', engine: 'sqlite', state: 'blocked', blocked_by: { machine: 'native', reason: 'stopped' } }) },
+    store: { get: async () => ({ store: 'st', engine: 'sqlite', state: 'blocked', blocked_by: { machine: 'macos-host', reason: 'stopped' } }) },
     branch,
   }, code: 'Unavailable' })
 })
@@ -230,7 +230,7 @@ test('a failed choose removes the pending placement it wrote, so a retry is not 
   try {
     const state = S.initialState()
     state.sessions.a = { sessionId: 'a', kind: 'project', project: 'st/app', anchor: join(root, 'projects', 'st', 'app'), scratch: '/x', state: 'bound' }
-    const { s, state: readState } = sessions({ state, layerfsRoot: root, lfs: { project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'native' }) } } })
+    const { s, state: readState } = sessions({ state, layerfsRoot: root, lfs: { project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'macos-host' }) } } })
     s.detach = async () => { throw new Refusal('Busy', 'the Workspace is busy') }
     await assert.rejects(s.choose('a', 'st/app'), (e) => e.code === 'Busy')
     assert.equal(readState().pending.a, undefined, 'the pending placement was removed')
@@ -282,7 +282,7 @@ test('a running Preset blocks project steps but never a normal folder session', 
 test('a first step waits for an in-flight project choice and runs under the chosen owner', async () => {
   let release
   const gate = new Promise((resolve) => { release = resolve })
-  const { s } = sessions({ lfs: { project: { get: async () => { await gate; return { kind: 'sqlite', machine: 'native' } } } }, layerfsRoot: mkdtempSync(join(tmpdir(), 'dsh-choose-race-')) })
+  const { s } = sessions({ lfs: { project: { get: async () => { await gate; return { kind: 'sqlite', machine: 'macos-host' } } } }, layerfsRoot: mkdtempSync(join(tmpdir(), 'dsh-choose-race-')) })
   const blank = session('blank', { cwd: '/Users/me/repo' })
   s.ctx.sessions.get = () => blank
   const choosing = s.choose('blank', 'st/app')
@@ -318,7 +318,7 @@ test('recovery reuses the persisted project execution context instead of startin
   try {
     const checkpoints = [{ kind: 'turn', turn: 1, commit: 'saved', branch: 'existing-internal', changed: 1 }]
     const { s } = sessions({ layerfsRoot: scratch, lfs: {
-      project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'native', state: 'ready' }) },
+      project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'macos-host', state: 'ready' }) },
       branch: { fork: async () => { throw new Error('recovery must not fork from main') } },
       // 2.0 `sandbox get --detail`: Workspaces `{ workspace, branch, path }`
       sandbox: { get: async (name) => ({ sandbox: name, state: 'ready', workspaces: [{ workspace: `${name}:main`, branch: 'existing-internal', path: scratch }] }) },
@@ -432,7 +432,7 @@ test('ensureBound binds a remote project: Sandbox on its machine, working direct
   assert.equal(b.ws, 'dsh-n1:main', 'the Workspace handle stays usable for exec/status/commit')
   assert.equal(b.scratch, s.ctx.layerfs.root)
   assert.equal(b.scratchManaged, false)
-  assert.deepEqual(calls, ['fork st/app dsh.n1 main', 'sandbox st/app dsh-n1 lima1', 'mount dsh-n1 dsh.n1 main'], 'the machine is named whenever it is not native')
+  assert.deepEqual(calls, ['fork st/app dsh.n1 main', 'sandbox st/app dsh-n1 lima1', 'mount dsh-n1 dsh.n1 main'], 'the machine is named whenever it is not the host machine')
   assert.equal(appended.find(([type]) => type === 'working-directory/change'), undefined)
   assert.deepEqual(selected, ['layerfs'], 'the session is recomposed under the layerfs preset')
   rmSync(s.ctx.layerfs.root, { recursive: true, force: true })
@@ -445,7 +445,7 @@ test('a first bind says Starting while its Workspace mounts, then active', async
   const mounting = new Promise((resolve) => { atMount = resolve })
   const gate = new Promise((resolve) => { releaseMount = resolve })
   const lfs = {
-    project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'native', state: 'ready' }) },
+    project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'macos-host', state: 'ready' }) },
     branch: { fork: async () => ({ commit: 'f'.repeat(66) }) },
     sandbox: {
       get: async () => { throw new Refusal('NotFound') },
@@ -483,7 +483,7 @@ test('a first bind says Starting while its Workspace mounts, then active', async
 test('a failed mount leaves no Starting session: it ends interrupted with the error', async () => {
   let during
   const lfs = {
-    project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'native', state: 'ready' }) },
+    project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'macos-host', state: 'ready' }) },
     branch: { fork: async () => ({ commit: 'f'.repeat(66) }) },
     sandbox: {
       get: async () => { throw new Refusal('NotFound') },
@@ -547,7 +547,7 @@ test('ensureBound runs a PostgreSQL project where the session picked, else its l
       sandbox: {
         get: async () => { throw new Refusal('NotFound') },
         list: async () => ({ items: last ? [{ sandbox: 'old', machine: last, created_at: '2026-11-19T00:00:00Z' }] : [] }),
-        create: async (project, name, options) => { calls.push(`sandbox ${project} ${name} ${options.machine ?? 'native'}`); return { ok: true } },
+        create: async (project, name, options) => { calls.push(`sandbox ${project} ${name} ${options.machine ?? 'macos-host'}`); return { ok: true } },
       },
       workspace: { mount: async (sandbox, branch, options) => ({ path: '/mnt/inside', workspace: `${sandbox}:${options.name}`, commit: 'base-1' }) },
     }
@@ -564,24 +564,24 @@ test('ensureBound runs a PostgreSQL project where the session picked, else its l
     } finally { rmSync(s.ctx.layerfs.root, { recursive: true, force: true }) }
   }
   const m = (name, more = {}) => ({ name, supports: ['sqlite', 'postgresql_sandbox'], ...more })
-  const fleet = [m('native'), m('docker'), m('vm1'), m('vm2', { state: 'stopped' }), m('vm3', { state: 'broken' }), m('old', { supports: ['sqlite'] })]
+  const fleet = [m('macos-host'), m('docker'), m('vm1'), m('vm2', { state: 'stopped' }), m('vm3', { state: 'broken' }), m('old', { supports: ['sqlite'] })]
   assert.equal(await bind(fleet, { picked: 'vm1' }), 'vm1', 'the session\'s own pick')
   assert.equal(await bind(fleet, { last: 'vm1', attached: ['docker', 'vm1'] }), 'vm1', 'the project\'s last machine, while attached')
   assert.equal(await bind(fleet, { last: 'vm1', attached: ['docker'] }), 'docker', 'a last machine no longer attached is skipped: the only attached one')
   assert.equal(await bind(fleet, { last: 'vm3', attached: ['docker'] }), 'docker', 'a broken last machine is skipped')
-  assert.equal(await bind(fleet, { attached: ['native'] }), 'native', 'native attached like any machine')
+  assert.equal(await bind(fleet, { attached: ['macos-host'] }), 'macos-host', 'the host machine attached like any machine')
   await assert.rejects(bind(fleet, { last: 'vm2', attached: ['vm2', 'docker'] }), (e) => e.code === 'InvalidInput', 'a stopped last machine, two attached: nothing is guessed')
-  await assert.rejects(bind(fleet, {}), (e) => e.code === 'InvalidInput', 'none attached: nothing is guessed, not even native')
+  await assert.rejects(bind(fleet, {}), (e) => e.code === 'InvalidInput', 'none attached: nothing is guessed, not even the host machine')
 })
 
-test('ensureBound keeps native project local cwd as selected scratch, separate from the mount', async () => {
+test('ensureBound keeps a host machine project’s local cwd as selected scratch, separate from the mount', async () => {
   const calls = []
   const lfs = {
-    project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'native', state: 'ready' }) },
+    project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'macos-host', state: 'ready' }) },
     branch: { fork: async () => { calls.push('fork'); return { commit: 'f'.repeat(66) } } },
     sandbox: {
       get: async () => { throw new Refusal('NotFound') },
-      create: async (_p, _n, options) => { calls.push(`sandbox ${options.machine ?? 'native'}`); return { ok: true } },
+      create: async (_p, _n, options) => { calls.push(`sandbox ${options.machine ?? 'macos-host'}`); return { ok: true } },
     },
     workspace: { mount: async (sandbox, _b, options) => { calls.push(`mount ${sandbox}`); return { path: `${s_root}/host-mount`, workspace: `${sandbox}:${options.name}` } } },
   }
@@ -596,7 +596,7 @@ test('ensureBound keeps native project local cwd as selected scratch, separate f
   const b = state().sessions.n2
   assert.equal(b.state, 'bound')
   assert.equal(b.mount, `${s_root}/host-mount`)
-  assert.deepEqual(calls, ['fork', 'sandbox native', 'mount dsh-n2'])
+  assert.deepEqual(calls, ['fork', 'sandbox macos-host', 'mount dsh-n2'])
   assert.equal(b.scratch, s_root)
   assert.equal(b.scratchManaged, false)
   assert.equal(appended.find(([type]) => type === 'working-directory/change'), undefined, 'selected local folder stays the working directory')
@@ -669,7 +669,7 @@ test('force-stopped machines invalidate only their mounts while preserving sessi
   const state = S.initialState()
   state.sessions.parent = { sessionId: 'parent', kind: 'project', project: 'st/p', machine: 'vm', sandbox: 'box', ws: 'box:main', mount: '/mounted', scratch: '/scratch', anchor: '/anchor', state: 'bound' }
   state.sessions.child = { sessionId: 'child', kind: 'shared', project: 'st/p', parent: 'parent', ws: 'box:main', mount: '/mounted', scratch: '/scratch', anchor: '/anchor', state: 'bound' }
-  state.sessions.other = { sessionId: 'other', kind: 'project', project: 'st/q', machine: 'native', sandbox: 'other-box', ws: 'other-box:main', scratch: '/local', anchor: '/anchor', state: 'bound' }
+  state.sessions.other = { sessionId: 'other', kind: 'project', project: 'st/q', machine: 'macos-host', sandbox: 'other-box', ws: 'other-box:main', scratch: '/local', anchor: '/anchor', state: 'bound' }
   state.pending.draft = { project: 'st/p' }
   state.checkpoints.parent = [{ commit: 'saved' }]
   state.mirror.parent = { branch: 'archive', count: 10 }
@@ -1019,7 +1019,7 @@ function polled(stores, statuses = {}) {
   const state = S.initialState()
   state.sessions.owner = { sessionId: 'owner', kind: 'project', project: 'st/app', machine: 'vm', sandbox: 'box', branch: 'dsh.owner', ws: 'box:main', mount: '/m', scratch: '/scratch', anchor: '/anchor', state: 'bound', executionState: 'active' }
   state.sessions.child = { sessionId: 'child', kind: 'shared', project: 'st/app', parent: 'owner', mount: '/m', scratch: '/scratch', anchor: '/anchor', state: 'bound', executionState: 'active' }
-  state.sessions.calm = { sessionId: 'calm', kind: 'project', project: 'ok/app', machine: 'native', sandbox: 'calm-box', ws: 'calm-box:main', scratch: '/s2', anchor: '/a2', state: 'bound', executionState: 'active' }
+  state.sessions.calm = { sessionId: 'calm', kind: 'project', project: 'ok/app', machine: 'macos-host', sandbox: 'calm-box', ws: 'calm-box:main', scratch: '/s2', anchor: '/a2', state: 'bound', executionState: 'active' }
   state.checkpoints.owner = [{ commit: 'saved', branch: 'dsh.owner' }]
   const calls = []
   const f = sessions({ state, lfs: {
@@ -1103,13 +1103,13 @@ test('a tool call never re-activates an interrupted context mid-turn; only a new
 
 test('pgPlacement: the last machine while attached and placeable, else the only attached one, else none; placeable means running, PostgreSQL Sandboxes, not broken (spec v23)', () => {
   const m = (name, more = {}) => ({ name, supports: ['sqlite', 'postgresql_sandbox'], ...more })
-  const fleet = [m('native'), m('docker'), m('vm1', { state: 'stopped' }), m('vm2', { state: 'broken' })]
+  const fleet = [m('macos-host'), m('docker'), m('vm1', { state: 'stopped' }), m('vm2', { state: 'broken' })]
   assert.equal(S.pgPlacement(fleet, { last: 'docker', attached: ['docker'] }), 'docker')
-  assert.equal(S.pgPlacement(fleet, { last: 'docker', attached: ['native'] }), 'native', 'a last machine no longer attached is not chosen: the only attached one')
+  assert.equal(S.pgPlacement(fleet, { last: 'docker', attached: ['macos-host'] }), 'macos-host', 'a last machine no longer attached is not chosen: the only attached one')
   assert.equal(S.pgPlacement(fleet, { last: 'vm1', attached: ['vm1', 'vm2', 'docker'] }), null, 'a stopped last machine, several attached: LayerFS asks for one')
-  assert.equal(S.pgPlacement(fleet, { last: 'gone', attached: [] }), null, 'none attached: not even native')
+  assert.equal(S.pgPlacement(fleet, { last: 'gone', attached: [] }), null, 'none attached: not even the host machine')
   assert.equal(S.pgPlacement([], { attached: ['vm1'] }), 'vm1', 'the only attached machine, as LayerFS picks it')
-  assert.deepEqual(S.attachedFrom({ machines: [{ machine: 'native', reached: null }, { machine: 'docker', reached: 'failed' }, { machine: 'vm', reached: 'ok' }] }), ['vm', 'native', 'docker'], 'a machine that reached the database first')
+  assert.deepEqual(S.attachedFrom({ machines: [{ machine: 'macos-host', reached: null }, { machine: 'docker', reached: 'failed' }, { machine: 'vm', reached: 'ok' }] }), ['vm', 'macos-host', 'docker'], 'a machine that reached the database first')
   assert.deepEqual(S.attachedFrom({ machines: ['a', 'b'] }), ['a', 'b'], 'store list names only')
   assert.deepEqual(S.attachedFrom({}), [])
   assert.equal(S.lastUsed([{ machine: 'a', created_at: '2026-01-01T00:00:00Z' }, { machine: 'b', created_at: '2026-02-01T00:00:00Z' }]), 'b')
@@ -1785,4 +1785,33 @@ test('session.annotations answers sidecar metadata only; session.receipts pages 
     { sessionId: 'live', limit: 0 }, { sessionId: 'live', limit: 1001 }, { sessionId: 'live', limit: 1.5 }]) {
     await assert.rejects(() => ops['session.receipts'](bad), (error) => error.code === 'InvalidInput')
   }
+})
+
+test('a choice that fails after moving the owner route moves the route back', async () => {
+  const lfs = { project: { get: async (key) => ({ key }) } }
+  const { s, state } = sessions({ lfs, layerfsRoot: mkdtempSync(join(tmpdir(), 'dsh-choose-undo-')) })
+  const root = s.ctx.layerfs.root
+  s.ctx.sessions.get = (id) => session(id, { cwd: '/Users/me/repo' })
+  // The persistence row's public face: owner routes in owners.json, moved by migrateProject.
+  const owners = { kept: 'st/old' }
+  const moves = []
+  const persistence = {
+    ownerOf: (id) => owners[id] ? { project: owners[id] } : undefined,
+    migrateProject: async (live, project) => {
+      const id = typeof live === 'string' ? live : live.id
+      moves.push([id, project])
+      if (project) owners[id] = project
+      else delete owners[id]
+    },
+  }
+  // Any step after the route move can fail; here the agents service does.
+  s.ctx.get = (name) => name === 'sessionPersistence' ? persistence : name === 'agents' ? { get: () => { throw new Error('agents unavailable') } } : undefined
+  await assert.rejects(s.choose('draft', 'st/app'), /agents unavailable/)
+  assert.equal(state().pending.draft, undefined, 'no pending placement')
+  assert.equal(persistence.ownerOf('draft'), undefined, 'and no owner route: no hidden owned draft is left behind')
+  assert.deepEqual(moves, [['draft', 'st/app'], ['draft', null]])
+  // A draft that was already owned keeps its owner.
+  await assert.rejects(s.choose('kept', 'st/new'), /agents unavailable/)
+  assert.deepEqual(persistence.ownerOf('kept'), { project: 'st/old' })
+  rmSync(root, { recursive: true, force: true })
 })

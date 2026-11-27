@@ -412,6 +412,25 @@ export function RequestBody({ record, tab, detail, t, tools }: {
   )
 }
 
+/**
+ * The session's observation row: the read counter's facts. It is not a log
+ * record (its seq is made up), so there is no detail to read.
+ */
+export function ObservationBody({ record, t }: { record: Extract<TrajectoryRecord, { kind: 'observation' }>, t: Translate }): ReactNode {
+  return (
+    <>
+      <dl className={css.fields}>
+        <Field label={t('trajObsCounted')}>{record.text}</Field>
+        <Field label={t('trajObsReads')}>{record.reads.toLocaleString('en-US')}</Field>
+        {record.top.length ? <Field label={t('trajObsTop')}><ul className={css.versionList}>{record.top.map((line) => <li key={line}>{line}</li>)}</ul></Field> : null}
+        {record.at ? <Field label={t('trajObsLast')}>{dateTime(record.at)}</Field> : null}
+      </dl>
+      <p className={css.note}>{t('trajObsNote')}</p>
+      {record.truncated ? <p className={css.note}>{t('trajObsTruncated')}</p> : null}
+    </>
+  )
+}
+
 export function UnknownBody({ kind, t }: { kind: string, t: Translate }): ReactNode {
   return <p className={css.note}>{t('trajUnknownRecord')} ({kind})</p>
 }
@@ -434,6 +453,8 @@ function RecordBody({ record, tab, detail, t, onOpen, layerfs, sessionId, onOpen
     case 'context':
     case 'assistant':
       return <MessageBody record={record} tab={tab} detail={detail} t={t} />
+    case 'observation':
+      return <ObservationBody record={record} t={t} />
     default:
       return <UnknownBody kind={String((record as { kind?: unknown }).kind ?? 'unknown')} t={t} />
   }
@@ -464,6 +485,8 @@ const MESSAGE_TABS: Tab[] = ['summary', 'timing']
 const PARITY_TABS: Tab[] = ['summary', 'payload', 'timing']
 /** A request record: also its parsed tool catalog and what changed in it. */
 const REQUEST_TABS: Tab[] = ['summary', 'payload', 'tools', 'timing']
+/** The observation row: its counter, nothing to read. */
+const OBSERVATION_TABS: Tab[] = ['summary']
 
 export function TrajectoryInspector({ api, sessionId, inspected, tab, onTab, onClose, onOpen, onOpenLogs, cache, diffs, t, layerfs = true }: {
   api: LayerfsApi
@@ -488,11 +511,13 @@ export function TrajectoryInspector({ api, sessionId, inspected, tab, onTab, onC
   const tabs: Tab[] = record
     ? record.kind === 'tool' ? (layerfs ? TOOL_TABS : TOOL_TABS.filter((x) => x !== 'layerfs'))
       : record.kind === 'system' ? withDiff(PARITY_TABS)
-        : record.kind === 'request' ? withDiff(REQUEST_TABS) : MESSAGE_TABS
+        : record.kind === 'request' ? withDiff(REQUEST_TABS)
+          : record.kind === 'observation' ? OBSERVATION_TABS : MESSAGE_TABS
     : inspected.kind === 'checkpoint' ? (inspected.checkpoint.op ? ['summary', 'layerfs', 'timing'] : MESSAGE_TABS) : ['layerfs']
   const current = tabs.includes(tab) ? tab : tabs[0]!
-  // The diff tab needs no record detail: do not read one just to show it.
-  const detail = useDetail(api, sessionId, current === 'diff' ? null : record, cache)
+  // The diff tab needs no record detail, and the observation row has none (its
+  // seq is made up): do not read one.
+  const detail = useDetail(api, sessionId, current === 'diff' || record?.kind === 'observation' ? null : record, cache)
   const localDiffs = useRef<PromptDiffCache>(new Map()).current
   const diffCache = diffs ?? localDiffs
   const promptDiff = usePromptDiff(api, sessionId, record, diffCache, current === 'diff')

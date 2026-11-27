@@ -1,8 +1,9 @@
 /**
- * A project session's readiness in the sidebar: one word beside its title, at
- * most one reason under the row, and at most one action (`sessions.list` plus
- * the project's availability, docs/specs/layerfs-workspaces.md §5). Pure: the
- * caller supplies the handler; nothing here calls LayerFS.
+ * A project session's readiness in the sidebar: one word beside its title and
+ * at most one reason under the row, in words only (`sessions.list` plus the
+ * project's availability, docs/specs/layerfs-workspaces.md §5; no action
+ * button: the row itself opens, and the project row carries Start and the
+ * Store link, docs/guide/entry-points.md). Pure: nothing here calls LayerFS.
  */
 import type { SessionFailure } from '../../shared/pg-failure.ts'
 import type { StoreRow } from '../storage/types.ts'
@@ -21,17 +22,10 @@ export interface ReadinessSession {
 
 export type SessionReadinessKey = 'unavailable' | 'stored' | 'interrupted' | 'starting' | 'active' | 'notStarted' | 'unknown'
 
-/** The one action a blocked row offers; its handler belongs to the row. */
-export interface SessionReadinessAction {
-  label: string
-  kind: 'open' | 'start' | 'store'
-}
-
 export interface SessionReadiness {
   key: SessionReadinessKey
   word?: string
   reason?: string
-  action?: SessionReadinessAction
 }
 
 type StatusWordKey = 'machineStopped' | 'storeUnavailable' | 'machineUnavailable' | 'starting' | 'busy'
@@ -62,21 +56,16 @@ export function sessionReadiness(
   if (!availability.canRun && availability.state !== 'checking') {
     const failure = formatSessionFailure(pgStoreFailure(store), availability.reason, t, storeName, store)
     const reason = failure?.message ?? availability.reason ?? t('unavailableWhy', { reason: t(statusWordKey(availability)) })
-    const action: SessionReadinessAction | undefined = availability.canStart && availability.machine
-      ? { label: t('startNamed', { machine: availability.machine }), kind: 'start' }
-      : failure?.openStore ? { label: t('sfOpenStore'), kind: 'store' } : undefined
-    return action
-      ? { key: 'unavailable', word: t('unavailable'), reason, action }
-      : { key: 'unavailable', word: t('unavailable'), reason }
+    return { key: 'unavailable', word: t('unavailable'), reason }
   }
-  // 2. Only in LayerFS: Open imports it.
+  // 2. Only in LayerFS: opening the row imports it.
   if (session.state === 'stored' && !session.local) {
-    return { key: 'stored', word: t('storedElsewhere'), reason: t('storedWhy'), action: { label: t('open'), kind: 'open' } }
+    return { key: 'stored', word: t('storedElsewhere'), reason: t('storedWhy') }
   }
   // 3. Its execution stopped: the failure, in words.
   if (session.executionState === 'interrupted') {
     const failure = formatSessionFailure(session.failure, session.error, t, storeName, store)
-    return { key: 'interrupted', word: t('interrupted'), reason: failure?.message ?? t('interruptedHint'), action: { label: t('open'), kind: 'open' } }
+    return { key: 'interrupted', word: t('interrupted'), reason: failure?.message ?? t('interruptedHint') }
   }
   // 4-6. The host's own state, in a word.
   if (session.executionState === 'activating') return { key: 'starting', word: t('sessionStarting') }

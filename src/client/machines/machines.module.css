@@ -1045,7 +1045,7 @@
   }
 }
 
-/* Inside a fact row a fact reads at the row's weight, even a muted one (native's shared disk). */
+/* Inside a fact row a fact reads at the row's weight, even a muted one (the host machine's shared disk). */
 .factRow dd .muted {
   color: inherit;
 }
@@ -2804,7 +2804,9 @@
 /* ---------- the machines table (Board.tsx): a row per machine, open to show what it holds ---------- */
 
 /* One card; the rows share the table's columns through subgrid so every
-   machine's state, memory, disk and actions line up. */
+   machine's state, memory, disk and actions line up. The chevron's track is
+   20px with a mouse and at least the tap size on touch (--lfs-tap-track), so
+   the 44px toggle stays inside it. */
 .fleet {
   overflow: hidden;
   padding: 0;
@@ -2814,7 +2816,7 @@
 .fleetTable {
   display: grid;
   grid-template-columns:
-    20px minmax(160px, 1.15fr) minmax(78px, auto) minmax(110px, 0.8fr)
+    max(20px, var(--lfs-tap-track, 0px)) minmax(160px, 1.15fr) minmax(78px, auto) minmax(110px, 0.8fr)
     minmax(150px, 1.3fr) minmax(84px, auto) minmax(64px, auto);
   column-gap: 16px;
 }
@@ -2963,7 +2965,7 @@
 /* Narrow: memory and holds go first, then the disk. */
 @container (max-width: 760px) {
   .fleetTable {
-    grid-template-columns: 20px minmax(140px, 1.6fr) minmax(72px, auto) minmax(130px, 1fr) minmax(64px, auto);
+    grid-template-columns: max(20px, var(--lfs-tap-track, 0px)) minmax(140px, 1.6fr) minmax(72px, auto) minmax(130px, 1fr) minmax(64px, auto);
   }
 
   .fleetMemory,
@@ -2983,7 +2985,7 @@
 
 @container (max-width: 520px) {
   .fleetTable {
-    grid-template-columns: 20px minmax(0, 1fr) auto minmax(64px, auto);
+    grid-template-columns: max(20px, var(--lfs-tap-track, 0px)) minmax(0, 1fr) auto minmax(64px, auto);
   }
 
   .fleetDisk {
@@ -3142,12 +3144,12 @@
 
 /* ---------- touch and narrow pages ----------
    One scale, from ../ui/responsive.css: a coarse pointer (an iPad at any
-   width) and every page at or under 1180 px get 44 px controls; the phone
+   width) and every page at or under 834 px get 44 px controls; the phone
    breakpoints then reflow the boards, cards and dialogs instead of cutting
-   their words. No new breakpoints beyond phone 480, compact 640,
-   tablet 834 and wide 1180. */
+   their words. No new breakpoints beyond phone 480, compact 640 and
+   tablet 834. */
 
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   /* the board's own controls: the row handle, the machine's name, its
      columns' add verbs and every power/menu button */
   .fleet :is(button, a[href], input, select) {
@@ -3192,10 +3194,6 @@
     min-width: var(--lfs-tap, 44px);
   }
 
-  .dialogContent :global(span[class*='_wrap_']) {
-    height: var(--lfs-tap, 44px);
-  }
-
   .dialogContent :global(label:has(> input[type='checkbox'])) {
     display: inline-flex;
     align-items: center;
@@ -3229,8 +3227,8 @@
   }
 
   /* A board cell's sentence, a card's subtitle, an image's registry and tag
-     and the disk legend wrap to two lines instead of being cut: a 1180 px
-     iPad has the room, just not in one line. */
+     and the disk legend wrap to two lines instead of being cut: a touch
+     tablet has the room, just not in one line. */
   .cellText,
   .blockSub,
   .sbCardSub {

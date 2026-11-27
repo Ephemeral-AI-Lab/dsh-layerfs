@@ -55,7 +55,7 @@
         "spawns": 0,
         "byCall": {}
       },
-      "machine.native": {
+      "machine.host": {
         "spawns": 0,
         "byCall": {}
       },

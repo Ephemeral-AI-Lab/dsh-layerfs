@@ -53,7 +53,7 @@ const commit1 = { commit: C1, message: 'one', parent: null, base: L, created_at:
 const commit2 = { commit: C2, message: 'two', parent: C1, created_at: '1970-01-01T00:00:02Z', size: 4, new_canonical_bytes: 2, new_stored_bytes: 2, new_metadata_bytes: 1 }
 
 /**
- * A fake LayerFS 2.0 home (machines native + lima1, Store s1 with projects p
+ * A fake LayerFS 2.0 home (machines macos-host + lima1, Store s1 with projects p
  * and q, Branch feat with two Commits, Sandbox box1 with Workspace box1:w)
  * behind a Proxy that records `family.call` with its args, answering the long
  * forms. `gate` holds sandbox.get until released; `sandboxBusy` makes it
@@ -62,11 +62,11 @@ const commit2 = { commit: C2, message: 'two', parent: C1, created_at: '1970-01-0
 function fakeLayerfs() {
   const state = {
     calls: [],
-    stores: [{ store: 's1', machine: 'native', engine: 'sqlite', projects: ['p', 'q'], state: 'ready' }],
+    stores: [{ store: 's1', machine: 'macos-host', engine: 'sqlite', projects: ['p', 'q'], state: 'ready' }],
     sandboxBusy: false,
     gate: null,
   }
-  const project = (key) => ({ project: key, store: key.split('/')[0], engine: 'sqlite', machine: 'native', state: 'ready', commit: L, created_at: '1970-01-01T00:00:00.100Z' })
+  const project = (key) => ({ project: key, store: key.split('/')[0], engine: 'sqlite', machine: 'macos-host', state: 'ready', commit: L, created_at: '1970-01-01T00:00:00.100Z' })
   const projects = () => state.stores.flatMap((s) => s.projects.map((p) => project(`${s.store}/${p}`)))
   const branches = { main: { branch: 'main', commit: L }, feat: { branch: 'feat', commit: C2, base: L, forked_from: L } }
   const chain = [commit2, commit1]
@@ -102,12 +102,12 @@ function fakeLayerfs() {
     store: {
       list: async () => ({ items: state.stores.map((s) => ({ ...s, projects_count: s.projects.length, size: 105 })) }),
       get: async (name) => ({ ...(state.stores.find((s) => s.store === name) ?? { store: name, state: 'ready' }), stats: { canonical_bytes: 10, stored_bytes: 10, metadata_bytes: 1, history_logical_bytes: 10, size: 105 } }),
-      create: async (name) => { state.stores.push({ store: name, machine: 'native', engine: 'sqlite', projects: [], state: 'ready' }); return { ok: true } },
+      create: async (name) => { state.stores.push({ store: name, machine: 'macos-host', engine: 'sqlite', projects: [], state: 'ready' }); return { ok: true } },
     },
     // the 2.0 machine family (long forms); platforms come from home.get --with platforms
     machine: {
-      list: async () => ({ items: [{ machine: 'native', platform: 'native', state: 'ready', supports: ['sqlite'], sandboxes: [], stores: [] }, { machine: 'lima1', platform: 'lima', state: 'stopped', supports: ['sqlite'], sandboxes: [], stores: [] }] }),
-      get: async (name) => ({ machine: name, platform: name === 'native' ? 'native' : 'lima', state: name === 'native' ? 'ready' : 'stopped', daemon: '/fake/daemon', supports: ['sqlite'], sandboxes: [], stores: [] }),
+      list: async () => ({ items: [{ machine: 'macos-host', platform: 'host', state: 'ready', supports: ['sqlite'], sandboxes: [], stores: [] }, { machine: 'lima1', platform: 'lima', state: 'stopped', supports: ['sqlite'], sandboxes: [], stores: [] }] }),
+      get: async (name) => ({ machine: name, platform: name === 'macos-host' ? 'host' : 'lima', state: name === 'macos-host' ? 'ready' : 'stopped', daemon: '/fake/daemon', supports: ['sqlite'], sandboxes: [], stores: [] }),
       images: async (name) => ({ machine: name, mode: 'cached', items: [], disk_free_bytes: null }),
       files: async () => ({ type: 'dir', items: [], next_cursor: null }),
       log: async () => ({ items: [{ text: 'worker up' }], next_cursor: null }),
@@ -117,11 +117,11 @@ function fakeLayerfs() {
     },
     sandbox: {
       files: async () => ({ type: 'dir', items: [], next_cursor: null }),
-      list: async () => ({ items: [{ sandbox: 'box1', project: 's1/p', state: 'ready', machine: 'native' }] }),
+      list: async () => ({ items: [{ sandbox: 'box1', project: 's1/p', state: 'ready', machine: 'macos-host' }] }),
       get: async (name) => {
         if (state.gate) await state.gate.promise
         if (state.sandboxBusy) throw new Refusal('Busy', `${name} is busy`, { op: { name: 'workspace.mount' } })
-        return { sandbox: name, project: 's1/p', state: 'ready', machine: 'native', workspaces: [{ workspace: `${name}:w`, branch: 'feat', path: '/tmp/w' }] }
+        return { sandbox: name, project: 's1/p', state: 'ready', machine: 'macos-host', workspaces: [{ workspace: `${name}:w`, branch: 'feat', path: '/tmp/w' }] }
       },
       remove: async () => ({ ok: true, outcome: 'removed', unmounted: [] }),
       log: async () => ({ items: [{ text: 'daemon up' }], next_cursor: null }),
@@ -431,7 +431,7 @@ else if (argv[0] === 'help') out(${JSON.stringify(help)})
 else if (argv[1] === 'doctor') out({ ok: true, findings: [], not_checked: [], status: 'ok', counts: {}, observed_at: '2026-11-19T00:00:00Z', tree: { home: '/fake', status: 'ok', coverage: 'shallow', checks: [], blocked_by: null, reason: null } })
 else if (argv[1] === 'list') out({ items: [], next_page_pos: null })
 else if (argv[0] === 'home' && argv[1] === 'get') out({ home: '/fake', state: 'ready', version: '2.0.0', platforms: { host: 'macos', items: [] }, tree: { machines: [], stores: [], buckets: [] } })
-else if (argv[1] === 'get') out({ machine: argv[argv.indexOf('--') + 1] ?? argv[2], platform: 'native', state: 'ready' })
+else if (argv[1] === 'get') out({ machine: argv[argv.indexOf('--') + 1] ?? argv[2], platform: 'host', state: 'ready' })
 else out({})
 `, { mode: 0o700 })
   return { cli, log }
@@ -475,7 +475,7 @@ const GETS = [
   ['stores/:id/stats', '/api/stores/s1/stats'],
   ['stores/:id/observations', '/api/stores/s1/observations'],
   ['stores/:id/projects', '/api/stores/s1/projects'],
-  ['stores/:id/check', '/api/stores/s1/check?machine=native'],
+  ['stores/:id/check', '/api/stores/s1/check?machine=macos-host'],
   ['buckets/:id/files', '/api/buckets/b1/files'],
   ['storage-jobs/:id', '/api/storage-jobs/job-x'],
   ['platforms', '/api/platforms'],
@@ -532,7 +532,7 @@ const GETS = [
 /** The presets manager's GET routes (manager.ts `route`), dispatched by router.ts under /api/demo-presets. */
 const PRESET_GETS = ['', '/requests/r1', '/jobs/j1', '/studio', '/studio/environment-plan', '/studio/build-plan', '/studio/build-plan-no-sandboxes', '/studio/script', '/studio/script-no-sandboxes']
 /** Routes whose 2xx needs more than the fake has: they may answer 4xx/5xx, but still must not write. */
-const MAY_FAIL = new Set(['/api/storage-jobs/job-x', '/api/project-inits/init-x', '/api/project-exports/x-none', '/api/stores/s1/check?machine=native'])
+const MAY_FAIL = new Set(['/api/storage-jobs/job-x', '/api/project-inits/init-x', '/api/project-exports/x-none', '/api/stores/s1/check?machine=macos-host'])
 
 // Guards the GETS table: it names every GET route router.ts has.
 test('the no-writes table covers every GET route in router.ts', () => {

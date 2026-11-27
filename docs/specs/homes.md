@@ -30,7 +30,7 @@ LAYERFS_HOME  (default ~/.layerfs)       LayerFS's
                                          own call log (#659), read only through `layerfs logs`
   runtime/<version>-<sha12>/             the LayerFS programs (§3)
     bin/layerfs
-    bin/layerfs-daemon                   macOS native machine
+    bin/layerfs-daemon                   macOS host machine (macos-host)
     bundle/<platform>/                   Linux bundle: bundle.json, workers, Sandbox image
   secret/                                (0700) files that file: references name (§4)
     bucket-<name>.key
@@ -69,7 +69,7 @@ LayerFS adopts a home that already holds `runtime/` and `secret/`, and its
 
 ## 3. The runtime lives in the LayerFS home
 
-The runtime is the LayerFS CLI, the daemon behind the macOS `native` machine,
+The runtime is the LayerFS CLI, the daemon behind the macOS host machine (`macos-host`),
 and the Linux bundle the docker and VM machines start workers from.
 
 - **One folder per CLI build:** `runtime/<version>-<first 12 hex of the CLI's
@@ -100,15 +100,15 @@ and the Linux bundle the docker and VM machines start workers from.
   leaves it unset (it reads nothing from LayerFS Connect):
   a cache without the default bundle makes unpinned Docker and VM machines
   refuse to start.
-- **The native machine** records the daemon path the pin names. With installed
+- **The host machine** (`macos-host`) records the daemon path the pin names. With installed
   runtimes that path is inside the home.
 - **Old folders are removed after an install** (`cleanRuntimes`, layerfs-project#180).
   After a Change installs a runtime, folders nothing uses are removed. Kept: any
   folder a pin names (this host's pin, `runtime.json`, config and the environment),
-  the 3 newest, any folder `machine.list()` names a path in (the native machine's
-  `daemon`), any folder a running process was started from (`ps`: a native
+  the 3 newest, any folder `machine.list()` names a path in (the host machine's
+  `daemon`), any folder a running process was started from (`ps`: a host-machine
   Sandbox's daemon), and every folder with a Linux bundle unless all machines other
-  than `native` are `stopped`. The last rule is broad on purpose: a docker worker
+  than the host machine (platform `host`) are `stopped`. The last rule is broad on purpose: a docker worker
   bind-mounts its bundle folder and LayerFS reports no path for it, so while any
   worker machine may run, no bundle is removed. When `machine.list()` or the
   process list cannot be read, nothing is removed. A folder goes by a rename to
@@ -220,4 +220,4 @@ dsh-layerfs cannot change LayerFS; these are changes to LayerFS's home design
   answer.
 - **Sharing with Connect.** Connect keeps its own home
   (`~/.layerfs-connect/home-2`). Pointing it at `~/.layerfs` needs matching CLI
-  builds per host (which §3 allows) and one agreed native daemon.
+  builds per host (which §3 allows) and one agreed host daemon.

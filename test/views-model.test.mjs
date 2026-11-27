@@ -51,7 +51,7 @@ test('replayClock shortens idle gaps to one second', () => {
 test('buildSandboxMap places calls on nodes and the replay clock', () => {
   const agents = agentTree('root', byId)
   const line = (at, argv, outcome = 'ok', ms = 10) => ({ v: 1, at, ms, client: 'cli', argv, outcome })
-  const model = buildSandboxMap(agents, { project: 'st/p', branch: 'main', sandbox: 'sbx', ws: 'sbx:dsh', machine: 'native' }, {
+  const model = buildSandboxMap(agents, { project: 'st/p', branch: 'main', sandbox: 'sbx', ws: 'sbx:dsh', machine: 'macos-host' }, {
     root: [line(1000, ['workspace', 'exec', 'sbx:dsh', '<5 bytes>'], 'ok', 2000), line(2000, ['workspace', 'status', 'sbx:dsh'])],
     kid: [
       line(1500, ['workspace', 'mount', 'sbx2', 'feature', '--name', 'w2']),
@@ -60,7 +60,7 @@ test('buildSandboxMap places calls on nodes and the replay clock', () => {
   })
   assert.deepEqual(model.branches, ['main', 'feature'])
   assert.deepEqual(model.sandboxes.map((s) => [s.name, s.machine, s.workspaces.map((w) => `${w.id}@${w.branch}`)]), [
-    ['sbx', 'native', ['sbx:dsh@main']],
+    ['sbx', 'macos-host', ['sbx:dsh@main']],
     ['sbx2', undefined, ['sbx2:w2@feature']],
   ])
   assert.equal(model.events.length, 3, 'status polls are left out')
@@ -80,7 +80,7 @@ test('replay pacing: one agent\'s back-to-back calls get their own windows, long
   const model = buildSandboxMap(agents, null, {
     root: [
       line(0, ['branch', 'fork', 'st/p', 'b1']),
-      line(10, ['sandbox', 'create', 'st/p', 'sbx', 'native']),
+      line(10, ['sandbox', 'create', 'st/p', 'sbx', 'macos-host']),
       line(20, ['workspace', 'mount', 'sbx', 'b1', '--name', 'w']),
       line(30, ['workspace', 'exec', 'sbx:w', '<9 bytes>'], 600_000),
       line(600_100, ['project', 'get', 'st/p']),
@@ -121,7 +121,7 @@ test('a refused call adds no node; it still names the nodes that exist', () => {
   const line = (at, argv, outcome = 'ok') => ({ v: 1, at, ms: 5, client: 'cli', argv, outcome })
   const model = buildSandboxMap(agents, { project: 'st/p', branch: 'main', sandbox: 'sbx', ws: 'sbx:dsh' }, {
     root: [
-      line(0, ['sandbox', 'create', 'st/p', 'box2', 'native'], 'Failed'),
+      line(0, ['sandbox', 'create', 'st/p', 'box2', 'macos-host'], 'Failed'),
       line(10, ['branch', 'fork', 'st/p', 'feat', 'main']),
       line(20, ['workspace', 'mount', 'sbx', 'feat', '--name', 'w'], 'Failed'),
       line(30, ['workspace', 'exec', 'sbx:dsh', '<3 bytes>'], 'Failed'),

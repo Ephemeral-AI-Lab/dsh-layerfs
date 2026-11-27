@@ -882,3 +882,45 @@ test('every checkpoint rides at the top level on the first and older pages', () 
   assert.equal(unchanged.unchanged, true)
   assert.ok(JSON.stringify(unchanged).length < 400, `unchanged stays small (${JSON.stringify(unchanged).length} bytes)`)
 })
+
+test('the page byte budget is hard: orphan essential calls and trailing checkpoints are elided with a marker', () => {
+  // One turn whose calls without a loaded tool call are all writes (essential,
+  // never dropped by the record loop) and together far exceed the page budget.
+  const writes = Array.from({ length: 3000 }, (_, i) => ({
+    id: `w${i}`, origin: 'tool', operation: 'file.write', outcome: 'success', kind: 'Committed',
+    versions: [{ kind: 'Commit', id: `12${String(i).padStart(64, '0')}`, effect: 'created', branch: 'dsh.s' }],
+    argv: ['file', 'write', 'st/p', 'dsh.s', `/out/file-${i}.txt`], at: 1000 + i,
+  }))
+  const record = { kind: 'user', seq: 1, turn: 1, at: 1000, source: 'user', text: 'write everything' }
+  const answer = {
+    sessionId: 's', project: 'st/p', branch: 'dsh.s', logLoaded: true,
+    turns: [{ turn: 1, at: 1000, records: [record], orphanCalls: [{ callId: 'call_gone', ops: writes }], hostOps: [], checkpoints: [] }],
+    checkpoints: [], counts: { versionsCreated: 3000, callsWithVersions: 1 }, revision: 'r1', recordTotal: 1,
+  }
+  assert.ok(pageBytes(answer.turns[0].orphanCalls) > FIRST_PAGE_BYTES, `the calls alone are ${pageBytes(answer.turns[0].orphanCalls)} bytes`)
+  const page = pageTrajectory(answer)
+  assert.ok(pageBytes(page) <= FIRST_PAGE_BYTES, `${pageBytes(page)} bytes`)
+  assert.equal(page.elided, true, 'the page says it was cut')
+  const call = page.turns[0].orphanCalls[0]
+  assert.equal(call.opsTotal, 3000, 'the call keeps how many it had')
+  assert.ok(call.ops.length > 0 && call.ops.length < 3000)
+  assert.equal(call.ops.at(-1).id, 'w2999', 'the newest calls are kept')
+  assert.deepEqual(page.turns[0].records, [record], 'the record itself is kept')
+  assert.deepEqual(JSON.parse(JSON.stringify(page)), page, 'a plain JSON reply')
+
+  // A record in turn 1, then thousands of later turns that carry only checkpoints:
+  // the first page covers every trailing turn, the older page every turn before.
+  const many = Array.from({ length: 3000 }, (_, i) => ({ kind: 'turn', commit: `12${String(i).padStart(64, '0')}`, branch: 'dsh.s', changed: 1, message: `dsh turn ${i + 2} ${'m'.repeat(40)}`, at: 2000 + i }))
+  const trailing = {
+    ...answer,
+    turns: [{ turn: 1, at: 1000, records: [record], orphanCalls: [], hostOps: [], checkpoints: [] }, ...many.map((checkpoint, i) => ({ turn: i + 2, at: 2000 + i, records: [], orphanCalls: [], hostOps: [], checkpoints: [checkpoint] }))],
+    checkpoints: many.map((checkpoint, i) => ({ ...checkpoint, turn: i + 2 })),
+  }
+  for (const [name, read] of [['first', pageTrajectory(trailing)], ['older', pageTrajectory(trailing, 2)]]) {
+    assert.ok(pageBytes(read) <= FIRST_PAGE_BYTES, `${name}: ${pageBytes(read)} bytes`)
+    assert.equal(read.elided, true, name)
+    assert.ok(read.turns.some((turn) => turn.records.length === 1), `${name}: the record stays`)
+  }
+  // A page under its budget is answered as before, without the marker.
+  assert.equal(pageTrajectory(build()).elided, undefined)
+})

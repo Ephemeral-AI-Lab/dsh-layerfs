@@ -92,9 +92,9 @@ test('machine controller sends force only for the explicit Force stop action', a
 })
 
 
-test('Force stop remains accessible for native and stopped machines with registered Sandboxes', () => {
+test('Force stop remains accessible for the host machine and stopped machines with registered Sandboxes', () => {
   const machine = (platform, state, sandboxes = []) => ({ platform, state, sandboxes })
-  assert.equal(forceStopOf(machine('native', 'ready', ['local-runtime'])), true)
+  assert.equal(forceStopOf(machine('macos-host', 'ready', ['local-runtime'])), true)
   assert.equal(forceStopOf(machine('lima', 'stopped', ['stale-runtime'])), true)
   assert.equal(forceStopOf(machine('docker', 'unknown'), true), true, 'global inventory may identify a registered runtime absent from machine.list')
   assert.equal(forceStopOf(machine('lima', 'ready')), true)

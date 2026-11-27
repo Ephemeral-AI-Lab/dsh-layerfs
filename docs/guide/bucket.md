@@ -1,6 +1,6 @@
 # Bucket
 
-> **Where:** `LayerFS › Home › Buckets › <bucket>` (and `… › <bucket> › <file>` for one backup file) · **Opens from:** a bucket card on Home › Stores › SQLite › Buckets, Jump to, a Store's Backups tab · **Source:** see the end
+> **Where:** `LayerFS › Home › Buckets › <bucket>` (and `… › <bucket> › <file>` for one backup file) · **Opens from:** a bucket card on Home › Buckets, Jump to, a Store's Backups tab · **Source:** see the end
 
 A bucket is an S3-compatible place (MinIO or Cloudflare R2) where SQLite Stores are backed
 up, one `store.sqlite` object per backup file. Its page lists every Store file in it, which
@@ -42,7 +42,7 @@ Which Stores are backed up here, and is each copy current.
 | Status line | **Not listed · key refused**, **· no answer in time**, **· busy**, **· answer lost**, or **Broken**, with LayerFS's detail beside it (full sentence on hover) | **Connect again…** (when the key was refused or the record has none) → [Connect *bucket* again](#modals-opened-here) | `backup connect`, then `backup list` | hidden while the bucket lists |
 | Group rows | **Bound to a Store in this home** first, then **Not in this home** | — | — | a group shows only when it has rows |
 | File | `<file>/store.sqlite` | The file name → its [Backup file page](#backup-file) | — | |
-| Linked Store | The Store and where it is (its machine, `native` included, or **PostgreSQL**) | The Store name → its Store page | — | **Not linked**; `—` for files not in this home |
+| Linked Store | The Store and where it is (its machine, `macos-host` included, or **PostgreSQL**) | The Store name → its Store page | — | **Not linked**; `—` for files not in this home |
 | State | **Backed up**, **Store changed**, **Bucket changed**, **Both changed**, **Missing**, **Not checked**, **Not listed**; LayerFS's reason on hover | — | `backup list` (read: `behind`, `changed`, `missing`) | dashed chip until listed |
 | Size, Written | Bytes, and when the object was written | Hover → the exact time | `backup list` (read) | |
 | **Back up now** / **Back up as new file…** | | Press → **Back up now** starts a backup job over that file (its card shows on the Store); for **Missing**, **Back up as new file…** opens [Back up](store.md#modals-opened-here) with a fresh file name | `backup create <store> <bucket> --file`, then `backup list` | **Back up now** for **Store changed** or a link not listed yet; **Back up as new file…** for **Missing** (LayerFS refuses reusing a missing file name); disabled with an explanation tip when the Store is stopped, busy, blocked, or broken |
@@ -65,12 +65,12 @@ SQLite Store; LayerFS reads its projects only by restoring it.
 | 5 | Linked Stores | One row per Store of this home linked to the file: Store and place, state, **Last transfer** (**Backed up** / **Restored** *ago* or **Never moved by this home**), **Back up now** / **Back up as new file…**, **Restore…** | As on the bucket page | `backup create` / `backup restore` | **No Store of this home links this file. …** |
 | | Missing file | **No file** *file* **in** *bucket*, with **List** / **List again** and **Open bucket** | **List** → lists the bucket; **Open bucket** → the bucket page | `backup list --bucket` (read) | after a listing no longer has it |
 
-## Bucket cards on Home › Stores
+## Bucket cards on Home › Buckets
 
-`LayerFS › Home › Stores › SQLite › Buckets`: the SQLite board's second view, one card per
+`LayerFS › Home › Buckets`: the home's own Buckets tab, one card per
 bucket. Home's page is described in [home.md](home.md); the cards are described here.
 
-![Home › Stores › Buckets, numbered](img/bucket-cards.png)
+![Home › Buckets, numbered](img/bucket-cards.png)
 
 | # | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|---|
@@ -117,7 +117,7 @@ bucket. Home's page is described in [home.md](home.md); the cards are described 
 
 - [Store](store.md): a Linked Store, and the Back up and Backups dialogs.
 - [Project](project.md): a project listed under **Inside**.
-- [Home](home.md): Home › Stores › Buckets.
+- [Home](home.md): Home › Buckets.
 
 ## Source
 

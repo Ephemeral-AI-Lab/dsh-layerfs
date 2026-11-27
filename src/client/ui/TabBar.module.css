@@ -139,7 +139,7 @@
 
 /* Touch: the selected tab's actions are thumb targets too; the tabs themselves
    already grow to --lfs-tap through their height. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .actions > button,
   .actions > a {
     min-height: var(--lfs-tap, 44px);
@@ -148,7 +148,7 @@
 
 /* Coarse only: the 4 px strip at fine is deliberate micro-spacing; a finger
    needs 8 px between the 44 px tabs. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .tabs {
     gap: var(--lfs-gap-control, 8px);
   }

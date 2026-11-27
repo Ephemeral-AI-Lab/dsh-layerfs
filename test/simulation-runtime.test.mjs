@@ -104,8 +104,8 @@ test('stop closes admission before cancellation and restores only native session
 })
 
 test('slash arguments have one unambiguous host command form', () => {
-  assert.deepEqual(simulationArguments('--project startup --machine native --mixed'), { project: 'startup', machine: 'native', mixed: true })
-  for (const input of ['', '--project startup', '--project startup --machine native --machine native', '--project startup --machine native --cycles 1']) assert.throws(() => simulationArguments(input))
+  assert.deepEqual(simulationArguments('--project startup --machine macos-host --mixed'), { project: 'startup', machine: 'macos-host', mixed: true })
+  for (const input of ['', '--project startup', '--project startup --machine macos-host --machine macos-host', '--project startup --machine macos-host --cycles 1']) assert.throws(() => simulationArguments(input))
 })
 
 test('queued human messages stay out of the script and return through the native inbox after handoff', async () => {
@@ -438,13 +438,13 @@ test('stopping a child ends its root family as stopped', async () => {
 test('launch refuses before creating any Store, project or package when no real model is usable', async () => {
   const dir = mkdtempSync(join(root, 'lib/.test-simulation-launch-'))
   try {
-    let native = 0
+    let hostDaemon = 0
     for (const [requested, fallback, resolve] of [[undefined, undefined], [{ provider: 'simulation', model: 'old-script' }, { provider: 'simulation', model: 'x' }], [{ provider: 'gone', model: 'm' }, undefined, async () => { throw new Error('unknown provider') }]]) {
-      const runtime = new SimulationRuntime({ layerfs: { root: dir, cli: '/bin/false', ensureNative: async () => { native++ } }, agentDefaultModel: { currentSelection: () => fallback }, llm: resolve ? { resolveModelInfo: resolve } : undefined, logger: () => ({ warn() {} }) })
-      await assert.rejects(runtime.launch({ project: 'design', machine: 'native', ordinaryModel: requested }), /usable real model.*Nothing was created/)
+      const runtime = new SimulationRuntime({ layerfs: { root: dir, cli: '/bin/false', ensureHostDaemon: async () => { hostDaemon++ } }, agentDefaultModel: { currentSelection: () => fallback }, llm: resolve ? { resolveModelInfo: resolve } : undefined, logger: () => ({ warn() {} }) })
+      await assert.rejects(runtime.launch({ project: 'design', machine: 'macos-host', ordinaryModel: requested }), /usable real model.*Nothing was created/)
       assert.equal(runtime.runs.size, 0)
     }
-    assert.equal(native, 0)
+    assert.equal(hostDaemon, 0)
     assert.equal(existsSync(join(dir, 'simulations')), false)
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
@@ -570,7 +570,7 @@ test('a scripted command takes the Store lane only when it opens the Store; wait
   const [[name, hook]] = hooks
   assert.equal(name, 'tools/execute')
   const binding = { sessionId: 's', run: { manifest: { store: 'st' } } }
-  runtime.calls.set('sandbox', { binding, action: { type: 'tool' }, argv: ['sandbox', 'create', 'st/p', 'sb-1', 'native'] })
+  runtime.calls.set('sandbox', { binding, action: { type: 'tool' }, argv: ['sandbox', 'create', 'st/p', 'sb-1', 'macos-host'] })
   runtime.calls.set('write', { binding, action: { type: 'tool' }, argv: ['file', 'write', 'st/p', 'main', '/a.md', '--message', 'm'] })
   let release
   const holder = admitStore('/lane-home', 'st', () => new Promise(resolve => { release = resolve }))

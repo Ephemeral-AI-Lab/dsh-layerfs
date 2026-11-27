@@ -107,11 +107,11 @@ const makeDocT = (lang) => (key, vars) => fill(M.doctorLocales[lang][key] ?? key
 const emptyFleet = {
   available: true,
   machines: [
-    { name: 'native', platform: 'native', state: 'ready', stores: [], sandboxes: [], builtIn: true },
+    { name: 'macos-host', platform: 'host', state: 'ready', stores: [], sandboxes: [], builtIn: true },
     { name: 'docker', platform: 'docker', state: 'stopped', stores: [], sandboxes: [], builtIn: true },
   ],
   platforms: [
-    { platform: 'native', how: 'builtIn', ready: true, missing: [] },
+    { platform: 'host', how: 'builtIn', ready: true, missing: [] },
     { platform: 'docker', how: 'builtIn', ready: false, missing: ['daemon'] },
   ],
   live: {},
@@ -127,14 +127,14 @@ const troubleView = {
       size: { bytes: 420000, stale: true, seen: 1000 }, links: [], ownConnections: [],
     },
     {
-      name: 'broken-store', kind: 'sqlite', machine: 'native', state: 'broken',
+      name: 'broken-store', kind: 'sqlite', machine: 'macos-host', state: 'broken',
       reason: 'corrupt', message: 'Store header unreadable', fix: 'layerfs store compact broken-store',
       projects: ['web'], projectsCount: 1, size: { bytes: 120000 },
       links: [{ bucket: 'b1', file: 'f1' }], ownConnections: [],
     },
   ],
   machines: [
-    { name: 'native', platform: 'native', state: 'ready', stores: ['broken-store'], sandboxes: [] },
+    { name: 'macos-host', platform: 'host', state: 'ready', stores: ['broken-store'], sandboxes: [] },
     { name: 'docker', platform: 'docker', state: 'stopped', stores: ['alpha-store'], sandboxes: [] },
   ],
   buckets: [
@@ -320,4 +320,36 @@ test('P0-2 (Option A) & P1-2: Hero identity shows LayerFS version + 8-char SHA; 
   assert.match(heroCss, /\.runtime\s*\{[^}]*white-space:\s*nowrap;/)
   const homeTsx = src('src/client/storage/HomeOverview.tsx')
   assert.match(homeTsx, /<HomeHero\s+title=\{t\('overview'\)\}\s+identity=\{runtimeBadge\}/)
+})
+
+test('Bucket card: an unlinked file whose last restore failed is marked beside Restore; a later success or another file clears it', () => {
+  const t = makeT('en')
+  const file = (name) => ({ file: name, store: null, bytes: 100, modified: null, behind: null, changed: null, missing: false, message: null })
+  const bucket = { name: 'minio', provider: 'minio', listed: 1, files: [file('shop'), file('blog')], error: null }
+  const job = (id, f, ended, outcome, message) => ({ id, kind: 'restore', store: f, target: 'minio', file: f, started: ended - 10, ended, phase: null, done: null, total: null, outcome,
+    error: outcome === 'failed' ? { code: 'Unsupported', message, phase: null } : null })
+  const render = (jobs, dismissed) => {
+    globalThis.__pb01Buttons = []
+    return renderToStaticMarkup(createElement(M.BucketCards, {
+      view: { stores: [], machines: [], buckets: [bucket], jobs, at: 0 }, t, now: 61000, jobs, dismissed,
+      onOpen: () => {}, onAddBucket: () => {}, onList: () => {}, onReconnect: () => {}, onRestore: () => {},
+    }))
+  }
+  const normal = render([])
+  assert.doesNotMatch(normal, /data-restore-failed/, 'no mark without a failed restore')
+  assert.equal(normal.split(t('ovRestore')).length - 1, 2, 'both unlinked files offer Restore')
+
+  const failed = render([job('a', 'shop', 1000, 'failed', 'schema version 2 is not supported')])
+  assert.match(failed, /data-restore-failed="shop"/)
+  assert.doesNotMatch(failed, /data-restore-failed="blog"/, 'another file is not marked')
+  assert.ok(failed.includes(t('bcRestoreFailed')), 'the mark says Restore failed')
+  assert.ok(failed.includes('schema version 2 is not supported'), "LayerFS's reason is the detail")
+  assert.equal(failed.split(t('ovRestore')).length - 1, 2, 'the failed file still offers Restore')
+
+  const retried = render([job('a', 'shop', 1000, 'failed', 'x'), job('b', 'shop', 2000, 'succeeded')])
+  assert.doesNotMatch(retried, /data-restore-failed/, 'a later successful restore clears the mark')
+  const running = render([job('a', 'shop', 1000, 'failed', 'x'), { ...job('c', 'shop', 3000, null), ended: null }])
+  assert.match(running, /data-restore-failed="shop"/, 'a restore still running does not hide the last failure')
+  const gone = render([job('a', 'shop', 1000, 'failed', 'x')], new Set(['a']))
+  assert.doesNotMatch(gone, /data-restore-failed/, 'a dismissed failure is not marked')
 })

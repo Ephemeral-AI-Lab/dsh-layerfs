@@ -179,7 +179,7 @@ test('minor: the Doctor page re-reads the tree on Refresh; a Not checked row sho
   const failedJob = { ...runningJob, id: 'j2', ended: 1500, outcome: 'failed', error: { code: 'Conflict', message: 'changed' } }
   const makeApi = () => ({
     call: async (_method, path) => path === '/api/doctor/tree'
-      ? { home: { home: 'h' }, tree: { machines: [{ machine: 'native', platform: 'native', stores: [{ store: 'notes', engine: 'sqlite' }, { store: 'other', engine: 'sqlite' }] }] } }
+      ? { home: { home: 'h' }, tree: { machines: [{ machine: 'macos-host', platform: 'host', stores: [{ store: 'notes', engine: 'sqlite' }, { store: 'other', engine: 'sqlite' }] }] } }
       : { last: [], running: [], fixes: [] },
     onEvent: () => () => {},
   })
@@ -213,7 +213,7 @@ test('minor: the Doctor page re-reads the tree on Refresh; a Not checked row sho
 test('minor: the machine Stores tab and Overview count the same PostgreSQL Stores', () => {
   const m = { ...unreadable, name: 'vm', platform: 'lima', state: 'ready', reason: undefined, sandboxes: [] }
   const view = {
-    postgresql: [{ name: 'a', attached: [{ machine: 'native', reached: 'ok' }, { machine: 'vm', reached: 'ok' }], projects: 1 }, { name: 'b', attached: [{ machine: 'native', reached: null }], projects: 1 }, { name: 'c', attached: [], projects: 0 }],
+    postgresql: [{ name: 'a', attached: [{ machine: 'macos-host', reached: 'ok' }, { machine: 'vm', reached: 'ok' }], projects: 1 }, { name: 'b', attached: [{ machine: 'macos-host', reached: null }], projects: 1 }, { name: 'c', attached: [], projects: 0 }],
     sandboxes: [{ name: 'sb', machine: 'vm', project: 'b/web', workspaces: 0 }],
   }
   assert.deepEqual(N.pgStoresHere(view, m), ['a', 'b'], 'attached here, or has a Sandbox here now')

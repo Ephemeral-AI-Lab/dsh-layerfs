@@ -3,9 +3,10 @@ import type { Tone } from '../ui/index.tsx'
 import type { BackupFile, BucketRow, JobKind, StorageJob, StorageView, StoreBackupLink, StoreFormat, StoreRow } from './types.ts'
 import type { StorageKey, StorageT } from './locale.ts'
 import { connectBucketFix } from '../../shared/doctor.ts'
+import { isHostName } from '../../shared/host-machine.ts'
 
-/** A sqlite Store saved under the LayerFS home (`native`). */
-export const inHome = (s: StoreRow): boolean => s.kind === 'sqlite' && s.machine === 'native'
+/** A sqlite Store saved under the LayerFS home (on the host machine, `macos-host` / `linux-host`). */
+export const inHome = (s: StoreRow): boolean => s.kind === 'sqlite' && isHostName(s.machine)
 
 /** project.init goes into a ready Store (LayerFS refuses a busy, blocked or broken one). */
 export const canAddProject = (s: StoreRow): boolean => s.state === 'ready'
@@ -114,10 +115,10 @@ export function orderStores(stores: readonly StoreRow[]): StoreRow[] {
 /** Which group of the board a Store belongs to. */
 export const groupOf = (s: StoreRow): 'home' | 'machines' | 'postgresql' => s.kind === 'postgresql' ? 'postgresql' : inHome(s) ? 'home' : 'machines'
 
-/** The machines a sqlite Store can live on (native is the home), by name. */
+/** The machines a sqlite Store can live on (the host machine is the home), by name. */
 export function machinePlaces(view: StorageView): StorageView['machines'] {
   return view.machines
-    .filter((m) => m.name !== 'native' && (!m.supports || m.supports.includes('sqlite')))
+    .filter((m) => !isHostName(m.name) && (!m.supports || m.supports.includes('sqlite')))
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
@@ -173,7 +174,7 @@ export function overviewMachineHealth(s: Pick<StoreRow, 'kind' | 'machine' | 'st
   }
   if (stoppedBlock(s) || (s.kind === 'sqlite' && machineState === 'stopped')) return { tone: 'info', key: 'spMachineStopped' }
   if (machineState === 'busy' || (s.state === 'blocked' && s.blockedBy?.reason === 'busy')) return { tone: 'info', key: 'spMachineBusy' }
-  if (machineState === 'ready' || (s.machine === 'native' && machineState !== 'broken')) return { tone: 'ok', key: 'spMachineRunning' }
+  if (machineState === 'ready' || (isHostName(s.machine) && machineState !== 'broken')) return { tone: 'ok', key: 'spMachineRunning' }
   return { tone: 'info', key: 'spMachineUnknown' }
 }
 
@@ -537,7 +538,7 @@ export function jobEnd<B extends Holder>(j: Pick<StorageJob, 'error' | 'store'>,
 }
 
 /** The page a holding Sandbox opens on. */
-export const holderTab = (b: Holder): `sandbox:${string}` => `sandbox:${b.machine ?? 'native'}/${b.name}`
+export const holderTab = (b: Holder): `sandbox:${string}` => `sandbox:${b.machine ?? ''}/${b.name}`
 
 /** How a job ended, in words. `size` writes a byte count (a compaction's freed space); without it the count is left out. */
 export function endedWords(j: StorageJob, t: StorageT, size?: (n: number) => string): string {
@@ -554,17 +555,17 @@ export function endedWords(j: StorageJob, t: StorageT, size?: (n: number) => str
   if (movePushFailed(j)) {
     return inUseJob(j)
       ? t('jobMovePushInUse', { place })
-      : t('jobMovePushFailed', { place, phase: failPhase ? stepWords(failPhase, t) : '—' })
+      : failPhase ? t('jobMovePushFailed', { place, phase: stepWords(failPhase, t) }) : t('jobMovePushFailedEarly', { place })
   }
   if (j.error && j.kind === 'move' && j.half === 'pull' && j.from) {
     const from = placeWords(j.from)
     return inUseJob(j)
       ? t('jobMovePullInUse', { place, from })
-      : t('jobMovePullFailed', { place, from, phase: failPhase ? stepWords(failPhase, t) : '—' })
+      : failPhase ? t('jobMovePullFailed', { place, from, phase: stepWords(failPhase, t) }) : t('jobMovePullFailedEarly', { place, from })
   }
   // in use is its own word; a failure names its step in words, never LayerFS's step code (UI pass 3 F10)
   if (j.error && inUseJob(j)) return t('jobInUse', { what: kindWords(j.kind, t), place })
-  if (j.error) return t('jobFailed', { what: kindWords(j.kind, t), place, phase: failPhase ? stepWords(failPhase, t) : '—' })
+  if (j.error) return failedWords(j.kind, place, failPhase, t)
   switch (j.kind) {
     case 'push': return t(j.made ? 'jobMade' : 'jobPushed', { place })
     case 'pull': return t('jobPulled', { place })
@@ -670,7 +671,7 @@ export function upgradeEnd(j: StorageJob, t: StorageT): { state: UpgradeEndState
   }
   const tip = j.error ? [`${j.error.code}: ${j.error.message}`, ...(j.error.fix ? [j.error.fix] : [])].join('\n') : null
   const phase = j.error?.phase ?? j.phase ?? null
-  return { state: 'error', word: inUseJob(j) ? t('jobInUse', { what: kindWords(j.kind, t), place }) : t('jobFailed', { what: kindWords(j.kind, t), place, phase: phase ? stepWords(phase, t) : '—' }), tip, check: false }
+  return { state: 'error', word: inUseJob(j) ? t('jobInUse', { what: kindWords(j.kind, t), place }) : failedWords(j.kind, place, phase, t), tip, check: false }
 }
 
 /** Elapsed time as m:ss (h:mm:ss past an hour). */
@@ -756,4 +757,10 @@ export function pgDefaultMachine(s: Pick<StoreRow, 'attached'> | undefined, mach
   const rows = s?.attached ?? []
   if (ok(last) && rows.some((a) => a.machine === last)) return last
   return rows.length === 1 && ok(rows[0]!.machine) ? rows[0]!.machine : null
+}
+
+/** "<what> <place> failed while <step>", or without the step when LayerFS refused before naming one. */
+function failedWords(kind: JobKind, place: string, phase: string | null, t: StorageT): string {
+  const what = kindWords(kind, t)
+  return phase ? t('jobFailed', { what, place, phase: stepWords(phase, t) }) : t('jobFailedEarly', { what, place })
 }

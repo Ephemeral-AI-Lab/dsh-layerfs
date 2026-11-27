@@ -17,7 +17,7 @@ const M = await import(pathToFileURL(join(out, 'model.mjs')).href)
 
 const t = (key, vars = {}) => `${key}${Object.keys(vars).length ? ' ' + JSON.stringify(vars) : ''}`
 const job = (over = {}) => ({ id: 'j', kind: 'compact', store: 's1', target: 's1', file: null, started: 1, ended: null, phase: null, done: null, total: null, error: null, phases: [], steps: ['mark', 'build', 'verify', 'install'], ...over })
-const store = (over = {}) => ({ name: 's1', kind: 'sqlite', machine: 'native', state: 'ready', links: [], projects: [], ...over })
+const store = (over = {}) => ({ name: 's1', kind: 'sqlite', machine: 'macos-host', state: 'ready', links: [], projects: [], ...over })
 
 test('a compaction shows its named steps from the start and moves through them', () => {
   assert.deepEqual(M.stepsOf(job()).map((s) => s.state), ['now', 'todo', 'todo', 'todo'])
@@ -108,6 +108,10 @@ test('a compaction ends in the words of its 2.0 report (`outcome`, `freed_bytes`
   // U12 F10: the step is named in words (stepBuild), never LayerFS's step code
   assert.match(M.endedWords(job({ ended: 9, phase: 'build', error: { code: 'Capacity', message: 'no space', phase: 'build' } }), t), /^jobFailed .*"phase":"stepBuild"/)
   assert.match(M.endedWords(job({ ended: 9, phase: 'mark', error: { code: 'MountsActive', message: 'mounts active: 2 holder(s)', phase: 'mark' } }), t), /^jobInUse /, 'in use is its own word')
+  // refused before LayerFS named a step: the sentence has no step, never a dash
+  const early = job({ kind: 'restore', target: 'r2', ended: 9, error: { code: 'InvalidInput', message: 'Store s1 is a PostgreSQL database', phase: null } })
+  assert.match(M.endedWords(early, t), /^jobFailedEarly /)
+  assert.doesNotMatch(M.endedWords(early, t), /—/)
 })
 
 test('a PostgreSQL Store measures stored pack bodies plus metadata (`store get --with stats`)', () => {

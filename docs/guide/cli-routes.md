@@ -22,16 +22,16 @@ Storage writes marked ↻ then read the Storage view again (`home get`, `project
 | `POST /api/stores/:id/attach` | `storage.attach` | `store attach` | machines a PostgreSQL Store's Sandboxes may run on: { machines: [...] }, each attached (and checked from there) in turn |
 | `POST /api/stores/:id/detach` | `storage.detach` | `store detach` ↻ | one machine detached from a PostgreSQL Store: { machine }; refused InUse while its Sandboxes run there |
 | `GET /api/stores/:id/check` | `storage.checkStore` | `store doctor` ↻ | the connection check (store doctor): this computer, then attached machines; ?machine=<name>: that attached machine alone |
-| `POST /api/stores/:id/push` | `storage.push` | `backup list`, `store move` | a sqlite Store on native to a machine (store move): { machine } |
-| `POST /api/stores/:id/pull` | `storage.pull` | `backup list`, `store move` ↻ | a sqlite Store on a machine back to native (store move <s> native) |
-| `POST /api/stores/:id/move` | `storage.move` | `backup list`, `store move` ↻ | between two machines, two moves through native in one job: { machine } |
+| `POST /api/stores/:id/push` | `storage.push` | `backup list`, `store move` | a sqlite Store on the host machine to a machine (store move): { machine } |
+| `POST /api/stores/:id/pull` | `storage.pull` | `backup list`, `store move` ↻ | a sqlite Store on a machine back to the host machine (store move <s> macos-host\|linux-host) |
+| `POST /api/stores/:id/move` | `storage.move` | `backup list`, `store move` ↻ | between two machines, two moves through the host machine in one job: { machine } |
 | `POST /api/stores/:id/backup` | `storage.backup` | `backup create`, `backup list` | { bucket, file? } |
 | `POST /api/stores/:id/compact` | `storage.compact` | `backup list`, `store compact` ↻ | reclaim the Store's dead bytes (store.compact), as a job |
 | `POST /api/stores/:id/upgrade` | `storage.upgrade` | `backup list`, `store upgrade` ↻ | an older-format Store to the latest format in place (store.upgrade, #804), as a job |
 | `POST /api/buckets` | `storage.connectBucket` | `backup connect`, `backup list` ↻ | { name, url \| parts, accessKey, secretKey }: the secret goes to LayerFS on stdin |
 | `DELETE /api/buckets/:id` | `storage.disconnectBucket` | `backup disconnect` ↻ |  |
 | `GET /api/buckets/:id/files` | `storage.listBucket` | `backup list` |  |
-| `POST /api/buckets/:id/restore` | `storage.restore` | `backup list`, `backup restore` | { store (the new Store's name), file? }: installs on native |
+| `POST /api/buckets/:id/restore` | `storage.restore` | `backup list`, `backup restore` | { store (the new Store's name), file? }: installs on the host machine |
 | `GET /api/storage-jobs/:id` | `storage.job` | host only |  |
 | `POST /api/storage-jobs/:id/inspect` | `storage.inspect` | host only |  |
 | `POST /api/storage-jobs/:id/retry` | `storage.retry` | `backup list`, `store move` ↻ |  |

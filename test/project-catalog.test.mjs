@@ -15,7 +15,7 @@ const A = '00000000-0000-4000-8000-00000000000a'
 const B = '00000000-0000-4000-8000-00000000000b'
 const fail = (code) => Object.assign(new Error(code), { code })
 // a 2.0 `project get --detail` / list row
-const info = (key, created = 100, machine = 'native') => ({ project: key, store: key.split('/')[0], engine: 'sqlite', machine, created_at: new Date(created).toISOString() })
+const info = (key, created = 100, machine = 'macos-host') => ({ project: key, store: key.split('/')[0], engine: 'sqlite', machine, created_at: new Date(created).toISOString() })
 
 /** A fake LayerFS 2.0: projects by address, each with its branch names; refusals by 2.0 code. */
 function fixture() {
@@ -44,7 +44,7 @@ function fixture() {
         return { commit: `32${'a'.repeat(64)}` }
       },
     },
-    store: { get: async () => (state.offline ? { state: 'blocked', blocked_by: { machine: 'native', reason: 'stopped' } } : { state: 'ready' }) },
+    store: { get: async () => (state.offline ? { state: 'blocked', blocked_by: { machine: 'macos-host', reason: 'stopped' } } : { state: 'ready' }) },
   }
   return { state, dir, catalog: new ProjectCatalog(() => lfs, dir), close: () => rmSync(dir, { recursive: true, force: true }) }
 }

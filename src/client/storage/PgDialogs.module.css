@@ -317,3 +317,17 @@ input.search::placeholder {
     justify-content: flex-start;
   }
 }
+
+/* Touch: the password and search fields (our classes on DSH's Input wrapper)
+   are thumb targets, and their text is 16px so iOS does not zoom on focus. */
+@media (pointer: coarse), (max-width: 834px) {
+  .mono,
+  .search {
+    height: var(--lfs-tap, 44px);
+  }
+
+  .mono input,
+  .search input {
+    font-size: 16px;
+  }
+}

@@ -170,7 +170,7 @@ test('setup check: a missing folder is created with home init; a read waits for 
 test('setup check: an older LayerFS\'s folder refuses every call Uninitialized; its fix is shown, never run', async () => {
   await withService({ layout2: true }, async ({ s, home, fake }) => {
     await assert.rejects(() => s.lfs.store.list(), (e) => e.code === 'Uninitialized' && /does not convert/.test(e.message))
-    await assert.rejects(() => s.lfs.machine.update('native', {}), (e) => e.code === 'Uninitialized')
+    await assert.rejects(() => s.lfs.machine.update('macos-host', {}), (e) => e.code === 'Uninitialized')
     const status = await s.setup()
     assert.equal(status.folder.state, 'outdated')
     assert.deepEqual(status.needs, ['folder'])
@@ -220,8 +220,8 @@ test('a stopped docker counts as idle for replacing a bundle; a ready (running) 
   await withService({}, async ({ s, home }) => {
     mkdirSync(home, { recursive: true })
     writeFileSync(join(home, 'layerfs.json'), JSON.stringify({ layout: 3 }))
-    // 2.0 records: native is always ready (no worker); a worker machine runs when ready or busy
-    s.sdk = { machine: { list: async () => ({ items: [{ machine: 'native', platform: 'native', state: 'ready' }, { machine: 'docker', platform: 'docker', state: 'stopped' }] }) } }
+    // 2.0 records: the host machine mounts no bundle; a worker machine runs when ready or busy
+    s.sdk = { machine: { list: async () => ({ items: [{ machine: 'macos-host', platform: 'host', state: 'ready' }, { machine: 'docker', platform: 'docker', state: 'stopped' }] }) } }
     assert.equal(await s.workersIdle(), true)
     s.sdk = { machine: { list: async () => ({ items: [{ machine: 'docker', platform: 'docker', state: 'ready' }] }) } }
     assert.equal(await s.workersIdle(), false)
@@ -260,7 +260,7 @@ test('a service built in a test writes no pin lease until the plugin starts it',
   }
 })
 
-test('Use this daemon is offered only when the recorded daemon is gone or from another build, not for a same-build copy elsewhere', { skip: process.platform !== 'darwin' && 'macOS only: a hosted native daemon is only recordable on macOS' }, async () => {
+test('Use this daemon is offered only when the recorded daemon is gone or from another build, not for a same-build copy elsewhere', { skip: process.platform !== 'darwin' && 'macOS only: a host daemon is only recordable on macOS' }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-setup-daemon-'))
   try {
     const ours = join(dir, 'layerfs-daemon')

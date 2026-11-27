@@ -1,5 +1,5 @@
 /**
- * The computer this host runs on, as the Machines page names it: the native
+ * The computer this host runs on, as the Machines page names it: the host
  * machine is this computer, so its name, mark and notes follow its OS. `os`
  * is LayerFS's own word for the host when it gave one (`home get --with platforms`
  * `host`), else Node's; `name` is the OS release in words (macOS 15.4,

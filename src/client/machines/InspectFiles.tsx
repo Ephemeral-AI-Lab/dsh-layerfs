@@ -27,6 +27,7 @@
  * when its folder collapses or the view is left. A refusal stays inside the
  * folder or file it is about.
  */
+import clsx from 'clsx'
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MutableRefObject, type ReactNode } from 'react'
 import {
   Button, FileTypeIcon, IconChevronLeftOutlineRegular, IconCloseOutlineRegular, IconFolderCloseRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, Input, SegmentedControl,
@@ -38,7 +39,7 @@ import type { Translate as FilesTranslate } from '../files/types.ts'
 import { WindowedText, type TextWindow } from '../files/WindowedText.tsx'
 import { HostError } from '../api.ts'
 import { readFilesPlace, watchFilesPlace, writeFilesPlace, type DetailKind, type FilesPlace, type FilesViewId } from '../storage/tabs.ts'
-import { LinkButton, Notice } from '../ui/index.tsx'
+import { LinkButton, Notice, touchField } from '../ui/index.tsx'
 import { errorCode, errorText } from '../ui/use-query.ts'
 import { useMachinesContext } from './context.tsx'
 import { LockGlyph, MountGlyph, SandboxGlyph, SystemGlyph } from './icons.tsx'
@@ -612,7 +613,7 @@ export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog
             options={offered(whole).map((id) => ({ value: id, label: viewName(id) })) as [never, ...never[]]} onChange={switchView} />
         ) : null}
         <form className={css.pathForm} onSubmit={submitPath} data-files-pathbar>
-          <Input className={css.pathInput} value={typed ?? shownPath} placeholder={t('filesPathPlaceholder')} aria-label={t('filesPath')} spellCheck={false} autoComplete="off" autoCapitalize="off"
+          <Input className={clsx(touchField, css.pathInput)} value={typed ?? shownPath} placeholder={t('filesPathPlaceholder')} aria-label={t('filesPath')} spellCheck={false} autoComplete="off" autoCapitalize="off"
             aria-invalid={pathProblem ? true : undefined} onChange={(e) => { setTyped(e.target.value); setPathProblem(null) }}
             onKeyDown={(e) => { if (e.key === 'Escape' && typed !== null) { e.preventDefault(); setTyped(null); setPathProblem(null) } }} />
           <Button type="submit" variant="outline" size="sm" disabled={going !== null}>{t('filesGo')}</Button>
@@ -653,13 +654,13 @@ export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog
                 </nav>
               ) : null}
               {narrow && vs.base !== null ? <p className={css.here} title={vs.base}>{vs.base}</p> : null}
-              <Input className={css.filter} icon={<IconSearchOutlineRegular size={14} />} placeholder={t('filesFilter')} aria-label={t('filesFilter')}
+              <Input className={clsx(touchField, css.filter)} icon={<IconSearchOutlineRegular size={14} />} placeholder={t('filesFilter')} aria-label={t('filesFilter')}
                 value={filter} onChange={(e) => setFilter(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape' && filter) { e.preventDefault(); setFilter('') } }} />
             </div>
             <div className={css.treeScroll} data-files-tree>
               <FileTree<InspectEntry, string> root={top} dirs={treeDirs} open={narrow ? NO_OPEN : vs.open} nexts={nexts} selected={file ?? undefined} filter={filter}
                 row={row} onToggle={toggle} onOpen={openEntry} onMore={(path, cursor) => load(path, shown, cursor)}
-                pending={pendingNote} failed={failedNote} more={moreOf} after={afterNote}
+                pending={pendingNote} failed={failedNote} more={moreOf} after={afterNote} wrapNames
                 labels={{ tree: label, reading: t('files_reading'), failed: t('files_folderFailed'), empty: top === WS_ROOTS ? t('filesNoWorkspaces') : t('files_emptyFolder'), more: t('filesMore'), noMatch: t('files_noMatch') }} />
             </div>
           </div>

@@ -25,13 +25,13 @@ test('a new VM starts from LayerFS’s defaults, else the ones this page knew', 
 test('the room line: this computer, the other VMs’ sizes, and what the new one overcommits', () => {
   const host = { cpus: 14, memory: 36 * GIB, diskFree: 304 * GIB }
   const machines = [
-    { platform: 'native', cpus: null, memory: null },
+    { platform: 'host', cpus: null, memory: null },
     { platform: 'docker', cpus: 8, memory: 16 * GIB },
     { platform: 'lima', cpus: 2, memory: 4 * GIB },
     { platform: 'apple-container', cpus: 2, memory: 4 * GIB },
   ]
   const fits = roomOf(host, machines, { cpus: 2, memory: 4 * GIB, disk: 20 * GIB })
-  assert.deepEqual(fits.others, { count: 2, cpus: 4, memory: 8 * GIB }, 'native and docker are not VMs')
+  assert.deepEqual(fits.others, { count: 2, cpus: 4, memory: 8 * GIB }, 'the host machine and docker are not VMs')
   assert.deepEqual(fits.over, [])
   assert.deepEqual(roomOf(host, machines, { cpus: 12, memory: 30 * GIB, disk: 400 * GIB }).over, ['cpus', 'memory', 'disk'])
   // exactly what is left is not over

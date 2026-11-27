@@ -28,7 +28,7 @@
 // Aligned with the answers of the build at LayerFS 73d824ec64 (79 calls; the
 // lead's monitoring-179-API-SHAPES.md and docs/architecture/api/sdk/
 // machine.md `machine.files`, sandbox.md `sandbox.files`, read beside the real
-// CLI on docker, Lima, Apple Container and native macOS, 2026-11-16):
+// CLI on docker, Lima, Apple Container and the macOS host machine, 2026-11-16):
 //   - `mode` is the permission bits, `mtime` ms since 1970, `size` only for regular files (a restricted one included);
 //     `next` of a folder page is the last entry's path whenever the page has entries, of a file the next byte offset
 //   - the `data` root carries `free_bytes`; `/` comes last, role `machine` (with the mode and mtime of `/`) or
@@ -59,7 +59,7 @@
 //                                             never stat'ed). `fs` on a folder root: it is on a mount of its own, so a
 //                                             listing from `/` shows it as `mount` with that `fs` (and its role)
 //     "whole": "machine" | "root",            `/` is offered after the roots, with this role
-//     "confine": ["/abs", …],                 a path outside all of them is InvalidInput (a native machine, a host-process Sandbox)
+//     "confine": ["/abs", …],                 a path outside all of them is InvalidInput (a host machine, a host-process Sandbox)
 //     "home": "/abs",                         a Sandbox's home: readable while it is stopped
 //     "o_r_outside": "/layerfs",              outside this folder an entry without o+r is `unreadable`
 //     "overlay": { "/abs/path": { "kind", "fs"?, "workspace"?, "target"?, "size"? } },   kinds the disk cannot show; an entry

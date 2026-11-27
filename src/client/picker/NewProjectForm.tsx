@@ -12,6 +12,7 @@ import { Field, MenuSelect } from '../ui/index.tsx'
 import type { PickerKey } from './locale.ts'
 import { defaultStoreName, lastStore, locationsOf, preferredStore, rememberStore, slugify, type Location } from './location.ts'
 import css from './picker.module.css'
+import { isHostName } from '../../shared/host-machine.ts'
 
 type Translate = (key: PickerKey, params?: Record<string, string | number>) => string
 
@@ -39,7 +40,7 @@ export async function listProjects(api: LayerfsApi, options?: HostCallOptions): 
 }
 
 /** The machine a project's SQLite Store lives on when it is not this host (its Sandboxes run there), else null. */
-export const remoteMachine = (p: ProjectRow): string | null => (p.kind !== 'postgresql' && p.machine && p.machine !== 'native' ? p.machine : null)
+export const remoteMachine = (p: ProjectRow): string | null => (p.kind !== 'postgresql' && p.machine && !isHostName(p.machine) ? p.machine : null)
 
 /** Poll an Init job until it ends; throws its refusal. */
 export async function waitProject(api: LayerfsApi, job: ProjectInitJob, onUpdate?: (job: ProjectInitJob) => void): Promise<ProjectInitJob> {
@@ -111,7 +112,7 @@ export function NewProjectForm({ api, t, scratchKey, withSource, optionalSource 
   const valid = locations !== null && !!target && NAME.test(slug) && !sourceError && (!withSource || !!source.trim()) && !busy
   const chosen = locations?.find((l) => l.store === store) ?? null
   const machineLabel = (m: string) => m
-  const locationLabel = (l: Location) => `${l.store} · ${l.kind === 'postgresql' ? (l.server ?? 'PostgreSQL') : 'native'}`
+  const locationLabel = (l: Location) => `${l.store} · ${l.kind === 'postgresql' ? (l.server ?? 'PostgreSQL') : t('hostLocation')}`
 
   const changeSource = (value: string) => { setSource(value); if (!named) setName(slugify(basename(value))) }
   const browse = async () => {

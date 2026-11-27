@@ -226,12 +226,12 @@
 
 /* ---------- touch and narrow panes ----------
    Every control inside a machine or Sandbox tab panel is a 44 px thumb
-   target on a coarse pointer or under 1180 px: the panels carry the files
+   target on a coarse pointer or at 834 px and under: the panels carry the files
    tree, the cards, the log and the terminals alike, so one rule keeps the
    whole page honest. The phone then gives the log its full width and lets
    the toolbar wrap instead of squeezing the find field. */
 
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .tabPanel :is(button, a[href], input, select) {
     min-height: var(--lfs-tap, 44px);
   }
@@ -240,16 +240,9 @@
     min-width: var(--lfs-tap, 44px);
   }
 
-  /* a text link is inline by default, where min-height would not apply */
-  .tabPanel button[class*='_link'] {
-    display: inline-flex;
-    align-items: center;
-  }
-
-  /* the DSH input wrapper has a fixed 32 px height */
-  .tabPanel :global(span[class*='_wrap_']) {
-    height: var(--lfs-tap, 44px);
-  }
+  /* A text link (ui's LinkButton) is a thumb target through ui's touchLinks
+     class on the panel, and a text field through ui's touchField class on
+     DSH's Input wrapper (ui.module.css). */
 
   .tabPanel :global(label:has(> input[type='checkbox'])) {
     display: inline-flex;

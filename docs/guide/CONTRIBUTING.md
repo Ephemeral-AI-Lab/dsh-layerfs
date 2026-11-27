@@ -64,7 +64,7 @@ What the tab answers, in a sentence or two.
 | | | **⋯ › Compact** → confirm → a job card | `store compact` | disabled while a job runs |
 
 ## Variants
-SQLite vs PostgreSQL, macOS native vs Docker/Lima, tabs that only show sometimes: what changes and why.
+SQLite vs PostgreSQL, the macOS host machine vs Docker/Lima, tabs that only show sometimes: what changes and why.
 
 ## Modals opened here
 | Modal | Opened by | What it does | LayerFS call | Undo |
@@ -84,7 +84,7 @@ Links to the pages this one leads to.
 
 - Write the call short: `store move`. Use the full form (`layerfs store move <store> <machine>`)
   only in prose where a reader may type it.
-- **Several calls:** say so (`machine stop` then `machine start`; `store move` ×2 through native).
+- **Several calls:** say so (`machine stop` then `machine start`; `store move` ×2 through the host machine).
 - **Reads:** mark what a view reads to draw itself with "(read)". Writes have no mark.
 - **No call:** `—` with why (host memory, local view state, a remembered tab).
 - **Secrets:** passwords and bucket keys go to LayerFS on stdin; never show one in an example.
@@ -107,7 +107,7 @@ Links to the pages this one leads to.
   the shot comes later and no other page's image needs re-shooting for it.
 - Name images `<page>-<what>.png`. Delete `img/_failed-*.png` once a shot passes.
 - The fixture: the Starter preset Store `demo-starter` (project `bookshelf`, Sandbox
-  `guide-box` on the Docker machine), the Store `guide-notes` on native (project
+  `guide-box` on the Docker machine), the Store `guide-notes` on `macos-host` (project
   `handbook`, a project conversation from `fixture-session.mjs`), and the bucket
   `guide-backups` (a local MinIO) holding one backup of `guide-notes`.
 - Screenshots never show a secret, a token or the authenticated URL.

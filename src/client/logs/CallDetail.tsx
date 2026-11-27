@@ -34,8 +34,8 @@ export function CopyButton({ text, t, label }: { text: string, t: LogsT, label: 
 /** OK in green, a refusal code as a red pill. */
 export function OutcomeBadge({ outcome, t }: { outcome: string, t: LogsT }): ReactNode {
   return outcome === 'ok'
-    ? <Tag tone="success">{t('outcomeOk')}</Tag>
-    : <Tag tone="danger" className={css.codeTag}>{outcome}</Tag>
+    ? <Tag tone="success" className={css.tag}>{t('outcomeOk')}</Tag>
+    : <Tag tone="danger" className={clsx(css.tag, css.codeTag)}>{outcome}</Tag>
 }
 
 /** Whether a version is new, unchanged or referenced, from the line's kind and checkpoint. */
@@ -233,7 +233,7 @@ function OutputView({ t, output }: { t: LogsT, output: CallOutput }): ReactNode 
         {exit !== undefined && (
           <span className={css.metaItem}>
             <span className={css.muted}>{t('exitCode')}</span>
-            {exit === null ? <Tag tone="danger">{t('exitSignal')}</Tag> : <Tag tone={exit === 0 ? 'neutral' : 'danger'} className={css.codeTag}>{String(exit)}</Tag>}
+            {exit === null ? <Tag tone="danger" className={css.tag}>{t('exitSignal')}</Tag> : <Tag tone={exit === 0 ? 'neutral' : 'danger'} className={clsx(css.tag, css.codeTag)}>{String(exit)}</Tag>}
           </span>
         )}
         <span className={css.metaItem}><span className={css.muted}>stdout</span><span className={css.num}>{fileSizeText(output.bytes.stdout)}</span></span>
@@ -242,7 +242,7 @@ function OutputView({ t, output }: { t: LogsT, output: CallOutput }): ReactNode 
       {output.refusal && (
         <Notice tone="danger" className={css.refusalNotice}>
           <span className={css.refusalHead}>
-            <Tag tone="danger" className={css.codeTag}>{output.refusal.code}</Tag>
+            <Tag tone="danger" className={clsx(css.tag, css.codeTag)}>{output.refusal.code}</Tag>
             {output.refusal.message && <span>{output.refusal.message}</span>}
           </span>
           {output.refusal.fix && <span className={css.muted}>{t('refusalFix')} <code>{output.refusal.fix}</code></span>}
@@ -268,7 +268,7 @@ function Stream({ t, name, text, total, truncated }: { t: LogsT, name: 'stdout' 
       <div className={css.sectionHead}>
         <span className={css.streamName}>
           <span>{name}</span>
-          {shown.json && <Tag tone="outline">JSON</Tag>}
+          {shown.json && <Tag tone="outline" className={css.tag}>JSON</Tag>}
         </span>
         <CopyButton text={text} t={t} label={t(name === 'stdout' ? 'copyStdout' : 'copyStderr')} />
       </div>

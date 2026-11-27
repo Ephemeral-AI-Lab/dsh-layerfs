@@ -345,7 +345,7 @@ button.storeName {
 
 /* Touch: the bucket name, every file row, Restore, the store link and the
    foot's verbs are thumb targets. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .seg button {
     min-height: var(--lfs-tap, 44px);
   }

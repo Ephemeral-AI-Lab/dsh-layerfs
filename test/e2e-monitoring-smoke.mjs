@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Smoke test of a private side server for the Machine and Sandbox monitoring work
 // (layerfs-project #179): the LayerFS Center opens, its Machines tab lists the
-// built-in machines (native and docker), and the native machine's page opens. Read only.
+// built-in machines (the host machine and docker), and the host machine's page opens. Read only.
 //
 //   DSH_LAYERFS_DEV_DIR=$PWD/.dev-m179 DSH_LAYERFS_CLI=<pinned cli> node test/e2e-monitoring-smoke.mjs [--shots <dir>] [--headed]
 //
@@ -54,19 +54,19 @@ try {
   await page.getByRole('navigation', { name: 'Global panels' }).getByRole('button', { name: 'LayerFS', exact: true }).first().click()
   await bar.waitFor()
 
-  // Overview → Machines tab: the native machine is listed.
+  // Overview → Machines tab: the host machine is listed.
   await editor().getByRole('tab', { name: /^Machines\b/ }).first().click()
-  // The machines table has a row for the native machine ("native") and one for docker.
-  for (const name of ['native', 'docker']) await editor().locator(`[data-machine="${name}"]`).first().waitFor().catch(() => fail(`Machines tab: no ${name} machine row`))
+  // The machines table has a row for the host machine ("macos-host") and one for docker.
+  for (const name of ['macos-host', 'docker']) await editor().locator(`[data-machine="${name}"]`).first().waitFor().catch(() => fail(`Machines tab: no ${name} machine row`))
   await page.screenshot({ path: join(shots, 'smoke-machines-tab.png') })
 
-  // The native machine's page (Jump to → native).
+  // The host machine's page (Jump to → macos-host).
   await bar.getByRole('button', { name: /^Jump to/ }).click()
-  await page.getByRole('combobox', { name: 'Jump to' }).fill('native')
-  await page.getByRole('listbox', { name: 'Jump to' }).getByRole('option').filter({ has: page.locator('span', { hasText: /^native$/ }) }).first().click()
+  await page.getByRole('combobox', { name: 'Jump to' }).fill('macos-host')
+  await page.getByRole('listbox', { name: 'Jump to' }).getByRole('option').filter({ has: page.locator('span', { hasText: /^macos-host$/ }) }).first().click()
   await editor().getByRole('heading', { level: 1 }).first().waitFor().catch(() => fail('machine page: no heading'))
   await page.waitForTimeout(1500)
-  await page.screenshot({ path: join(shots, 'smoke-machine-native.png') })
+  await page.screenshot({ path: join(shots, 'smoke-machine-host.png') })
 
   const calls = await page.evaluate(() => window.__smoke.calls)
   for (const c of calls) if (c.status !== 'ok' && c.status !== undefined) fail(`host ${c.kind} ${c.what} → ${c.status} ${c.code ?? ''} ${c.message ?? ''}`)
@@ -82,5 +82,5 @@ for (const line of logs) fail(`console ${line}`)
 const state = diff(before, await snapshot(devDir))
 console.log(formatDiff(state))
 for (const f of state.failures) fail(`lfs-check ${f.kind}: ${f.message}`)
-console.log(failures.length ? `smoke: ${failures.length} failure(s)` : 'smoke: ok (Machines tab, native machine page, no console errors, LayerFS home unchanged)')
+console.log(failures.length ? `smoke: ${failures.length} failure(s)` : 'smoke: ok (Machines tab, host machine page, no console errors, LayerFS home unchanged)')
 process.exit(failures.length ? 1 : 0)

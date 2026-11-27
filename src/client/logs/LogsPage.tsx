@@ -2,7 +2,9 @@
  * The Logs page: the LayerFS call log (`logs.list`), newest first, with
  * filters, a "More" row for older pages, and Reset behind a confirm.
  * Reloads on the host's `logs` event, on reconnection and on window focus
- * (the native log is written by other processes too). A filter can arrive
+ * (the native log is written by other processes too), coalesced and only
+ * while the page is visible; a filtered scan (Only writes, a project search)
+ * rereads only what was logged since its last scan. A filter can arrive
  * from outside through `openLogs` (a checkpoint's Calls). A row opens the
  * call's detail (click or Enter; ↑/↓ move between rows).
  */
@@ -19,7 +21,7 @@ import {
 } from '../../shared/logs.ts'
 import { Card, ConfirmDialog, Empty, LinkButton, LoadError, Loading, MenuSelect, Page, PageHead, Refusal, type RefusalLabels } from '../ui/index.tsx'
 import { CallDetail } from './CallDetail.tsx'
-import { argsOf, DEFAULT_FILTERS, emptyAction, type ClientChoice, type Filters, type OutcomeChoice } from './filters.ts'
+import { argsOf, DEFAULT_FILTERS, emptyAction, refreshDelay, scansLog, SINCE_SKEW_MS, type ClientChoice, type Filters, type OutcomeChoice } from './filters.ts'
 import { CommandCell } from './Command.tsx'
 import { shortId } from '../files/format.ts'
 import { clockTime, dateTime } from '../ui/locale-sync.ts'
@@ -78,9 +80,33 @@ export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api:
   const current = useRef({ filters, data })
   current.current = { filters, data }
 
+  /**
+   * The log changed (new lines, a reset) or may have (focus, a reconnection):
+   * the whole-log emptiness learned before it is stale. Bumped once per refresh,
+   * not per event.
+   */
+  const versionRef = useRef(0)
+  const [logVersion, setLogVersion] = useState(0)
+  const bumpVersion = useCallback(() => { versionRef.current++; setLogVersion(versionRef.current) }, [])
+  /**
+   * Whether the whole log is empty, and the log version it was learned at:
+   * known from an unfiltered read, a scan's newest-line read, else asked with a
+   * one-line probe when a filtered read shows nothing. `value` is undefined while unknown.
+   */
+  const [logEmpty, setLogEmpty] = useState<{ value: boolean | undefined, version: number }>({ value: undefined, version: -1 })
+  /** The log version the emptiness was last asked at (one probe per version, a failed one included). */
+  const askedEmpty = useRef(-1)
+  const learnEmpty = useCallback((version: number, value: boolean | undefined) => {
+    askedEmpty.current = Math.max(askedEmpty.current, version)
+    // An answer about an older log never overwrites one about the current log.
+    if (version === versionRef.current) setLogEmpty({ value, version })
+  }, [])
+  /** What the last full or incremental scan covered: its filters and the log's newest line just before it. */
+  const scanned = useRef<{ args: string, newest: string, at: number | undefined } | null>(null)
+
   /** `replace` starts over; `refresh` keeps appended pages and puts new lines on top. */
-  // A refresh (one per `logs` event, about every second in a run) never cancels a read in
-  // flight, or a page slower than a second would never land: it queues one more read.
+  // A refresh never cancels a read in flight, or a page slower than its window
+  // would never land: it queues one more read.
   const inFlight = useRef(false)
   const queued = useRef(false)
   const load = useCallback(async (mode: 'replace' | 'refresh'): Promise<void> => {
@@ -89,20 +115,53 @@ export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api:
     inFlight.current = true
     const mine = ++generation.current
     const { filters: f, data: before } = current.current
+    const version = versionRef.current
     setLoading(true)
     try {
-      const answer = await api.op<LogsListAnswer>('logs.list', argsOf(f))
+      const args = argsOf(f)
+      const argsKey = JSON.stringify(args)
+      let since: number | undefined
+      let seen: typeof scanned.current = null
+      if (scansLog(f)) {
+        // A scan reads up to FILTER_BUDGET native pages. First the log's newest
+        // line (one line): it says whether the log is empty, and a refresh with
+        // nothing logged since the last scan has nothing new that could match.
+        const probe = await api.op<LogsListAnswer>('logs.list', { limit: 1 })
+        if (mine !== generation.current) return
+        learnEmpty(version, probe.lines.length === 0 && !probe.has_more)
+        const newest = probe.lines[0]
+        seen = { args: argsKey, newest: newest ? lineKey(newest) : '', at: newest?.at }
+        const last = scanned.current
+        if (mode === 'refresh' && before && last?.args === argsKey) {
+          if (last.newest === seen.newest) { setError(undefined); return }
+          // Only what was logged since the last scan's newest line.
+          if (last.at !== undefined) since = last.at - SINCE_SKEW_MS
+        }
+      }
+      let answer = await api.op<LogsListAnswer>('logs.list', since === undefined ? args : { ...args, since })
       if (mine !== generation.current) return
-      const keep = mode === 'refresh' && before && before.pages > 1
-      setData({
-        lines: keep ? merge(answer.lines, before.lines) : answer.lines,
-        next: keep ? before.next : answer.next,
-        hasMore: keep ? before.hasMore : answer.has_more,
-        partial: keep ? before.partial : answer.partial === true,
-        skipped: answer.skipped,
-        source: answer.source,
-        pages: keep ? before.pages : 1,
-      })
+      if (since !== undefined && answer.has_more) {
+        // More new matches than one page: a fresh first page, so More continues from it.
+        since = undefined
+        answer = await api.op<LogsListAnswer>('logs.list', args)
+        if (mine !== generation.current) return
+      }
+      if (since !== undefined && before) {
+        // The new lines go on top of what is shown; its pages and cursor stay.
+        setData({ ...before, lines: merge(answer.lines, before.lines), source: answer.source })
+      } else {
+        const keep = mode === 'refresh' && before && before.pages > 1
+        setData({
+          lines: keep ? merge(answer.lines, before.lines) : answer.lines,
+          next: keep ? before.next : answer.next,
+          hasMore: keep ? before.hasMore : answer.has_more,
+          partial: keep ? before.partial : answer.partial === true,
+          skipped: answer.skipped,
+          source: answer.source,
+          pages: keep ? before.pages : 1,
+        })
+      }
+      if (seen) scanned.current = seen
       setError(undefined)
       setNow(Date.now())
     } catch (e) {
@@ -114,7 +173,24 @@ export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api:
         else setLoading(false)
       }
     }
-  }, [api])
+  }, [api, learnEmpty])
+
+  /**
+   * One refresh per window of events (`refreshDelay`: 500 ms, 3 s for a scan),
+   * and none while the page is hidden: a hidden page refreshes once when it shows again.
+   */
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const missed = useRef(false)
+  const requestRefresh = useCallback(() => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') { missed.current = true; return }
+    if (refreshTimer.current !== undefined) return
+    refreshTimer.current = setTimeout(() => {
+      refreshTimer.current = undefined
+      bumpVersion()
+      void load('refresh')
+    }, refreshDelay(current.current.filters))
+  }, [load, bumpVersion])
+  useEffect(() => () => { clearTimeout(refreshTimer.current); refreshTimer.current = undefined }, [])
 
   const loadMore = async () => {
     const before = current.current.data
@@ -134,8 +210,8 @@ export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api:
   useEffect(() => { void load('replace') }, [load, filters])
   const lastRefresh = useRef(refreshKey)
   useEffect(() => {
-    if (lastRefresh.current !== refreshKey) { lastRefresh.current = refreshKey; void load('refresh') }
-  }, [load, refreshKey])
+    if (lastRefresh.current !== refreshKey) { lastRefresh.current = refreshKey; bumpVersion(); void load('refresh') }
+  }, [load, refreshKey, bumpVersion])
   // The search box settles before it filters.
   useEffect(() => {
     if (search === filters.project) return
@@ -143,7 +219,8 @@ export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api:
     return () => clearTimeout(id)
   }, [search, filters.project])
   useEffect(() => {
-    const refresh = () => { void load('refresh') }
+    const refresh = () => { requestRefresh() }
+    const shown = () => { if (document.visibilityState !== 'hidden' && missed.current) { missed.current = false; requestRefresh() } }
     // The request this page opened with was read in the first render; it is consumed now.
     takeLogsRequest()
     const offs = [
@@ -152,9 +229,15 @@ export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api:
       onLogsRequest(() => { const r = takeLogsRequest(); if (r) { setFilters(fromRequest(r)); setSearch('') } }),
     ]
     window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', shown)
     const tick = setInterval(() => setNow(Date.now()), 30_000)
-    return () => { for (const off of offs) off(); window.removeEventListener('focus', refresh); clearInterval(tick) }
-  }, [api, load])
+    return () => {
+      for (const off of offs) off()
+      window.removeEventListener('focus', refresh)
+      document.removeEventListener('visibilitychange', shown)
+      clearInterval(tick)
+    }
+  }, [api, requestRefresh])
   // Op choices come from what has been seen, so they stay while an op is chosen.
   useEffect(() => {
     if (!data) return
@@ -192,29 +275,30 @@ export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api:
   }
   /** Filters other than Writes only (and the tag, which has its own empty state). */
   const filtered = filters.project.trim() !== '' || filters.op !== 'all' || filters.client !== 'all' || filters.outcome !== 'all'
-  /**
-   * Whether the whole log is empty: known from an unfiltered read, else asked
-   * with a one-line probe when a filtered read shows nothing. `undefined` while unknown.
-   */
-  const [logEmpty, setLogEmpty] = useState<boolean>()
   useEffect(() => {
     if (!data) return
     const args = argsOf(filters)
     const unfiltered = Object.keys(args).every((k) => k === 'limit') && filters.outcome === 'all'
-    const action = emptyAction({ lines: data.lines.length, hasMore: data.hasMore, unfiltered, tag: !!filters.tag, known: logEmpty })
-    if (action === 'nonempty') { setLogEmpty(false); return }
-    if (action === 'empty') { setLogEmpty(true); return }
-    if (action !== 'probe') return
-    let live = true
+    const stale = logEmpty.version !== logVersion
+    const action = emptyAction({ lines: data.lines.length, hasMore: data.hasMore, unfiltered, tag: !!filters.tag, known: logEmpty.value, stale })
+    if (action === 'nonempty' || action === 'empty') {
+      const value = action === 'empty'
+      if (stale || logEmpty.value !== value) learnEmpty(logVersion, value)
+      return
+    }
+    if (action !== 'probe' || askedEmpty.current >= logVersion) return
+    const version = logVersion
+    askedEmpty.current = version
+    // The answer is about the log at this version: it is kept even when the view moved on.
     api.op<LogsListAnswer>('logs.list', { limit: 1 })
-      .then((answer) => { if (live) setLogEmpty(answer.lines.length === 0 && !answer.has_more) })
-      .catch(() => { if (live) setLogEmpty(undefined) })
-    return () => { live = false }
-  }, [api, data, filters, logEmpty])
+      .then((answer) => learnEmpty(version, answer.lines.length === 0 && !answer.has_more))
+      .catch(() => learnEmpty(version, undefined))
+  }, [api, data, filters, logEmpty, logVersion, learnEmpty])
 
   const reset = async () => {
     const answer = await api.op<LogsResetAnswer>('logs.reset', {})
     setRemoved(answer.removed)
+    bumpVersion()
     await load('replace')
   }
 
@@ -229,7 +313,7 @@ export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api:
         actions={(
           <>
             <Button variant="ghost" size="sm" className={css.headerAction} icon={<IconRefreshOutlineRegular size={14} />} disabled={loading} onClick={() => { void load('replace') }}>{t('refresh')}</Button>
-            <Button variant="outline" size="sm" className={css.headerAction} disabled={!data || logEmpty === true} onClick={() => setConfirming(true)}>{t('reset')}</Button>
+            <Button variant="outline" size="sm" className={css.headerAction} disabled={!data || logEmpty.value === true} onClick={() => setConfirming(true)}>{t('reset')}</Button>
           </>
         )} />
       {removed !== undefined && <p className={css.note} role="status">{t('resetDone', { n: removed })}</p>}
@@ -252,7 +336,7 @@ export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api:
       {data && (shown.length === 0 && !data.hasMore ? (
         filters.tag ? <Empty title={t('emptyTag')}>{t('emptyTagBody')}</Empty>
           : filtered ? <Empty title={t('emptyFiltered')}>{t('emptyFilteredBody')}</Empty>
-            : filters.writes && logEmpty !== true ? (
+            : filters.writes && logEmpty.value !== true ? (
               <Empty title={t('emptyWrites')}>
                 {t('emptyWritesBody')} <LinkButton onClick={() => set({ writes: false })}>{t('showReads')}</LinkButton>
               </Empty>
@@ -376,7 +460,7 @@ function Row({ api, t, line, now, rowKey, detailOpen, onOpen, onKeyDown }: {
       </td>
       <td role="cell" className={clsx(css.muted, css.wClient)}>{line.client}</td>
       <td role="cell" className={css.commandCell}><CommandCell parts={parts} focusOpen={focused} popoverId={popoverId} disabled={detailOpen} /></td>
-      <td role="cell" title={ok ? undefined : line.outcome}>{ok ? <span className={css.ok}>{t('outcomeOk')}</span> : <Tag tone="danger" className={css.codeTag}>{line.outcome}</Tag>}</td>
+      <td role="cell" title={ok ? undefined : line.outcome}>{ok ? <span className={css.ok}>{t('outcomeOk')}</span> : <Tag tone="danger" className={clsx(css.tag, css.codeTag)}>{line.outcome}</Tag>}</td>
       <td role="cell" className={clsx(css.num, css.duration)}>{duration(line.ms, t)}</td>
       <td role="cell" className={clsx(css.saved, css.wSaved)}>
         {version ? <>{line.kind && <span className={css.kind} title={line.kind}>{kindWords(line.kind, t)}</span>}<code className={css.hex} title={version}>{shortHex(version)}</code></> : <span className={css.muted}>—</span>}

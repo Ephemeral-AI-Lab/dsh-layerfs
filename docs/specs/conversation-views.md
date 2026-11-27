@@ -206,7 +206,7 @@ call as it is appended. The view opens at Live while any agent is running,
 otherwise at the end, paused. `prefers-reduced-motion` turns packets, ripples, the
 whales' bob and fades off: a running call shows its lit path, then its result colour.
 
-Each sandbox card shows its machine's mark (native macOS/Linux, Docker, Lima,
+Each sandbox card shows its machine's mark (the macOS/Linux host machine, Docker, Lima,
 Apple Container, microsandbox, from `GET /api/machines`), its name and status;
 the machine and workspace count are in its tooltip. A workspace is one line
 (name, and what it is doing now); clicking it unfolds its terminal under it and

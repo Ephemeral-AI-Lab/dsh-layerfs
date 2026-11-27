@@ -419,7 +419,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
       {/* ---------- 4. backup buckets, each with the Stores backed up there ---------- */}
       {tab === 'buckets' ? (
         <section id={panelId('buckets')} role="tabpanel" className={css.section} aria-label={t('ovBuckets')}>
-          <BucketCards view={view} t={t} now={now} jobs={runningJobs} listingBuckets={props.listingBuckets} listingAll={props.listingAll} onOpen={props.onOpen}
+          <BucketCards view={view} t={t} now={now} jobs={props.jobs} dismissed={props.dismissed} listingBuckets={props.listingBuckets} listingAll={props.listingAll} onOpen={props.onOpen}
             onAddBucket={props.onAddBucket} onList={props.onListBucket} onReconnect={props.onReconnect} onRestore={props.onRestore} />
         </section>
       ) : null}

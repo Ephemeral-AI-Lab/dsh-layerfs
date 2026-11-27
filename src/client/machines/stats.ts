@@ -65,7 +65,7 @@ export interface StatsRead {
 const w = (key: MachinesKey, values?: Record<string, string | number>): Words =>
   ({ key, ...(values ? { values: Object.fromEntries(Object.entries(values).map(([k, v]) => [k, String(v)])) } : {}) })
 
-/** Whether the sampler reads a machine: its `state` is `running` or `ready` (native's is `ready`; no platform test). */
+/** Whether the sampler reads a machine: its `state` is `running` or `ready` (the host machine's too; no platform test). */
 export const statsAskable = (m: Pick<MachineInfo, 'state'>): boolean => m.state === 'ready'
 
 /** What the measured filesystem is, in plain words (`data_disk.scope`); an unknown scope as it came. */

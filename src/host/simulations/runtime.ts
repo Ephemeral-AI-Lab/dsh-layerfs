@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, readdir, stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { HOST_MACHINE } from '../layerfs/machine-records.ts'
 import { compileSimulation, renderSimulationCommand, resolveSimulationStep, SIMULATION_CLI } from './compiler.ts'
 import { claimSimulationExecution, SimulationJournal, validateSimulationPackage, writeSimulationPackage } from './package.ts'
 import { verifySimulation } from './verify.ts'
@@ -160,7 +161,7 @@ export class SimulationRuntime {
     if ((options.cycles !== undefined || options.dispatchDelayMs !== undefined) && process.env.DSH_LAYERFS_SIMULATION_FIXTURES !== '1') throw new Error('Bounded simulation fixtures are disabled.')
     if (options.dispatchDelayMs !== undefined && (!Number.isInteger(options.dispatchDelayMs) || options.dispatchDelayMs < 0 || options.dispatchDelayMs > 10000)) throw new Error('Invalid fixture dispatch delay')
     if (options.cwd !== undefined && (!(await stat(options.cwd)).isDirectory() || !String(options.cwd).startsWith('/'))) throw new Error('Choose an existing absolute local scratch folder.')
-    const compiled = compileSimulation({ project: options.project, machine: options.machine ?? 'native', mixed: options.mixed ?? false, ...(options.cycles === undefined ? {} : { cycles: options.cycles }) })
+    const compiled = compileSimulation({ project: options.project, machine: options.machine ?? HOST_MACHINE, mixed: options.mixed ?? false, ...(options.cycles === undefined ? {} : { cycles: options.cycles }) })
     const cli = this.ctx.layerfs.cli
     if (!cli) throw new Error('Pin a LayerFS CLI before starting project work.')
     // Every session hands off to a real model; refuse before any Store or project exists.
@@ -171,7 +172,7 @@ export class SimulationRuntime {
     const run = { ...compiled, directory, journal, execution: new SimulationExecution(compiled.plan, journal, { directory }), bindings: new Map(), dispatchDelayMs: options.dispatchDelayMs ?? 0 }
     this.runs.set(compiled.manifest.runId, run)
     try {
-      await this.ctx.layerfs.ensureNative()
+      await this.ctx.layerfs.ensureHostDaemon()
       for (const step of run.plan.steps.filter(step => step.phase === 'setup')) {
         await run.execution.execute(step.key, { origin: 'host', runId: run.manifest.runId }, (argv, definition, executionSignal) => execute({ cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome, callLog: this.ctx.layerfs.callLog, gate: this.ctx.layerfs.lfs.spec.gate }, argv, { input: definition.input, tag: `dsh-sim:${run.manifest.runId}:${step.key}`, beforeSpawn: () => executionSignal.throwIfAborted(), onSpawn: child => {
           const cancel = () => child.kill('SIGTERM')

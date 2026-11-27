@@ -4,7 +4,7 @@
  *
  * Explicit bindings, pending choices, and durable persistence ownership select
  * the project; recorded legacy anchors are supported for migration only.
- * Native and remote projects both use scratch as the local working directory.
+ * Host-machine and remote projects both use scratch as the local working directory.
  * Subagents share their parent's project execution context and scratch folder.
  * Conversation forks start project files from the matching saved checkpoint.
  *
@@ -29,7 +29,7 @@ import { classifyStore, storeOf, type StoreHealth } from './availability.ts'
 import type { SessionFailure } from '../../shared/pg-failure.ts'
 import { branchFields, type BranchFields } from '../../shared/session-branch.ts'
 import { attachedFrom, lastUsed, pgPlacement } from '../placement.ts'
-import { machineRows } from '../layerfs/machine-records.ts'
+import { HOST_MACHINE, isHostName, machineRows } from '../layerfs/machine-records.ts'
 
 /** How long a passed identity and readiness check stands for pre-step checks. */
 const IDENTITY_FRESH_MS = 15_000
@@ -304,14 +304,14 @@ export class LayerfsSessions extends Service {
     return { workspaceId: String(workspace.id), anchor }
   }
 
-  /** Make the Scratch project (a SQLite Store on native, initialized empty) when it does not exist. */
+  /** Make the Scratch project (a SQLite Store on the host machine, initialized empty) when it does not exist. */
   async ensureScratchProject(): Promise<string> {
     const key = this.ctx.layerfs.scratchProject
     this.scratchReady ??= (async () => {
       try { await this.lfs.project.get(key); return } catch (error: any) {
         if (error?.code !== 'NotFound') throw error
       }
-      await this.ctx.layerfs.ensureNative()
+      await this.ctx.layerfs.ensureHostDaemon()
       await this.lfs.store.create(key.split('/')[0]).catch((error: any) => { if (!exists(error)) throw error })
       const sources = join(this.ctx.layerfs.root, 'project-sources')
       mkdirSync(sources, { recursive: true, mode: 0o700 })
@@ -380,6 +380,7 @@ export class LayerfsSessions extends Service {
       if (projectId) await persistence?.catalog?.assert(project, projectId, { claim: true })
       await this.lfs.project.get(project); this.ensureAnchor(project)
     }
+    const ownerBefore = persistence?.ownerOf?.(sessionId)?.project ?? null
     await persistence?.migrateProject?.(live ?? sessionId, project)
     const written = project ? { project, ...(machine ? { machine } : {}) } : undefined
     // A placement change can change the place (and with it identity/readiness).
@@ -409,6 +410,11 @@ export class LayerfsSessions extends Service {
         const pending = s.pending[sessionId]
         if (pending && pending.project === written.project && (pending.machine ?? undefined) === (written.machine ?? undefined)) delete s.pending[sessionId]
       })
+      // The owner route moved with the choice: move it back, or the draft stays
+      // owned by a project no pending placement names (pruneNeverStarted skips it).
+      if ((persistence?.ownerOf?.(sessionId)?.project ?? null) !== ownerBefore) {
+        await persistence.migrateProject(live ?? sessionId, ownerBefore).catch((undo: any) => this.ctx.logger('layerfs').warn('session %s: owner not restored after a failed choice: %s', sessionId, undo?.message ?? undo))
+      }
       throw error
     }
   }
@@ -432,7 +438,7 @@ export class LayerfsSessions extends Service {
     const effective = kind === 'postgresql' ? await this.machineFor(project, machine) : undefined
     // A PostgreSQL project's machine is per session: when none is picked and the
     // Store has no single attached machine, say so here rather than checking a
-    // machine (native) that nothing attached to this Store.
+    // machine (the host machine) that nothing attached to this Store.
     if (kind === 'postgresql' && !effective) throw this.unplaced(project)
     await this.assertReady({
       kind,
@@ -600,7 +606,7 @@ export class LayerfsSessions extends Service {
 
   /** The machine and Store a readiness check reads for one identity row (assertReady's own rule). */
   private readyTargets(row: { kind?: string | null, machine?: string | null, store: string }, placed?: string | null): { machine: string, store: string } {
-    return { machine: row.kind === 'postgresql' ? (placed ?? 'native') : (row.machine ?? 'native'), store: row.store }
+    return { machine: row.kind === 'postgresql' ? (placed ?? HOST_MACHINE) : (row.machine ?? HOST_MACHINE), store: row.store }
   }
 
   /**
@@ -740,7 +746,7 @@ export class LayerfsSessions extends Service {
    */
   private async machineFor(project: string, preferred?: string | null): Promise<string | null> {
     const info: any = await this.lfs.project.get(project, { detail: true })
-    if (info?.engine !== 'postgresql') return info?.machine ?? 'native'
+    if (info?.engine !== 'postgresql') return info?.machine ?? HOST_MACHINE
     if (preferred) return preferred
     const [machines, store, sandboxes] = await Promise.all([
       machineRows(this.lfs),
@@ -752,7 +758,7 @@ export class LayerfsSessions extends Service {
 
   /**
    * Make sure the session's Sandbox runs and its Workspace is mounted on its
-   * branch. Answers the mount's host path on `native`; on any other machine the
+   * branch. Answers the mount's host path on the host machine; on any other machine the
    * mount lives inside the Sandbox, the session works through the LayerFS CLI
    * (`workspace.exec`, `file.*`) and its working directory stays its scratch
    * folder, so the answer is undefined.
@@ -761,8 +767,8 @@ export class LayerfsSessions extends Service {
     const held = this.ctx.layerfs.exclusive?.()
     if (held) throw new CliError('ConnectBusy', held)
     const { project, sandbox, branch } = binding as Required<Binding>
-    const native = (binding.machine ?? 'native') === 'native'
-    if (native) await this.ctx.layerfs.ensureNative()
+    const onHost = isHostName(binding.machine ?? HOST_MACHINE)
+    if (onHost) await this.ctx.layerfs.ensureHostDaemon()
     let observed: any
     try { observed = await sandboxWorkspaces(this.lfs, sandbox) } catch (error: any) {
       if (error?.code !== 'NotFound') throw error
@@ -770,9 +776,9 @@ export class LayerfsSessions extends Service {
     // a Sandbox whose daemon is gone (broken: lost, missing, not answering, unresolved) is removed and made again
     if (!observed || observed.state === 'broken') {
       if (observed) await this.lfs.sandbox.remove(sandbox, { force: true }).catch(() => {})
-      const machine = binding.machine ?? 'native'
+      const machine = binding.machine ?? HOST_MACHINE
       // `--machine` defaults to the Store's machine (a PostgreSQL project's: this computer)
-      await this.lfs.sandbox.create(project, sandbox, machine !== 'native' ? { machine } : {})
+      await this.lfs.sandbox.create(project, sandbox, !isHostName(machine) ? { machine } : {})
       observed = { workspaces: [] }
     }
     const handle = `${sandbox}:${WS_NAME}`
@@ -782,13 +788,13 @@ export class LayerfsSessions extends Service {
       // is still mounted: restore the handle too, or every tool call stays refused
       // "Project execution is not active" (Quarry v2 FIX-LOG F23).
       binding.ws = handle
-      return native ? existing.path : undefined
+      return onHost ? existing.path : undefined
     }
     if (existing) await this.lfs.workspace.unmount(handle, { force: true, discard: false }).catch(() => this.lfs.workspace.unmount(handle, { force: true, discard: true }))
     const mounted = await this.lfs.workspace.mount(sandbox, branch, { name: WS_NAME, detail: true })
     binding.base ??= mounted.commit ?? mounted.base_layer ?? null
     if (typeof mounted.workspace === 'string') binding.ws = mounted.workspace
-    return native ? mounted.path : undefined
+    return onHost ? mounted.path : undefined
   }
 
   /**
@@ -957,7 +963,7 @@ export class LayerfsSessions extends Service {
       const row = await persistence?.assertSessionIdentity?.(id)
       if (row) {
         // a PostgreSQL session keeps the machine it was placed on
-        const machine = row.kind === 'postgresql' ? (binding?.machine ?? 'native') : (row.machine ?? 'native')
+        const machine = row.kind === 'postgresql' ? (binding?.machine ?? HOST_MACHINE) : (row.machine ?? HOST_MACHINE)
         await this.assertReady(row, machine)
         if (binding?.branch) {
           const latest = [...this.checkpoints(id)].reverse().find((checkpoint) => checkpoint.commit && !checkpoint.error)
@@ -1100,12 +1106,12 @@ export class LayerfsSessions extends Service {
     if (existing?.branch && existing.sandbox) {
       const resolved = await persistence?.assertSessionIdentity?.(sessionId)
       // A PostgreSQL project has no Store-wide machine: keep the recorded one and
-      // never fall back to native. With none recorded (and the identity resolver
+      // never fall back to the host machine. With none recorded (and the identity resolver
       // silent), the project's own row says the kind; then the person picks one.
       const kind = resolved?.kind ?? (existing.machine ? null : ((await this.lfs.project.get(project, { detail: true }))?.engine ?? null))
       const machine = kind === 'postgresql'
         ? existing.machine
-        : resolved?.machine ?? existing.machine ?? (resolved ? 'native' : undefined)
+        : resolved?.machine ?? existing.machine ?? (resolved ? HOST_MACHINE : undefined)
       if (kind === 'postgresql' && !machine) throw this.unplaced(project)
       binding = { ...existing, ...selected, machine, state: existing.state }
     } else {
@@ -1396,9 +1402,9 @@ export class LayerfsSessions extends Service {
     const stopped = new Set(machines)
     // A stopped machine changes readiness even for a session whose binding is
     // already closed (no save would clear its entry).
-    this.clearFreshReads((entry) => stopped.has(entry.machine ?? 'native'))
-    for (const owner of this.owners((b) => !!b.sandbox && stopped.has(b.machine ?? 'native') && (b.state === 'bound' || !!b.ws))) {
-      this.interrupt(owner.sessionId, `Machine ${owner.machine ?? 'native'} was stopped. Execution was interrupted; send a new message after it is started again.`, 'availability')
+    this.clearFreshReads((entry) => stopped.has(entry.machine ?? HOST_MACHINE))
+    for (const owner of this.owners((b) => !!b.sandbox && stopped.has(b.machine ?? HOST_MACHINE) && (b.state === 'bound' || !!b.ws))) {
+      this.interrupt(owner.sessionId, `Machine ${owner.machine ?? HOST_MACHINE} was stopped. Execution was interrupted; send a new message after it is started again.`, 'availability')
     }
   }
 

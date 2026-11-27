@@ -243,8 +243,9 @@
 /* ---------- a phone: one call per stacked card ----------
    The table keeps its header for assistive technology (role=table is explicit),
    but on a phone the seven columns cannot share 350px: the row becomes three
-   lines — when/outcome/duration, the command, then what it saved and whose
-   session it was. The command keeps one line and scrolls sideways rather than
+   lines — when, which client, outcome and duration, the command, then what it
+   saved and whose session it was. The client stays as a small label in the
+   first (meta) line, so a narrowed pane still says who made each call. The command keeps one line and scrolls sideways rather than
    being squeezed to a few characters. */
 @container (max-width: 834px) {
   .table thead {
@@ -259,11 +260,11 @@
 
   .table tr {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
     grid-template-areas:
-      'time outcome duration'
-      'command command command'
-      'saved session session';
+      'time client outcome duration'
+      'command command command command'
+      'saved saved session session';
     align-items: center;
     gap: 6px 10px;
     box-sizing: border-box;
@@ -288,7 +289,15 @@
   }
 
   .table td:nth-child(1) { grid-area: time; }
-  .table td:nth-child(2) { display: none; }
+  .table td:nth-child(2) {
+    grid-area: client;
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .table td:nth-child(3) { grid-area: command; min-width: 0; }
   .table td:nth-child(4) { grid-area: outcome; justify-self: end; }
   .table td:nth-child(5) { grid-area: duration; justify-self: end; }
@@ -623,7 +632,7 @@ div.detailModal {
   }
 }
 
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .iconOnly {
     width: var(--lfs-tap, 44px);
     height: var(--lfs-tap, 44px);
@@ -645,14 +654,15 @@ div.detailModal {
   }
 }
 
-/* A tag's word is text like any other on the page: no smaller than 12px. */
-.table span[class*='tag'],
-.detailModal span[class*='tag'] {
+/* A tag's word is text like any other on the page: no smaller than 12px.
+   `.tag` is our class on DSH's Tag (its `className` prop). */
+.table .tag,
+.detailModal .tag {
   font-size: 12px;
 }
 
 /* Touch: the filter row's inputs, selects and buttons are thumb targets. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .filters input,
   .filters select,
   .search input {
@@ -672,7 +682,7 @@ div.detailModal {
 }
 
 /* Touch: the log row's action links and tags are thumb targets. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .headerAction {
     min-height: var(--lfs-tap, 44px);
   }

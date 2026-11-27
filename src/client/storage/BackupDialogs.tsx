@@ -123,7 +123,7 @@ export function BackupsDialog({ api, t, view, onClose, done, onDialog, store }: 
     )
   }
   return (
-    <Modal open onClose={() => { if (!running) onClose() }} title={t('bkTitle', { store: s.name })} description={sub} closeLabel={t('close')} className={scss.modal}>
+    <Modal open onClose={() => { if (!running) onClose() }} title={t('bkTitle', { store: s.name })} description={sub} closeLabel={t('close')} className={scss.modal} contentClassName={scss.modalContent}>
       <div className={css.servers} data-backups={s.name}>
         {backups.length ? <HealthBar backups={backups} t={t} /> : <p className={css.serverGiven}>{t('bkNone')}</p>}
         {listing ? <p className={css.serverGiven} role="status">{t('bkListing')}</p> : null}

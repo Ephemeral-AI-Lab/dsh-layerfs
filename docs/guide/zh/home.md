@@ -193,13 +193,13 @@ Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker una
 | 1 新建机器 | **+ 新建机器**（+ New machine），在标签栏右端 | 按下 → 新建机器对话框（[机器](machine.md)） | `home get`、`machine create` | 按钮一直在；没有能创建机器的平台时它不可用，原因在悬停提示里 |
 | 2 诊断这台主机 | 旁边的 **</>** 按钮（Diagnose this host） | 按下 → 运行主目录检查，并在[诊断](health.md)页打开结果 | `home doctor` | — |
 | 3 行展开 | 一个箭头 | 按下 → 它上面有什么；会被记住 | — | 需要你处理、正在启动或只有这一台机器时默认展开 |
-| 4 名称 | **docker**、`Docker · Linux namespaces`（native 为 `原生 · 主机进程`） | 按下 → [机器](machine.md)页 | `home get`、`machine get`、`machine list`、`sandbox list`、`store list` (读取) | — |
+| 4 名称 | **docker**、`Docker · Linux namespaces`（macos-host 为 `主机 · 主机进程`） | 按下 → [机器](machine.md)页 | `home get`、`machine get`、`machine list`、`sandbox list`、`store list` (读取) | — |
 | 状态 | 一个标签：**运行中**（Running）、**已停止**（Stopped）、**启动中**（Starting）…… | — | 同上 | **受阻**（Blocked）的行会说明原因，并给出修复 |
 | 内存 · 磁盘 | 进度条 | — | 内存：`GET /api/metrics` (读取，主机内存)；磁盘：`machine stats` (读取) | 停止时显示 `—` |
 | 包含 | **1 个 Store**（1 Store）、**1 个 Sandbox**（1 Sandbox） | — | 同上 | — |
 | 5 电源 | **停止**（Stop） / **启动**（Start）（This Mac 上没有） | **启动** → 机器启动。**停止** 需要再按一次：按钮会在几秒内变成 **确认：停止**（Confirm: Stop；docker 上是 **确认：停止 worker**，Confirm: Stop worker） | `machine stop` / `machine start` | 状态切换期间不可用 |
 | 6 ⋯ | **{name} 的更多操作**（More for {name}） | [组件 › 机器菜单](components.md#machine-menu) | 见该处 | — |
-| 7 添加 Store | **添加 Store**（Add Store） | 按下 → 将 SQLite Store 移动到这台机器的对话框（含大小、目标剩余磁盘、**当前被占用** 与 **启动** *m* 检查；在 native 上附 **或者直接在此新建：新建 Store**） | `store move`（一个任务） | — |
+| 7 添加 Store | **添加 Store**（Add Store） | 按下 → 将 SQLite Store 移动到这台机器的对话框（含大小、目标剩余磁盘、**当前被占用** 与 **启动** *m* 检查；在主机上附 **或者直接在此新建：新建 Store**） | `store move`（一个任务） | — |
 | 8 新建 Sandbox | **新建 Sandbox**（New Sandbox） | 按下 → 新建 Sandbox 对话框（[Sandbox](sandbox.md)） | `sandbox create` | — |
 
 ## 变体

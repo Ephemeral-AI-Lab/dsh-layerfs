@@ -305,14 +305,14 @@ test('client merge: the stop reply and event make the card Stopping…, and a st
 
 test('view: --with format joins the one store list read only when the CLI has it; rows carry format and a running upgrade is busy', async () => {
   const withFormat = fixture()
-  withFormat.ctl.items = [{ store: 'old', engine: 'sqlite', machine: 'native', state: 'ready', format: { version: 2, latest: 3, status: 'outdated', fix: 'layerfs store upgrade old' } }]
+  withFormat.ctl.items = [{ store: 'old', engine: 'sqlite', machine: 'macos-host', state: 'ready', format: { version: 2, latest: 3, status: 'outdated', fix: 'layerfs store upgrade old' } }]
   const v = await withFormat.svc.view(true)
   assert.deepEqual(withFormat.ctl.calls.find((c) => c[0] === 'store.list')[1].with, ['stats', 'format'])
   assert.equal(withFormat.ctl.calls.filter((c) => c[0] === 'store.list').length, 1, 'no read of its own')
   assert.deepEqual(v.stores[0].format, { version: 2, latest: 3, status: 'outdated', fix: 'layerfs store upgrade old' })
   assert.deepEqual([v.upgrade, v.format, v.formats], [true, true, { sqlite: 3, postgresql: 4 }])
   const old = fixture({ discovery: { calls: [], identity: { features: [] } } })
-  old.ctl.items = [{ store: 'old', engine: 'sqlite', machine: 'native', state: 'ready' }]
+  old.ctl.items = [{ store: 'old', engine: 'sqlite', machine: 'macos-host', state: 'ready' }]
   const w = await old.svc.view(true)
   assert.deepEqual(old.ctl.calls.find((c) => c[0] === 'store.list')[1].with, ['stats'])
   assert.deepEqual([w.upgrade, w.format, w.formats, w.stores[0].format], [false, false, null, null])

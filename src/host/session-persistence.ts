@@ -35,11 +35,13 @@ type Deleted = { version: 1, sessions: Record<string, { project: string, at: num
  *   (see tracing.ts), so a crash losing the unsynced tail does not lose a call.
  *   Migration and compaction fsync because they move data.
  *
- * A legacy sidecar with `invocations` inside is still read, and is migrated to
- * this layout on its first write. Migration writes and fsyncs the receipts
- * file first, then rewrites the metadata, keeping the original as `.bak`; a
- * crash in between leaves the old combined file authoritative, so a retry
- * reproduces the same receipts and never loses one.
+ * A combined sidecar (the old layout, `invocations` inside `layerfs.json`) is
+ * converted once, by the first read or write that meets it, and nothing reads
+ * the in-file array. Conversion writes and fsyncs the receipts file first,
+ * then rewrites the metadata, keeping the original as `.bak`; a crash in
+ * between leaves the combined file as the source, so the next touch converts
+ * it again, reproduces the same receipts and never loses one. A half-converted
+ * session (both files) is therefore never read as two disagreeing sources.
  *
  * The byte budget bounds an outlier session (83k receipts is ~55 MB). When the
  * file would exceed it, compaction keeps the newest complete lines and puts a
@@ -320,7 +322,7 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
    * (`logIdentity`): a rewrite replaces the inode, so a hit is a fresh read.
    * Bounded by count and source bytes.
    */
-  private readonly sidecars = new Map<string, { id: string, key: string, bytes: number, meta: any, legacy?: any[], value: SessionSidecar }>()
+  private readonly sidecars = new Map<string, { id: string, key: string, bytes: number, meta: any, value: SessionSidecar }>()
   /** Session id -> its sidecar path, so a write can drop exactly that entry. */
   private readonly sidecarPaths = new Map<string, string>()
   private sidecarBytes = 0
@@ -654,17 +656,11 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
   }
   /** Carry a sidecar and its receipts to the session's new folder, receipts first. */
   private copySidecar(source: string, target: string, project: string | null): void {
-    const raw = JSON.parse(readFileSync(source, 'utf8'))
-    const legacy = Array.isArray(raw.invocations) ? raw.invocations : undefined
-    const meta: any = { ...raw }
-    delete meta.invocations
+    this.convertCombined(source)
+    const meta: any = JSON.parse(readFileSync(source, 'utf8'))
     if (project) meta.project = project
     const sourceReceipts = receiptsPathOf(source)
-    if (legacy !== undefined) {
-      const folded = compactInvocations(meta[RECEIPT_META], legacy)
-      meta[RECEIPT_META] = folded.meta
-      this.writeReceipts(target, folded.invocations)
-    } else if (existsSync(sourceReceipts)) {
+    if (existsSync(sourceReceipts)) {
       // Receipts are durable beside the metadata before it names them; the
       // source folder is retained until the move finishes, so nothing is lost.
       atomicBytes(receiptsPathOf(target), readFileSync(sourceReceipts))
@@ -805,10 +801,10 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
       this.forgetReceipts(oldest)
     }
   }
-  private rememberSidecar(path: string, id: string, key: string, bytes: number, meta: any, legacy?: any[]): void {
+  private rememberSidecar(path: string, id: string, key: string, bytes: number, meta: any): void {
     // Replacing the metadata does not touch receipts.jsonl; keep its parsed cache.
     this.forgetSidecarEntry(path)
-    this.sidecars.set(path, { id, key, bytes, meta, legacy, value: this.sidecarValue(path, meta, legacy) })
+    this.sidecars.set(path, { id, key, bytes, meta, value: this.sidecarValue(path, meta) })
     this.sidecarPaths.set(id, path)
     this.sidecarBytes += bytes
     while (this.sidecars.size > 1024 || (this.sidecarBytes > 64 * 1024 * 1024 && this.sidecars.size > 1)) {
@@ -855,21 +851,43 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     this.rememberReceipts(path, identity.key, load)
     return load
   }
-  /** Receipts for a sidecar: its sibling file, else a not-yet-migrated in-file array. */
+  /** Receipts for a sidecar: its sibling file (a combined sidecar is converted before anything reads it). */
   private receiptsFor(sidecarPath: string): ReceiptLoad {
-    const kept = this.receiptLoadAt(sidecarPath)
-    if (kept) return kept
-    const sidecar = this.readSidecarFile(sidecarPath)
-    if (sidecar && Array.isArray(sidecar.invocations)) return { receipts: dedupeReceipts(sidecar.invocations), dropped: 0, skipped: 0, bytes: 0 }
-    return { receipts: [], dropped: 0, skipped: 0, bytes: 0 }
+    return this.receiptLoadAt(sidecarPath) ?? { receipts: [], dropped: 0, skipped: 0, bytes: 0 }
+  }
+  /**
+   * Fold a combined sidecar's in-file receipts out, inside its lock: the
+   * original is kept as `.bak`, writes and refusals go durably to
+   * `receipts.jsonl` (replacing any file a crashed conversion left), reads fold
+   * into the counter, and `invocations` leaves `meta`. The caller then writes
+   * `meta`. Returns whether there was anything to convert.
+   */
+  private foldCombined(path: string, text: string | undefined, meta: any): boolean {
+    const combined = Array.isArray(meta.invocations) ? meta.invocations : undefined
+    delete meta.invocations
+    if (combined === undefined) return false
+    if (text !== undefined) this.backupSidecar(path, text)
+    const folded = compactInvocations(meta[RECEIPT_META], combined)
+    meta[RECEIPT_META] = folded.meta
+    this.writeReceipts(path, folded.invocations)
+    return true
+  }
+  /** Convert a combined sidecar to the split layout, once, under its lock (see {@link foldCombined}); returns the metadata now on disk. */
+  private convertCombined(path: string): any {
+    return withFileLock(`${path}.lock`, () => {
+      const text = existsSync(path) ? readFileSync(path, 'utf8') : undefined
+      if (text === undefined) return undefined
+      const meta = JSON.parse(text)
+      if (this.foldCombined(path, text, meta)) atomicJson(path, meta)
+      return meta
+    })
   }
   /** What a `cached: true` read shares: metadata plus a lazy receipts property. */
-  private sidecarValue(path: string, meta: any, legacy?: any[]): SessionSidecar {
+  private sidecarValue(path: string, meta: any): SessionSidecar {
     const value: any = { ...meta }
     // The receipts array carries the counter (non-enumerably) for trajectory
     // inputs that hand over only the array; `value.receipts` is the same object.
-    if (legacy !== undefined) value.invocations = withReceiptMeta(legacy, meta[RECEIPT_META])
-    else Object.defineProperty(value, 'invocations', {
+    Object.defineProperty(value, 'invocations', {
       enumerable: true, configurable: true,
       // Metadata consumers (sessions.list) never pay for this; receipt readers do.
       get: () => withReceiptMeta(this.receiptsFor(path).receipts, meta[RECEIPT_META]),
@@ -877,16 +895,13 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     return value
   }
   /** What an ordinary read returns: metadata deep-copied, receipts copied on access. */
-  private sidecarCopy(path: string, meta: any, legacy?: any[]): SessionSidecar {
+  private sidecarCopy(path: string, meta: any): SessionSidecar {
     const copy: any = structuredClone(meta)
-    if (legacy !== undefined) copy.invocations = withReceiptMeta(structuredClone(legacy), meta[RECEIPT_META])
-    else {
-      let memo: any[] | undefined
-      Object.defineProperty(copy, 'invocations', {
-        enumerable: true, configurable: true,
-        get: () => (memo ??= withReceiptMeta(structuredClone(this.receiptsFor(path).receipts), meta[RECEIPT_META])),
-      })
-    }
+    let memo: any[] | undefined
+    Object.defineProperty(copy, 'invocations', {
+      enumerable: true, configurable: true,
+      get: () => (memo ??= withReceiptMeta(structuredClone(this.receiptsFor(path).receipts), meta[RECEIPT_META])),
+    })
     return copy
   }
   /**
@@ -897,38 +912,45 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
    * An absent sidecar is never cached, so one written later shows next read.
    *
    * A metadata read never opens `receipts.jsonl`: `invocations` is lazy. A caller
-   * that touches it pays for the retained receipts (or the legacy in-file array
-   * until the first write migrates it); paged readers use {@link readReceipts}.
+   * that touches it pays for the retained receipts; paged readers use
+   * {@link readReceipts}. A combined sidecar is converted here first.
    */
   async readSidecar(id: string, options: { cached?: boolean, snapshot?: any } = {}): Promise<SessionSidecar | undefined> {
     const path = await this.sidecarPath(id, options.snapshot)
-    const identity = this.sidecarIdentity(path)
+    let identity = this.sidecarIdentity(path)
     if (identity === undefined) { this.invalidateSidecar(id); return undefined }
     const kept = this.sidecars.get(path)
     if (kept?.key === identity.key) {
       // Keep it hot for the next read.
       this.sidecars.delete(path)
       this.sidecars.set(path, kept)
-      return options.cached ? kept.value : this.sidecarCopy(path, kept.meta, kept.legacy)
+      return options.cached ? kept.value : this.sidecarCopy(path, kept.meta)
     }
-    const value = this.readSidecarFile(path)
+    let value = this.readSidecarFile(path)
     if (value === undefined) { this.invalidateSidecar(id); return undefined }
-    const legacy = Array.isArray(value.invocations) ? value.invocations : undefined
+    if (Array.isArray(value.invocations)) {
+      value = this.convertCombined(path)
+      identity = this.sidecarIdentity(path)
+      if (!identity || !value) { this.invalidateSidecar(id); return undefined }
+    }
     const meta: any = { ...value }
     delete meta.invocations
-    this.rememberSidecar(path, id, identity.key, identity.bytes, meta, legacy)
+    this.rememberSidecar(path, id, identity.key, identity.bytes, meta)
     const entry = this.sidecars.get(path)!
-    return options.cached ? entry.value : this.sidecarCopy(path, entry.meta, entry.legacy)
+    return options.cached ? entry.value : this.sidecarCopy(path, entry.meta)
   }
   /**
    * One session's receipts, paged: `from` indexes retained order, oldest first
    * (a negative value counts back from the newest, so `{ from: -50 }` is the
    * newest page), and `limit` bounds the result. The file is streamed from disk
-   * once per identity; stale entries are never served after a write. A legacy
-   * combined sidecar is read from its metadata until the first write migrates.
+   * once per identity; stale entries are never served after a write. A
+   * combined sidecar is converted first, so this and the whole read agree.
    */
   async readReceipts(id: string, options: { from?: number, limit?: number, snapshot?: any } = {}): Promise<ReceiptPage> {
     const path = await this.sidecarPath(id, options.snapshot)
+    // A cached entry is a converted file; otherwise check this one once.
+    const identity = this.sidecarIdentity(path)
+    if (identity && this.sidecars.get(path)?.key !== identity.key && Array.isArray(this.readSidecarFile(path)?.invocations)) this.convertCombined(path)
     return pageOf(this.receiptsFor(path), options.from, options.limit)
   }
   /** The original combined sidecar, kept for recovery the one time it is rewritten. */
@@ -999,7 +1021,7 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
   private appendReceipt(sidecarPath: string, receipt: any, { compact = true } = {}): boolean {
     const path = receiptsPathOf(sidecarPath)
     let compacted = false
-    // Migration's first append does not compact: moving a legacy combined file
+    // A conversion's first append does not compact: converting a combined file
     // keeps every receipt, and the cap starts applying to later writes.
     try {
       if (compact && statSync(path).size > this.receiptBudgetBytes) { this.compactReceipts(path); compacted = true }
@@ -1058,9 +1080,9 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     withFileLock(`${path}.lock`, () => {
       const text = existsSync(path) ? readFileSync(path, 'utf8') : undefined
       const raw: any = text === undefined ? { version: 1, sessionId: id, project, invocations: [] } : JSON.parse(text)
-      const legacy = Array.isArray(raw.invocations) ? raw.invocations : undefined
       const value: any = { ...raw }
-      delete value.invocations
+      // A combined sidecar (and a new one) is converted first: its receipts go beside it.
+      this.foldCombined(path, text, value)
       if (!value.version) value.version = 1
       if (!value.sessionId) value.sessionId = id
       if (!value.project) value.project = project
@@ -1068,7 +1090,7 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
       let assignedFlag = false
       Object.defineProperty(value, 'invocations', {
         enumerable: true, configurable: true,
-        get: () => assigned !== undefined ? assigned : legacy !== undefined ? legacy : this.receiptsFor(path).receipts,
+        get: () => assigned !== undefined ? assigned : this.receiptsFor(path).receipts,
         set: (next: any) => { assignedFlag = true; assigned = Array.isArray(next) ? next : [] },
       })
       fn(value)
@@ -1076,17 +1098,7 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
       // the setter; one that deletes it leaves the stored receipts alone.
       const descriptor = Object.getOwnPropertyDescriptor(value, 'invocations')
       if (!assignedFlag && descriptor && descriptor.get === undefined && Array.isArray(descriptor.value)) { assignedFlag = true; assigned = descriptor.value }
-      if (legacy !== undefined) {
-        // Lazy migration *and* receipt compaction: writes/refusals go durably
-        // beside the file, read-only receipts fold into the counter, then the
-        // small metadata replaces the combined original (kept as `.bak`). A
-        // crash before the metadata rewrite leaves the old file authoritative:
-        // the retry reproduces the same kept receipts and folds the same reads.
-        if (text !== undefined) this.backupSidecar(path, text)
-        const folded = compactInvocations(value[RECEIPT_META], assignedFlag ? assigned! : legacy)
-        value[RECEIPT_META] = folded.meta
-        this.writeReceipts(path, folded.invocations)
-      } else if (assignedFlag) {
+      if (assignedFlag) {
         this.writeReceipts(path, assigned!)
         this.trimReceipts(path)
       }
@@ -1106,8 +1118,8 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
    * Fold one read-only host call into the session's receipt counter instead of
    * writing a receipt: called by `traceInvocation` through the process-wide
    * sink. The metadata counter is bumped under the sidecar lock and the cached
-   * read sees it immediately (no TTL); a legacy combined sidecar is compacted
-   * here too, so its first observation folds its read receipts. A refusal is
+   * read sees it immediately (no TTL); a combined sidecar is converted here
+   * too, so its first observation folds its read receipts. A refusal is
    * recorded separately as a receipt but still moves the counter's last
    * outcome, so the aggregate line stays truthful.
    */
@@ -1123,18 +1135,10 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     withFileLock(`${path}.lock`, () => {
       const text = existsSync(path) ? readFileSync(path, 'utf8') : undefined
       const meta: any = text === undefined ? { version: 1, sessionId: id, project: owner.project } : JSON.parse(text)
-      const legacy = Array.isArray(meta.invocations) ? meta.invocations : undefined
-      delete meta.invocations
+      // A combined sidecar is converted first (its reads fold into the counter).
+      this.foldCombined(path, text, meta)
       if (!meta.version) meta.version = 1
       if (!meta.project) meta.project = owner.project
-      if (legacy !== undefined) {
-        // Compatibility: an old combined sidecar compacts on this first
-        // observation, writes/refusals kept beside the file, reads folded.
-        const folded = compactInvocations(meta[RECEIPT_META], legacy)
-        meta[RECEIPT_META] = folded.meta
-        if (text !== undefined) this.backupSidecar(path, text)
-        this.writeReceipts(path, folded.invocations)
-      }
       meta[RECEIPT_META] = foldRead(meta[RECEIPT_META], { operation, at, outcome }, { count: outcome === 'success', cap: this.receiptLimit })
       meta.projectId = this.projectIdOf(id)
       meta.projectIdentity = owner.identity
@@ -1159,22 +1163,12 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     withFileLock(`${path}.lock`, () => {
       const text = existsSync(path) ? readFileSync(path, 'utf8') : undefined
       const meta: any = text === undefined ? { version: 1, sessionId: id, project: owner.project } : JSON.parse(text)
-      const legacy = Array.isArray(meta.invocations) ? meta.invocations : undefined
-      delete meta.invocations
+      // A combined sidecar is converted first: writes/refusals go durably
+      // beside the file, reads fold into the counter (see foldCombined).
+      const converted = this.foldCombined(path, text, meta)
       if (!meta.version) meta.version = 1
       if (!meta.project) meta.project = owner.project
-      if (legacy !== undefined) {
-        // The first write migrates *and* compacts: writes/refusals go durably
-        // beside the file first, reads fold into the counter, then the small
-        // metadata replaces the combined original (retained as `.bak`). A crash
-        // before the metadata rewrite leaves the old file authoritative, so the
-        // retry reproduces the same kept receipts and the same count.
-        if (text !== undefined) this.backupSidecar(path, text)
-        const folded = compactInvocations(meta[RECEIPT_META], legacy)
-        meta[RECEIPT_META] = folded.meta
-        this.writeReceipts(path, folded.invocations)
-      }
-      // Metadata lands before the append: a crash in between leaves the legacy
+      // Metadata lands before the append: a crash in between leaves the combined
       // file (or the prior small one) authoritative, and a retry can only add
       // receipts, never overwrite appended ones with the old in-file array.
       meta.projectId = this.projectIdOf(id)
@@ -1189,7 +1183,7 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
       }
       atomicJson(path, meta)
       const receiptKey = fileIdentity(receiptsPathOf(path))?.key
-      const compacted = this.appendReceipt(path, invocation, { compact: legacy === undefined })
+      const compacted = this.appendReceipt(path, invocation, { compact: !converted })
       const identity = this.sidecarIdentity(path)
       if (identity) this.rememberSidecar(path, id, identity.key, identity.bytes, meta)
       else this.forgetSidecar(path)

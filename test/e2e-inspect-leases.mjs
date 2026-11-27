@@ -5,7 +5,7 @@
 //       the Sandbox page still shows its Workspaces
 //
 //   INSPECT_SANDBOX        a running Sandbox with Workspaces; its page is opened on the Daemon log tab
-//   INSPECT_PUSH_STORE     a sqlite Store on `native` with no Sandbox, pushed to INSPECT_PUSH_MACHINE by this row
+//   INSPECT_PUSH_STORE     a sqlite Store on `macos-host` with no Sandbox, pushed to INSPECT_PUSH_MACHINE by this row
 //                          (it stays there). Without it the push part is NOT_RUN.
 //   INSPECT_HOOK           `leases machine <machine> <store>`: the names in <worker root>/store/<store>/open, one per
 //                          line, then `worker <pid|->`
@@ -48,7 +48,7 @@ await main('e2e-inspect-leases', async ({ run, page }) => {
       if (now.names.length) lastHeld = at
       for (const n of now.names) if (n !== now.worker) foreign.push(`${n} at ${at} ms`)
       if (seen.length % 5 === 1) { const s = await probe(page, 'GET', `/api/stores/${enc(store)}`).catch(() => null); const st = s?.body?.status?.state ?? s?.body?.state; if (st) states.add(st) }
-      await sleep(machine === 'native' ? 150 : 1500)
+      await sleep(machine === 'macos-host' ? 150 : 1500)
     }
     const status = lfs('store', 'status', store)
     states.add(status.state)
@@ -67,14 +67,14 @@ await main('e2e-inspect-leases', async ({ run, page }) => {
     }
     // the Sandbox's own Store: refused because of the Sandbox, not because of a lease
     let own = null
-    try { lfs('store', ...(machine === 'native' ? ['push', store, process.env.INSPECT_PUSH_MACHINE || 'docker'] : ['pull', store])); own = { code: 'ok' } } catch (error) { try { own = JSON.parse(String(error.stderr ?? '').trim().split('\n').pop()) } catch { own = { code: '?', message: String(error.stderr ?? error.message).slice(0, 200) } } }
+    try { lfs('store', ...(machine === 'macos-host' ? ['push', store, process.env.INSPECT_PUSH_MACHINE || 'docker'] : ['pull', store])); own = { code: 'ok' } } catch (error) { try { own = JSON.parse(String(error.stderr ?? '').trim().split('\n').pop()) } catch { own = { code: '?', message: String(error.stderr ?? error.message).slice(0, 200) } } }
     const related = own.detail?.related ?? []
     t.check(own.code === 'InUse' && related.length > 0 && related.every((r) => r.kind === 'sandbox'), `moving the Sandbox's own Store (the CLI, with the page open) is refused \`InUse\` for its Sandbox, by design, and names no lease (${own.code}: ${String(own.message).slice(0, 140)}; related ${JSON.stringify(related)})`)
     // another Store, pushed as the Stores page pushes it
     const push = process.env.INSPECT_PUSH_STORE, to = process.env.INSPECT_PUSH_MACHINE || 'docker'
     if (push) {
       const was = lfs('store', 'status', push)
-      if (was.machine !== 'native') t.note(`Store ${push} is already on ${was.machine}: the push was not sent`)
+      if (was.machine !== 'macos-host') t.note(`Store ${push} is already on ${was.machine}: the push was not sent`)
       else {
         const p0 = Date.now()
         const sent = await probe(page, 'POST', `/api/stores/${enc(push)}/push`, { machine: to })

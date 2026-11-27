@@ -99,7 +99,7 @@
 }
 
 /* Touch: a status dot that opens details is a 44px target. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .signal {
     min-height: var(--lfs-tap, 44px);
   }

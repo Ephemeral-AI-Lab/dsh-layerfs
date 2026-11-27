@@ -22,7 +22,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, q, type LayerfsApi } from '../api.ts'
 import { EmptyState, Loading } from '../files/States.tsx'
-import { Notice } from '../ui/index.tsx'
+import { Notice, touchField } from '../ui/index.tsx'
 import { errorCode, errorText } from '../ui/use-query.ts'
 import { useMachinesContext } from './context.tsx'
 import {
@@ -300,7 +300,7 @@ export function LogPane({ kind, name, label, unavailable = null, final = false }
   return (
     <section className={css.pane} aria-label={label} data-log={kind} data-log-state={!state.loaded ? 'reading' : stale ? 'stale' : 'ready'} data-log-lines={lines}>
       <div className={css.toolbar}>
-        <Input className={css.find} icon={<IconSearchOutlineRegular size={14} />} placeholder={t('logFind')} aria-label={t('logFind')}
+        <Input className={clsx(touchField, css.find)} icon={<IconSearchOutlineRegular size={14} />} placeholder={t('logFind')} aria-label={t('logFind')}
           value={find} onChange={(e) => setFind(e.target.value)} onKeyDown={onFindKey} />
         {find && (
           <span className={css.findCount} role="status" aria-live="polite">

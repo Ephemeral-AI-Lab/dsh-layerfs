@@ -82,7 +82,7 @@ if (family === 'machine' && call === 'stats' && machines[positionals[0]]?.stats)
   if (Number.isFinite(delay) && delay > 0) await sleep(delay)
   const refusal = config.refuse?.[name]
   if (refusal) refuse(String(refusal.code), String(refusal.message ?? refusal.code))
-  // a real machine whose stats are declared keeps its own state (native: ready) unless one is declared
+  // a real machine whose stats are declared keeps its own state (macos-host: ready) unless one is declared
   if (d.state === 'stopped' || (d.add && !d.state)) refuse('Unavailable', `machine ${name} is not running; start it with \`layerfs machine start ${name}\``, { what: 'machine' })
   const cpus = st.cpus ?? 4
   const up = Math.max(0, (now - (st.boot ?? BOOT)) / 1000)

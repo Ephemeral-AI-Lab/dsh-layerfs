@@ -48,7 +48,7 @@ Switch to a DSH session and these tabs go away, and DSH's own tabs come back.
 
 ```mermaid
 flowchart LR
-  M[Machine<br/><small>native, Docker, Lima VM</small>] -- hosts --> S[Store<br/><small>SQLite or PostgreSQL</small>]
+  M[Machine<br/><small>host, Docker, Lima VM</small>] -- hosts --> S[Store<br/><small>SQLite or PostgreSQL</small>]
   S -- holds --> P[Project]
   P -- has --> B[Branches and Commits]
   P -- owns --> X[Sandboxes]
@@ -61,7 +61,7 @@ flowchart LR
 
 | Word | Meaning |
 |---|---|
-| Machine | Where LayerFS runs. **native** is this computer. Docker and Lima machines are workers LayerFS starts and stops. |
+| Machine | Where LayerFS runs. The host machine (**macos-host** on macOS, **linux-host** on Linux) is this computer. Docker and Lima machines are workers LayerFS starts and stops. |
 | Store | The database holding projects. A SQLite Store sits on one machine and can be pushed, pulled or moved between machines. A PostgreSQL Store lives on a database server. |
 | Project | A tree of files with its own Branches and Commits. Projects live in a Store. |
 | Branch, Commit | Every save is a Commit. `main` is the project's line, and side Branches carry work in progress. |
@@ -136,13 +136,13 @@ this browser.
 
 | I want to… | Go to | Behind it |
 |---|---|---|
-| Set LayerFS up the first time, or change its runtime or folder | [Entry points › Set up LayerFS](entry-points.md#set-up-layerfs) | `home get`, `home init`, `machine update native` |
+| Set LayerFS up the first time, or change its runtime or folder | [Entry points › Set up LayerFS](entry-points.md#set-up-layerfs) | `home get`, `home init`, `machine update macos-host` |
 | Start a conversation in a project | [Entry points › New Session project control](entry-points.md#new-session-project-control), or a project's [Sessions](project.md#sessions) tab | `project get`, then `branch fork` for the session's Branch |
 | Create a project, or import a folder as one | [Entry points › Project dialog](entry-points.md#project-dialog) | `store create`, `project init`, `store move` |
 | See what a project looks like at any Commit | [Project › Files](project.md#files) and [History](project.md#history) | `file list`, `file read`, `commit list`, `commit diff` |
 | Follow what an agent did, call by call | [Conversation › Trajectory](conversation.md#trajectory) | — (the session's own log) |
 | Back up a Store, or restore one | [Store › Backups](store.md#backups-sqlite), [Bucket](bucket.md) | `backup create`, `backup restore` |
-| Move a Store to another machine | [Store menu](components.md#store-menu) | `store move` (twice, through native) |
+| Move a Store to another machine | [Store menu](components.md#store-menu) | `store move` (twice, through the host machine) |
 | Connect a PostgreSQL database | [Store › PostgreSQL Store page](store.md#postgresql-store-page) | `store connect`, `store attach`, `store doctor` |
 | Start, stop or fix a machine | [Machine](machine.md), [Machine menu](components.md#machine-menu) | `machine start`, `machine stop` |
 | Make a Sandbox and run commands in it | [Machine › Sandboxes](machine.md#sandboxes), [Sandbox › Workspaces](sandbox.md#workspaces) | `sandbox create`, `workspace mount`, `workspace exec`, `workspace commit` |

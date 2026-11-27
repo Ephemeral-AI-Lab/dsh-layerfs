@@ -57,8 +57,8 @@ Pages: [Home](home.md) · [Entry points](entry-points.md)
 | Project settings: **Move to {machine}** | project dialog › settings | `POST /api/machines/:id/stores` | `store move` |
 | Project settings: **Hide from sidebar** | project dialog › settings | — (this browser) | — |
 | Set up LayerFS: **Check** / **Check again** | Set up LayerFS | op `setup.status`, `GET /api/machines?fresh=1` | `home get`; `machine get`, `machine list` (read) |
-| Runtime: **Use** / **Other build…** | Set up LayerFS › **Change…** | op `runtime.save` | `--version --json`, `help --json`, `machine update native` |
-| **Use this daemon** | Set up LayerFS | op `setup.recordDaemon` | `machine get native`, `machine update native --daemon` |
+| Runtime: **Use** / **Other build…** | Set up LayerFS › **Change…** | op `runtime.save` | `--version --json`, `help --json`, `machine update macos-host` |
+| **Use this daemon** | Set up LayerFS | op `setup.recordDaemon` | `machine get macos-host`, `machine update macos-host --daemon` |
 
 ## Stores and buckets
 
@@ -74,8 +74,8 @@ Pages: [Store](store.md) · [Bucket](bucket.md)
 | Project sessions column | `… › <store> › Projects` | op `sessions.list` | — (this DSH) |
 | **Check integrity** / **Test connection** | `… › <store>` head | `POST /api/doctor/runs` `{kind: store}` | `store doctor` |
 | **⋯ › Push to…** → **Push** | `… › <store> ⋯` | `POST /api/stores/:id/push` | `store move <s> <m>` (a job), `backup list` |
-| **⋯ › Pull to native** / card **Pull** | `… › <store> ⋯` | `POST /api/stores/:id/pull` | `store get`, `store move <s> native` |
-| **⋯ › Move to another machine…** → **Move** | `… › <store> ⋯` | `POST /api/stores/:id/move` | `store get`, `store move` ×2 through native |
+| **⋯ › Pull to this computer** / card **Pull** | `… › <store> ⋯` | `POST /api/stores/:id/pull` | `store get`, `store move <s> macos-host` |
+| **⋯ › Move to another machine…** → **Move** | `… › <store> ⋯` | `POST /api/stores/:id/move` | `store get`, `store move` ×2 through the host machine |
 | **⋯ › Back up to…** → **Back up** / **Back up now** | `… › <store> ⋯`, Backups tab | `POST /api/stores/:id/backup` | `backup create`, then `backup list` |
 | **⋯ › Compact…** → **Compact** | `… › <store> ⋯` | `POST /api/stores/:id/compact` | `store get`, `store compact` |
 | **⋯ › Upgrade…** → **Upgrade** | `… › <store> ⋯`, the Outdated tip | `POST /api/stores/:id/upgrade` | `store get`, `store upgrade` |
@@ -95,7 +95,7 @@ Pages: [Store](store.md) · [Bucket](bucket.md)
 | Backups tab › **Restore…** → **Restore Store** | `… › <store> › Backups` | `POST /api/buckets/:id/restore` | `backup restore`, then `backup list` |
 | Backups badge → Backups of <store> | Store cards | `GET /api/buckets/:id/files` (each linked bucket) | `backup list` (read) |
 | Backups dialog › **Update** / **Back up now** | Backups dialog | `POST /api/stores/:id/backup` | `backup create`, `backup list` |
-| **Add › New Store** → **Create Store** | nav bar Add, Home › Stores, native › Stores | `POST /api/stores` (+ `POST /api/machines/:m/stores`) | `store create` ↻ (then `store get`, `store move` to place it) |
+| **Add › New Store** → **Create Store** | nav bar Add, Home › Stores, macos-host › Stores | `POST /api/stores` (+ `POST /api/machines/:m/stores`) | `store create` ↻ (then `store get`, `store move` to place it) |
 | New Store › Restore from a backup → **Restore Store** | New Store dialog | `POST /api/buckets/:id/restore` (+ `POST /api/machines/:m/stores`) | `backup restore`, `backup list` (then `store move`) |
 | New Store › **List the bucket** | New Store dialog | `GET /api/buckets/:id/files` | `backup list` (read) |
 | **Start <machine>** in New Store or Push | dialogs | `POST /api/machines/:id/start` | `machine start` |
@@ -104,10 +104,10 @@ Pages: [Store](store.md) · [Bucket](bucket.md)
 | Job **Retry** | job card | the job's route again | the job's own calls |
 | Job **Dismiss** | job card | — | — (this browser) |
 | Needs-you **Start <machine>** | Store page notice, card status | `POST /api/machines/:id/start` | `machine start` |
-| **Add › Add bucket** → **Connect bucket** | nav bar Add, Back up dialog, Home › Stores › Buckets | `POST /api/buckets` | `backup connect` (the secret on stdin) ↻ |
+| **Add › Add bucket** → **Connect bucket** | nav bar Add, Back up dialog, Home › Buckets | `POST /api/buckets` | `backup connect` (the secret on stdin) ↻ |
 | **Connect again…** → **Connect again** | bucket page, bucket card | `POST /api/buckets`, `GET /api/buckets/:id/files` | `backup connect`, `backup list` |
 | Open a bucket page, **List** / **List again**, card **⋯ › List files** | `LayerFS › … › <bucket>` | `GET /api/buckets/:id/files` | `backup list` (read) |
-| **List bucket files** | `Home › Stores › SQLite › Buckets` | `POST /api/storage/check` | `backup list` per bucket, then the Storage view reads |
+| **List bucket files** | `Home › Buckets` | `POST /api/storage/check` | `backup list` per bucket, then the Storage view reads |
 | Bucket **Test connection** | `… › <bucket>` | `POST /api/doctor/runs` `{kind: bucket}` | `backup doctor` |
 | Bucket **⋯ › Disconnect** → **Disconnect** | `… › <bucket>` | `DELETE /api/buckets/:id` | `backup disconnect` ↻ |
 | Bucket or file row **Back up now** | `… › <bucket>`, `… › <bucket> › <file>` | `POST /api/stores/:s/backup` `{bucket, file}` | `backup create`, `backup list` |

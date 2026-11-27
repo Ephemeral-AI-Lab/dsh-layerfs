@@ -52,6 +52,7 @@ import { isTabId, underPage, type OverviewTab, type TabId } from './tabs.ts'
 import type { PgCheck, ProjectSummary, StorageJob, StorageView, StoreRow } from './types.ts'
 import { useDoctorCount } from '../doctor/use-doctor-count.ts'
 import css from './Storage.module.css'
+import { isHostName } from '../../shared/host-machine.ts'
 
 const POLL_MS = 15_000
 
@@ -377,7 +378,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
     const byName = new Map<string, string>()
     for (const m of view?.machines ?? []) byName.set(m.name, m.platform)
     for (const m of fleet?.machines ?? []) byName.set(m.name, m.platform)
-    const rank = (name: string, platform: string) => (name === 'native' || platform === 'native' ? 0 : platform === 'docker' ? 1 : 2)
+    const rank = (name: string, platform: string) => (isHostName(name) || platform === 'host' ? 0 : platform === 'docker' ? 1 : 2)
     return [...byName].map(([name, platform]) => ({ name, platform }))
       .sort((a, b) => rank(a.name, a.platform) - rank(b.name, b.platform) || a.name.localeCompare(b.name))
   }, [view?.machines, fleet?.machines])
@@ -385,7 +386,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
   /** Where a Store is: its machine (SQLite), or its server (PostgreSQL: on no machine). */
   const storeWhere = (s: StoreRow): string => s.kind === 'postgresql'
     ? s.postgresql?.server ?? t('postgresql')
-    : machineWord(inHome(s) ? 'native' : s.machine ?? '')
+    : machineWord(s.machine ?? '')
   const stores = orderStores(view?.stores ?? [])
   const sandboxes = (fleet?.sandboxes ?? []).filter((s) => s.machine)
 

@@ -1,7 +1,7 @@
 <!-- source: 0b946148e6ba -->
 # 存储桶
 
-> **位置：** `LayerFS › 主页 › 存储桶 › <bucket>`（单个备份文件是 `… › <bucket> › <file>`） · **打开方式：** 主页 › Store › SQLite › 存储桶上的存储桶卡片、跳转到、Store 的备份标签页 · **源码：** 见文末
+> **位置：** `LayerFS › 主页 › 存储桶 › <bucket>`（单个备份文件是 `… › <bucket> › <file>`） · **打开方式：** 主页 › 存储桶上的存储桶卡片、跳转到、Store 的备份标签页 · **源码：** 见文末
 
 存储桶是一个兼容 S3 的存储位置（MinIO 或 Cloudflare R2），SQLite Store 备份在这里，每个备份文件对应一个
 `store.sqlite` 对象。存储桶页面列出其中的每个 Store 文件：它备份的是这个主目录里的哪个 Store、
@@ -40,7 +40,7 @@
 | 状态行 | **未列出 · 密钥被拒绝**（Not listed · key refused）、**· 未及时响应**（· no answer in time）、**· 正忙**（· busy）、**· 响应丢失**（· answer lost），或 **已损坏**（Broken），并排显示 LayerFS 原因（悬停看完整原话） | **重新连接…**（Connect again…）（密钥被拒绝或记录中没有密钥时）→ [重新连接 *bucket*](#modals-opened-here) | `backup connect`，然后 `backup list` | 存储桶列出期间隐藏 |
 | 分组行 | 先是 **已绑定到此主目录的 Store**（Bound to a Store in this home），再是 **不在此主目录中**（Not in this home） | — | — | 分组有行时才显示 |
 | 文件 | `<file>/store.sqlite` | 文件名 → 它的[备份文件页面](#backup-file) | — | |
-| 关联的 Store | Store 及其所在位置（所在机器（`native` 也一样）或 **PostgreSQL**） | Store 名称 → 它的 Store 页面 | — | **未关联**（Not linked）；不在此主目录中的文件显示 `—` |
+| 关联的 Store | Store 及其所在位置（所在机器（`macos-host` 也一样）或 **PostgreSQL**） | Store 名称 → 它的 Store 页面 | — | **未关联**（Not linked）；不在此主目录中的文件显示 `—` |
 | 状态 | **已备份**（Backed up）、**Store 已更改**（Store changed）、**存储桶已更改**（Bucket changed）、**双方都已更改**（Both changed）、**缺失**（Missing）、**未检查**（Not checked）、**未列出**（Not listed）；悬停可看 LayerFS 给出的原因 | — | `backup list` (读取：`behind`、`changed`、`missing`) | 列出之前是虚线标签 |
 | 大小、写入时间 | 字节数，以及对象写入的时间 | 悬停 → 精确时间 | `backup list` (读取) | |
 | **立即备份**（Back up now）/ **另存为新文件…**（Back up as new file…） | | 按下 → **立即备份** 立即开始覆盖该文件的备份任务（任务卡片显示在 Store 上）；对象 **缺失** 时为 **另存为新文件…**，打开[备份](store.md#modals-opened-here)对话框并自动填好新文件名 | `backup create <store> <bucket> --file`，然后 `backup list` | **立即备份** 用于 **Store 已更改**（Store changed）或尚未列出的关联；**缺失**（Missing）使用 **另存为新文件…**（LayerFS 拒绝复用缺失文件名）；当关联的 SQLite Store 停机、正忙、受阻或损坏时按钮置灰并附悬停原因 |
@@ -63,12 +63,12 @@ LayerFS 只有恢复它才能读到其中的项目。
 | 5 | 关联的 Store | 此主目录中每个关联到该文件的 Store 一行：Store 和位置、状态、**上次传输**（Last transfer）（**备份**（Backed up）/ **恢复**（Restored）于*多久前* 或 **此 Home 从未传输过**（Never moved by this home））、**立即备份**（Back up now）/ **另存为新文件…**（Back up as new file…）、**恢复…**（Restore…） | 与存储桶页面相同 | `backup create` / `backup restore` | **此 Home 中没有 Store 关联此文件。…**（No Store of this home links this file. …） |
 | | 文件缺失 | ***bucket* 中没有文件 *file***（No file *file* in *bucket*），附 **列出**（List）/ **重新列出**（List again）和 **打开存储桶**（Open bucket） | **列出** → 列出存储桶；**打开存储桶** → 存储桶页面 | `backup list --bucket` (读取) | 某次列出中不再有它之后 |
 
-## 主页 › Store 上的存储桶卡片
+## 主页 › 存储桶上的存储桶卡片
 
-`LayerFS › 主页 › Store › SQLite › 存储桶`：SQLite 看板的第二个视图，每个存储桶一张卡片。
+`LayerFS › 主页 › 存储桶`：主页自己的存储桶标签页，每个存储桶一张卡片。
 主页本身见 [home.md](home.md)；这里只介绍这些卡片。
 
-![主页 › Store › 存储桶，带编号标注](../img/bucket-cards.png)
+![主页 › 存储桶，带编号标注](../img/bucket-cards.png)
 
 | # | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|---|
@@ -114,7 +114,7 @@ LayerFS 只有恢复它才能读到其中的项目。
 
 - [Store](store.md)：关联的 Store，以及备份和备份列表对话框。
 - [项目](project.md)：**内容**（Inside）下列出的项目。
-- [主页](home.md)：主页 › Store › 存储桶。
+- [主页](home.md)：主页 › 存储桶。
 
 ## 源码
 

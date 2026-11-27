@@ -26,36 +26,36 @@ const pg = (name, target, on, more = {}) => ({
 })
 // 2.0 `machine list --detail`: `supports` lists what the machine takes
 const machine = (name, platform, supports = ['sqlite', 'postgresql_sandbox'], state = 'ready') => ({ name, platform, state, supports })
-const view = (stores, machines = [machine('native', 'native'), machine('docker', 'docker')]) => ({ stores, machines, buckets: [], jobs: [], at: 0 })
+const view = (stores, machines = [machine('macos-host', 'host'), machine('docker', 'docker')]) => ({ stores, machines, buckets: [], jobs: [], at: 0 })
 
 test('a machine\'s Stores: its SQLite files with their total size, and the PostgreSQL Stores attached to it, by name', () => {
-  const v = view([sqlite('b', 'docker', 300), sqlite('a', 'docker', null), sqlite('h', 'native', 5), pg('z', 'u@localhost:5432/z', 'docker'), pg('y', 'u@localhost:5432/y', 'native'), pg('x', 'u@localhost:5432/x', 'native')])
+  const v = view([sqlite('b', 'docker', 300), sqlite('a', 'docker', null), sqlite('h', 'macos-host', 5), pg('z', 'u@localhost:5432/z', 'docker'), pg('y', 'u@localhost:5432/y', 'macos-host'), pg('x', 'u@localhost:5432/x', 'macos-host')])
   const s = M.machineStores(v, 'docker', t)
   assert.deepEqual(s.sqlite.map((x) => x.name), ['a', 'b'])
   assert.equal(s.sqliteBytes, 300, 'a Store without a size is left out of the total, never counted as 0')
   assert.deepEqual(s.postgresql.map((x) => x.name), ['z'], 'only the Store attached to docker')
   assert.deepEqual(M.machineStores(v, 'docker', t, new Set(['x'])).postgresql.map((x) => x.name), ['x', 'z'], 'and one with a Sandbox on docker now')
-  assert.deepEqual(M.machineStores(v, 'native', t).postgresql.map((x) => x.name), ['x', 'y'])
+  assert.deepEqual(M.machineStores(v, 'macos-host', t).postgresql.map((x) => x.name), ['x', 'y'])
   assert.equal(s.noSqlite, null)
   assert.equal(M.machineStores(view([sqlite('a', 'docker', null)]), 'docker', t).sqliteBytes, null, 'no size known is null')
   const unseen = { ...pg('w', 'u@db:5432/w', null) }
-  assert.deepEqual(M.machineStores(view([unseen]), 'native', t).postgresql.map((x) => x.name), [], 'a Store attached to no machine is on no machine page')
+  assert.deepEqual(M.machineStores(view([unseen]), 'macos-host', t).postgresql.map((x) => x.name), [], 'a Store attached to no machine is on no machine page')
 })
 
 test('the Machines board lists a PostgreSQL Store on each machine attached to it, and on any machine holding one of its Sandboxes', () => {
   const fleet = {
-    postgresql: [{ name: 'team', projects: 1, attached: [{ machine: 'native', reached: null }, { machine: 'docker', reached: 'ok' }] }, { name: 'lab', projects: 1, attached: [{ machine: 'native', reached: 'ok' }] }, { name: 'idle', projects: 0, attached: [{ machine: 'native', reached: null }] }],
+    postgresql: [{ name: 'team', projects: 1, attached: [{ machine: 'macos-host', reached: null }, { machine: 'docker', reached: 'ok' }] }, { name: 'lab', projects: 1, attached: [{ machine: 'macos-host', reached: 'ok' }] }, { name: 'idle', projects: 0, attached: [{ machine: 'macos-host', reached: null }] }],
     sandboxes: [{ name: 'b1', machine: 'vm1', project: 'lab/app', workspaces: 1 }, { name: 'b2', machine: 'vm1', project: null, workspaces: 0 }, { name: 'b3', machine: 'docker', project: 'file/app', workspaces: 0 }],
   }
   const on = (name) => M.pgUsable(fleet, { name }).map((s) => s.name)
   assert.deepEqual(on('docker'), ['team'])
-  assert.deepEqual(on('native'), ['team', 'lab', 'idle'], 'every Store attached to this computer')
+  assert.deepEqual(on('macos-host'), ['team', 'lab', 'idle'], 'every Store attached to this computer')
   assert.deepEqual(on('vm1'), ['lab'], 'a Sandbox of its project runs here now')
   assert.deepEqual(on('other'), [], 'no machine lists every Store: a PostgreSQL Store is attached to none')
 })
 
 test('a machine that takes neither kind says why; the tab opens on the kind asked for when the machine takes it, else the kind with Stores', () => {
-  const v = view([pg('z', 'u@db:5432/z', 'native')], [machine('lima', 'lima', ['sqlite'])])
+  const v = view([pg('z', 'u@db:5432/z', 'macos-host')], [machine('lima', 'lima', ['sqlite'])])
   const s = M.machineStores(v, 'lima', t)
   assert.equal(s.noPostgresql, 'msNoPostgresql')
   assert.equal(M.startKind(s, 'postgresql'), 'sqlite', 'a kind the machine cannot run, with nothing running there, is not opened')

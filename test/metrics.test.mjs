@@ -344,7 +344,7 @@ test('machines view: one answer serves every tab for 5 s, a write reads anew; sa
 test('sandbox.get: one answer serves every tab for 10 s; a write on the Sandbox or a command of this host drops it', async () => {
   let gets = 0
   const f = fixture({
-    'sandbox.get': async () => { gets++; return { name: 'sb', state: 'running', project: 's/p', machine: 'native', workspaces: [], next_page_pos: null } },
+    'sandbox.get': async () => { gets++; return { name: 'sb', state: 'running', project: 's/p', machine: 'macos-host', workspaces: [], next_page_pos: null } },
     'workspace.mount': async () => ({ ws: 'sb:w' }),
   })
   const realNow = Date.now
@@ -363,7 +363,7 @@ test('sandbox.get: one answer serves every tab for 10 s; a write on the Sandbox 
     // every 5 s while a command runs gets a new answer every 10 s, not every 15 s)
     let release
     const slow = new Promise((r) => { release = r })
-    f.answers['sandbox.get'] = async () => { gets++; await slow; return { name: 'sb', state: 'running', project: 's/p', machine: 'native', workspaces: [], next_page_pos: null } }
+    f.answers['sandbox.get'] = async () => { gets++; await slow; return { name: 'sb', state: 'running', project: 's/p', machine: 'macos-host', workspaces: [], next_page_pos: null } }
     Date.now = () => t0 + 20_002
     const pending = f.http('GET', '/api/sandboxes/sb')
     await new Promise((r) => setTimeout(r, 20))

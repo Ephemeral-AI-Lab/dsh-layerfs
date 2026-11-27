@@ -88,7 +88,7 @@
 .quiet { margin: 0; color: var(--dsw-alias-label-tertiary); }
 
 /* Thumb target for the live-terminal link at a coarse pointer. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .live { min-height: var(--lfs-tap, 44px); }
 }
 

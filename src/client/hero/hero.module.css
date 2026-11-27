@@ -242,13 +242,9 @@
   color: var(--dsw-alias-label-caption);
 }
 
-/* A project row's ⚙: opens its Setup card (docs/specs/layerfs-workspaces.md §5); shown on hover. */
-/* Our rows draw the selected check beside the name (before the gear), so hide the
-   menu's trailing check for exactly those rows — scoped by the gear they carry. */
-:global([role="menuitem"]:has([data-layerfs-configure]) > svg:last-child),
-:global([role="menuitemradio"]:has([data-layerfs-configure]) > svg:last-child) {
-  display: none;
-}
+/* A project row's ⚙: opens its Setup card (docs/specs/layerfs-workspaces.md §5); shown on hover.
+   Our rows draw the selected check beside the name (before the gear); a project
+   is never the Menu's selectedId, so DSH draws no trailing check of its own. */
 
 .optionCheck {
   display: inline-flex;
@@ -292,7 +288,7 @@
 }
 
 /* Touch: the project chip and its gear are sized like the other row controls. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .chip {
     height: max(28px, var(--lfs-control-h, 44px));
   }
@@ -307,27 +303,9 @@
   }
 }
 
-/* A phone's New Session hero. The title is scaled so the mark, the title and
-   its Preview badge share one line (a longer title wraps, the badge under it
-   when it must), and the chip row wraps instead of running past the column. */
+/* A phone's New Session hero: the chip row wraps instead of running past the
+   column. (The title above it is DSH's and keeps DSH's phone look.) */
 @media (max-width: 480px) {
-  :global([data-layerfs-hero-headline]) {
-    gap: 6px;
-    font-size: clamp(20px, 6.1vw, 24px);
-    line-height: 30px;
-  }
-
-  :global([data-layerfs-hero-title]) {
-    max-width: 100%;
-    min-width: 0;
-    gap: 2px 5px;
-  }
-
-  :global([data-layerfs-hero-title] > :first-child) {
-    min-width: 0;
-    overflow-wrap: anywhere;
-  }
-
   :global([data-layerfs-hero-row]) {
     flex-wrap: wrap;
     row-gap: 4px;
@@ -342,7 +320,7 @@
 
 /* Touch: every control in the row — including the workspace and preset chips
    we do not draw — is a thumb target. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   :global([data-layerfs-hero-row]) button {
     min-height: var(--lfs-tap, 44px);
   }

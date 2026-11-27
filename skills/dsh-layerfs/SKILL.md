@@ -248,8 +248,8 @@ try {
   output and exits with the command's exit code (125 still means LayerFS refused);
   without it, and in the SDK, the answer is `{ exit_code }` with `stdout`/`stderr`
   when non-empty, each stream up to 1 MiB (`stdout_file`/`stderr_file` when longer).
-- **No timeout of its own:** wrap long commands, `timeout 110 <command>`. A native
-  macOS Sandbox has no `timeout` (exit 127, `command not found`): there use
+- **No timeout of its own:** wrap long commands, `timeout 110 <command>`. A Sandbox on
+  the macOS host machine (`macos-host`) has no `timeout` (exit 127, `command not found`): there use
   `perl -e 'alarm shift; exec @ARGV' 110 <command>`. Check once with
   `command -v timeout`. A bash call may run up to 600 s; longer work goes in a
   `run_in_background` bash call (LayerFS generates an `exec-...` id emitted in

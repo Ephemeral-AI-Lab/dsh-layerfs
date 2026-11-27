@@ -62,7 +62,8 @@ test('FAIL 1: the views\' session read (mount, events, the 10 s poll) asks for t
 // ---------------------------------------------------------------- FAIL 2
 
 const t = tOf(M.listLocales, 'en')
-const line = (session, onArchive = async () => null) => M.mount(M.SessionLine, { session, title: 'Chat', selected: false, t, onOpen: () => {}, onArchive })
+// Archive does not depend on readiness: these rows carry the wordless `unknown`.
+const line = (session, onArchive = async () => null) => M.mount(M.SessionLine, { session, title: 'Chat', selected: false, t, readiness: { key: 'unknown' }, onOpen: () => {}, onArchive })
 const archiveButtons = (tree) => find(tree, (p) => 'data-archive-session' in p)
 
 test('FAIL 2: Archive shows only on conversations DSH holds that are not running; a Store-only row has none', () => {
@@ -145,7 +146,6 @@ const START_SITES = {
   'src/client/machines/parts.tsx': 'the machine card\'s own Start / power button and its own fix',
   'src/client/machines/ImageMenu.tsx': 'that machine\'s own Restart worker (its images menu)',
   'src/client/projects/ProjectList.tsx': 'the project row\'s "Start <machine>"',
-  'src/client/projects/session-readiness.ts': 'the readiness action\'s kind (a type and a classification): sends nothing',
   'src/client/projects/setup/ProjectDialog.tsx': 'StartFirst (twice) and the project row\'s "Start <machine>"',
   'src/client/projects/setup/run.ts': 'startMachine itself (called only from StartFirst)',
   'src/client/storage/HomeOverview.tsx': 'a trouble row\'s "Restart <machine>\'s worker"',
@@ -192,10 +192,10 @@ test('NOTE 3: each start a page press sends names its machine in the label or th
   assert.match(src('src/client/storage/HomeCards.tsx'), /t\('ovRestartWorker', \{ machine: m\.name \}\)/)
 })
 
-test('NOTE 3: Build and Reset name every machine they may start before the press (studio: demo-build, demo-research, docker)', () => {
-  const studio = { projectGroups: [{ machine: 'native' }, { machine: 'docker' }, { machine: 'demo-build' }, { machine: 'demo-research' }] }
+test('NOTE 3: Build and Reset name every machine they may start before the press (studio: demo-build, demo-research, docker, the host machine)', () => {
+  const studio = { projectGroups: [{ machine: 'macos-host' }, { machine: 'docker' }, { machine: 'demo-build' }, { machine: 'demo-research' }] }
   const plan = { scope: 'environment', startMachines: ['demo-build'] }
-  assert.deepEqual(M.machinesStarted(studio, plan, true), ['demo-build', 'demo-research', 'docker'], 'never native')
+  assert.deepEqual(M.machinesStarted(studio, plan, true), ['demo-build', 'demo-research', 'docker', 'macos-host'], 'the host machine too: it can be stopped')
   assert.deepEqual(M.machinesStarted(studio, plan, false), ['demo-build'], 'a Reset alone starts only what it needs to reach')
   assert.deepEqual(M.machinesStarted(studio, { scope: 'machines', stopMachines: ['demo-build'] }, false), [], 'Stop machines starts none')
   assert.match(src('src/client/presets/PresetsSection.tsx'), /starts=\{machinesStarted\(preset, dialog\.plan, dialog\.kind === 'build'\)\}/)

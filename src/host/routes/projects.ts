@@ -32,7 +32,7 @@ import { StorageObservations } from './storage-observations.ts'
 import { ProjectStorageLedgers } from './project-storage.ts'
 import { attachedFrom, lastUsed, pgPlacement } from '../placement.ts'
 import { READ_TIMEOUT_MS } from '../layerfs/cli.ts'
-import { companionsOf, machineRows, msAt, opOf } from '../layerfs/machine-records.ts'
+import { HOST_MACHINE, companionsOf, machineRows, msAt, opOf } from '../layerfs/machine-records.ts'
 import { Answer, PAGE, cliFeatures, fixOf, invalidateSandbox, keyOf, pages, projectRef, refuse, sandboxObservation, type RouteHost } from './util.ts'
 import { processOf, usageOf, type Usage } from './observed.ts'
 import { SandboxCreates, type Report } from './sandbox-creates.ts'
@@ -421,14 +421,14 @@ export class Projects {
     }
   }
 
-  /** macOS: whether the native machine has its daemon recorded (null elsewhere). */
+  /** macOS: whether the host machine (`macos-host`) has its daemon recorded (null elsewhere). */
   private async daemonStatus(): Promise<{ recorded: boolean, why: string | null } | null> {
     if (process.platform !== 'darwin') return null
     try {
-      const recorded = (await this.lfs.machine.get('native', { detail: true }))?.daemon ?? null
-      return recorded ? { recorded: true, why: null } : { recorded: false, why: this.host.daemon() ? 'the native daemon was not recorded' : 'no configured CLI or daemon' }
+      const recorded = (await this.lfs.machine.get(HOST_MACHINE, { detail: true }))?.daemon ?? null
+      return recorded ? { recorded: true, why: null } : { recorded: false, why: this.host.daemon() ? 'the host daemon was not recorded' : 'no configured CLI or daemon' }
     } catch (error: any) {
-      return { recorded: false, why: `the native daemon was not recorded: ${error?.message ?? error}` }
+      return { recorded: false, why: `the host daemon was not recorded: ${error?.message ?? error}` }
     }
   }
 
@@ -611,7 +611,7 @@ export class Projects {
    * its Store's machine (another is Unsupported); a PostgreSQL project's on
    * `machine` when one is named (any machine whose platform runs PostgreSQL
    * Sandboxes; LayerFS refuses the rest), else placement.ts's order (its
-   * last machine, a machine its database was reached from, native; never a
+   * last machine, a machine its database was reached from, the host machine; never a
    * broken or stopped one).
    *
    * `image` is a string. Until the pinned CLI declares references (Stage 1,
@@ -659,7 +659,7 @@ export class Projects {
         await this.startMachine(input.machine)
         report({ phase: 'queued' })
       }
-      await this.host.ensureNative()
+      await this.host.ensureHostDaemon()
       // the CLI's create phases (inspect, lock, export, send, unpack, start) as the job's, bytes while a phase reports them
       const progress = features.createProgress ? { on_progress: (p: unknown) => { const u = createPhase(p); if (u) report(u) } } : {}
       const made = await this.lfs.sandbox.create(project, name, { ...(postgresql && machine ? { machine } : {}), ...(picked ? { image: picked } : {}), ...progress })

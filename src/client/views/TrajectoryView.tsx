@@ -94,11 +94,12 @@ function useTrajectory(api: LayerfsApi, sessionId: string, running: boolean) {
 }
 
 /** What a selection points at in the answer. */
-function inspectedOf(answer: TrajectoryAnswer, key: Selection, t: Translate): Inspected | null {
+export function inspectedOf(answer: TrajectoryAnswer, key: Selection, t: Translate): Inspected | null {
   const [kind, a, b] = key.split(':')
   for (const turn of answer.turns) {
-    if (kind === 'r') {
-      const record = turn.records.find((r) => r.seq === Number(a))
+    if (kind === 'r' || kind === 'v') {
+      // The observation row has its own key: a record key never lands on its made-up seq.
+      const record = kind === 'v' ? turn.records.find((r) => r.kind === 'observation') : turn.records.find((r) => r.kind !== 'observation' && r.seq === Number(a))
       if (record) return { kind: 'record', turn: turn.turn, record }
     } else if (kind === 'c' && turn.turn === Number(a)) {
       const checkpoint = turn.checkpoints[Number(b)]

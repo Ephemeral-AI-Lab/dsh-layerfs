@@ -34,8 +34,8 @@ export interface RouteHost {
   bundle?(): string | null
   /** The pinned CLI's discovery (identity, call table, commands). */
   discover(): Promise<Discovery>
-  /** Record the native daemon once (never throws). */
-  ensureNative(): Promise<unknown>
+  /** Record the host machine's daemon once (never throws). */
+  ensureHostDaemon(): Promise<unknown>
   /** Publish a host event. */
   emit(type: string, data?: unknown): void
   /** Log a line (warnings). */

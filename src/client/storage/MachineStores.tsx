@@ -44,6 +44,7 @@ import { readStoreKind, writeStoreKind } from './tabs.ts'
 import type { StorageJob, StorageView, StoreRow } from './types.ts'
 import rowsCss from './StoreRows.module.css'
 import css from './MachineStores.module.css'
+import { isHostName } from '../../shared/host-machine.ts'
 
 const COUNTING_POLL_MS = 2000
 const ROWS = 3
@@ -164,10 +165,10 @@ export function MachineStores(props: MachineStoresProps): ReactNode {
     <StoresBoard {...props} {...stores} scope={machine} words={{
       sqlite: {
         role: t('msHeldHere'),
-        note: machine === 'native' ? t('msSqliteBodyHome') : t('msSqliteBody', { machine: place }),
+        note: isHostName(machine) ? t('msSqliteBodyHome') : t('msSqliteBody', { machine: place }),
         add: <ExplainedButton variant="outline" size="sm" icon={plus} disabled={!!stores.noSqlite} disabledReason={stores.noSqlite ?? undefined}
-          onClick={() => props.onPushHere(machine)}>{machine === 'native' ? t('msAddSqliteHome') : t('msPushHere')}</ExplainedButton>,
-        empty: stores.noSqlite ?? (machine === 'native' ? t('msSqliteEmptyHome') : t('msSqliteEmpty', { machine: place })),
+          onClick={() => props.onPushHere(machine)}>{isHostName(machine) ? t('msAddSqliteHome') : t('msPushHere')}</ExplainedButton>,
+        empty: stores.noSqlite ?? (isHostName(machine) ? t('msSqliteEmptyHome') : t('msSqliteEmpty', { machine: place })),
       },
       postgresql: {
         role: t('msRunsHere'),
@@ -341,7 +342,7 @@ function SqliteCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor
         <BackupsBadge s={s} view={view} t={t} onBackups={() => onBackups(s.name)} onBackup={on.backup} />
         <More s={s} shown={status ? 1 : ROWS} t={t} onOpenStore={onOpenStore} />
         {/* the head's ⋯ holds Move, Back up and Remove */}
-        {running ? null : s.machine === 'native'
+        {running ? null : isHostName(s.machine)
           ? <FootActions label={t('msMoreActions', { name: s.name })} main={{ label: t('pushTo'), run: on.push, disabled: footReason !== null, disabledReason: footReason ?? undefined }} rest={[]} />
           : <FootActions label={t('msMoreActions', { name: s.name })} main={{ label: t('msPull'), run: on.pull, disabled: footReason !== null, disabledReason: footReason ?? undefined }} rest={[]} />}
       </div>
@@ -362,7 +363,7 @@ function AttachedHere({ machine, view, t, actionsFor, sandboxes, onOpenStore, st
         const on = actionsFor(s)
         const attached = (s.attached ?? []).find((a) => a.machine === machine)
         const status = reachStatus(attached?.reach ?? null, { machine: record ? { state: record.state } : null })
-        const boxes = (sandboxes ?? []).filter((b) => (b.machine ?? 'native') === machine && b.project?.startsWith(`${s.name}/`)).length
+        const boxes = (sandboxes ?? []).filter((b) => b.machine === machine && b.project?.startsWith(`${s.name}/`)).length
         const address = pgAddress(s)
         return (
           <li key={s.name} className={rowsCss.row} data-store={s.name}>

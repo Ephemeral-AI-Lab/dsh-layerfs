@@ -28,7 +28,7 @@ test('family-only reads are not writes', () => {
   for (const argv of [['doctor'], ['doctor', 'machine', 'docker'], ['help', '--json'], ['logs', 'list'], ['--version', '--json']]) assert.equal(isWrite(argv), false, argv.join(' '))
   // the monitoring reads (they write no call-log line, and a line of one would be a read)
   for (const argv of [['machine', 'files', 'docker', '/etc'], ['sandbox', 'files', 'sb'], ['machine', 'stats', 'docker'], ['machine', 'log', 'docker'], ['sandbox', 'log', 'sb'], ['home', 'log'], ['home', 'doctor'], ['machine', 'doctor', 'docker']]) assert.equal(isWrite(argv), false, argv.join(' '))
-  assert.equal(isWrite(['doctor', 'fix', 'native:run-folder:x']), true, 'doctor fix removes a leftover')
+  assert.equal(isWrite(['doctor', 'fix', 'macos-host:run-folder:x']), true, 'doctor fix removes a leftover')
 })
 
 test('every pinned CLI call is classified as its kind', { skip: !pinned() && liveSkipReason() }, () => {

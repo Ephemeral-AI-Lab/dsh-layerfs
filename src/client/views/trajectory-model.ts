@@ -127,10 +127,21 @@ export function rebaseOlder(loaded: TrajectoryAnswer, first: TrajectoryAnswer): 
 
 // ---------------------------------------------------------------- selection
 
-/** What the inspector shows: a record by seq, a checkpoint, an orphan call or a turn's host calls. */
-export type Selection = `r:${number}` | `c:${number}:${number}` | `o:${string}` | `h:${number}`
+/**
+ * What the inspector shows: a record by seq, the session's observation row, a
+ * checkpoint, an orphan call or a turn's host calls.
+ */
+export type Selection = `r:${number}` | `c:${number}:${number}` | `o:${string}` | `h:${number}` | typeof OBSERVATION_KEY
 
 export const recordKey = (seq: number): Selection => `r:${seq}`
+/**
+ * The observation row's own key. Its seq is made up (one past the newest
+ * record) and becomes a real record's seq when the session moves on, so a
+ * selection by seq would jump to that record.
+ */
+export const OBSERVATION_KEY = 'v:observation'
+/** A record row's selection: by seq, except the observation row. */
+export const rowKeyOf = (record: TrajectoryRecord): Selection => (record.kind === 'observation' ? OBSERVATION_KEY : recordKey(record.seq))
 export const checkpointKey = (turn: number, index: number): Selection => `c:${turn}:${index}`
 export const orphanKey = (callId: string): Selection => `o:${callId}`
 export const hostKey = (turn: number): Selection => `h:${turn}`
@@ -148,6 +159,8 @@ export function focusTarget(answer: TrajectoryAnswer, focus: string): { turn: nu
   }
   for (const turn of answer.turns) {
     for (const record of turn.records) {
+      // The observation row's seq is not a log record's: a focus never names it.
+      if (record.kind === 'observation') continue
       if (seq !== undefined ? record.seq === seq : record.kind === 'tool' && record.callId === callId) return { turn: turn.turn, record }
     }
   }
@@ -495,7 +508,7 @@ export function flattenRows(turns: readonly TrajectoryTurn[], expansion: Expansi
         if (!toggled) { rows.push({ type: 'contextToggle', key: `x:${turn.turn}`, turn: turn.turn, count: contexts, open: contextOpen }); toggled = true }
         if (!contextOpen) continue
       }
-      const key = recordKey(record.seq)
+      const key = rowKeyOf(record)
       const callOpen = record.kind === 'tool' && record.ops.length > 0 && expansion.callOpen(record)
       rows.push({ type: 'record', key, turn: turn.turn, record, open: callOpen })
       if (callOpen && record.kind === 'tool') for (const op of record.ops) rows.push({ type: 'op', key: `${key}:${op.id}`, turn: turn.turn, op, parent: key })
@@ -547,7 +560,8 @@ export function selectionTurn(answer: TrajectoryAnswer, key: Selection): number 
   const [kind, a] = key.split(':')
   if (kind === 'c' || kind === 'h') return Number(a)
   for (const turn of answer.turns) {
-    if (kind === 'r' && turn.records.some((r) => r.seq === Number(a))) return turn.turn
+    if (kind === 'v' && turn.records.some((r) => r.kind === 'observation')) return turn.turn
+    if (kind === 'r' && turn.records.some((r) => r.kind !== 'observation' && r.seq === Number(a))) return turn.turn
     if (kind === 'o' && turn.orphanCalls.some((c) => c.callId === key.slice(2))) return turn.turn
   }
   return null

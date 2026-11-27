@@ -126,7 +126,7 @@ the mount path. `HOME` is a private folder of the Sandbox.
 **Limits**
 
 - **No timeout:** put `timeout 110` inside the command, or run the exec with bash's
-  `run_in_background` and collect it later. A native macOS Sandbox has no `timeout`:
+  `run_in_background` and collect it later. A Sandbox on the macOS host machine (`macos-host`) has no `timeout`:
   use `perl -e 'alarm shift; exec @ARGV' 110 <command>` there (`command -v timeout`
   tells you which).
 - **Output is delivered after the command ends**, never live. For long logs, redirect

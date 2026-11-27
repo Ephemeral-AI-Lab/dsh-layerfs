@@ -35,7 +35,7 @@ test('default selection: newest last_used, then the machine default, then the fi
   const used = answer({ ready: [{ ...a, lastUsed: '2026-11-01T00:00:00Z' }, { ...b, lastUsed: '2026-11-10T00:00:00Z' }], default: a.id })
   assert.equal(defaultPick(used).id, b.id, 'the newest last_used wins over the default')
   assert.equal(defaultPick(answer({ ready: [c] })), null, 'nothing usable: LayerFS default (no image named)')
-  assert.equal(defaultPick(answer({ mode: 'host' })), null, 'macOS native has no image')
+  assert.equal(defaultPick(answer({ mode: 'host' })), null, 'the macOS host machine has no image')
   assert.equal(defaultPick(null), null)
   const docker = { available: true, images: [{ id: D(4), name: 'pg:17', refs: ['pg:17'], size: 1, architecture: 'arm64', os: 'linux', need: 3, fits: true, usable: true }] }
   assert.equal(defaultPick(answer({ ready: [], docker })), null, 'never a Docker row unless picked')
@@ -48,7 +48,7 @@ test('the pick is a row id plus display fields; the bundle image is marked so it
   assert.deepEqual(p, { id: D(1), ref: null, name: 'LayerFS default', from: 'ready', size: null, usable: true, bundle: true })
 })
 
-test('imagePlan: label and note for ready, stopped, native, no answer, and the Stage 1 Docker cases', () => {
+test('imagePlan: label and note for ready, stopped, the host machine, no answer, and the Stage 1 Docker cases', () => {
   const a = row(D(1))
   const ready = answer({ ready: [a] })
   assert.deepEqual(imagePlan(ready, pickOf(a, 'ready')), { label: 'create', note: { key: 'noteReady', values: { image: 'img-11:1', machine: 'lima1' } } })
@@ -56,7 +56,7 @@ test('imagePlan: label and note for ready, stopped, native, no answer, and the S
   assert.deepEqual(imagePlan(answer({ ready: [bundle] }), pickOf(bundle, 'ready')).note, { key: 'noteReadyDefault', values: { machine: 'lima1' } })
   const stopped = imagePlan(answer({ state: 'stopped', ready: [a], stale: { at: 1, code: 'Unavailable' } }), pickOf(a, 'ready'))
   assert.deepEqual(stopped, { label: 'start', note: { key: 'noteStopped', values: { machine: 'lima1' } } })
-  assert.deepEqual(imagePlan(answer({ mode: 'host', machine: 'native' }), null), { label: 'create', note: { key: 'nativeOwnSystem' } })
+  assert.deepEqual(imagePlan(answer({ mode: 'host', machine: 'macos-host' }), null), { label: 'create', note: { key: 'hostOwnSystem' } })
   // the answer not read yet (or failed): the machine list's state decides the button, no note
   assert.deepEqual(imagePlan(null, null, 'stopped'), { label: 'start', note: null })
   assert.deepEqual(imagePlan(undefined, null, 'running'), { label: 'create', note: null })

@@ -1,6 +1,6 @@
 /**
  * A machine's cached Sandbox images (docs/specs/sandbox-images.md §5.1.3,
- * Stage 1 only, not on macOS native): the Images tab on its page (a disk
+ * Stage 1 only, not on the macOS host machine): the Images tab on its page (a disk
  * bar, the stored images as cards with Remove on unused ones, and this
  * computer's Docker images with Copy) and the
  * Free space dialog (one checkbox per image, the unused ones preselected),
@@ -11,7 +11,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Button, Checkbox, IconCopyOutlineRegular, IconDownloadOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, IconTrashOutlineRegular, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import clsx from 'clsx'
-import { Card, Refusal, Section, usePressGuard } from '../ui/index.tsx'
+import { Card, Refusal, Section, usePressGuard, touchField } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import { onMac, useImageName, useRestartWorker, useSandboxImages } from './ImageMenu.tsx'
 import { agoWords, badgeHue, diskSegments, dockerRows, freeSpaceRows, freesWords, imageLabel, imagesFooter, imagesStatus, loadWords, phaseShare, reasonWords, removable, type ImageLabel } from './images.ts'
@@ -254,7 +254,7 @@ function DockerSection({ m, images }: { m: MachineInfo, images: Query<SandboxIma
       <Section title={title} count={answer.docker.images.filter((r) => r.usable).length} className={css.imagesSection}
         actions={(
           <span className={css.imgTools}>
-            {total > 6 && <Input value={query} placeholder={t('imgSearchPlaceholder')} aria-label={t('imgSearch')} className={css.imgSearch} onChange={(e) => setQuery(e.target.value)} />}
+            {total > 6 && <Input value={query} placeholder={t('imgSearchPlaceholder')} aria-label={t('imgSearch')} className={clsx(touchField, css.imgSearch)} onChange={(e) => setQuery(e.target.value)} />}
             <Button variant="ghost" size="sm" icon={<IconRefreshOutlineRegular size={12} />} onClick={() => images.reload()}>{t('imgRefresh')}</Button>
           </span>
         )}>
@@ -278,7 +278,7 @@ function DockerSection({ m, images }: { m: MachineInfo, images: Query<SandboxIma
  * its card): badge, name and tags, where it came from, the machine default,
  * its size, the Sandboxes using it and when one last started from it, and
  * Remove on an unused copied one. Rendered only at Stage 1 and when the
- * machine runs images (not macOS native).
+ * machine runs images (not the macOS host machine).
  */
 export function ImagesSection({ m, images, onCreate }: { m: MachineInfo, images: Query<SandboxImagesView>, /** New Sandbox from an image (its Id); absent where no Sandbox can be made here. */ onCreate?: ((image: string) => void) | undefined }): ReactNode {
   const { t, tw, refusal, pruneImages } = useMachinesContext()

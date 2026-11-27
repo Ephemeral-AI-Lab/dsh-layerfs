@@ -2,7 +2,7 @@
  * Machines as tiles, shared by the project dialog and Storage's New Store:
  * one tile per machine (its mark, name, state, a badge), and the Location
  * picker: where a SQLite Store is placed, or where a PostgreSQL Store's
- * sessions run. `native` is named like any machine.
+ * sessions run. The host machine (`macos-host` / `linux-host`) is named like any machine.
  * A machine whose platform is not ready here (`blocks`, model.ts tileBlocks)
  * shows so and cannot be picked, except a docker machine whose Docker Engine
  * its Start launches (picked by the person, who presses its named Start).
@@ -15,10 +15,11 @@ import { MachineGlyph } from '../../machines/icons.tsx'
 import { usePressGuard } from '../../ui/index.tsx'
 import { isRunning, type Machine, type TileBlock } from './model.ts'
 import css from './dialog.module.css'
+import { isHostName } from '../../../shared/host-machine.ts'
 
 /** The words a tile uses, from the caller's locale. */
 export interface LocationWords {
-  /** `native`'s note: This Mac, unisolated. */
+  /** The running host machine's note: This Mac, unisolated. */
   thisMac: string
   running: string
   stopped: string
@@ -26,8 +27,8 @@ export interface LocationWords {
   default: string
   /** The badge on the Store's current machine. */
   here: string
-  /** The native machine's mark: this computer's OS (absent: a Mac's). */
-  nativeOs?: 'mac' | 'linux' | 'pc' | undefined
+  /** The host machine's mark: this computer's OS (absent: a Mac's). */
+  hostOs?: 'mac' | 'linux' | 'pc' | undefined
   /** The note of a machine that cannot run here now (its platform is not ready). */
   blocked?: string | undefined
   /** The note of a docker machine whose Docker Engine is not running (its own Start launches it). */
@@ -41,8 +42,7 @@ const NO_BLOCKS: ReadonlyMap<string, TileBlock> = new Map()
 /** A machine's state in words: This Mac, Running, Stopped; Can't run here now when `block` says so. */
 export function machineNote(m: Machine, words: LocationWords, block?: TileBlock | undefined): string {
   if (block) return (block.startable ? words.engineDown : words.blocked) ?? words.stopped
-  if (m.name === 'native') return words.thisMac
-  if (isRunning(m)) return words.running
+  if (isRunning(m)) return isHostName(m.name) ? words.thisMac : words.running
   if (m.state === 'stopped') return words.stopped
   return words.state(m.state ?? 'unknown')
 }
@@ -101,10 +101,10 @@ export function MachineTile({ m, label, selected, multi, note, badge, onSelect, 
   disabled?: boolean | undefined, working?: boolean | undefined, workingMark?: ReactNode, compact?: boolean | undefined
   /** Its platform is not ready here (the note says why): no running dot. */
   blocked?: boolean | undefined
-  /** The native machine's mark (LocationWords.nativeOs). */
+  /** The host machine's mark (LocationWords.hostOs). */
   os?: 'mac' | 'linux' | 'pc' | undefined
 }): ReactNode {
-  const glyphOs = m.name === 'native' ? os : undefined
+  const glyphOs = isHostName(m.name) ? os : undefined
   if (compact) {
     return <button type="button" role={multi ? 'checkbox' : 'radio'} aria-checked={selected} disabled={disabled}
       className={clsx(css.machine, css.compact, selected && css.selected)} onClick={onSelect} data-machine={m.name} data-blocked={blocked || undefined}
@@ -113,7 +113,7 @@ export function MachineTile({ m, label, selected, multi, note, badge, onSelect, 
       <span className={css.compactText}>
         <span className={css.machineName}>{label}</span>
         <span className={css.machineNote}>
-          {m.name !== 'native' && !blocked ? <span className={css.dot} data-on={isRunning(m) || undefined} aria-hidden="true" /> : null}
+          {!blocked ? <span className={css.dot} data-on={isRunning(m) || undefined} aria-hidden="true" /> : null}
           <span>{[note, badge].filter(Boolean).join(' · ')}</span>
         </span>
       </span>
@@ -130,14 +130,14 @@ export function MachineTile({ m, label, selected, multi, note, badge, onSelect, 
     </span>
     <span className={css.machineName}>{label}</span>
     <span className={css.machineNote}>
-      {m.name !== 'native' && !blocked ? <span className={css.dot} data-on={isRunning(m) || undefined} aria-hidden="true" /> : null}
+      {!blocked ? <span className={css.dot} data-on={isRunning(m) || undefined} aria-hidden="true" /> : null}
       <span>{note}</span>
     </span>
   </button>
 }
 
 /**
- * One machine, `native` among them: where a SQLite Store lives, or
+ * One machine, the host machine among them: where a SQLite Store lives, or
  * where a PostgreSQL Store's sessions run. `current` marks the Store's
  * machine (Here now); without it `fallback` is marked Default. `children` follow the tiles (a New machine tile).
  */
@@ -152,7 +152,7 @@ export function LocationPicker({ machines, value, onChange, words, label, curren
     {machines.map((m) => {
       const badge = current ? (m.name === current ? words.here : null) : m.name === fallback ? words.default : null
       const block = blocks.get(m.name)
-      return <MachineTile key={m.name} m={m} os={words.nativeOs} label={m.name} multi={false} selected={value === m.name}
+      return <MachineTile key={m.name} m={m} os={words.hostOs} label={m.name} multi={false} selected={value === m.name}
         // a broken machine is not picked here (its page holds the fix); one already chosen stays shown
         disabled={disabled || (((!!block && !block.startable) || m.state === 'broken') && value !== m.name)} blocked={!!block}
         note={machineNote(m, words, block)} badge={badge} compact={compact} onSelect={() => onChange(m.name)} />

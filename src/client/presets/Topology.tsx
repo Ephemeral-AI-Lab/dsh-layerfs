@@ -13,6 +13,7 @@ import { MachinesGlyph } from '../machines/icons.tsx'
 import type { PresetsKey, PresetsT } from './locale.ts'
 import { count, elapsed, useClock } from './Progress.tsx'
 import css from './presets.module.css'
+import { isHostName } from '../../shared/host-machine.ts'
 
 /** A resource the script drawer can scope to. */
 export interface PresetResource {
@@ -47,11 +48,11 @@ export function PresetTopology({ preset, t, onCommands }: { preset: DemoPreset, 
     return build && busy ? { key: 'statusWaiting' } : null
   }
 
-  const machineLabel = (name: string) => name === 'native' ? t('native') : name === 'docker' ? t('docker') : name
+  const machineLabel = (name: string) => isHostName(name) ? t('host') : name === 'docker' ? t('docker') : name
   const machineSub = (name: string): string => {
     const info = preset.machineDefinitions.find((m) => m.name === name)
     const platform = info?.platform ?? name
-    const kind = platform === 'native' ? t('localMachine') : platform === 'docker' ? t('container') : platform === 'lima' ? t('limaVm') : platform
+    const kind = platform === 'host' ? t('localMachine') : platform === 'docker' ? t('container') : platform === 'lima' ? t('limaVm') : platform
     return info?.cpus ? `${kind} · ${t('resourcesValue', { cpus: info.cpus, memory: info.memory ?? '', disk: info.disk ?? '' })}` : kind
   }
 

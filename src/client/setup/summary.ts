@@ -51,7 +51,7 @@ export function buildWords(s: SetupStatus, pieceName: (key: 'pieceDaemon' | 'pie
     return { state: 'mixed', word: 'sumMixed', line: 'buildMixedOne', values: { piece: pieceName(pieceKey[name]), theirs: short(piece!.commit) } }
   }
   if (other.length > 1) return { state: 'mixed', word: 'sumMixed', line: 'buildMixedBoth', values: {} }
-  // the bundle is always a piece (null = none found); the daemon only where a native daemon applies (macOS)
+  // the bundle is always a piece (null = none found); the daemon only where a host daemon applies (macOS)
   if (!p.bundle || p.bundle.verdict === 'missing') return { state: 'incomplete', word: 'buildIncomplete', line: 'buildNoBundle', values: {} }
   if (p.daemon && p.daemon.verdict === 'missing') return { state: 'incomplete', word: 'buildIncomplete', line: 'buildNoDaemon', values: {} }
   return { state: 'ready', word: 'stateReady', line: null, values: {} }
@@ -71,7 +71,7 @@ export interface PlatformRow {
 }
 
 /** Rows first in this order, then the rest as LayerFS listed them. */
-const ORDER = ['native', 'docker', 'lima', 'apple-container']
+const ORDER = ['host', 'docker', 'lima', 'apple-container']
 
 const STATE: Record<Readiness['step'], PlatformState> = {
   ready: 'available', install: 'notInstalled', setup: 'needsSetup', start: 'notRunning', runtime: 'needsBundle', unsupported: 'needsSetup',
@@ -94,7 +94,7 @@ export function platformRows(platforms: readonly MachinePlatformInfo[], os: Host
     .sort((a, b) => rank(a.info.platform) - rank(b.info.platform) || a.i - b.i)
     .map(({ info, readiness }) => ({
       platform: info.platform,
-      state: readiness.step === 'ready' && info.platform === 'native' ? 'ready' : STATE[readiness.step],
+      state: readiness.step === 'ready' && info.platform === 'host' ? 'ready' : STATE[readiness.step],
       // not ready with nothing reported (LayerFS knows why): no empty how-to, Check alone
       action: readiness.step === 'setup' && readiness.fixes.length === 0 ? 'check' : ACTION[readiness.step],
       readiness,
