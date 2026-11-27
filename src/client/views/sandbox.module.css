@@ -693,6 +693,10 @@
      into a 140px slot; the owner already drops out at 860. */
   .events { max-height: 320px; }
 
+  /* The header's hint ("Hover or select a node…") wraps under the toggle
+     rather than squeezing its word to "Acti…". */
+  .inspectorHead { flex-wrap: wrap; row-gap: 0; }
+
   .event {
     flex-wrap: wrap;
     row-gap: 2px;
