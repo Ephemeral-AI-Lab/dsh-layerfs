@@ -274,6 +274,21 @@ function shareMaxAge(share: true | ShareOptions): number {
  * @param nav - DSH navigation (panels, workspaces, sessions).
  * @param workspace - the `uiWorkspace` service, or undefined while it mounts.
  */
+/**
+ * The named operations that only read. Any other operation (`sessions.open`,
+ * `sessions.choose`, `logs.reset`, a new one) counts as a write and drops the
+ * shared answers when it settles: an unlisted read costs one more read, never
+ * a stale answer.
+ */
+const READ_OPS: ReadonlySet<string> = new Set([
+  'logs.list', 'logs.output', 'logs.project',
+  'projects.catalog', 'projects.recent',
+  'runtime.installed', 'runtime.status',
+  'session.state', 'session.trajectory', 'session.trajectory.record',
+  'sessions.checkPlacement', 'sessions.list', 'sessions.places', 'sessions.scratchOptions',
+  'setup.status', 'simulation.script', 'simulation.status',
+])
+
 export function createApi(remote: () => any, nav: Navigator, workspace: () => any): LayerfsApi & { dispose(): void } {
   const listeners = new Map<string, Set<(e: HostEvent) => void>>()
   /** Admission: at most {@link HOST_IN_FLIGHT_LIMIT} sends, interactive before background. */
@@ -301,6 +316,13 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
     for (const key of recentSends.keys()) if (matches(key)) recentSends.delete(key)
     for (const key of sharedSends.keys()) if (matches(key)) sharedSends.delete(key)
   }
+  /**
+   * A write settled (or failed after a possible effect): forget every shared
+   * answer, the reads still in flight included. A read that started before the
+   * write may answer from before it, so a later caller must not join it, and
+   * its answer is not kept. The event stream confirms what changed.
+   */
+  const afterWrite = (): void => invalidateShared(() => true)
   /** Calls waiting on an answer: each fails when the event stream drops (its connection is gone). */
   const inFlight = new Set<(e: LostCall) => void>()
   /** Pending `sessions.open` calls, oldest first; listeners hear the newest one. */
@@ -415,7 +437,15 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
   }
 
   async function op<T>(name: string, args?: unknown, timeout?: number, options: HostCallOptions = {}): Promise<T> {
-    const r: RemoteResult = await send(name, args, timeout, options)
+    // `http` writes are handled by `call`; any other operation not known to be
+    // a read may have changed what shared reads answer.
+    const writes = name !== 'http' && !READ_OPS.has(name)
+    let r: RemoteResult
+    try {
+      r = await send(name, args, timeout, options)
+    } finally {
+      if (writes) afterWrite()
+    }
     if (!r.ok) fail(r)
     const value = (r as { value: any }).value
     // A host answer may ask the client to navigate (e.g. open the new session).
@@ -462,7 +492,7 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
       const answer = run()
       // A write's outcome may be unknown (it failed after an effect): drop the
       // recent answers either way, and let the event stream confirm.
-      if (method.toUpperCase() !== 'GET') answer.then(() => recentSends.clear(), () => recentSends.clear())
+      if (method.toUpperCase() !== 'GET') answer.then(afterWrite, afterWrite)
       return answer
     }
     return shared(`GET ${path} ${callKey(body)}`, run, shareMaxAge(options.share))

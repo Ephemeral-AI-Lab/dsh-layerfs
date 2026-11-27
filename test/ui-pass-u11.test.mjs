@@ -51,7 +51,7 @@ const find = (tree, pred) => M.elements(tree).filter((e) => pred(e.props ?? {}, 
 test('FAIL 1: the views\' session read (mount, events, the 10 s poll) asks for the read that changes nothing', () => {
   // the host side is test/sessions.test.mjs "an observed session.state …"; this is the one client caller
   const callers = []
-  const walk = (dir) => { for (const f of readdirSync(dir)) { const p = join(dir, f); if (statSync(p).isDirectory()) walk(p); else if (/'session\.state'/.test(readFileSync(p, 'utf8'))) callers.push(relative(root, p)) } }
+  const walk = (dir) => { for (const f of readdirSync(dir)) { const p = join(dir, f); if (statSync(p).isDirectory()) walk(p); else if (/\.op(?:<[^>]*>)?\('session\.state'/.test(readFileSync(p, 'utf8'))) callers.push(relative(root, p)) } }
   walk(join(root, 'src/client'))
   assert.deepEqual(callers, ['src/client/views/hooks.ts'])
   assert.match(src('src/client/views/hooks.ts'), /api\.op<SessionStateView>\('session\.state', \{ sessionId: root, observe: true \}\)/)

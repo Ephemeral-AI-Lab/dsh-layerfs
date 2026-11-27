@@ -8,8 +8,11 @@ lib/
 # impeccable design tooling (installed locally, not product code)
 .claude/
 
-# skills CLI output (installed locally, not product code)
-.agents/
-agent/
-skills/
-skills-lock.json
+# skills CLI output (installed locally, not product code). skills/ also holds
+# this plugin's own shipped skill (package.json `files`), so only the rest of
+# it is ignored.
+/.agents/
+/agent/
+/skills/*
+!/skills/dsh-layerfs/
+/skills-lock.json
