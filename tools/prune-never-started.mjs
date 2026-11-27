@@ -11,14 +11,16 @@
 // (the host enforces it, and this tool also passes the archive set as the op's
 // keep list so a host process that predates that default still keeps them);
 // `--exclude` (repeatable) keeps any further id. The open conversation and
-// every loaded conversation are kept too.
+// every loaded conversation are kept too. A host that cannot verify its
+// archive set still answers the dry run, but refuses `--apply`; the tool says
+// so and asks for a restart instead of treating the file as proof.
 // The default keep set reads DSH's archive store from DSH_HOME (default ~/.dsh).
 // URL: `--url`, else DSH_LAYERFS_URL, else the dev server's url.txt.
 // Browser: CHROME_PATH, else system Chrome, else Playwright's bundled Chromium.
 import { chromium } from 'playwright-core'
 import { existsSync } from 'node:fs'
 import { devUrl } from './ui.mjs'
-import { archivedSessionIds, keepSet } from './prune-exclusions.mjs'
+import { archivedSessionIds, keepSet, pruneOutcome } from './prune-exclusions.mjs'
 
 const args = process.argv.slice(2)
 const value = (name) => { const at = args.indexOf(name); return at >= 0 ? args[at + 1] : undefined }
@@ -55,8 +57,9 @@ try {
     }
   }, [project, !apply, current, excludes])
   console.log(JSON.stringify(result, null, 2))
-  if (!result.ok) process.exitCode = 1
-  else if (!apply) console.error(`dry run: ${result.candidates.length} candidate(s), nothing deleted. Re-run with --apply to delete them.`)
+  const outcome = pruneOutcome({ apply, result })
+  console.error(outcome.note)
+  process.exitCode = outcome.exitCode
 } finally {
   await browser.close()
 }

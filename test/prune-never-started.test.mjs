@@ -117,12 +117,12 @@ test('pruneNeverStarted dry run lists the blank drafts and deletes nothing', asy
   state.sessions.titled = binding('titled')
   const f = harness({ state, logs: { b1: blankLog(), b2: blankLog(5), titled: startedLog() }, sidecars: { titled: { title: 'A real conversation' } } })
   const answer = await f.ops['sessions.pruneNeverStarted']({ project, dryRun: true })
-  assert.deepEqual(answer, { candidates: ['b1', 'b2'], deleted: [] })
+  assert.deepEqual(answer, { candidates: ['b1', 'b2'], deleted: [], archiveKnown: true })
   assert.equal(f.state().pending.b1?.project, project, 'nothing is removed')
   assert.deepEqual(f.deletedSessions, [], 'no log is deleted')
   assert.deepEqual(f.events.filter((e) => e.type === 'layerfs-session' && e.data?.deleted), [], 'no deleted event')
   // The default is a dry run too.
-  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project }), { candidates: ['b1', 'b2'], deleted: [] })
+  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project }), { candidates: ['b1', 'b2'], deleted: [], archiveKnown: true })
 })
 
 test('pruneNeverStarted deletes exactly the candidates, keeps used/titled/checkpointed/shared/seeded ones, and is idempotent', async () => {
@@ -151,7 +151,7 @@ test('pruneNeverStarted deletes exactly the candidates, keeps used/titled/checkp
     ? { header: { id, createdAt: 1, isSeeded: true }, revision: 'r-seeded', eventCount: 3 }
     : (logs[id] ? { header: { id, createdAt: 1 }, revision: `r${logs[id].length}`, eventCount: logs[id].length } : undefined)
   const answer = await f.ops['sessions.pruneNeverStarted']({ project, dryRun: false })
-  assert.deepEqual(answer, { candidates: ['b1', 'b2', 'b3', 'b4'], deleted: ['b1', 'b2', 'b3', 'b4'] })
+  assert.deepEqual(answer, { candidates: ['b1', 'b2', 'b3', 'b4'], deleted: ['b1', 'b2', 'b3', 'b4'], archiveKnown: true })
   assert.deepEqual(f.deletedSessions, ['b1', 'b2', 'b3', 'b4'], 'the persistence row deleted exactly the candidates')
   assert.deepEqual(f.state().pending, { seeded: { project } }, 'the pruned pending choices are gone; the seeded one stays')
   for (const id of ['b1', 'b2', 'b3', 'b4']) {
@@ -166,7 +166,7 @@ test('pruneNeverStarted deletes exactly the candidates, keeps used/titled/checkp
   assert.deepEqual(deletedEvents.map((e) => e.data.sessionId).sort(), ['b1', 'b2', 'b3', 'b4'], 'one deleted event per id')
   assert.equal(deletedEvents.length, 4)
   // Re-run: no candidates, no deletion, no new event.
-  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, dryRun: false }), { candidates: [], deleted: [] })
+  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, dryRun: false }), { candidates: [], deleted: [], archiveKnown: true })
   assert.equal(f.deletedSessions.length, 4, 'a second run deletes nothing')
   assert.equal(f.events.filter((e) => e.type === 'layerfs-session' && e.data?.deleted).length, 4)
 })
@@ -183,11 +183,11 @@ test('a draft whose only activity is its folded placement reads is still never s
   const f = harness({ state, logs: { draft: blankLog(6), boundDraft: blankLog(5) }, sidecars: { draft: folded, boundDraft: polled } })
 
   assert.deepEqual(await listIds(f), [], 'a metadata-only draft with folded reads is not listed')
-  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, dryRun: true }), { candidates: ['boundDraft', 'draft'], deleted: [] })
-  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, dryRun: false }), { candidates: ['boundDraft', 'draft'], deleted: ['boundDraft', 'draft'] })
+  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, dryRun: true }), { candidates: ['boundDraft', 'draft'], deleted: [], archiveKnown: true })
+  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, dryRun: false }), { candidates: ['boundDraft', 'draft'], deleted: ['boundDraft', 'draft'], archiveKnown: true })
   assert.equal(folded.receipts.readsTotal, 4, 'the folded counter is not cleared or changed by the predicate')
   assert.equal(polled.receipts.readsTotal, 8, 'and the same for a bound draft')
-  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, dryRun: false }), { candidates: [], deleted: [] }, 'a second run is empty')
+  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, dryRun: false }), { candidates: [], deleted: [], archiveKnown: true }, 'a second run is empty')
 })
 
 test('a conversation is started by content — a message, a title or a checkpoint — not by reads', async () => {
@@ -210,7 +210,7 @@ test('a conversation is started by content — a message, a title or a checkpoin
   }
   const f = harness({ state, logs, sidecars })
   assert.deepEqual(await listIds(f), ['checkpointed', 'system', 'titled'].sort(), 'all three are conversations')
-  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, dryRun: true }), { candidates: [], deleted: [] }, 'prune keeps a message, a title and a checkpoint')
+  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, dryRun: true }), { candidates: [], deleted: [], archiveKnown: true }, 'prune keeps a message, a title and a checkpoint')
 })
 
 test('a whitespace title is the placeholder, not a title', async () => {
@@ -218,7 +218,7 @@ test('a whitespace title is the placeholder, not a title', async () => {
   state.pending.blank = { project }
   const f = harness({ state, logs: { blank: blankLog() }, sidecars: { blank: { title: '   ' } } })
   assert.deepEqual(await listIds(f), [], 'the placeholder title does not list the draft')
-  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, dryRun: true }), { candidates: ['blank'], deleted: [] })
+  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, dryRun: true }), { candidates: ['blank'], deleted: [], archiveKnown: true })
 })
 
 test('pruneNeverStarted keeps the current conversation and everything of another project', async () => {
@@ -228,11 +228,11 @@ test('pruneNeverStarted keeps the current conversation and everything of another
   state.pending.open = { project }
   const f = harness({ state, logs: { mine: blankLog(), other: blankLog(), open: blankLog() } })
   f.loaded.add('open')
-  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, dryRun: true }), { candidates: ['mine'], deleted: [] })
+  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, dryRun: true }), { candidates: ['mine'], deleted: [], archiveKnown: true })
   // An explicit current id is kept too.
-  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, current: 'mine', dryRun: true }), { candidates: [], deleted: [] })
+  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, current: 'mine', dryRun: true }), { candidates: [], deleted: [], archiveKnown: true })
   // With no project filter, the other project's draft is included.
-  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ current: ['mine', 'open'], dryRun: true }), { candidates: ['other'], deleted: [] })
+  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ current: ['mine', 'open'], dryRun: true }), { candidates: ['other'], deleted: [], archiveKnown: true })
 })
 
 test('pruneNeverStarted keeps DSH-archived and explicitly excluded blank drafts, and deletes only the rest', async () => {
@@ -241,23 +241,63 @@ test('pruneNeverStarted keeps DSH-archived and explicitly excluded blank drafts,
   const f = harness({ state, logs: { archived: blankLog(), excluded: blankLog(), remaining: blankLog() } })
   // DSH's archive set is a default keep, not a candidate source.
   f.ctx.workspaceRegistry.archivedSessionIds = ['archived']
-  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, dryRun: true }), { candidates: ['excluded', 'remaining'], deleted: [] })
+  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, dryRun: true }), { candidates: ['excluded', 'remaining'], deleted: [], archiveKnown: true })
   // `exclude` (string or array) keeps another blank id, dry run and apply alike.
-  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, exclude: 'excluded', dryRun: true }), { candidates: ['remaining'], deleted: [] })
-  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, exclude: ['excluded'], dryRun: false }), { candidates: ['remaining'], deleted: ['remaining'] })
+  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, exclude: 'excluded', dryRun: true }), { candidates: ['remaining'], deleted: [], archiveKnown: true })
+  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, exclude: ['excluded'], dryRun: false }), { candidates: ['remaining'], deleted: ['remaining'], archiveKnown: true })
   assert.ok(f.state().pending.archived, 'the archived draft stays')
   assert.ok(f.state().pending.excluded, 'the excluded draft stays')
   assert.equal(f.state().pending.remaining, undefined, 'only the other blank draft is removed')
   assert.deepEqual(f.deletedSessions, ['remaining'], 'the persistence row deletes only the rest')
-  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, exclude: ['excluded'], dryRun: false }), { candidates: [], deleted: [] }, 'a second run finds nothing new')
+  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, exclude: ['excluded'], dryRun: false }), { candidates: [], deleted: [], archiveKnown: true }, 'a second run finds nothing new')
 })
 
-test('pruneNeverStarted keeps a blank id passed as current (the tool fallback for a predating host)', async () => {
+test('pruneNeverStarted keeps a blank id passed as current', async () => {
   const state = S.initialState()
   state.pending.blank = { project }
   const f = harness({ state, logs: { blank: blankLog() } })
-  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, current: 'blank', dryRun: false }), { candidates: [], deleted: [] })
+  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, current: 'blank', dryRun: false }), { candidates: [], deleted: [], archiveKnown: true })
   assert.ok(f.state().pending.blank, 'the kept draft is still pending')
   assert.deepEqual(f.deletedSessions, [])
 })
 
+test('an empty archive set is known, not unknown: the normal prune applies', async () => {
+  const state = S.initialState()
+  state.pending.blank = { project }
+  const f = harness({ state, logs: { blank: blankLog() } })
+  assert.deepEqual(f.ctx.workspaceRegistry.archivedSessionIds, [], 'the harness host names its archive set')
+  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, dryRun: false }),
+    { candidates: ['blank'], deleted: ['blank'], archiveKnown: true })
+})
+
+test('pruneNeverStarted refuses an apply when the host cannot name the archive set', async () => {
+  const state = S.initialState()
+  for (const id of ['archived', 'blank']) state.pending[id] = { project }
+  const f = harness({ state, logs: { archived: blankLog(), blank: blankLog() } })
+  // An old host still has the registry seam but not the field: that is unknown,
+  // not "nothing archived". A dry run answers (useful for diagnostics) and says so.
+  delete f.ctx.workspaceRegistry.archivedSessionIds
+  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, dryRun: true }),
+    { candidates: ['archived', 'blank'], deleted: [], archiveKnown: false })
+  // A field that is present but not an array is unknown too, not an empty set.
+  f.ctx.workspaceRegistry.archivedSessionIds = 'session-1'
+  assert.equal((await f.ops['sessions.pruneNeverStarted']({ project, dryRun: true })).archiveKnown, false)
+  delete f.ctx.workspaceRegistry.archivedSessionIds
+  // An apply refuses with InvalidInput, naming the reason, and deletes nothing.
+  await assert.rejects(f.ops['sessions.pruneNeverStarted']({ project, dryRun: false }), (error) => {
+    assert.equal(error?.code, 'InvalidInput')
+    assert.match(error?.message, /archived conversations/)
+    assert.equal(error?.detail?.archiveKnown, false)
+    assert.equal(error?.detail?.reason, 'archive-unknown')
+    return true
+  })
+  assert.deepEqual(f.state().pending, { archived: { project }, blank: { project } }, 'the refusal removes nothing')
+  assert.deepEqual(f.deletedSessions, [], 'no log is deleted')
+  assert.deepEqual(f.events.filter((event) => event.type === 'layerfs-session' && event.data?.deleted), [], 'no deleted event')
+  // A keep set read from the file (current/exclude) is not a bypass: only the
+  // host can prove the archive set is complete.
+  await assert.rejects(f.ops['sessions.pruneNeverStarted']({ project, current: ['archived'], exclude: ['blank'], dryRun: false }), { code: 'InvalidInput' })
+  // Even an empty scan refuses; the host still cannot verify the set.
+  for (const id of Object.keys(state.pending)) delete state.pending[id]
+  await assert.rejects(f.ops['sessions.pruneNeverStarted']({ project, dryRun: false }), { code: 'InvalidInput' })
+})

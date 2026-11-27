@@ -23,7 +23,8 @@
  *   sessions.places {sessionIds}        the project of each of up to 200 sessions, in one read-only batch (ownership store)
  *   sessions.prepareScratch             the Scratch workspace (a plain folder workspace)
  *   sessions.list {project}             local bindings + sessions stored in the project (imports missing ones)
- *   sessions.pruneNeverStarted {dryRun?, project?, current?}  delete conversations that never started (dry run unless dryRun:false)
+ *   sessions.pruneNeverStarted {dryRun?, project?, current?, exclude?}  delete conversations that never started (dry run unless dryRun:false);
+ *                                              refuses dryRun:false when the host cannot name DSH's archive set (`archiveKnown:false`)
  *   sessions.open {sessionId, project?, workspaceId?} open a session, importing it from the project if missing locally
  *   sessions.close {sessionId}          save and close its Sandbox
  *   sessions.forget {sessionId}         close and forget the binding; preserve scratch and history
@@ -788,7 +789,10 @@ export function apply(ctx: Context): void {
         return { project, discoveryError, ...(debug ? { timing: debug.phases } : {}), sessions: visible.map((row) => ({ ...row, ...branchFields(row.sessionId, row.branch) })) }
       },
       // Delete the empty New Session rows for good (the owner's one-off cleanup):
-      // a dry run (the default) lists them; `dryRun: false` deletes them.
+      // a dry run (the default) lists them; `dryRun: false` deletes them. A host
+      // that cannot name DSH's archived conversations (no workspaceRegistry
+      // field) still lists a dry run, with `archiveKnown: false`, but refuses the
+      // delete rather than treat the unknown set as empty.
       'sessions.pruneNeverStarted': async (args: any) => {
         const dryRun = args?.dryRun !== false
         const project = typeof args?.project === 'string' && args.project ? args.project : undefined

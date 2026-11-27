@@ -1626,16 +1626,30 @@ export class LayerfsSessions extends Service {
    * its binding/pending choice and checkpoint/mirror rows, and emits one
    * `layerfs-session {deleted: true}` per id. Safe to re-run: a second run finds
    * no candidates.
-   * @returns the candidates the scan proved blank, and the ids actually deleted.
+   *
+   * Only an array at `workspaceRegistry.archivedSessionIds` proves the archive
+   * set; a missing field means **unknown**, not empty. A dry run still answers
+   * (with `archiveKnown: false`) so an operator can inspect the candidates, but
+   * a real run refuses: without the set, an archived draft looks like a draft.
+   * @returns the candidates the scan proved blank, the ids actually deleted,
+   * and whether the host could name DSH's archive set.
    */
-  async pruneNeverStarted(options: { dryRun?: boolean, project?: string, current?: string | readonly string[], exclude?: string | readonly string[] } = {}): Promise<{ candidates: string[], deleted: string[] }> {
+  async pruneNeverStarted(options: { dryRun?: boolean, project?: string, current?: string | readonly string[], exclude?: string | readonly string[] } = {}): Promise<{ candidates: string[], deleted: string[], archiveKnown: boolean }> {
     const state = this.state.read()
     const only = typeof options.project === 'string' && options.project ? options.project : undefined
     const current = new Set<string>(Array.isArray(options.current) ? options.current : options.current ? [options.current] : [])
     // Archived conversations are an explicit keep, not drafts: the person put
     // them in DSH's archive. `exclude` is the caller's own keep list for an id
     // that is not archived (the CLI's --exclude).
-    const archived = new Set<string>((this.ctx.workspaceRegistry as any)?.archivedSessionIds ?? [])
+    const claimed = (this.ctx.workspaceRegistry as any)?.archivedSessionIds
+    const archiveKnown = Array.isArray(claimed)
+    if (options.dryRun === false && !archiveKnown) {
+      throw new CliError('InvalidInput',
+        'Refusing to delete: this host cannot verify DSH\'s archived conversations (workspaceRegistry.archivedSessionIds is not available), so an archived draft could be mistaken for a candidate. Nothing was deleted; a dry run still lists candidates. Restart DSH to apply.',
+        { archiveKnown: false, reason: 'archive-unknown' }, 'refusal',
+        'Restart DSH so the host exposes workspaceRegistry.archivedSessionIds, then run again with dryRun: false')
+    }
+    const archived = new Set<string>(archiveKnown ? claimed : [])
     const exclude = new Set<string>([...archived, ...(Array.isArray(options.exclude) ? options.exclude : options.exclude ? [options.exclude] : [])])
     const catalog = this.ctx.get?.('sessions' as never) as any
     const candidates: string[] = []
@@ -1646,7 +1660,7 @@ export class LayerfsSessions extends Service {
       if (current.has(id) || exclude.has(id) || catalog?.get?.(id as never)) continue
       if (await this.neverStarted(id).catch(() => false)) candidates.push(id)
     }
-    if (options.dryRun !== false || !candidates.length) return { candidates, deleted: [] }
+    if (options.dryRun !== false || !candidates.length) return { candidates, deleted: [], archiveKnown }
     const persistence = this.ctx.get?.('sessionPersistence' as never) as any
     // Wait for in-flight work per session (a bind, a choice), then delete only
     // what the scan proved blank. Candidates are never loaded, so no activity
@@ -1667,7 +1681,7 @@ export class LayerfsSessions extends Service {
     for (const id of candidates) this.forgetFreshReads(id)
     for (const id of candidates) this.ctx.layerfs.emit('layerfs-session', { sessionId: id, deleted: true })
     for (const project of projects) this.ctx.layerfs.emit('layerfs-workspaces-changed', { project })
-    return { candidates, deleted: candidates }
+    return { candidates, deleted: candidates, archiveKnown }
   }
 
   /**
