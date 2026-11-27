@@ -449,11 +449,11 @@ export function apply(ctx: Context): void {
       let invocations: any[] | undefined
       if (!options.whole && !loadedSessionEvents(id)) {
         const file = await logFile(id)
-        // A legacy combined sidecar keeps its receipts in one JSON object that
-        // cannot be bounded to the window, so only a split layout (`receipts.jsonl`
-        // beside the log) takes this path; everything else keeps the whole parse.
-        // If both exist (a half-migrated session), `receiptsFor` reads the split
-        // file for the whole path too, so the window and the whole parse agree.
+        // Receipts live in `receipts.jsonl` beside the log: the `readSidecar` above
+        // converted a combined sidecar (receipts inside `layerfs.json`, the old
+        // layout, possibly half-converted by a crash) before this, so the window
+        // and the whole parse read the same split file. A session with no
+        // receipts file keeps the whole parse.
         const receiptsFile = file ? tailFile(join(dirname(file.path), 'receipts.jsonl')) : undefined
         if (file && mayReadTail(file.size, { loaded: false, splitReceipts: receiptsFile !== undefined })) {
           const page = tailPages(id, {

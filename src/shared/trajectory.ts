@@ -392,6 +392,12 @@ export interface TrajectoryAnswer {
   hasMore?: boolean
   /** The oldest record seq this answer carries: the cursor that reads the older page. */
   olderBefore?: number
+  /**
+   * The page met its byte budget only by eliding content beside its records
+   * (oldest first: calls without a loaded tool call, DSH's own calls,
+   * checkpoints, empty turns). A cut call keeps `opsTotal`.
+   */
+  elided?: true
 }
 
 /** The answer to `session.trajectory { sessionId, since }` when nothing moved since `since`. */

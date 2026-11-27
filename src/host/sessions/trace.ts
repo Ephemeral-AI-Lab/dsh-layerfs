@@ -172,7 +172,68 @@ export function pageTrajectory(answer: TrajectoryAnswer, before?: number): Traje
     count = next
     page = buildPage(answer, entries, end, count, first)
   }
-  return page
+  return fitPage(page, budget)
+}
+
+/**
+ * The byte budget as a hard limit. A page can stay over it with one record
+ * left: essential calls without a loaded tool call (a turn's `orphanCalls`),
+ * DSH's own calls and the checkpoints of the turns it covers are never cut by
+ * the record loop. They are elided here, oldest first (call ops, host ops,
+ * emptied calls, turn checkpoints, the page's checkpoint set, then turns left
+ * with nothing), until the page fits. `elided` marks the page; a call that
+ * lost ops keeps `opsTotal`. Each pass removes about the excess, measured per
+ * item, then re-measures the page.
+ */
+function fitPage(page: TrajectoryAnswer, budget: number): TrajectoryAnswer {
+  if (jsonBytes(page) <= budget) return page
+  const turns = page.turns.map((turn) => ({ ...turn, orphanCalls: turn.orphanCalls.map((call) => ({ ...call, ops: call.ops.slice() })), hostOps: turn.hostOps.slice(), checkpoints: turn.checkpoints.slice() }))
+  const out: TrajectoryAnswer = { ...page, turns, checkpoints: page.checkpoints.slice(), elided: true }
+  // Each stage removes its oldest items until about `need` bytes are freed, and
+  // answers the bytes it freed (0: it has nothing left). Lists shrink from the
+  // front in one splice each, so a page of many thousand calls stays linear.
+  const cut = <T>(list: T[], need: number): number => {
+    let freed = 0, n = 0
+    while (n < list.length && freed < need) freed += jsonBytes(list[n++]) + 1
+    list.splice(0, n)
+    return freed
+  }
+  const each = (lists: () => Iterable<unknown[]>) => (need: number): number => {
+    let freed = 0
+    for (const list of lists()) if (freed < need && list.length) freed += cut(list, need - freed)
+    return freed
+  }
+  const stages: ((need: number) => number)[] = [
+    (need) => {
+      let freed = 0
+      for (const turn of turns) for (const call of turn.orphanCalls) {
+        if (freed >= need || !call.ops.length) continue
+        call.opsTotal ??= call.ops.length
+        freed += cut(call.ops, need - freed)
+      }
+      return freed
+    },
+    each(function* () { for (const turn of turns) yield turn.hostOps }),
+    each(function* () { for (const turn of turns) yield turn.orphanCalls }),
+    each(function* () { for (const turn of turns) yield turn.checkpoints }),
+    each(function* () { yield out.checkpoints }),
+    (need) => {
+      let freed = 0
+      const kept = turns.filter((turn) => {
+        if (freed >= need || turn.records.length || turn.orphanCalls.length || turn.hostOps.length || turn.checkpoints.length) return true
+        freed += jsonBytes(turn) + 1
+        return false
+      })
+      turns.length = 0
+      for (const turn of kept) turns.push(turn)
+      return freed
+    },
+  ]
+  let stage = 0
+  for (let size = jsonBytes(out); size > budget && stage < stages.length; size = jsonBytes(out)) {
+    if (!stages[stage]!(size - budget)) stage++
+  }
+  return out
 }
 
 /** One page of at most `count` records ending at `end`, with the calls its records keep. */

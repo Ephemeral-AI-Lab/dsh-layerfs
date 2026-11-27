@@ -40,6 +40,7 @@ import { Answer, cliFeatures, featuresOf, fixOf, pages, refuse, type CliFeatures
 import { ImageLoads, type LoadReport } from './image-loads.ts'
 import { createPhase } from './projects.ts'
 import { attachedOf, companionsOf, isHostName, machineOf, opOf, unreadableRecord, probedRecord } from '../layerfs/machine-records.ts'
+import { PROBE_TIMEOUT_MS } from '../layerfs/cli.ts'
 
 export { machineOf, opOf, STATES } from '../layerfs/machine-records.ts'
 import { engineSocket, realEngineDeps, startEngine, type EngineDeps } from './docker-engine.ts'
@@ -384,15 +385,35 @@ export class Machines {
    * refusal, is the view's last known liveness from then on. The sampler
    * calls it on its turns; only `fresh=1` awaits it on a read.
    */
-  private probeNow(name: string): Promise<void> {
+  private probeNow(name: string, fresh = false): Promise<void> {
     const running = this.probing.get(name)
-    if (running) return running
-    const run = this.lfs.machine.get(name, { detail: true, with: ['live'] }).then(
-      (got: any) => { this.lastProbe.set(name, { at: Date.now(), got }) },
-      (error: any) => { this.lastProbe.set(name, { at: Date.now(), error }) },
-    ).finally(() => { this.probing.delete(name) })
+    if (running && !fresh) return running
+    // `fresh` (Check again, Refresh) never joins a probe that started earlier, and
+    // its own budget skips the SDK client's kept `machine.get` answer (cli.ts).
+    const ask = () => this.lfs.machine.get(name, { detail: true, with: ['live'], ...(fresh ? { timeout_ms: PROBE_TIMEOUT_MS } : {}) })
+    const run: Promise<void> = (running ? running.then(ask) : ask()).then(
+      (got: any) => this.probed(name, { at: Date.now(), got }),
+      (error: any) => this.probed(name, { at: Date.now(), error }),
+    ).finally(() => { if (this.probing.get(name) === run) this.probing.delete(name) })
     this.probing.set(name, run)
     return run
+  }
+
+  /**
+   * Record a probe. One whose word differs from what the view shows (the last
+   * probe's, else the kept view's state) makes the next read build anew and
+   * tells the pages (`machine-progress`, kind `probe`), so a machine that died
+   * does not read ready from the kept view until the next poll.
+   */
+  private probed(name: string, probe: { at: number, got?: any, error?: any }): void {
+    const word = (p: { got?: any, error?: any }) => p.got ? `state:${text(p.got.state) ?? ''}` : `error:${p.error?.code ?? 'Unknown'}`
+    const before = this.lastProbe.get(name)
+    const shown = Array.isArray(this.lastView?.machines) ? this.lastView.machines.find((m: any) => m?.name === name) : undefined
+    const was = before ? word(before) : shown ? `state:${shown.state ?? ''}` : undefined
+    this.lastProbe.set(name, probe)
+    if (was === undefined || was === word(probe)) return
+    this.changed()
+    this.host.emit('machine-progress', { type: 'machine-progress', name, kind: 'probe', progress: { stage: 'probe', state: text(probe.got?.state) ?? null } })
   }
 
   /** The view with each Sandbox's `live` from the sampler's newest point (absent where it has none). */
@@ -431,7 +452,7 @@ export class Machines {
     const readable = (m: any) => !unreadableRecord({ state: m?.state, reason: m?.reason, platform: m?.platform })
     // A fresh read (the page's Refresh / Check again) asks each readable machine now. A plain read
     // never waits on the probe: the sampler's last answer is the liveness it reports (with its timestamp).
-    const probing = fresh ? Promise.all(rows.filter(readable).map((m: any) => this.probeNow(String(m.machine)))) : Promise.resolve()
+    const probing = fresh ? Promise.all(rows.filter(readable).map((m: any) => this.probeNow(String(m.machine), true))) : Promise.resolve()
     // whether each daemon runs is the metrics sampler's (withLive), one machine.stats per machine per 15 s
     const listSandboxes = (p: { limit: number, cursor?: string }) => lfs.sandbox.list({ ...p, detail: true })
     const [platforms, listedStores, sandboxes] = await Promise.all([
@@ -455,7 +476,9 @@ export class Machines {
     // a record that is broken itself (outdated, unreadable…) keeps its state, reason and fix over any probe
     const machines = rows.map((m: any) => {
       const probe = probed.get(String(m.machine))
-      const merged = machineOf(probedRecord(m, probe?.got && !probeOlderThan(probe.got, m) ? probe.got : undefined))
+      // a probe older than the record says nothing now: its state, time and live section all go
+      if (probe?.got && probeOlderThan(probe.got, m)) { probed.delete(String(m.machine)); return machineOf(m) }
+      const merged = machineOf(probedRecord(m, probe?.got))
       // the timestamp of the last known liveness, not of this read
       const at = livenessAt(probe)
       return at ? { ...merged, observedAt: at } : merged

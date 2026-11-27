@@ -1786,3 +1786,32 @@ test('session.annotations answers sidecar metadata only; session.receipts pages 
     await assert.rejects(() => ops['session.receipts'](bad), (error) => error.code === 'InvalidInput')
   }
 })
+
+test('a choice that fails after moving the owner route moves the route back', async () => {
+  const lfs = { project: { get: async (key) => ({ key }) } }
+  const { s, state } = sessions({ lfs, layerfsRoot: mkdtempSync(join(tmpdir(), 'dsh-choose-undo-')) })
+  const root = s.ctx.layerfs.root
+  s.ctx.sessions.get = (id) => session(id, { cwd: '/Users/me/repo' })
+  // The persistence row's public face: owner routes in owners.json, moved by migrateProject.
+  const owners = { kept: 'st/old' }
+  const moves = []
+  const persistence = {
+    ownerOf: (id) => owners[id] ? { project: owners[id] } : undefined,
+    migrateProject: async (live, project) => {
+      const id = typeof live === 'string' ? live : live.id
+      moves.push([id, project])
+      if (project) owners[id] = project
+      else delete owners[id]
+    },
+  }
+  // Any step after the route move can fail; here the agents service does.
+  s.ctx.get = (name) => name === 'sessionPersistence' ? persistence : name === 'agents' ? { get: () => { throw new Error('agents unavailable') } } : undefined
+  await assert.rejects(s.choose('draft', 'st/app'), /agents unavailable/)
+  assert.equal(state().pending.draft, undefined, 'no pending placement')
+  assert.equal(persistence.ownerOf('draft'), undefined, 'and no owner route: no hidden owned draft is left behind')
+  assert.deepEqual(moves, [['draft', 'st/app'], ['draft', null]])
+  // A draft that was already owned keeps its owner.
+  await assert.rejects(s.choose('kept', 'st/new'), /agents unavailable/)
+  assert.deepEqual(persistence.ownerOf('kept'), { project: 'st/old' })
+  rmSync(root, { recursive: true, force: true })
+})
