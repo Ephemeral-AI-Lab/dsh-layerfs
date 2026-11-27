@@ -131,13 +131,17 @@ export type HostPriority = 'interactive' | 'background'
 export interface HostCallOptions {
   /**
    * `interactive` (the default) is what the person is waiting for: the open
-   * view's reads and every write. `background` is prefetch and decoration
-   * (the doctor count, metrics, exports, sandbox-create history, per-row
-   * sizes): it runs only while no interactive op waits, and a waiting
-   * background op takes a turn after {@link BACKGROUND_TURN_EVERY} admitted
-   * interactive ops, so it cannot starve. A doctor run is a write even when
-   * the count starts one by itself after the first frame; only the count read
-   * is decoration.
+   * view's reads. `background` is prefetch and decoration (the doctor count,
+   * metrics, exports, sandbox-create history, per-row sizes): it runs only
+   * while no interactive read waits, never holds more than
+   * {@link BACKGROUND_IN_FLIGHT_LIMIT} of the read slots, and a waiting
+   * background read takes a turn after {@link BACKGROUND_TURN_EVERY} admitted
+   * interactive reads, so it cannot starve. Writes ignore it: every write (a
+   * non-GET `call`, a named operation not known to read) has its own lane
+   * ({@link WRITE_IN_FLIGHT_LIMIT}), so a long machine start or a PostgreSQL
+   * attach never takes a read's slot. A doctor run is a write even when the
+   * count starts one by itself after the first frame; only the count read is
+   * decoration.
    */
   priority?: HostPriority
   /**
@@ -190,6 +194,25 @@ export const HOST_IN_FLIGHT_LIMIT = 6
 /** A waiting background op goes first after this many consecutive interactive admissions. */
 export const BACKGROUND_TURN_EVERY = 4
 
+/**
+ * At most this many background reads hold read slots at once, so at least
+ * `HOST_IN_FLIGHT_LIMIT - BACKGROUND_IN_FLIGHT_LIMIT` are always left for what
+ * the person is waiting for. Home's prefetch alone sends 13 reads, two of them
+ * Store walks (a project's archive), which used to fill every slot.
+ */
+export const BACKGROUND_IN_FLIGHT_LIMIT = 2
+
+/**
+ * Writes run in their own lane, beside the read slots: a write has no timeout
+ * and machine start/restart/create or a PostgreSQL attach waits for its
+ * progress for tens of seconds, so counting them against the reads left the
+ * open view waiting behind them. Bounded too, so a burst of writes queues.
+ */
+export const WRITE_IN_FLIGHT_LIMIT = 4
+
+/** Which lane an admitted send takes: the read slots, or the write lane. */
+export type HostLane = 'read' | 'write'
+
 interface Waiting {
   readonly task: () => Promise<unknown>
   readonly priority: HostPriority
@@ -198,49 +221,74 @@ interface Waiting {
 }
 
 /**
- * A small FIFO admission scheduler with two priorities. `active` never exceeds
- * `limit`; a task releases its slot when it settles, rejected or not. There is
- * no re-entrancy: an admitted task is one host send (see `send`), and a send
- * never waits on another send, so a queued op cannot hold a slot for an op
- * behind it.
+ * A small FIFO admission scheduler. Reads share `limit` slots with two
+ * priorities, background holding at most `backgroundLimit` of them; writes
+ * have their own `writeLimit` slots and never take a read's. A task releases
+ * its slot when it settles, rejected or not. There is no re-entrancy: an
+ * admitted task is one host send (see `send`), and a send never waits on
+ * another send, so a queued op cannot hold a slot for an op behind it.
  */
 export class HostAdmission {
-  private active = 0
+  /** Reads admitted and not settled. */
+  private reads = 0
+  /** Of those, background reads. */
+  private backgroundReads = 0
+  /** Writes admitted and not settled. */
+  private writes = 0
   /** Consecutive interactive admissions, for the background turn. */
   private streak = 0
   private readonly queues: Record<HostPriority, Waiting[]> = { interactive: [], background: [] }
-  constructor(readonly limit = HOST_IN_FLIGHT_LIMIT) {}
+  private readonly writeQueue: Waiting[] = []
+  constructor(
+    readonly limit = HOST_IN_FLIGHT_LIMIT,
+    readonly backgroundLimit = Math.max(1, Math.min(BACKGROUND_IN_FLIGHT_LIMIT, limit - 1)),
+    readonly writeLimit = WRITE_IN_FLIGHT_LIMIT,
+  ) {}
 
-  /** Operations admitted and not settled. */
-  get inFlight(): number { return this.active }
-  /** Operations waiting for a slot. */
-  get waiting(): number { return this.queues.interactive.length + this.queues.background.length }
+  /** Operations admitted and not settled, both lanes. */
+  get inFlight(): number { return this.reads + this.writes }
+  /** Operations waiting for a slot, both lanes. */
+  get waiting(): number { return this.queues.interactive.length + this.queues.background.length + this.writeQueue.length }
 
-  run<T>(priority: HostPriority, task: () => Promise<T>): Promise<T> {
+  run<T>(priority: HostPriority, task: () => Promise<T>, lane: HostLane = 'read'): Promise<T> {
     return new Promise<T>((resolve, reject) => {
-      this.queues[priority].push({ task, priority, resolve, reject })
+      const waiting: Waiting = { task, priority, resolve, reject }
+      if (lane === 'write') this.writeQueue.push(waiting)
+      else this.queues[priority].push(waiting)
       this.pump()
     })
   }
 
   private next(): Waiting | undefined {
     const { interactive, background } = this.queues
-    if (background.length && (interactive.length === 0 || this.streak >= BACKGROUND_TURN_EVERY)) return background.shift()
-    return interactive.shift() ?? background.shift()
+    const backgroundOpen = background.length > 0 && this.backgroundReads < this.backgroundLimit
+    if (backgroundOpen && (interactive.length === 0 || this.streak >= BACKGROUND_TURN_EVERY)) return background.shift()
+    return interactive.shift() ?? (backgroundOpen ? background.shift() : undefined)
+  }
+
+  /** Start one admitted task; `release` frees its slot when it settles. */
+  private start(next: Waiting, release: () => void): void {
+    // The admission is decided here; the send starts on the next microtask so a
+    // synchronous burst queues in call order instead of re-entering this loop.
+    void Promise.resolve().then(next.task).then(next.resolve, next.reject).finally(() => {
+      release()
+      this.pump()
+    })
   }
 
   private pump(): void {
-    while (this.active < this.limit) {
+    while (this.writes < this.writeLimit && this.writeQueue.length) {
+      this.writes++
+      this.start(this.writeQueue.shift()!, () => { this.writes-- })
+    }
+    while (this.reads < this.limit) {
       const next = this.next()
       if (!next) return
-      this.active++
-      this.streak = next.priority === 'interactive' ? this.streak + 1 : 0
-      // The admission is decided here; the send starts on the next microtask so a
-      // synchronous burst queues in call order instead of re-entering this loop.
-      void Promise.resolve().then(next.task).then(next.resolve, next.reject).finally(() => {
-        this.active--
-        this.pump()
-      })
+      const background = next.priority === 'background'
+      this.reads++
+      if (background) this.backgroundReads++
+      this.streak = background ? 0 : this.streak + 1
+      this.start(next, () => { this.reads--; if (background) this.backgroundReads-- })
     }
   }
 }
@@ -289,9 +337,15 @@ const READ_OPS: ReadonlySet<string> = new Set([
   'setup.status', 'simulation.script', 'simulation.status',
 ])
 
+/** Whether a send writes: a non-GET `http` call, or a named operation not known to read. */
+function isWrite(name: string, args: unknown): boolean {
+  if (name === 'http') return String((args as { method?: unknown } | undefined)?.method ?? 'GET').toUpperCase() !== 'GET'
+  return !READ_OPS.has(name)
+}
+
 export function createApi(remote: () => any, nav: Navigator, workspace: () => any): LayerfsApi & { dispose(): void } {
   const listeners = new Map<string, Set<(e: HostEvent) => void>>()
-  /** Admission: at most {@link HOST_IN_FLIGHT_LIMIT} sends, interactive before background. */
+  /** Admission: at most {@link HOST_IN_FLIGHT_LIMIT} reads, interactive before background; writes in their own lane. */
   const admission = new HostAdmission()
   /** Identical reads already in flight; a joiner gets that answer and takes no slot of its own. */
   const sharedSends = new Map<string, Promise<any>>()
@@ -403,7 +457,7 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
         inFlight.delete(drop!)
         if (timer) clearTimeout(timer)
       }
-    })
+    }, isWrite(name, args) ? 'write' : 'read')
   }
 
   /** Resolves once the event stream is connected again, or after `ms`. */
@@ -459,19 +513,21 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
   }
 
   async function call<T>(method: string, path: string, body?: unknown, options: HostCallOptions = {}): Promise<T> {
+    // The caller's priority reaches admission (a decoration read must not take an interactive slot).
+    const admitted: HostCallOptions = options.priority ? { priority: options.priority } : {}
     const run = async (): Promise<T> => {
       let reply: { status: number, body: any }
       const get = method.toUpperCase() === 'GET'
       const args = { method, path, ...(body === undefined ? {} : { body }) }
       try {
         try {
-          reply = await op('http', args, get ? GET_TIMEOUT_MS : undefined)
+          reply = await op('http', args, get ? GET_TIMEOUT_MS : undefined, admitted)
         } catch (error) {
           // A read whose connection dropped (the host restarted) is sent once more when it is back.
           // A write never is: it may already have happened.
           if (!(get && error instanceof LostCall && error.why === 'dropped')) throw error
           await reconnected(RECONNECT_WAIT_MS)
-          reply = await op('http', args, get ? GET_TIMEOUT_MS : undefined)
+          reply = await op('http', args, get ? GET_TIMEOUT_MS : undefined, admitted)
         }
       } catch (error) {
         if (error instanceof HostError) throw error
