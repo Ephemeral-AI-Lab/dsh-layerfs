@@ -102,10 +102,10 @@ LayerFS CLI 调用。各页面指南的表格里也写着同样的调用；这�
 | 任务 **重试**（Retry） | 任务卡片 | 再次调用该任务的路由 | 该任务自己的调用 |
 | 任务 **关闭**（Dismiss） | 任务卡片 | — | — （当前浏览器） |
 | 待处理提示 **启动 <machine>**（Start <machine>） | Store 页面提示、卡片状态 | `POST /api/machines/:id/start` | `machine start` |
-| **添加 › 添加存储桶**（Add › Add bucket）→ **连接存储桶**（Connect bucket） | 导航栏“添加”、备份对话框、主页 › Store › 存储桶 | `POST /api/buckets` | `backup connect`（密钥经 stdin 传入） ↻ |
+| **添加 › 添加存储桶**（Add › Add bucket）→ **连接存储桶**（Connect bucket） | 导航栏“添加”、备份对话框、主页 › 存储桶 | `POST /api/buckets` | `backup connect`（密钥经 stdin 传入） ↻ |
 | **重新连接…**（Connect again…）→ **重新连接**（Connect again） | 存储桶页面、存储桶卡片 | `POST /api/buckets`, `GET /api/buckets/:id/files` | `backup connect`, `backup list` |
 | 打开存储桶页面、**列出**（List）/ **重新列出**（List again）、卡片 **⋯ › 列出文件**（⋯ › List files） | `LayerFS › … › <bucket>` | `GET /api/buckets/:id/files` | `backup list` (读取) |
-| **列出存储桶文件**（List bucket files） | `主页 › Store › SQLite › 存储桶` | `POST /api/storage/check` | 每个存储桶一次 `backup list`，然后是存储视图的读取 |
+| **列出存储桶文件**（List bucket files） | `主页 › 存储桶` | `POST /api/storage/check` | 每个存储桶一次 `backup list`，然后是存储视图的读取 |
 | 存储桶 **测试连接**（Test connection） | `… › <bucket>` | `POST /api/doctor/runs` `{kind: bucket}` | `backup doctor` |
 | 存储桶 **⋯ › 断开连接**（⋯ › Disconnect）→ **断开连接**（Disconnect） | `… › <bucket>` | `DELETE /api/buckets/:id` | `backup disconnect` ↻ |
 | 存储桶行或文件行的 **立即备份**（Back up now） | `… › <bucket>`, `… › <bucket> › <file>` | `POST /api/stores/:s/backup` `{bucket, file}` | `backup create`, `backup list` |

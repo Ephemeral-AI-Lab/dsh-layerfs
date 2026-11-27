@@ -1,6 +1,6 @@
 # Bucket
 
-> **Where:** `LayerFS › Home › Buckets › <bucket>` (and `… › <bucket> › <file>` for one backup file) · **Opens from:** a bucket card on Home › Stores › SQLite › Buckets, Jump to, a Store's Backups tab · **Source:** see the end
+> **Where:** `LayerFS › Home › Buckets › <bucket>` (and `… › <bucket> › <file>` for one backup file) · **Opens from:** a bucket card on Home › Buckets, Jump to, a Store's Backups tab · **Source:** see the end
 
 A bucket is an S3-compatible place (MinIO or Cloudflare R2) where SQLite Stores are backed
 up, one `store.sqlite` object per backup file. Its page lists every Store file in it, which
@@ -65,12 +65,12 @@ SQLite Store; LayerFS reads its projects only by restoring it.
 | 5 | Linked Stores | One row per Store of this home linked to the file: Store and place, state, **Last transfer** (**Backed up** / **Restored** *ago* or **Never moved by this home**), **Back up now** / **Back up as new file…**, **Restore…** | As on the bucket page | `backup create` / `backup restore` | **No Store of this home links this file. …** |
 | | Missing file | **No file** *file* **in** *bucket*, with **List** / **List again** and **Open bucket** | **List** → lists the bucket; **Open bucket** → the bucket page | `backup list --bucket` (read) | after a listing no longer has it |
 
-## Bucket cards on Home › Stores
+## Bucket cards on Home › Buckets
 
-`LayerFS › Home › Stores › SQLite › Buckets`: the SQLite board's second view, one card per
+`LayerFS › Home › Buckets`: the home's own Buckets tab, one card per
 bucket. Home's page is described in [home.md](home.md); the cards are described here.
 
-![Home › Stores › Buckets, numbered](img/bucket-cards.png)
+![Home › Buckets, numbered](img/bucket-cards.png)
 
 | # | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|---|
@@ -117,7 +117,7 @@ bucket. Home's page is described in [home.md](home.md); the cards are described 
 
 - [Store](store.md): a Linked Store, and the Back up and Backups dialogs.
 - [Project](project.md): a project listed under **Inside**.
-- [Home](home.md): Home › Stores › Buckets.
+- [Home](home.md): Home › Buckets.
 
 ## Source
 
