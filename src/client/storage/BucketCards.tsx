@@ -50,7 +50,7 @@ function whereOf(b: BucketRow, t: StorageT): string {
 
 export function BucketCards({ view, t, now, jobs, listingBuckets, listingAll, onOpen, onAddBucket, onList, onReconnect, onRestore }: {
   view: StorageView, t: StorageT, now: number
-  /** Running jobs. */
+  /** The home's jobs: running ones show on their bucket; an ended failed restore marks its file. */
   jobs: readonly StorageJob[]
   listingBuckets?: ReadonlySet<string> | undefined
   listingAll?: boolean | undefined
@@ -117,6 +117,12 @@ function BucketCard({ b, view, t, now, jobs, listing, onOpen, onList, onReconnec
   const fromHome = files.filter((f) => f.state !== 'unlinked').length
   const size = files.reduce((n, f) => n + (f.bytes ?? 0), 0)
   const running = jobs.filter((j) => !j.ended && (j.kind === 'backup' || j.kind === 'restore') && j.target === b.name)
+  // a file's last restore from this bucket, when it failed: the row says so, with LayerFS's reason on hover
+  const restoreFailed = (file: string): StorageJob | null => {
+    const last = jobs.filter((j) => j.kind === 'restore' && j.target === b.name && j.file === file && j.ended)
+      .reduce<StorageJob | null>((a, j) => (!a || (j.ended ?? 0) > (a.ended ?? 0) ? j : a), null)
+    return last?.outcome === 'failed' ? last : null
+  }
   const room = Math.max(1, ROWS - running.length)
   const rows = files.slice(0, room)
   const open = () => onOpen(`bucket:${b.name}`)
@@ -177,9 +183,16 @@ function BucketCard({ b, view, t, now, jobs, listing, onOpen, onList, onReconnec
                 <li key={`${f.file}:${f.storeName ?? ''}`} className={css.row}>
                   <button type="button" className={css.file} title={f.reason ?? f.file} onClick={() => onOpen(`backup:${b.name}/${f.file}`)}>{f.file}</button>
                   <span className={css.size}>{f.bytes != null ? bytes(f.bytes) : ''}</span>
-                  {f.state === 'unlinked' ? (
-                    <button type="button" className={css.restore} onClick={() => onRestore(b.name, f.file)}>{t('ovRestore')}</button>
-                  ) : (
+                  {f.state === 'unlinked' ? (() => {
+                    const lost = restoreFailed(f.file)
+                    const button = <button type="button" className={css.restore} onClick={() => onRestore(b.name, f.file)}>{t('ovRestore')}</button>
+                    return lost ? (
+                      <span className={css.store} data-restore-failed={f.file}>
+                        <Signal state="error" title={t('bcRestoreFailed')} detail={lost.error?.message ?? undefined} />
+                        {button}
+                      </span>
+                    ) : button
+                  })() : (
                     <span className={css.store} title={[chip.label, f.modified ? when(f.modified) : null, f.reason].filter(Boolean).join(' · ')}>
                       {f.storeName && f.store
                         ? <button type="button" className={css.storeName} onClick={() => onOpen(`store:${f.storeName}`)}>{f.storeName}</button>

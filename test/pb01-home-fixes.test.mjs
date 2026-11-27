@@ -321,3 +321,33 @@ test('P0-2 (Option A) & P1-2: Hero identity shows LayerFS version + 8-char SHA; 
   const homeTsx = src('src/client/storage/HomeOverview.tsx')
   assert.match(homeTsx, /<HomeHero\s+title=\{t\('overview'\)\}\s+identity=\{runtimeBadge\}/)
 })
+
+test('Bucket card: an unlinked file whose last restore failed is marked beside Restore; a later success or another file clears it', () => {
+  const t = makeT('en')
+  const file = (name) => ({ file: name, store: null, bytes: 100, modified: null, behind: null, changed: null, missing: false, message: null })
+  const bucket = { name: 'minio', provider: 'minio', listed: 1, files: [file('shop'), file('blog')], error: null }
+  const job = (id, f, ended, outcome, message) => ({ id, kind: 'restore', store: f, target: 'minio', file: f, started: ended - 10, ended, phase: null, done: null, total: null, outcome,
+    error: outcome === 'failed' ? { code: 'Unsupported', message, phase: null } : null })
+  const render = (jobs) => {
+    globalThis.__pb01Buttons = []
+    return renderToStaticMarkup(createElement(M.BucketCards, {
+      view: { stores: [], machines: [], buckets: [bucket], jobs, at: 0 }, t, now: 61000, jobs,
+      onOpen: () => {}, onAddBucket: () => {}, onList: () => {}, onReconnect: () => {}, onRestore: () => {},
+    }))
+  }
+  const normal = render([])
+  assert.doesNotMatch(normal, /data-restore-failed/, 'no mark without a failed restore')
+  assert.equal(normal.split(t('ovRestore')).length - 1, 2, 'both unlinked files offer Restore')
+
+  const failed = render([job('a', 'shop', 1000, 'failed', 'schema version 2 is not supported')])
+  assert.match(failed, /data-restore-failed="shop"/)
+  assert.doesNotMatch(failed, /data-restore-failed="blog"/, 'another file is not marked')
+  assert.ok(failed.includes(t('bcRestoreFailed')), 'the mark says Restore failed')
+  assert.ok(failed.includes('schema version 2 is not supported'), "LayerFS's reason is the detail")
+  assert.equal(failed.split(t('ovRestore')).length - 1, 2, 'the failed file still offers Restore')
+
+  const retried = render([job('a', 'shop', 1000, 'failed', 'x'), job('b', 'shop', 2000, 'succeeded')])
+  assert.doesNotMatch(retried, /data-restore-failed/, 'a later successful restore clears the mark')
+  const running = render([job('a', 'shop', 1000, 'failed', 'x'), { ...job('c', 'shop', 3000, null), ended: null }])
+  assert.match(running, /data-restore-failed="shop"/, 'a restore still running does not hide the last failure')
+})
