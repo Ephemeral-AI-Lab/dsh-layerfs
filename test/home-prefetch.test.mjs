@@ -193,8 +193,15 @@ test('a mount joins the prefetch in flight, then reads the host again after the 
   const joined = rig.api.op('sessions.list', { project: 'perf/demo', localOnly: true }, { share: true })
   await flush()
   assert.equal(rig.state.calls.filter((c) => c.op === localKey && c.args.project === 'perf/demo' && c.args.localOnly).length, 1, 'the table joined that send')
-  for (const held of [...rig.state.held]) held.settle()
-  await Promise.all([run, joined])
+  // Decoration holds at most BACKGROUND_IN_FLIGHT_LIMIT slots: settle what is
+  // held until the queued prefetch reads have run too.
+  let settled = false
+  const all = Promise.all([run, joined]).then(() => { settled = true })
+  for (let i = 0; i < 50 && !settled; i++) {
+    for (const held of [...rig.state.held]) held.settle()
+    await flush()
+  }
+  await all
 
   // Freshness: the share window is still the client's 1 s, so a later read reaches the host.
   assert.equal(M.A.SHARE_MAX_AGE_MS, 1_000, 'the share age is unchanged')
