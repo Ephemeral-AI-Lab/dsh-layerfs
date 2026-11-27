@@ -1590,9 +1590,14 @@ export class LayerfsSessions extends Service {
     const persistence = this.ctx.get?.('sessionPersistence' as never) as any
     // `local` routes to the owner's backend and never imports on a miss.
     const local = persistence?.local ?? persistence
-    const snapshot = 'snapshot' in known ? known.snapshot : await local?.stat?.(sessionId).catch(() => undefined)
+    // A read that fails is not a miss: what cannot be read cannot be proven
+    // blank, so it stays (when in doubt, skip).
+    let unreadable = false
+    const unread = (): undefined => { unreadable = true; return undefined }
+    const snapshot = 'snapshot' in known ? known.snapshot : await local?.stat?.(sessionId).catch(unread)
     if (snapshot?.header?.origin === 'subagent' || snapshot?.header?.isSeeded === true) return false
-    const sidecar = 'sidecar' in known ? known.sidecar : await persistence?.readSidecar?.(sessionId, { cached: true }).catch(() => undefined)
+    const sidecar = 'sidecar' in known ? known.sidecar : await persistence?.readSidecar?.(sessionId, { cached: true }).catch(unread)
+    if (unreadable) return false
     // Receipts are not consulted: `sidecar.receipts.readsTotal` counts the
     // draft's own placement reads and is kept for the trajectory's OBSERVATION.
     if (realSessionTitle(sidecar?.title) !== null || sidecar?.archive?.count || sidecar?.checkpoints?.length || sidecar?.invocations?.length) return false
@@ -1662,26 +1667,36 @@ export class LayerfsSessions extends Service {
     }
     if (options.dryRun !== false || !candidates.length) return { candidates, deleted: [], archiveKnown }
     const persistence = this.ctx.get?.('sessionPersistence' as never) as any
-    // Wait for in-flight work per session (a bind, a choice), then delete only
-    // what the scan proved blank. Candidates are never loaded, so no activity
-    // is stopped and nothing is archived first.
-    await Promise.all(candidates.map((id) => this.lane(id, async () => {})))
+    // Each candidate is checked again and deleted inside its own lane, after
+    // its in-flight work (a bind, a choice): the scan above awaited I/O per
+    // session, so a draft the person opened or wrote to since then is kept.
+    // Candidates are never loaded, so no activity is stopped and nothing is
+    // archived first.
+    const deleted: string[] = []
     const projects = new Set<string>()
     for (const id of candidates) {
-      const binding = this.state.read().sessions[id]
-      const project = this.state.read().pending[id]?.project ?? binding?.project
-      if (project) projects.add(project)
-      if (binding?.kind === 'project' && binding.sandbox) {
-        try { await this.lfs.sandbox.remove(binding.sandbox, { force: true }) } catch { /* an empty Sandbox may already be gone */ }
-      }
-      this.store?.forget(id)
+      const removed = await this.lane(id, async () => {
+        if (catalog?.get?.(id as never)) return false
+        if (!(await this.neverStarted(id).catch(() => false))) return false
+        const binding = this.state.read().sessions[id]
+        const project = this.state.read().pending[id]?.project ?? binding?.project
+        await persistence?.deleteSessions?.([id])
+        this.store?.forget(id)
+        this.state.update((s) => { delete s.sessions[id]; delete s.checkpoints[id]; delete s.mirror[id]; delete s.pending[id] })
+        this.forgetFreshReads(id)
+        if (project) projects.add(project)
+        // The log is gone first, so the slow Sandbox removal cannot widen the
+        // window in which the draft could start.
+        if (binding?.kind === 'project' && binding.sandbox) {
+          try { await this.lfs.sandbox.remove(binding.sandbox, { force: true }) } catch { /* an empty Sandbox may already be gone */ }
+        }
+        return true
+      })
+      if (removed) deleted.push(id)
     }
-    await persistence?.deleteSessions?.(candidates)
-    this.state.update((s) => { for (const id of candidates) { delete s.sessions[id]; delete s.checkpoints[id]; delete s.mirror[id]; delete s.pending[id] } })
-    for (const id of candidates) this.forgetFreshReads(id)
-    for (const id of candidates) this.ctx.layerfs.emit('layerfs-session', { sessionId: id, deleted: true })
+    for (const id of deleted) this.ctx.layerfs.emit('layerfs-session', { sessionId: id, deleted: true })
     for (const project of projects) this.ctx.layerfs.emit('layerfs-workspaces-changed', { project })
-    return { candidates, deleted: candidates, archiveKnown }
+    return { candidates, deleted, archiveKnown }
   }
 
   /**

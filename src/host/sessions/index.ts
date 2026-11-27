@@ -779,8 +779,11 @@ export function apply(ctx: Context): void {
           // check's to hide: it is imported, and only proven-blank local drafts
           // pay for the read below.
           if (row.state === 'stored' || row.stored === true || row.local === false) { visible.push(row); continue }
-          const snapshot = await snapshotOf(row.sessionId).catch(() => undefined)
-          const sidecar = await sidecarOf(row.sessionId).catch(() => undefined)
+          // A read that fails keeps the row: only a proven-blank draft is hidden.
+          let unreadable = false
+          const snapshot = await snapshotOf(row.sessionId).catch(() => { unreadable = true; return undefined })
+          const sidecar = await sidecarOf(row.sessionId).catch(() => { unreadable = true; return undefined })
+          if (unreadable) { visible.push(row); continue }
           const blank = typeof sessions.neverStarted === 'function' ? await sessions.neverStarted(row.sessionId, { snapshot, sidecar }).catch(() => false) : false
           if (!blank) visible.push(row)
         }

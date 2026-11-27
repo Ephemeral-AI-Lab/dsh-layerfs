@@ -301,3 +301,50 @@ test('pruneNeverStarted refuses an apply when the host cannot name the archive s
   for (const id of Object.keys(state.pending)) delete state.pending[id]
   await assert.rejects(f.ops['sessions.pruneNeverStarted']({ project, dryRun: false }), { code: 'InvalidInput' })
 })
+
+test('prune keeps a draft whose log or sidecar cannot be read', async () => {
+  const state = S.initialState()
+  state.pending.unstatable = { project }
+  state.pending.unreadSidecar = { project }
+  state.pending.blank = { project }
+  const logs = { unreadSidecar: blankLog(), blank: blankLog() }
+  const f = harness({ state, logs })
+  const failing = Object.assign(new Error('EACCES'), { code: 'EACCES' })
+  const stat = f.persistence.local.stat
+  f.persistence.local.stat = async (id) => { if (id === 'unstatable') throw failing; return stat(id) }
+  f.persistence.stat = f.persistence.local.stat
+  const readSidecar = f.persistence.readSidecar
+  f.persistence.readSidecar = async (id, options) => { if (id === 'unreadSidecar') throw failing; return readSidecar(id, options) }
+  const answer = await f.ops['sessions.pruneNeverStarted']({ project, dryRun: false })
+  assert.deepEqual(answer, { candidates: ['blank'], deleted: ['blank'], archiveKnown: true })
+  assert.deepEqual(f.deletedSessions, ['blank'])
+  assert.ok(f.state().pending.unstatable && f.state().pending.unreadSidecar, 'the unreadable drafts keep their pending choice')
+})
+
+test('prune keeps a draft that is opened or written to between its scan and its delete', async () => {
+  const state = S.initialState()
+  state.pending.opened = { project }
+  state.pending.written = { project }
+  state.pending.idle = { project }
+  const logs = { opened: blankLog(), written: blankLog(), idle: blankLog() }
+  const f = harness({ state, logs })
+  // After the scan has read each draft, and before the delete, the person
+  // opens one draft and sends a message in the other.
+  const open = f.persistence.local.open
+  const seen = new Set()
+  f.persistence.local.open = async (id, mode) => {
+    const reader = await open(id, mode)
+    return { ...reader, close: async () => {
+      await reader.close()
+      if (seen.has(id)) return
+      seen.add(id)
+      if (id === 'opened') f.loaded.add('opened')
+      if (id === 'written') logs.written = startedLog()
+    } }
+  }
+  const answer = await f.ops['sessions.pruneNeverStarted']({ project, dryRun: false })
+  assert.deepEqual(answer, { candidates: ['idle', 'opened', 'written'], deleted: ['idle'], archiveKnown: true })
+  assert.deepEqual(f.deletedSessions, ['idle'], 'only the still-blank, unopened draft is deleted')
+  assert.ok(f.state().pending.opened && f.state().pending.written, 'the kept drafts keep their pending choice')
+  assert.deepEqual(f.events.filter((e) => e.type === 'layerfs-session' && e.data?.deleted).map((e) => e.data.sessionId), ['idle'])
+})
