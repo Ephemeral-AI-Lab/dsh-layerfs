@@ -156,12 +156,13 @@ the dialog grows to the height the shell allows: the head with **Close**, and th
 control — fields, tiles, links and buttons — is a 44 px target, and the footer wraps above
 the home indicator. Long notes and errors wrap instead of ending in an ellipsis.
 
+![New project on a phone: a full-height dialog](img/entry-project-phone.png)
+
 | # | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|---|
-| 1 | Kind | **SQLite** "A file on one machine." · **PostgreSQL** "A server any machine can use." | Choose → the Store part changes with it, and **Machine** becomes **Runs on** for PostgreSQL | — | — |
-| Start from | **Empty** · **Folder on this Mac** (**Folder on this computer** on Linux) | **Folder on this Mac** → a Folder field with **Browse…** | — | — |
+| 1 | Save to | **Existing** Stores (each with its engine, machine and project count; the last used one is marked) · **New SQLite Store** · **Connect PostgreSQL…** | Choose a Store, or make one: the Store and Machine parts follow the choice | `GET /api/storage` (read) | A taken name is prefilled free (`demo-store-2`) with the line "Store {taken} is already taken — automatically renamed to {store}. Edit it above, or switch to Existing."; a name that is not lowercase letters, digits, dots, underscores and hyphens is refused |
 | Name | **Also the name of its folder in the Store.** / **Saved as {slug}** | Type | — | a name another project already uses is refused here |
-| Store | **New Store** · **Existing · {n}**; the new Store is named after the project's slug, and a **Store name** field appears beside them when that name is taken or was edited | Choose or type | `GET /api/storage` (read) | A taken name is prefilled free (`demo-store-2`) with the line "Store {taken} is already taken — automatically renamed to {store}. Edit it above, or switch to Existing."; a name that is not lowercase letters, digits, dots, underscores and hyphens is refused |
+| From folder… | **Folder on this Mac** (**Folder on this computer** on Linux) | Press → a Folder field with **Browse…** | — | — |
 | 2 | Cancel | — | Closes; nothing is made | — | — |
 | 3 | Create and open | — | Runs the parts in order: check the folder, make the Store, init the project, place the Store, open a session | `store create`, `project init` (polled job), `store move` (a job, when not on native), `sessions.choose`; folder check `POST /api/project-sources/check` (host only) | progress per part; **Create stopped** with **Edit {part}** on a refusal |
 

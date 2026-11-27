@@ -111,6 +111,8 @@ fill what is left.
   neighbouring checkpoints can be a few pixels apart, and a larger target would open the
   wrong one.
 
+![Trajectory on a phone: Filters and the folded timeline summary](img/conversation-phone.png)
+
 A wider window keeps the filters and the timeline open, as before.
 
 ### Inspector

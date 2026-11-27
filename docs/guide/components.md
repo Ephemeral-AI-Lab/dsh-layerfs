@@ -226,8 +226,8 @@ How the tree loads, so you know what you're looking at while it fills in:
 
 ## Store card
 
-One card per Store. Home › Stores shows every Store, and a machine's Stores tab shows the
-Stores on that machine. Both use the same card.
+A machine's Stores tab shows one card per Store. Home › Stores shows the same parts as an
+accordion row; the row's ⋯ holds the foot action.
 
 ![A Store card, numbered](img/store-card.png)
 
@@ -236,12 +236,12 @@ Stores on that machine. Both use the same card.
 | 1 | Name | Glyph and Store name | Click → the [Store page](store.md) | `store list` (read) | |
 | 2 | ⋯ | The [Store menu](#store-menu) | See the Store menu | per row | |
 | | Figure | SQLite: file size and **last write** *when*. PostgreSQL: packed bytes (or **n projects**) and the database name. Hover for the server and **Database id** | — | `store list`; for PostgreSQL also `store get --with stats` (read) | **Size unknown**. A size that may be out of date reads **size seen** *when*, with the tip **…its machine is stopped** or **…does not answer now**. Refused stats show `—` |
-| 3 | **Stored on** chip (SQLite, on Home only) | The machine (`native` too) and its glyph | Click → the machine page | `home get` (read) | A red dot when the machine is broken; otherwise none (a stopped machine is a word on the chip's tip, not a dot) |
+| 3 | **Stored on** chip (SQLite, on Home rows) | The machine (`native` too) and its glyph | Click → the machine page | `home get` (read) | A red dot when the machine is broken; otherwise none (a stopped machine is a word on the chip's tip, not a dot) |
 | 4 | Project rows | Up to three projects (one while a status shows), each with packed bytes and a share bar | Click → the project page | `project list`, `project stats`, `branch get` (read; polled every 2 s while counting) | **Reading…**, `—` with **Not counted here**, **No commits since Init**, **No projects · Add project** (`project init`) |
 | | Status row | Shows only when something is happening: a running or just-ended [job card](#job-card), **Another client runs …**, or a word saying what needs you (**Waiting on docker**, **Broken · …**) with its one action (**Start** *m*, a [fix](#fix-buttons), or **Repair** *m*). Only a failure keeps a dot ([Status words and dots](#status-words-and-dots)) | That action | `machine start`, or the fix's call | |
 | 5 | Backups badge (SQLite) | Provider marks, **n backup(s)**, and a dot for the worst state. Tip: **x need attention, y out of date, z current, w not listed** | Click → the Backups of *store* dialog. With no backup it reads **No backup** and opens Back up | `backup list` per linked bucket (read), when the dialog opens | |
 | | **+n projects** | The Store has more projects than the card shows | Click → the Store page | — | |
-| 6 | Foot action (SQLite) | **Push to…** for a Store on native, **Pull** for a Store on a machine | **Push to…** → the Push dialog. **Pull** → a pull job | `store move <s> <m>`, or `store get` then `store move <s> native` | Off unless the Store is Ready. Hidden while a job runs |
+| 6 | Foot action (SQLite; in ⋯ on Home rows) | **Push to…** for a Store on native, **Pull** for a Store on a machine | **Push to…** → the Push dialog. **Pull** → a pull job | `store move <s> <m>`, or `store get` then `store move <s> native` | Off unless the Store is Ready. Hidden while a job runs |
 
 PostgreSQL Stores have no cards: a machine page lists the ones attached to it as rows
 (address, that machine's last check and **Detach**), and Home › Stores lists them all

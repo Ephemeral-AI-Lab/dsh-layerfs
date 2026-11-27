@@ -170,7 +170,7 @@ Stores is the same board for every Store. The machine page itself is described i
 | 3 | Store card | [Components › Store card](components.md#store-card) | Name → Store page; ⋯ → Store menu; **Pull** / **Push to…** | `store move` | |
 | | Empty line | **No SQLite Store is on docker. Push one here to run its Sandboxes on it.** (**No SQLite Store is on native. Create one or pull one back from a machine.** on native) / **No PostgreSQL Store is attached to docker.** | — | — | |
 
-A Store card on Home › Stores (the same card as on a machine's tab, plus **Stored on**):
+The Home › Stores row (the same parts as a machine's Store card, plus **Stored on**; **Push to…** is in its ⋯):
 
 ![Store card, numbered](img/store-card.png)
 

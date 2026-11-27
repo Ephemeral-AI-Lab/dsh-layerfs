@@ -19,7 +19,7 @@ page.
 | # | Component | What it is |
 |---|---|---|
 | 1 | **Refresh** | Reads the log again from the top |
-| 2 | **Reset…** | Clears the call history (asks first) |
+| 2 | **Reset** | Clears the call history (asks first) |
 | 3 | Project search | Only calls naming a project (`store/project`) |
 | 4 | **Operation** | Only one family or call (`workspace`, `workspace.commit`…) |
 | 5 | **Client** | **All** · **cli** · **node** · **python** · **rust** |
@@ -33,7 +33,7 @@ Above the page is the [nav bar](components.md#nav-bar): `Home › Logs`.
 
 ## Layout
 
-A head row (**Logs**, **Refresh**, **Reset…**), the filters, then the list of calls with
+A head row (**Logs**, **Refresh**, **Reset**), the filters, then the list of calls with
 **Load older calls** at its foot. A wide pane draws a table; a narrow one draws one card per
 call. A row or card opens the call's detail.
 
@@ -89,6 +89,8 @@ On a phone the call detail is a full-height sheet: it takes the pane, the head's
 stay at the top, and the body scrolls under them; its foot clears the home indicator. The
 command keeps its line and scrolls sideways instead of wrapping into stubs.
 
+![A call detail on a phone: a full-height sheet](img/logs-phone.png)
+
 ![No output kept for a call](img/logs-output.png)
 
 **No output kept for this call** appears for calls other clients made, for older calls, and
@@ -108,12 +110,12 @@ recent ones; Reset clears them. LayerFS’s own call log never stores output.*
 
 | Modal | Opened by | What it does | LayerFS call | Undo |
 |---|---|---|---|---|
-| **Reset the call log?** | **Reset…** | *The call history of this LayerFS home is cleared for every client that uses it (DSH, LayerFS Connect, terminals and scripts). Checkpoints and saved versions are kept.* (with the stand-in: *Every call recorded through DSH on this machine is removed…*). **Cancel** · **Reset** → ***n* calls removed.** | `logs.reset` → `home clear-log` (or the stand-in file), and the kept outputs | None: the history is gone |
+| **Reset the call log?** | **Reset** | *The call history of this LayerFS home is cleared for every client that uses it (DSH, LayerFS Connect, terminals and scripts). Checkpoints and saved versions are kept.* (with the stand-in: *Every call recorded through DSH on this machine is removed…*). **Cancel** · **Reset** → ***n* calls removed.** | `logs.reset` → `home clear-log` (or the stand-in file), and the kept outputs | None: the history is gone |
 | Call detail | A row | Above | — | |
 
 ![Reset the call log?](img/logs-reset.png)
 
-**Reset…** is disabled while the log is empty. A [confirm dialog](components.md#confirm-dialog).
+**Reset** is disabled while the log is empty. A [confirm dialog](components.md#confirm-dialog).
 
 ## States and signals
 

@@ -119,6 +119,10 @@ green running pill, **Last session** with its age, the newest commit's line and 
 Store, sessions, Sandboxes, commit count, Branch count and size figures leave the card. The chevron still
 opens the project's Sessions or Sandboxes list, which keeps its own switch and actions.
 
+![Home on a phone: the one-row nav bar, the scrolling tabs and project cards](img/home-phone.png)
+
+*Isolated fixture data.*
+
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
 | Search | **Search projects and Stores** | Type → rows whose project or Store name match; **/** focuses, **Esc** clears; the tab count reads **{n} of {total}** | — (filters rows already read) | **No project matches “{query}”** with **Clear search** |
@@ -156,7 +160,7 @@ backed up".
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
 | 1 Kind | Two tiles: **SQLite** *{n}* and **PostgreSQL** *{n}* | Press → that kind's rows; remembered | — (local view state) | — |
-| 2 Show | **Stores {n}** / **Buckets {n}** (SQLite only) | Press → Store cards or bucket cards; remembered | — (local view state) | — |
+| 2 Buckets | **Buckets {n}**, the home's own tab beside Stores and Machines | Press → the bucket cards | — (navigation) | shown on every kind |
 | 3 New Store | **New Store** (SQLite) or **Check all** and **Connect a database** (PostgreSQL), at the right end of the tab bar | Press → the New Store / Connect a database dialog; **Check all** checks every PostgreSQL Store and opens the rows whose check failed | `store create` / `store connect` / `store doctor` | — |
 | 4 Store row | Folded: name, the machine it lives on, size, projects, last backup, a status dot. Unfolded: **Projects** (5, then **+n projects →**), **Lives on** with **Move…**, **Backups** with **Back up** / **Restore…** | Press the row → unfold (remembered per viewer); the name → the Store page; [Store menu](components.md#store-menu) in ⋯ | `GET /api/storage` (read); projects `GET /api/stores/:id/projects` (read, on unfold); **Move…** `store move` | a job line while a move or backup runs; **machine stopped** with **Start** |
 
@@ -169,7 +173,7 @@ restore one from a backup, or connect a PostgreSQL database." — with **New Sto
 
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
-| 1 Show | **Buckets** selected | — | — | — |
+| 1 Buckets | The home's **Buckets** tab, selected | — | — | — |
 | 2 List bucket files | **List bucket files**, at the right end of the tab bar | Press → every bucket is listed again | `backup list` (one per bucket), then the Storage view | a dot while listing |
 | 3 Add bucket | **Add bucket**, beside it | Press → the Add bucket dialog ([Bucket](bucket.md)) | `backup connect` (keys on stdin) | — |
 | 4 Bucket card | Provider, name, `MinIO · 1 Store file · 385 KB · Listed {ago}`, its files with their Store and date, **{n} from this home** | Press the name or **Open bucket** → the [Bucket](bucket.md) page; press a file name → its [Backup file](bucket.md#backup-file) page; **Restore…** on a file not from this home → the restore dialog | `backup list` (read); **Restore…** `backup restore` | **Files unknown** with **Connect again…** / **List again**; **Not listed** with **List files**; **Listing…** while listing |
@@ -206,9 +210,8 @@ hold".
 
 ## Variants
 
-- **SQLite vs PostgreSQL.** The Stores tab's kind tiles switch between them. Buckets belong to
-  SQLite (a backup is a copy of a Store file), so the **Show** switch and bucket cards appear
-  only under SQLite. A PostgreSQL row lists the machines attached to it.
+- **SQLite vs PostgreSQL.** The Stores tab's kind tiles switch between them. Buckets have their
+  own home tab (a backup is a copy of a SQLite Store file). A PostgreSQL row lists the machines attached to it.
 - **No setup yet.** Before LayerFS is set up, Home shows the [Set up card](entry-points.md#set-up-card)
   in place of the tabs.
 - **No storage view yet.** **Reading the Stores…** while loading; **Could not read the storage**

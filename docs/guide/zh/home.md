@@ -116,6 +116,10 @@ Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker una
 及其时间、最新提交那一行，以及 ⋯；Store、会话数、Sandbox 数、提交数、分支数和大小这些数字都离开卡片。
 箭头仍然打开项目的会话或 Sandbox 列表，列表里的切换和操作都还在。
 
+![手机上的主页：单行导航栏、可横向滑动的标签和项目卡片](../img/home-phone.png)
+
+*隔离的示例数据。*
+
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
 | 搜索 | **搜索项目和 Store**（Search projects and Stores） | 输入 → 只留下项目名或 Store 名匹配的行；**/** 聚焦，**Esc** 清空；标签页计数显示为 **{n} / {total}**（{n} of {total}） | —（筛选已读到的行） | **没有匹配“{query}”的项目**（No project matches “{query}”），带 **清除搜索**（Clear search） |

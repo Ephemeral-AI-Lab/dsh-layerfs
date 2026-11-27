@@ -27,6 +27,8 @@ project session shows as its conversation tabs (see [Components › File
 views](components.md#file-views) and [History views](components.md#history-views)); this
 page explains them in full.
 
+![Project on a phone: the tab strip scrolls and the actions take the next line](img/project-phone.png)
+
 The tab is not remembered: opening the page again starts on Files. The History tab keeps
 its zoom, selection and last read per project while DSH stays open, so coming back draws
 the last tree at once and rereads behind it.

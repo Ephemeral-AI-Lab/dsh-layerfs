@@ -39,7 +39,7 @@ export default [
       (p) => row(p, 'machine', 'docker'),
       (p) => p.locator('[data-fid="marks:machine:docker"]'),
       (p) => p.locator('[data-fid="check:machine:docker"]'),
-      (p) => p.getByText(/^Read from records:/),
+      (p) => p.getByRole('button', { name: 'Refresh' }),
     ],
   },
   {

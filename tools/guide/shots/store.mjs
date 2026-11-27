@@ -43,7 +43,6 @@ async function homeStores(page, h) {
   await page.getByRole('tab', { name: /^Stores/ }).first().click()
   await h.wait(800)
   await page.getByRole('tab', { name: /^SQLite/ }).first().click()
-  await page.getByRole('tab', { name: /^Stores \d/ }).first().click()
   await h.wait(2500)
 }
 
@@ -203,17 +202,28 @@ export default [
   },
   // ---------- Store cards and the machine Stores board ----------
   {
+    // Home lists Stores as accordion rows: the same parts as a machine's Store card,
+    // with the foot action (Push to…) now in the row's ⋯ menu.
     file: 'store-card',
-    run: async (page, h) => { await homeStores(page, h) },
+    run: async (page, h) => {
+      await homeStores(page, h)
+      const row = card(page, 'guide-notes')
+      const toggle = row.getByRole('button', { name: /Show or hide guide-notes/ })
+      if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
+      await h.wait(1000)
+      await row.getByRole('button', { name: 'guide-notes actions' }).click()
+      await menu(page).waitFor()
+      await h.wait(800)
+    },
     callouts: [
       (page) => card(page, 'guide-notes').getByRole('button', { name: 'guide-notes', exact: true }),
       (page) => card(page, 'guide-notes').getByRole('button', { name: 'guide-notes actions' }),
-      (page) => card(page, 'guide-notes').getByRole('button', { name: 'LayerFS Home' }),
-      (page) => card(page, 'guide-notes').locator('[class*=projects] button').first(),
-      (page) => card(page, 'guide-notes').getByRole('button', { name: /^Backups of guide-notes/ }),
-      (page) => card(page, 'guide-notes').getByRole('button', { name: 'Push to…' }),
+      (page) => card(page, 'guide-notes').getByRole('button', { name: 'Open native on Machines' }),
+      (page) => card(page, 'guide-notes').getByRole('button', { name: /handbook/ }).first(),
+      (page) => card(page, 'guide-notes').getByText('Backups', { exact: true }),
+      (page) => page.getByRole('menuitem', { name: 'Push to…' }),
     ],
-    clip: (page) => page.locator('[class*=grid]').filter({ has: card(page, 'guide-notes') }).first(), pad: 28,
+    clip: (page) => card(page, 'guide-notes'), pad: 28,
   },
   {
     file: 'store-machine-board',

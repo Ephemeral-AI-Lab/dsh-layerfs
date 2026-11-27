@@ -148,6 +148,8 @@ DSH 的侧边栏里有 **LayerFS** 行（和 Plugins、Automation tasks、More �
 每个控件——输入框、磁贴、链接和按钮——都是 44 px 的点击目标，底部会绕过手机的主屏幕指示条；
 过长的说明和错误会换行，而不是以省略号结尾。
 
+![手机上的新建项目：一张全高对话框](../img/entry-project-phone.png)
+
 | # | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|---|
 | 1 | 类型 | **SQLite**“一台机器上的一个文件。”（A file on one machine.）· **PostgreSQL**“任何机器都能使用的服务器。”（A server any machine can use.） | 选择 → 存储部分随之变化；选 PostgreSQL 时 **机器** 变成 **运行于**（Runs on） | — | — |
