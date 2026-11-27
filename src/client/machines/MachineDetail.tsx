@@ -109,8 +109,8 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
   // observed values (machine.stats), read every 10 s while this page is on screen; without the call the facts are the record's, as before
   const observed = useMachineStats(m)
   const hasDisk = useSpaceOffered()
-  // Images: Stage 1 machines keep Sandbox image copies (not macOS native, whose Sandboxes run on the Mac itself)
-  const hasImages = view.features?.imageStage === 1 && m.backend !== 'native'
+  // Images: Stage 1 machines keep Sandbox image copies (not the macOS host machine, whose Sandboxes run on the Mac itself)
+  const hasImages = view.features?.imageStage === 1 && m.backend !== 'process'
   const sandboxCount = sandboxesOn(view, m).length
   const storeCount = storeLines(view, m).length
   // the shared tab bar: labels never squeeze, a count beside its label; on a phone the bar scrolls with fades at its cut edges

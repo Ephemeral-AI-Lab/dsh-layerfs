@@ -36,7 +36,7 @@ dsh-layerfs 把 LayerFS 加进了 DeepSeek Harness（DSH）网页应用。LayerF
 
 ```mermaid
 flowchart LR
-  M["机器<br/><small>native、Docker、Lima 虚拟机</small>"] -- "托管" --> S["Store<br/><small>SQLite 或 PostgreSQL</small>"]
+  M["机器<br/><small>主机、Docker、Lima 虚拟机</small>"] -- "托管" --> S["Store<br/><small>SQLite 或 PostgreSQL</small>"]
   S -- "包含" --> P["项目"]
   P -- "拥有" --> B["分支和提交"]
   P -- "拥有" --> X["Sandbox"]
@@ -49,7 +49,7 @@ flowchart LR
 
 | 术语 | 含义 |
 |---|---|
-| 机器 | LayerFS 运行的地方。**native** 就是这台电脑。Docker 和 Lima 机器是 LayerFS 负责启动和停止的 worker。 |
+| 机器 | LayerFS 运行的地方。主机（macOS 上为 **macos-host**，Linux 上为 **linux-host**）就是这台电脑。Docker 和 Lima 机器是 LayerFS 负责启动和停止的 worker。 |
 | Store | 存放项目的数据库。SQLite Store 位于某一台机器上，可以在机器之间推送、拉回或移动。PostgreSQL Store 位于数据库服务器上。 |
 | 项目 | 一棵文件树，有自己的分支和提交。项目存放在 Store 里。 |
 | 分支、提交 | 每次保存都是一个提交。`main` 是项目的主线，侧分支承载进行中的工作。 |
@@ -120,13 +120,13 @@ flowchart TD
 
 | 我想…… | 去这里 | 背后的调用 |
 |---|---|---|
-| 第一次设置 LayerFS，或更换它的运行时或文件夹 | [入口 › 设置 LayerFS](entry-points.md#set-up-layerfs) | `home get`、`home init`、`machine update native` |
+| 第一次设置 LayerFS，或更换它的运行时或文件夹 | [入口 › 设置 LayerFS](entry-points.md#set-up-layerfs) | `home get`、`home init`、`machine update macos-host` |
 | 在项目里开始一个对话 | [入口 › 新会话项目控件](entry-points.md#new-session-project-control)，或项目的[会话](project.md#sessions)标签页 | `project get`，然后用 `branch fork` 建会话分支 |
 | 创建项目，或把文件夹导入成项目 | [入口 › 项目对话框](entry-points.md#project-dialog) | `store create`、`project init`、`store move` |
 | 查看项目在任意提交时的样子 | [项目 › 文件](project.md#files)和[历史](project.md#history) | `file list`、`file read`、`commit list`、`commit diff` |
 | 逐条跟进 agent 做了什么 | [对话 › 轨迹](conversation.md#trajectory) | —（会话自己的日志） |
 | 备份或恢复 Store | [Store › 备份](store.md#backups-sqlite)、[存储桶](bucket.md) | `backup create`、`backup restore` |
-| 把 Store 移到另一台机器 | [Store 菜单](components.md#store-menu) | `store move`（两次，经由 native） |
+| 把 Store 移到另一台机器 | [Store 菜单](components.md#store-menu) | `store move`（两次，经由主机） |
 | 连接 PostgreSQL 数据库 | [Store › PostgreSQL Store 页面](store.md#postgresql-store-page) | `store connect`、`store attach`、`store doctor` |
 | 启动、停止或修复机器 | [机器](machine.md)、[机器菜单](components.md#machine-menu) | `machine start`、`machine stop` |
 | 创建 Sandbox 并在里面运行命令 | [机器 › Sandbox](machine.md#sandboxes)、[Sandbox › Workspace](sandbox.md#workspaces) | `sandbox create`、`workspace mount`、`workspace exec`、`workspace commit` |

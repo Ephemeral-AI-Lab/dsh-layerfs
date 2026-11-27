@@ -65,7 +65,7 @@ export function apply(ctx: Context): void {
     daemon: () => ctx.layerfs.daemon,
     bundle: () => ctx.layerfs.bundle,
     discover: () => ctx.layerfs.discovery(),
-    ensureNative: () => ctx.layerfs.ensureNative(),
+    ensureHostDaemon: () => ctx.layerfs.ensureHostDaemon(),
     emit: (type, data) => ctx.layerfs.emit(type, data),
     assertProjectIdentity: async (project, projectId) => {
       const persistence = ctx.get('sessionPersistence' as never) as any

@@ -23,7 +23,7 @@ import type { LayerfsApi } from '../api.ts'
 import { MachineGlyph } from '../machines/icons.tsx'
 import type { MachinesKey } from '../machines/locale.ts'
 import { kindKey, type AvailableView, type MachinesView, type Words } from '../machines/model.ts'
-import { nativeGlyphOs, osOfView, stepReasons, type HostOs } from '../machines/needs.ts'
+import { hostGlyphOs, osOfView, stepReasons, type HostOs } from '../machines/needs.ts'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { CopyLine } from '../ui/index.tsx'
 import { useQuery } from '../ui/use-query.ts'
@@ -269,7 +269,7 @@ function PieceRow({ label, path, value }: { label: string, path: string | null, 
   )
 }
 
-/** The native machine records another build's daemon: record this runtime's (never automatic: hosts sharing a home would flip it). */
+/** The host machine records another build's daemon: record this runtime's (never automatic: hosts sharing a home would flip it). */
 function RecordDaemon({ api, t }: { api: LayerfsApi, t: SetupModalT }): ReactNode {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -306,7 +306,7 @@ function PlatformLine({ row, os, open, onOpen, t, tm, tw, recheck }: {
 }): ReactNode {
   const [checking, setChecking] = useState(false)
   const check = () => { setChecking(true); void recheck().finally(() => setChecking(false)) }
-  const native = row.platform === 'native'
+  const host = row.platform === 'host'
   const key = kindKey(row.platform)
   const name = key ? tm(key) : row.platform
   const blocked = row.state !== 'ready' && row.state !== 'available'
@@ -319,7 +319,7 @@ function PlatformLine({ row, os, open, onOpen, t, tm, tw, recheck }: {
       : null
   return (
     <>
-      <Row data={row.platform} tile={<MachineGlyph platform={row.platform} os={native ? nativeGlyphOs(os) : undefined} size={16} />} title={name}
+      <Row data={row.platform} tile={<MachineGlyph platform={row.platform} os={host ? hostGlyphOs(os) : undefined} size={16} />} title={name}
         line={line} lineWarn={blocked} state={t(STATE_KEY[row.state])} warn={blocked} action={action} />
       {open && (row.action === 'install' || row.action === 'setup') ? (
         <div className={css.howto}>

@@ -29,7 +29,7 @@ try {
       if (method === 'GET' && path === '/api/projects') return [row]
       if (method === 'GET' && path === '/api/machines') return { available: true, machines: [{ name: 'build', platform: 'lima', state: fixture.state, stores: ['demo-store'], sandboxes: [], cpus: 2, memory: 4000000000, disk: 20000000000 }], status: {}, platforms: [], stores: [], postgresql: [], sandboxes: [] }
       if (method === 'GET' && path === '/api/storage') return {
-        machines: [{ name: 'native', platform: 'native', state: 'running', supports: null }, { name: 'build', platform: 'lima', state: fixture.state, supports: null }],
+        machines: [{ name: 'macos-host', platform: 'host', state: 'running', supports: null }, { name: 'build', platform: 'lima', state: fixture.state, supports: null }],
         stores: [{ name: 'demo-store', kind: 'sqlite', machine: 'build', projects: ['compiler'] }], buckets: [], jobs: [], at: Date.now(),
       }
       if (method === 'POST' && path === '/api/machines/build/start') {
@@ -87,8 +87,8 @@ try {
   const setup = page.getByRole('dialog', { name: 'compiler', exact: true })
   await setup.getByText('demo-store', { exact: true }).waitFor()
   await setup.locator('[data-machine="build"][aria-checked="true"]').getByText('Here now', { exact: true }).waitFor()
-  await setup.locator('[data-machine="native"]').click()
-  await setup.getByText(/^Moves the whole Store demo-store to native/).waitFor()
+  await setup.locator('[data-machine="macos-host"]').click()
+  await setup.getByText(/^Moves the whole Store demo-store to this computer/).waitFor()
   await setup.getByRole('button', { name: 'Cancel', exact: true }).click()
   await page.setViewportSize({ width: 390, height: 844 })
   await page.waitForTimeout(300)

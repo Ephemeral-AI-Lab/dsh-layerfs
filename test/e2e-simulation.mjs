@@ -52,7 +52,7 @@ const emptyTurns = async (sessionId) => {
 const model = () => page.locator('button[aria-label^="Select model, current"]').first()
 const mixed = process.env.DSH_SIMULATION_MIXED === '1'
 const cycles = Number(process.env.DSH_SIMULATION_CYCLES ?? 1)
-const launch = (options = {}) => op('simulation.launch', { project: 'design', machine: 'native', mixed, cycles, ordinaryModel: { provider: 'fake', model: 'scripted' }, ...options })
+const launch = (options = {}) => op('simulation.launch', { project: 'design', machine: 'macos-host', mixed, cycles, ordinaryModel: { provider: 'fake', model: 'scripted' }, ...options })
 /** Every retained receipt, one bounded page at a time: annotations answers metadata only. */
 const receiptsOf = async (sessionId) => {
   const rows = []
@@ -156,7 +156,7 @@ try {
   assert.equal((await op('simulation.script', { sessionId: active.sessionId })).state, ended.state, 'the script never runs again')
   assert.deepEqual(await emptyTurns(active.sessionId), [], 'Stop leaves no empty turn behind (child settlement notices never wake the root)')
   assert.deepEqual(logs.filter(line => line.startsWith('[pageerror]')), [])
-  console.log('Simulation browser proof passed: native Stop during a wait and mid-command, each followed by same-session real-model tools.')
+  console.log('Simulation browser proof passed: host machine Stop during a wait and mid-command, each followed by same-session real-model tools.')
 } catch (error) {
   preserveActive = /Timed out: settled script/.test(String(error))
   await page.screenshot({ path: join(process.env.DSH_LAYERFS_DEV_DIR ?? '.dev', 'simulation-failure.png'), fullPage: true }).catch(() => {})

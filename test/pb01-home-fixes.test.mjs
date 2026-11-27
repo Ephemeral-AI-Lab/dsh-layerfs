@@ -107,11 +107,11 @@ const makeDocT = (lang) => (key, vars) => fill(M.doctorLocales[lang][key] ?? key
 const emptyFleet = {
   available: true,
   machines: [
-    { name: 'native', platform: 'native', state: 'ready', stores: [], sandboxes: [], builtIn: true },
+    { name: 'macos-host', platform: 'host', state: 'ready', stores: [], sandboxes: [], builtIn: true },
     { name: 'docker', platform: 'docker', state: 'stopped', stores: [], sandboxes: [], builtIn: true },
   ],
   platforms: [
-    { platform: 'native', how: 'builtIn', ready: true, missing: [] },
+    { platform: 'host', how: 'builtIn', ready: true, missing: [] },
     { platform: 'docker', how: 'builtIn', ready: false, missing: ['daemon'] },
   ],
   live: {},
@@ -127,14 +127,14 @@ const troubleView = {
       size: { bytes: 420000, stale: true, seen: 1000 }, links: [], ownConnections: [],
     },
     {
-      name: 'broken-store', kind: 'sqlite', machine: 'native', state: 'broken',
+      name: 'broken-store', kind: 'sqlite', machine: 'macos-host', state: 'broken',
       reason: 'corrupt', message: 'Store header unreadable', fix: 'layerfs store compact broken-store',
       projects: ['web'], projectsCount: 1, size: { bytes: 120000 },
       links: [{ bucket: 'b1', file: 'f1' }], ownConnections: [],
     },
   ],
   machines: [
-    { name: 'native', platform: 'native', state: 'ready', stores: ['broken-store'], sandboxes: [] },
+    { name: 'macos-host', platform: 'host', state: 'ready', stores: ['broken-store'], sandboxes: [] },
     { name: 'docker', platform: 'docker', state: 'stopped', stores: ['alpha-store'], sandboxes: [] },
   ],
   buckets: [

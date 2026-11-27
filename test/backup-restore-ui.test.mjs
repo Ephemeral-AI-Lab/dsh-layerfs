@@ -111,7 +111,7 @@ const tEn = makeT('en')
 const tZh = makeT('zh')
 
 const makeStore = (name, over = {}) => ({
-  name, kind: 'sqlite', machine: 'native', state: 'ready',
+  name, kind: 'sqlite', machine: 'macos-host', state: 'ready',
   projects: ['app'], projectsCount: 1, size: { bytes: 8192 },
   links: [{ bucket: 'lab', file: `${name}`, last: { op: 'backup', at: 1000, bytes: 8192 } }],
   ownConnections: [], ...over,
@@ -126,7 +126,7 @@ const noopActions = () => ({
 
 test('replaceRefusal covers every refusal reason and allows current / bucket_changed', () => {
   const ready = makeStore('notes')
-  assert.match(M.replaceRefusal(makeStore('remote', { machine: 'docker' }), 'current', 'lab', tEn, { listed: true }), /pull it to native first/)
+  assert.match(M.replaceRefusal(makeStore('remote', { machine: 'docker' }), 'current', 'lab', tEn, { listed: true }), /pull it to this computer first/)
   assert.match(M.replaceRefusal(makeStore('notes', { state: 'busy' }), 'current', 'lab', tEn, { listed: true }), /is busy/)
   assert.match(M.replaceRefusal(makeStore('notes', { state: 'blocked', blockedBy: { machine: 'docker', reason: 'stopped' } }), 'current', 'lab', tEn, { listed: true }), /is not ready: Start machine docker first/)
   assert.match(M.replaceRefusal(ready, 'current', 'lab', tEn, { listed: true, heldBy: ['held-box'] }), /held by Sandbox held-box/)

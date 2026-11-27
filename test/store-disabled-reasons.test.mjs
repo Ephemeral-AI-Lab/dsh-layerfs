@@ -105,7 +105,7 @@ const resetCaptured = () => {
 }
 
 const makeStore = (name, over = {}) => ({
-  name, kind: 'sqlite', machine: 'native', state: 'ready',
+  name, kind: 'sqlite', machine: 'macos-host', state: 'ready',
   projects: ['app'], projectsCount: 1, size: { bytes: 4096 },
   links: [{ bucket: 'b1', file: `${name}.db`, last: { op: 'backup', at: 1000, bytes: 4096 } }],
   ownConnections: [], ...over,
@@ -203,7 +203,7 @@ test('ui/204 StoreMenu, StoreProjects and StoreBackups wire disabledReason in EN
   const view = {
     stores: [],
     machines: [
-      { name: 'native', platform: 'native', state: 'ready', stores: [], sandboxes: [] },
+      { name: 'macos-host', platform: 'host', state: 'ready', stores: [], sandboxes: [] },
       { name: 'docker', platform: 'docker', state: 'stopped', stores: [], sandboxes: [] },
     ],
     buckets: [{ name: 'b1', provider: 'minio', files: [{ file: 's-stopped.db', store: 's-stopped', bytes: 100, modified: 1000, behind: false, changed: false, missing: false }, { file: 's-busy.db', store: 's-busy', bytes: 100, modified: 1000, behind: false, changed: false, missing: false }] }],
@@ -212,9 +212,9 @@ test('ui/204 StoreMenu, StoreProjects and StoreBackups wire disabledReason in EN
     at: 61000,
   }
   const stoppedStore = makeStore('s-stopped', { machine: 'docker', state: 'blocked', blockedBy: { machine: 'docker', reason: 'stopped' } })
-  const busyStore = makeStore('s-busy', { machine: 'native', state: 'busy', op: { name: 'move', phase: 'send' } })
-  const unresolvedStore = makeStore('s-unresolved', { machine: 'native', state: 'broken', fix: 'layerfs store compact s-unresolved' })
-  const readyStore = makeStore('s-ready', { machine: 'native', state: 'ready' })
+  const busyStore = makeStore('s-busy', { machine: 'macos-host', state: 'busy', op: { name: 'move', phase: 'send' } })
+  const unresolvedStore = makeStore('s-unresolved', { machine: 'macos-host', state: 'broken', fix: 'layerfs store compact s-unresolved' })
+  const readyStore = makeStore('s-ready', { machine: 'macos-host', state: 'ready' })
 
   for (const lang of ['en', 'zh']) {
     const t = makeT(lang)

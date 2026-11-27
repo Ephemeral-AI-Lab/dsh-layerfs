@@ -2,7 +2,7 @@
  * Storage transfer jobs: their persisted records, failure outcomes, summaries
  * and the fresh observations that gate recovery. Port of Connect `host/jobs/`.
  * Push, pull and move are the host's words for `store move` to a machine, to
- * native, and through native; their phases are check, snapshot, send, verify,
+ * the host machine, and through it; their phases are check, snapshot, send, verify,
  * install, record, retire.
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
@@ -78,7 +78,7 @@ export function transferSummary(job: StorageJob): string | null {
   if (job.phase === 'retire') return job.kind === 'pull' || job.half === 'pull'
     ? 'On Home; source copy not removed'
     : `Moved to ${job.target}; old copy on Home not removed`
-  if (job.kind === 'move' && job.half === 'push') return `Push to ${job.target} failed; Store stays on native`
+  if (job.kind === 'move' && job.half === 'push') return `Push to ${job.target} failed; Store stays on this computer`
   return null
 }
 

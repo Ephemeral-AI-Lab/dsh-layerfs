@@ -48,7 +48,7 @@ const until = async (what, fn, ms = 30000) => {
   for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) throw new Error(`timed out: ${what}`); await sleep(500) }
 }
 
-// A binding's `mount` is a host path only on `native`; on docker the Workspace
+// A binding's `mount` is a host path only on `macos-host`; on docker the Workspace
 // lives inside the Sandbox. Read the session Branch at its head through the
 // host API there (`file stat` + `file read`, the same call the Files tab makes).
 const savedFile = async (binding, path) => {
@@ -88,8 +88,8 @@ const openLogs = async () => {
 const projectCommand = (command) => `bash: "$DSH_LAYERFS_CLI" workspace exec "$DSH_LAYERFS_WS" ${JSON.stringify(command)} --stream`
 
 const tag = Date.now().toString(36)
-// The Store (and so the project) runs on this machine; native when unset.
-const machine = E2E_MACHINE ?? 'native'
+// The Store (and so the project) runs on this machine; the host machine when unset.
+const machine = E2E_MACHINE ?? 'macos-host'
 const store = `e2e${tag}`, name = 'demo', project = `${store}/${name}`
 let failed = false
 try {
@@ -137,7 +137,7 @@ try {
   const b = state.binding
   console.log({ branch: b.branch, sandbox: b.sandbox, mount: b.mount, scratch: b.scratch })
   assert.equal(b.project, project)
-  if (machine === 'native') {
+  if (machine === 'macos-host') {
     assert.ok(existsSync(join(b.mount, 'one.txt')), 'one.txt in the mount')
     assert.ok(existsSync(join(b.mount, 'README.md')), 'project files in the mount')
     assert.ok(!existsSync(join(b.mount, 'scratch-note.txt')), 'scratch writes stay outside project')
@@ -165,7 +165,7 @@ try {
     const s = await must('session.state', { sessionId: sid })
     return s.checkpoints.filter((c) => c.kind === 'turn' && c.commit).length >= 2 ? s : null
   })
-  if (machine === 'native') assert.ok(existsSync(join(state.binding.mount, 'two.txt')))
+  if (machine === 'macos-host') assert.ok(existsSync(join(state.binding.mount, 'two.txt')))
   else assert.match(await savedText(state.binding, '/two.txt'), /two/, 'two.txt on the session Branch')
 
   step('unchanged turn records no commit')
@@ -177,7 +177,7 @@ try {
 
   step('restore files to turn 1')
   const restored = await must('checkpoints.restore', { sessionId: sid, commit: cp1.commit })
-  if (machine === 'native') {
+  if (machine === 'macos-host') {
     assert.ok(existsSync(join(restored.binding.mount, 'one.txt')), 'one.txt after restore')
     assert.ok(!existsSync(join(restored.binding.mount, 'two.txt')), 'two.txt gone after restore')
   } else {
@@ -202,14 +202,14 @@ try {
     return s.binding?.state === 'bound' ? s : null
   })
   assert.equal(cstate.binding.from?.session, sid)
-  if (machine === 'native') {
+  if (machine === 'macos-host') {
     assert.ok(existsSync(join(cstate.binding.mount, 'one.txt')), 'child has turn 1 files')
     assert.ok(!existsSync(join(cstate.binding.mount, 'two.txt')), 'child lacks turn 2 files')
   } else {
     assert.match(await savedText(cstate.binding, '/one.txt'), /one/, 'child has turn 1 files')
     assert.equal(await hasSavedFile(cstate.binding, '/two.txt'), false, 'child lacks turn 2 files')
   }
-  assert.match(machine === 'native' ? readFileSync(join(cstate.binding.mount, 'listing.txt'), 'utf8') : await savedText(cstate.binding, '/listing.txt'), /one\.txt/)
+  assert.match(machine === 'macos-host' ? readFileSync(join(cstate.binding.mount, 'listing.txt'), 'utf8') : await savedText(cstate.binding, '/listing.txt'), /one\.txt/)
 
   step('LayerFS session store')
   await must('session.mirror', { sessionId: sid })
@@ -291,7 +291,7 @@ try {
     return s.binding?.state === 'bound' ? s : null
   })
   assert.equal(pstate.binding.project, project, 'the picked project')
-  if (machine === 'native') {
+  if (machine === 'macos-host') {
     assert.ok(existsSync(join(pstate.binding.mount, 'picked.txt')))
     assert.ok(existsSync(join(pstate.binding.mount, 'README.md')), 'project files')
   } else {
@@ -319,7 +319,7 @@ try {
   // One page: Name and the Save to list (docs/specs/layerfs-workspaces.md §3); the chosen row opens in place.
   await draft.getByLabel('Name', { exact: true }).fill('blank')
   await draft.getByRole('radio', { name: new RegExp(`^\\s*${store.replace(/[.]/g, '\\.')}\\b`) }).click()
-  // The fixture Store keeps its own machine (native or DSH_E2E_MACHINE): no Move.
+  // The fixture Store keeps its own machine (the host machine or DSH_E2E_MACHINE): no Move.
   await draft.getByRole('button', { name: 'Create and open' }).click()
   await draft.waitFor({ state: 'detached', timeout: 60000 })
   await until('hero on the new project', async () => (await page.locator('[data-layerfs-hero] button[aria-label^="LayerFS project:"]').first().innerText().catch(() => '')).trim() === 'blank', 60000)

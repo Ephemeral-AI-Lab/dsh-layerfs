@@ -8,9 +8,10 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, openSync, closeSync, readFileSync, writeFileSync, renameSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { CliInventory } from './inventory.js'
+import { isHostName } from '../../shared/host-machine.ts'
 
 const sorted = items => [...items].sort((a, b) => a.name.localeCompare(b.name))
-const builtIn = name => ['native', 'docker'].includes(name)
+const builtIn = name => isHostName(name) || name === 'docker'
 const save = (file, value) => { const tmp = `${file}.${process.pid}.tmp`; writeFileSync(tmp, JSON.stringify(value), { mode: 0o600 }); renameSync(tmp, file) }
 
 /** A refusal while other work holds the home (answered 409). */
@@ -43,7 +44,7 @@ export class EnvironmentReset extends CliInventory {
     const workspaces = [], unknownSandboxes = sandboxes.map(box => box.name), workspaceGroups = []
     const remove = { stores: stores.filter(s => s.kind !== 'postgresql').map(s => s.name), sandboxes: sandboxes.map(s => s.name), machines: machines.filter(m => !builtIn(m.name)).map(m => m.name), workspaces: workspaces.sort() }
     const disconnect = stores.filter(s => s.kind === 'postgresql').map(s => s.name)
-    const startMachines = [...new Set([...stores, ...sandboxes].map(r => r.machine).filter(name => name && name !== 'native'))].filter(name => machines.find(m => m.name === name)?.state !== 'ready').sort()
+    const startMachines = [...new Set([...stores, ...sandboxes].map(r => r.machine).filter(Boolean))].filter(name => machines.find(m => m.name === name)?.state !== 'ready').sort()
     const detectedMachines = machines.map(({ name, state, platform }) => ({ name, state, platform }))
     const projectKeys = stores.flatMap(s => (s.projects ?? []).map(p => `${s.name}/${p}`)).sort()
     const plan = { home: this.spec.home, homeId, remove, disconnect, unknownSandboxes, workspaceGroups, startMachines, detectedMachines, projects: projectKeys.length, projectKeys, stopDocker: machines.some(m => m.name === 'docker' && m.state !== 'stopped'), scope: 'environment' }

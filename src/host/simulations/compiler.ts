@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { dirname, join, resolve } from 'node:path'
 import { DENSE_TIERS, denseCycleBranches } from '../presets/recipe/dense-recipe.js'
 import { projectHistoryPlan, projectHistorySteps, resolveHistoryStep } from '../presets/recipe/recipe.js'
+import { HOST_MACHINE, isHostName } from '../layerfs/machine-records.ts'
 
 export const SIMULATION_VERSION = 1
 export const SIMULATION_PROFILES = Object.freeze(Object.fromEntries(
@@ -16,7 +17,7 @@ const hash = value => createHash('sha256').update(value).digest('hex')
 const validName = value => typeof value === 'string' && /^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/.test(value)
 
 /** Pure compiler. cycles is an internal test fixture bound, never a public command flag. */
-export function compileSimulation({ project, machine = 'native', mixed = false, runId = randomUUID(), cycles, createdAt = new Date().toISOString() } = {}) {
+export function compileSimulation({ project, machine = HOST_MACHINE, mixed = false, runId = randomUUID(), cycles, createdAt = new Date().toISOString() } = {}) {
   if (!Object.hasOwn(SIMULATION_PROFILES, project)) throw new Error(`Unknown simulation project: ${project}`)
   if (!validName(machine) || !validName(runId)) throw new Error('Simulation machine and run ID must be valid LayerFS names.')
   if (typeof mixed !== 'boolean') throw new Error('Simulation mixed must be a boolean.')
@@ -33,7 +34,7 @@ export function compileSimulation({ project, machine = 'native', mixed = false, 
     { key: 'setup.store', argv: ['store', 'create', store], dependsOn: ['setup.machine'] },
     { key: 'setup.project', argv: ['project', 'init', projectRef, '<source>'], dependsOn: ['setup.store'] },
   ]
-  if (machine !== 'native') setup.push({ key: 'setup.push', argv: ['store', 'move', store, machine], dependsOn: ['setup.project'] })
+  if (!isHostName(machine)) setup.push({ key: 'setup.push', argv: ['store', 'move', store, machine], dependsOn: ['setup.project'] })
   for (const step of setup) steps.push({ ...step, phase: 'setup' })
   const conversations = Array.from({ length: Math.min(profile.conversations, history.cycles) }, (_, index) => {
     const topic = DENSE_TIERS[project].topics[index % 3], id = `c${String(index + 1).padStart(2, '0')}-${topic}`

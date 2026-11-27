@@ -62,7 +62,7 @@ What the tab answers, in a sentence or two.
 | | | **⋯ › Compact** → confirm → a job card | `store compact` | disabled while a job runs |
 
 ## Variants
-SQLite vs PostgreSQL, macOS native vs Docker/Lima, tabs that only show sometimes: what changes and why.
+SQLite vs PostgreSQL, the macOS host machine vs Docker/Lima, tabs that only show sometimes: what changes and why.
 
 ## Modals opened here
 | Modal | Opened by | What it does | LayerFS call | Undo |
@@ -82,7 +82,7 @@ Links to the pages this one leads to.
 
 - 调用写简短形式：`store move`。只有在读者可能会照着输入的正文里，才写完整形式
   （`layerfs store move <store> <machine>`）。
-- **多个调用：** 写清楚（`machine stop`，然后 `machine start`；经由 native 执行 `store move` ×2）。
+- **多个调用：** 写清楚（`machine stop`，然后 `machine start`；经由主机执行 `store move` ×2）。
 - **读取：** 视图为了画出自己而做的读取，标上“(read)”（中文页写作 `(读取)`）。写入不加标记。
 - **没有调用：** 写 `—`，并说明原因（主机内存、本地视图状态、记住的标签页）。
 - **密钥：** 密码和存储桶密钥通过 stdin 交给 LayerFS；示例里永远不要出现。
@@ -103,7 +103,7 @@ Links to the pages this one leads to.
   指南用正文描述手机上的行为；补这张图不需要重截其他页面的图。
 - 图片命名为 `<page>-<what>.png`。截图通过后，删掉 `img/_failed-*.png`。
 - 示例数据：Starter 预设的 Store `demo-starter`（项目 `bookshelf`，Docker 机器上的 Sandbox
-  `guide-box`）、native 上的 Store `guide-notes`（项目 `handbook`，以及由 `fixture-session.mjs` 生成的
+  `guide-box`）、`macos-host` 上的 Store `guide-notes`（项目 `handbook`，以及由 `fixture-session.mjs` 生成的
   一个项目对话），还有存储桶 `guide-backups`（一个本地 MinIO），里面有 `guide-notes` 的一份备份。
 - 截图里永远不能出现密钥、token 或带认证的 URL。
 

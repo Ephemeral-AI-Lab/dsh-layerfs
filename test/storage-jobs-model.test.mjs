@@ -17,7 +17,7 @@ const M = await import(pathToFileURL(join(out, 'model.mjs')).href)
 
 const t = (key, vars = {}) => `${key}${Object.keys(vars).length ? ' ' + JSON.stringify(vars) : ''}`
 const job = (over = {}) => ({ id: 'j', kind: 'compact', store: 's1', target: 's1', file: null, started: 1, ended: null, phase: null, done: null, total: null, error: null, phases: [], steps: ['mark', 'build', 'verify', 'install'], ...over })
-const store = (over = {}) => ({ name: 's1', kind: 'sqlite', machine: 'native', state: 'ready', links: [], projects: [], ...over })
+const store = (over = {}) => ({ name: 's1', kind: 'sqlite', machine: 'macos-host', state: 'ready', links: [], projects: [], ...over })
 
 test('a compaction shows its named steps from the start and moves through them', () => {
   assert.deepEqual(M.stepsOf(job()).map((s) => s.state), ['now', 'todo', 'todo', 'todo'])

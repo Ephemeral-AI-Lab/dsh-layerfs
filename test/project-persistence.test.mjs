@@ -20,7 +20,7 @@ async function fixture(branches = ['main']) {
   const ctx = new Context()
   // One project whose branches hold its UUID (`dsh.project.<uuid>`) once claimed.
   // 2.0 long forms: a project row, Branch rows keyed by `branch` (listed by prefix), a ready Store
-  const info = (key) => ({ project: key, store: key.split('/')[0], engine: 'sqlite', machine: 'native', created_at: '1970-01-01T00:00:00.100Z' })
+  const info = (key) => ({ project: key, store: key.split('/')[0], engine: 'sqlite', machine: 'macos-host', created_at: '1970-01-01T00:00:00.100Z' })
   ctx.provide('layerfs', { root: join(dir, 'plugin'), projectSessionHome: join(dir, 'project-home'), home: join(dir, 'layerfs-home'), lfs: {
     project: { list: async () => ({ items: [info('store/project')] }), get: async (key) => info(key) },
     branch: { list: async (_, o = {}) => ({ items: branches.filter((name) => !o.prefix || name.startsWith(o.prefix)).map((branch) => ({ branch })) }), fork: async (_, name) => { if (!branches.includes(name)) branches.push(name); return { commit: `32${'a'.repeat(64)}` } } },
@@ -406,7 +406,7 @@ test('permanent conversation owner blocks a recreated project while retaining lo
     const id = f.p.projectIdOf('retained')
     // Deleted and recreated under the same name: a new project without the UUID branch.
     f.branches.splice(0, f.branches.length, 'main')
-    f.ctx.layerfs.lfs.project.get = async () => ({ project: 'store/project', store: 'store', name: 'project', kind: 'sqlite', machine: 'native', created: 200 })
+    f.ctx.layerfs.lfs.project.get = async () => ({ project: 'store/project', store: 'store', name: 'project', kind: 'sqlite', machine: 'macos-host', created: 200 })
     f.ctx.layerfs.lfs.project.list = async () => ({ items: [await f.ctx.layerfs.lfs.project.get()] })
     await assert.rejects(f.p.assertSessionIdentity('retained'), { code: 'ProjectIdentityChanged' })
     await assert.rejects(f.p.migrateProject('retained', 'store/project'), { code: 'ProjectIdentityChanged' })

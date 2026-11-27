@@ -73,7 +73,7 @@ function harness(state, records) {
   }
   const s = Object.create(S.LayerfsSessions.prototype)
   Object.defineProperty(s, 'ctx', { value: {
-    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, ensureNative: async () => {} },
+    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, ensureHostDaemon: async () => {} },
     sessions: { get: () => undefined },
     logger: () => ({ warn() {}, info() {} }),
   } })

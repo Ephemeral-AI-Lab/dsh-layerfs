@@ -34,7 +34,7 @@ Choosing a Sandbox's image is one menu in New Sandbox and nothing else.
 - **docker machine:** any local Docker image on this host can be picked.
 - **VM machines** (Lima, apple-container): the same menu. A picked image is copied into LayerFS on
   that machine once and reused by every later Sandbox.
-- **macOS native:** no image; Sandboxes run on the Mac itself.
+- **macOS host machine (`macos-host`):** no image; Sandboxes run on the Mac itself.
 - **Hidden from the user:** archives, digests, file paths, VM restarts and "prepare" steps.
 - **No image-build API.** Building images is Docker's job (`docker build`). LayerFS copies and caches
   images; the plugin lists them and passes a name.
@@ -58,7 +58,7 @@ point where they differed, and they override any part text that disagrees.
 | D1 | Image identity | LayerFS keys a cached image by the **Docker image Id** (with Docker's containerd store that is the manifest/index digest, not the config digest). Bundle and VM-archive images keep their config digest. `machine.images` rows carry `id` and `refs`; the plugin's `docker image ls` reads the same Ids, so the two groups merge exactly by `id`, then by ref. |
 | D2 | What is sent | A flat rootfs tar from `docker export`, minus the init-layer files `docker create` adds (`.dockerenv`, empty `etc/hosts`, `etc/hostname`, `etc/resolv.conf`, `etc/mtab`, `dev/*`), plus the inspected config. Not a synthesized docker-archive. |
 | D3 | Which Docker | The `docker` built-in machine's recorded socket (`machine update docker --docker`) for every target machine. The plugin lists images through the same socket. VM machines have no Docker setting. |
-| D4 | Where images live | Only on each machine: unpacked once under its worker root (`/layerfs/data/machines/native/run/images/<hex>.2/` plus a `.json` sidecar); the staged tar is deleted after unpack. The host keeps nothing; Docker is the source. A host store (`LAYERFS_HOME/images/`) for images that don't come from Docker is later. |
+| D4 | Where images live | Only on each machine: unpacked once under its worker root (`/layerfs/data/machine/linux-guest/run/images/<hex>.2/` plus a `.json` sidecar); the staged tar is deleted after unpack. The host keeps nothing; Docker is the source. A host store (`LAYERFS_HOME/images/`) for images that don't come from Docker is later. |
 | D5 | Starting a stopped machine | The plugin does it, on the user's explicit "Start and create": the create route with `start: true` runs `machine start --progress`, then `sandbox create`. LayerFS keeps "never start a machine on demand" (its #535 decision D11), so it never emits a `machine` phase; the plugin does. Works in Stage 0. |
 | D6 | Image for project sessions and agents | When a caller names no image, LayerFS's own default rule picks it. The plugin's per-VM default (`defaults.tsv`, the `--image` injection in `execute()` and in both agent wrappers) is deleted. |
 | D7 | Menu preselection | The ready image with the newest `last_used` (which R1 asks LayerFS to record on every create; Stage 0 has none), else the machine's default, else the first usable ready image. Never a Docker row unless picked. No plugin state. The client always sends the picked row's `id`. |
@@ -107,7 +107,7 @@ Resolution order:
    `InvalidInput` when Docker answered that no such image exists.
 
 Every refusal carries a machine-readable `detail`:
-- `Unsupported` with `detail: {reason: 'arch', value: <image arch>}` when the image's `.Architecture`/`.Variant` does not match the machine bundle's `linux-<arch>`, or `detail: {reason: 'host'}` on macOS native.
+- `Unsupported` with `detail: {reason: 'arch', value: <image arch>}` when the image's `.Architecture`/`.Variant` does not match the machine bundle's `linux-<arch>`, or `detail: {reason: 'host'}` on the macOS host machine.
 - `Unavailable` with `detail: {what: 'machine'}` when the machine is stopped.
 
 Records: the Sandbox record stores the resolved image `id` (also when no `--image` was given and
@@ -142,12 +142,12 @@ The host names the temporary container `layerfs-export-<idhex>` and keeps it unt
 
 | Path | Content |
 |---|---|
-| `/layerfs/data/machines/native/run/images/<hex>.2/` | Unpacked image (overlay lower, read-only) |
-| `/layerfs/data/machines/native/run/images/<hex>.2.json` | Sidecar |
-| `/layerfs/data/machines/native/run/images/<hex>.2.lock` | Existing per-image `flock` |
-| `/layerfs/data/machines/native/run/images/.recv-<hex>.part` | Staged tar during transfer, deleted after unpack |
+| `/layerfs/data/machine/linux-guest/run/images/<hex>.2/` | Unpacked image (overlay lower, read-only) |
+| `/layerfs/data/machine/linux-guest/run/images/<hex>.2.json` | Sidecar |
+| `/layerfs/data/machine/linux-guest/run/images/<hex>.2.lock` | Existing per-image `flock` |
+| `/layerfs/data/machine/linux-guest/run/images/.recv-<hex>.part` | Staged tar during transfer, deleted after unpack |
 
-Native Linux uses the same layout under `$LAYERFS_HOME/machines/native/run/images` (`layerfs-home/src/home/paths.rs:85`).
+The Linux host machine (`linux-host`) uses the same layout under `$LAYERFS_HOME/machine/linux-host/run/images` (`run_root` in `layerfs-home/src/disk/paths.rs`).
 
 **Concurrency.** Two creates of the same image use the same `.recv-<hex>.part`. While its mtime is less than 30 s old, `probe` answers `{present:false, receiving:true, offset}`, and the second caller polls (bounded) instead of sending. Unpack is already single-flight per digest: `cache.rs:30-76` takes a `flock`, unpacks to a temporary directory and publishes with a rename.
 
@@ -162,8 +162,8 @@ Native Linux uses the same layout under `$LAYERFS_HOME/machines/native/run/image
 | docker | Worker frames: `-p` on Docker Desktop, `--network host` loopback on a Linux Engine (`docker/power.rs:66-89`); or the fast path | Image source: same Engine |
 | lima | Worker frames over `ssh -L` | 1 MiB frames, one round trip each. Pipelining is a later optimisation |
 | apple-container | Worker frames over `--publish 127.0.0.1:<port>` (`apple_container/create.rs:31`) | — |
-| native Linux | `Executor::Local`: export straight into the local `.part` file, no frames | Needs root, as namespaces already does |
-| native macOS | Refused `Unsupported` | `machine images` answers `mode:'host'` |
+| Linux host (`linux-host`) | `Executor::Local`: export straight into the local `.part` file, no frames | Needs root, as namespaces already does |
+| macOS host (`macos-host`) | Refused `Unsupported` | `machine images` answers `mode:'host'` |
 
 #### R2 `machine images <name>`
 
@@ -239,11 +239,11 @@ DNS inside a Sandbox comes from the image's `/etc/resolv.conf`. An exported imag
 The bug, in `deploy.rs:42-60`:
 - `named.filter(|i| is_digest(i))` (`:55`) drops any image that is not a digest.
 - On VM machines, `image.or(record.image())` means a non-digest call image also hides the record's digest.
-- On macOS native, `resolve` (`:84-87`) ignores a digest entirely.
+- On the macOS host machine, `resolve` (`:84-87`) ignores a digest entirely.
 
 The fix:
 - Refuse `InvalidInput` when the image is not a digest. The feature branch does this at `deploy.rs` +43-48.
-- Refuse `Unsupported` when an image is given on macOS native (feature branch `route.rs` +300-305).
+- Refuse `Unsupported` when an image is given on the macOS host machine (feature branch `route.rs` +300-305).
 
 This change touches nothing else and can land on its own.
 
@@ -333,7 +333,7 @@ machine and never pulls an image.
 {
   machine: 'lima1', platform: 'lima', state: 'running' | 'stopped' | ...,
   stage: 0 | 1,
-  mode: 'images' | 'host',              // 'host': macOS native, no Image row
+  mode: 'images' | 'host',              // 'host': the macOS host machine, no Image row
   architecture: 'arm64',                // the machine's Linux arch
   free: number | null,                  // data-disk bytes (machine.images `free`); null at Stage 0
   default: string | null,               // id of the preselected ready row (D7)
@@ -346,7 +346,7 @@ machine and never pulls an image.
     sandboxes: number, lastUsed: string | null,
     usable: boolean, reason?: Reason,   // Stage 0 archive images LayerFS cannot run
   }],
-  docker: null                          // Stage 0, or macOS native
+  docker: null                          // Stage 0, or the macOS host machine
     | { available: false, reason: 'not-installed' | 'not-running' | 'error', message?: string }
     | { available: true, images: [{
         id, name, refs: string[], size: number, architecture: string, os: string,
@@ -366,7 +366,7 @@ How the two groups merge:
 - **Ready group.** In Stage 1 the rows come from `machine.images`, all `usable: true`. In
   Stage 0 they come from the archive a Sandbox on that machine would use (see §3); a row that
   LayerFS cannot run has `usable: false` and the archive's `reason`.
-- **Docker group.** This group exists only in Stage 1 and only for non-native machines. Rows
+- **Docker group.** This group exists only in Stage 1 and only for machines other than the macOS host machine. Rows
   come from `docker image ls` plus one batched `docker image inspect` (Id, Os, Architecture,
   Size in bytes, RepoTags).
   - Untagged and `<none>` rows are left out.
@@ -574,7 +574,7 @@ will need `machine update --image <digest>`, which is LayerFS's own rule.
 |---|---|---|---|
 | `InvalidInput` (unknown image) | 400 | `imageUnknown` | |
 | `Unsupported` + `detail.reason: 'arch'` (`detail.value`) | 501 | `imageWrongArch` {arch} | |
-| `Unsupported` + `detail.reason: 'host'` | 501 | `imageHostOnly` | macOS native |
+| `Unsupported` + `detail.reason: 'host'` | 501 | `imageHostOnly` | the macOS host machine |
 | `Unsupported` + `detail.need: 'image-refs'` (host's Stage-0 guard) | 501 | `imageNeedsNewerLayerfs` | |
 | `Unavailable` (machine stopped) | 502 | `machineStopped` | button: Start and create |
 | `Unavailable` + `detail.what: 'docker'` | 502 | `dockerNotRunning` | |
@@ -675,7 +675,7 @@ Scope: `src/client/machines/` and the one shared control in `src/client/ui/`. Ev
 - **Note line** (one line, `Field` hint, always present when the menu is): ready pick → "ubuntu:24.04 is already on lima-1."; Docker pick → "Copies `<image>` (`<size>`) to `<machine>` once; later Sandboxes start at once."; stopped machine → "lima-1 is stopped; Create starts it first."; low disk → "Needs 1.2 GB; lima-1 has 0.4 GB free.". Only one sentence shows, picked in this order: no space, stopped, Docker off, the pick's sentence.
 - **Button label.** `Create`; `Start and create` when the answer's `state` is `stopped`; `Free space` when the Docker pick has `fits: false` (D8). Free space opens the Free space dialog (5.1.3) on top of New Sandbox with the unused images preselected and the pick's `need` stated. When it closes after removing, the images are read again and the button returns to `Create`. While submitting: `Creating…`.
 - **Machine switch.** Both entry points (machine detail, Overview machine card) fix the machine, so today there is no switch. If a Machine field is added later, changing it re-reads that machine's images. The pick is kept when the same image Id or ref is offered there, otherwise the new machine's default is chosen, and the note says "Image changed to `<x>`: `<y>` is not on `<machine>`." See open question 1.
-- **macOS native.** No Image row. One muted line in its place: "Sandboxes on this Mac use its own system." Driven by `mode:'host'`.
+- **macOS host machine.** No Image row. One muted line in its place: "Sandboxes on this Mac use its own system." Driven by `mode:'host'`.
 - **Docker not running / not installed.** Only the ready group. The note says "Docker isn't running, so only images already on lima-1 are listed." ("isn't installed" variant). It is replaced by a more urgent sentence as ordered above.
 - **Stopped machine.** New Sandbox is enabled on a stopped machine. Today's `startBeforeSandbox` gating in `MachineDetail` and `HomeCards` goes; it stays only while a startup or another power action is running. `machine.images` refuses a stopped machine, so the ready group shows the host's last answer for that machine, with a muted group footer "As of when lima-1 last ran". With no last answer, the ready group shows only "LayerFS default". Docker rows still list. The button reads `Start and create`.
 - **Reading / failed.** While the first answer loads, the menu is disabled and shows "Loading images from lima-1…". If the read fails, `Refusal` plus `Retry loading images` show, and Create still works with the LayerFS default (no `image` sent).
@@ -696,7 +696,7 @@ Phases map to three words: `machine` → "Starting machine"; `inspect|export|sen
 
 #### 5.1.3 Machine detail: Images section and Free space
 
-A new `Card` on `MachineDetail` between Inventory and Details, Stage 1 only, not on macOS native:
+A new `Card` on `MachineDetail` between Inventory and Details, Stage 1 only, not on the macOS host machine:
 
 ```
  Images                                            [Free space…]
@@ -732,7 +732,7 @@ Changed:
 - `Sandboxes.tsx`: `SandboxImageFields` is deleted. `NewSandboxDialog` uses `ImageMenu` + `imagePlan`, sends `image: pick.id` (always the id, §4.1; omitted only when the images read failed) and `start: true` when stopped, and closes on admission.
 - `controller.ts`: delete `dockerImages`, `saveDockerImages`, `setDefaultImage`, and `machineImages` (replaced). Add `sandboxImages(machine)`, `pruneImages(machine, ids)`, `retryCreation(creation)` (re-sends `creation.input`), `dismissCreation(id)`, and a `creations` source (keyed by job `id`) fed by `GET /api/sandbox-creates` and `sandbox-progress` events.
 - `MachineDetail.tsx`, `HomeCards.tsx`: New Sandbox enabled when stopped (§5.1.1). `MachineDetail` renders `ImagesSection`.
-- `parts.tsx`: delete `VmImageDialog` and the VM "Sandbox images…" menu item (VMs return to Remove only). `SettingsDialog` loses its Sandbox image digest field (docker keeps socket/WSL). Native gets no Settings item if nothing is left.
+- `parts.tsx`: delete `VmImageDialog` and the VM "Sandbox images…" menu item (VMs return to Remove only). `SettingsDialog` loses its Sandbox image digest field (docker keeps socket/WSL). The host machine gets no Settings item if nothing is left.
 - `AddMachineDialog.tsx`: delete the image choice (`imageMode`, `DockerImagePicker`, `ArchiveSummary`, the archive field). `model.ts`: `VmForm.image`, `isImageRef` and `vmErrors`' image check go. `Spec.tsx`: drop the `defaultImage` and `imagesInUse` facts (digests). `SandboxDetail.tsx`'s Image fact shows the image name when the images answer knows it.
 - `model.ts`: delete `DockerImagesView`, `SavedImageArchive`, the old `MachineImages`, `ImageProblem`, `PROBLEM_WORDS`. Add `SandboxImagesView` and `Creation` (both §4.1). `CliFeatures`: drop `imageArchive`, keep `images`, add the other §4.2 flags (`imageStage`, `createProgress`, …).
 
@@ -748,7 +748,7 @@ Deleted: `DockerImagePicker.tsx` (whole file). CSS removed: `.dockerList`, `.doc
 | Remove / Free space | `POST /api/machines/:id/prune-images { images: [id] }` → `{ removed, freed, refused }` | bumps the machine's tick |
 | Retry / dismiss | Retry re-POSTs the job's input to the create route; dismiss is `DELETE /api/sandbox-creates/:id` | reload |
 
-The answer shape is the one in §4.1 (D15). `stale` marks the host's kept answer for a stopped machine. `docker` is `null` at Stage 0 and on macOS native. The "From Docker on this Mac" heading uses "…on this computer" when the host is not macOS (the client knows its platform). `useQuery` moves from `src/client/files/use-query.ts` to `src/client/ui/use-query.ts`, re-exported from the old path, because machines must not import from `files/`.
+The answer shape is the one in §4.1 (D15). `stale` marks the host's kept answer for a stopped machine. `docker` is `null` at Stage 0 and on the macOS host machine. The "From Docker on this Mac" heading uses "…on this computer" when the host is not macOS (the client knows its platform). `useQuery` moves from `src/client/files/use-query.ts` to `src/client/ui/use-query.ts`, re-exported from the old path, because machines must not import from `files/`.
 
 Events:
 - `sandbox-progress { creation }` (the §4.1 `Creation`) updates the `creations` cell in place by `creation.id`, with no read. Byte updates arrive at most every 500 ms per job, matching the data-loading rule. A `done` or `failed` event queues one `/api/machines` reload and bumps that machine's images tick, coalesced at 500 ms.
@@ -777,9 +777,9 @@ The client reads `features.imageStage` and `features.createProgress` (§4.2, D11
 
 ### 5.6 Verification
 
-- Unit (`test/machines-images.test.mjs`): `imagePlan` (label/note for ready, Docker, stopped, no-space, Docker off, native host), default selection (newest `last_used`, then `default`), dedupe of ready Ids out of the Docker group, phase→words mapping, and `featuresOf` stage flags.
+- Unit (`test/machines-images.test.mjs`): `imagePlan` (label/note for ready, Docker, stopped, no-space, Docker off, host machine), default selection (newest `last_used`, then `default`), dedupe of ready Ids out of the Docker group, phase→words mapping, and `featuresOf` stage flags.
 - Step modules for `tools/shot.mjs` (side server, private home), in `test/shots/`:
-  `new-sandbox-image.mjs` opens machine → New Sandbox → Image menu, screenshots both groups, asserts the groups via `getByRole('menu')`, picks a Docker row and asserts that the button reads Create and the note says "copies once". `stopped-create.mjs` stops the docker machine, opens New Sandbox, and asserts `Start and create`. `images-section.mjs` checks the table, Remove on an unused row, and that Free space has the unused rows preselected. `native-mac.mjs` asserts the native New Sandbox has no Image field and shows the one line. Also take dark-mode shots and zh shots (DSH locale switch).
+  `new-sandbox-image.mjs` opens machine → New Sandbox → Image menu, screenshots both groups, asserts the groups via `getByRole('menu')`, picks a Docker row and asserts that the button reads Create and the note says "copies once". `stopped-create.mjs` stops the docker machine, opens New Sandbox, and asserts `Start and create`. `images-section.mjs` checks the table, Remove on an unused row, and that Free space has the unused rows preselected. `native-mac.mjs` asserts the macOS host machine's New Sandbox has no Image field and shows the one line. Also take dark-mode shots and zh shots (DSH locale switch).
 - e2e (`test/e2e-sandbox-images.mjs`, fake-llm side server, Docker required, skipped without it): Stage 0 checks the ready group only, then creates with the default and expects a "Creating" row followed by the real row. Stage 1 (with `DSH_LAYERFS_CLI` built from the LayerFS change) creates from a small local image (`docker build` of a 2-line Dockerfile tagged `e2eimg-<pid>:1`) and expects phases in order, `machine.images` showing it with "1 Sandbox", then deletes the Sandbox, Removes the image, and checks that `freed > 0`. The failure path forces `NoSpace` with a fixture image larger than a tiny Lima disk (or a stubbed refusal in routes tests) and checks the row shows the reason, Retry, and dismiss. Add Image menu / Images section entries to `e2e-crawl.mjs`.
 - 3080: after the merge, rebuild (client hot-reloads) and restart 3080 for the host routes, following the shared-server rules. On the existing docker machine, open New Sandbox with an `<agent-prefix>-` project and check the groups and labels. Create one Sandbox from a Docker image and watch the row's phases, then delete it and Remove the image. Leave the LayerFS home's other images alone.
 

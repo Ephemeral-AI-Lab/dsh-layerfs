@@ -233,7 +233,7 @@ test('live: Build cleanup still removes data from a private home', { skip: !pin 
     assert.equal(receipt.verified, true)
     assert.deepEqual(cli('store', 'list').items, [])
   } finally {
-    try { execFileSync(pin.cli, ['machine', 'stop', 'native'], { env, stdio: 'ignore' }) } catch {}
+    try { execFileSync(pin.cli, ['machine', 'stop', 'macos-host'], { env, stdio: 'ignore' }) } catch {}
     rmSync(base, { recursive: true, force: true })
   }
 })
@@ -246,7 +246,7 @@ function stoppingFixture({ fail = null, forceSupport = true } = {}) {
   mkdirSync(home); mkdirSync(state)
   writeFileSync(join(home, 'layerfs.json'), JSON.stringify({ id: 'stop-test-home' }))
   // `machine list --detail` rows (2.0): keyed `machine`, six states
-  const machines = [{ machine: 'native', state: 'ready', created_at: '2026-11-01T00:00:00Z' }, { machine: 'docker', state: 'ready', created_at: '2026-11-01T00:00:00Z' }, { machine: 'vm', state: 'stopped', created_at: '2026-11-02T00:00:00Z' }]
+  const machines = [{ machine: 'macos-host', state: 'ready', created_at: '2026-11-01T00:00:00Z' }, { machine: 'docker', state: 'ready', created_at: '2026-11-01T00:00:00Z' }, { machine: 'vm', state: 'stopped', created_at: '2026-11-02T00:00:00Z' }]
   const inventory = join(base, 'machines.json'), commands = join(base, 'commands.jsonl'), cli = join(base, 'layerfs.mjs')
   writeFileSync(inventory, JSON.stringify(machines))
   writeFileSync(cli, `#!/usr/bin/env node
@@ -261,7 +261,7 @@ else {
   if (args.join(' ') === 'machine list --detail') console.log(JSON.stringify({items: machines}))
   else if (args[0] === 'machine' && args[1] === 'stop' && args[3] === '--force' && args[4] === '--detail') {
     if (args[2] === fail) { console.error(JSON.stringify({error:'Failed',message:'stop failed'})); process.exit(125) }
-    const machine = machines.find(row => row.machine === args[2]); machine.state = machine.machine === 'native' ? 'ready' : 'stopped'
+    const machine = machines.find(row => row.machine === args[2]); machine.state = 'stopped'
     fs.writeFileSync(inventory, JSON.stringify(machines)); console.log(JSON.stringify({ok:true,unchanged:false,stopped_sandboxes:[],stopped_sandboxes_count:0,unknown_workspaces:[],unknown_workspaces_count:0,outcome:'stopped',machine:machine.machine,forced:true}))
   } else { console.error(JSON.stringify({error:'InvalidInput',message:args.join(' ')})); process.exit(125) }
 }
@@ -286,7 +286,7 @@ test('Reset only force-stops registered machines, preserves content/manifest/jou
     const manager = new PresetManager(fake.host, fixture.state, fixture.home)
     const plan = await manager.environmentPlan('studio')
     assert.equal(plan.scope, 'machines')
-    assert.deepEqual(plan.stopMachines, ['docker', 'native', 'vm'])
+    assert.deepEqual(plan.stopMachines, ['docker', 'macos-host', 'vm'])
     assert.deepEqual(plan.dsh.workspaces, [])
     assert.deepEqual(plan.dsh.conversations.map((c) => c.id), ['session-active', 'session-old'], 'the plan names this home\'s project sessions only')
     const job = await manager.resetEnvironment('studio', { requestId: 'stop', expectedPlan: plan.signature, confirm: true, rebuild: false, sandboxes: false })
@@ -294,11 +294,11 @@ test('Reset only force-stops registered machines, preserves content/manifest/jou
     assert.equal(job.state, 'completed', job.error?.message)
     assert.equal(job.command, 'machine-stop')
     assert.equal(job.cleanup.verified, true)
-    assert.deepEqual(job.cleanup.completed, ['docker', 'native', 'vm'].map(name => ['machine', 'stop', name, '--force', '--detail']))
-    assert.deepEqual(fake.stopped, ['docker', 'native', 'vm'])
+    assert.deepEqual(job.cleanup.completed, ['docker', 'macos-host', 'vm'].map(name => ['machine', 'stop', name, '--force', '--detail']))
+    assert.deepEqual(fake.stopped, ['docker', 'macos-host', 'vm'])
     assert.deepEqual(fake.forgotten, [])
     assert.deepEqual(job.deletedSessions, ['session-active', 'session-old'])
-    assert.deepEqual(fake.order, ['stop:docker', 'stop:native', 'stop:vm', 'delete:session-active', 'delete:session-old'], 'sessions are deleted after every machine stopped')
+    assert.deepEqual(fake.order, ['stop:docker', 'stop:macos-host', 'stop:vm', 'delete:session-active', 'delete:session-old'], 'sessions are deleted after every machine stopped')
     assert.equal(readFileSync(join(fixture.state, 'demo-fixtures.json'), 'utf8'), manifestText)
     assert.equal(readFileSync(join(fixture.state, 'demo-steps.ndjson'), 'utf8'), journalText)
     assert.equal(manager.definition('studio').contentReady, true, 'stopping machines does not erase build verification')
@@ -308,7 +308,7 @@ test('Reset only force-stops registered machines, preserves content/manifest/jou
 })
 
 test('a partial stop failure still invalidates successful machines and attempts remaining targets', async () => {
-  const fixture = stoppingFixture({ fail: 'native' })
+  const fixture = stoppingFixture({ fail: 'macos-host' })
   try {
     const fake = fakeHost({ ...fixture, conversations: [{ id: 's1', project: 'store/project' }] })
     const manager = new PresetManager(fake.host, fixture.state, fixture.home)
@@ -320,7 +320,7 @@ test('a partial stop failure still invalidates successful machines and attempts 
     assert.deepEqual(fake.deleted, [], 'a failed stop deletes no session')
     assert.equal(job.cleanup.verified, false)
     assert.deepEqual(job.cleanup.completed, ['docker', 'vm'].map(name => ['machine', 'stop', name, '--force', '--detail']))
-    assert.deepEqual(JSON.parse(readFileSync(fixture.inventory)).map(row => row.machine).sort(), ['docker', 'native', 'vm'])
+    assert.deepEqual(JSON.parse(readFileSync(fixture.inventory)).map(row => row.machine).sort(), ['docker', 'macos-host', 'vm'])
   } finally { rmSync(fixture.base, { recursive: true, force: true }) }
 })
 

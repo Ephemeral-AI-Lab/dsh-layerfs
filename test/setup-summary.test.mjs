@@ -56,16 +56,16 @@ test('a missing bundle or daemon is incomplete; no runtime, or a broken one, say
 
 const platform = (platform, over = {}) => ({ platform, how: '', backend: null, kernel: null, sqlite: null, postgresql: { store_calls: '', sandbox: false, reason: null }, ready: true, missing: [], version: null, options: [], description: '', ...over })
 
-test('machines: native first, then docker, lima, apple-container; what this computer never runs is left out', () => {
+test('machines: the host machine first, then docker, lima, apple-container; what this computer never runs is left out', () => {
   const rows = platformRows([
     platform('apple-container', { ready: false, missing: ['tool:container'] }),
     platform('lima'),
     platform('microsandbox', { ready: false, missing: ['host:macos-or-linux'] }),
     platform('docker', { ready: false, missing: ['host:/var/run/docker.sock'] }),
-    platform('native'),
+    platform('host'),
   ], 'macos')
   assert.deepEqual(rows.map((r) => [r.platform, r.state, r.action]), [
-    ['native', 'ready', null],
+    ['host', 'ready', null],
     ['docker', 'notRunning', 'check'],
     ['lima', 'available', null],
     ['apple-container', 'notInstalled', 'install'],
@@ -74,8 +74,8 @@ test('machines: native first, then docker, lima, apple-container; what this comp
 })
 
 test('machines: a host fact to set up offers Set up; a missing bundle offers nothing here', () => {
-  const rows = platformRows([platform('native'), platform('docker', { ready: false, missing: ['bundle:/b'] }), platform('lima', { ready: false, missing: ['host:/dev/fuse'] })], 'linux')
-  assert.deepEqual(rows.map((r) => [r.platform, r.state, r.action]), [['native', 'ready', null], ['docker', 'needsBundle', null], ['lima', 'needsSetup', 'setup']])
+  const rows = platformRows([platform('host'), platform('docker', { ready: false, missing: ['bundle:/b'] }), platform('lima', { ready: false, missing: ['host:/dev/fuse'] })], 'linux')
+  assert.deepEqual(rows.map((r) => [r.platform, r.state, r.action]), [['host', 'ready', null], ['docker', 'needsBundle', null], ['lima', 'needsSetup', 'setup']])
 })
 
 test('machines: not ready with nothing reported offers Check, not an empty how-to', () => {

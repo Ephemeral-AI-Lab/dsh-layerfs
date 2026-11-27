@@ -188,11 +188,11 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     if (id && sub === 'detach' && method === 'POST') return storage.detach(id, body ?? {})
     // the connection check (store doctor): this computer, then attached machines; ?machine=<name>: that attached machine alone
     if (id && sub === 'check' && method === 'GET') return storage.checkStore(id, query.get('machine'))
-    // a sqlite Store on native to a machine (store move): { machine }
+    // a sqlite Store on the host machine to a machine (store move): { machine }
     if (id && sub === 'push' && method === 'POST') return storage.push(id, body?.machine)
-    // a sqlite Store on a machine back to native (store move <s> native)
+    // a sqlite Store on a machine back to the host machine (store move <s> macos-host|linux-host)
     if (id && sub === 'pull' && method === 'POST') return storage.pull(id)
-    // between two machines, two moves through native in one job: { machine }
+    // between two machines, two moves through the host machine in one job: { machine }
     if (id && sub === 'move' && method === 'POST') return storage.move(id, body?.machine)
     // { bucket, file? }
     if (id && sub === 'backup' && method === 'POST') return storage.backup(id, body ?? {})
@@ -207,7 +207,7 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     if (!id && method === 'POST') return storage.connectBucket(body ?? {})
     if (id && !sub && method === 'DELETE') return storage.disconnectBucket(id)
     if (id && sub === 'files' && method === 'GET') return storage.listBucket(id)
-    // { store (the new Store's name), file? }: installs on native
+    // { store (the new Store's name), file? }: installs on the host machine
     if (id && sub === 'restore' && method === 'POST') return storage.restore({ ...(body ?? {}), bucket: id })
     return undefined
   }
@@ -370,8 +370,8 @@ export async function handle(g: Groups, request: { method?: string, path?: strin
     if (method !== 'GET' && parts[1] !== 'demo-presets' && g.presets?.exclusive()) {
       throw httpError(409, 'ConnectBusy', 'A preset build or reset is changing this LayerFS home. Changes are available when it finishes; you can keep browsing.')
     }
-    // Connect recorded the native daemon at boot; here once, before the first call that needs it
-    await g.host.ensureNative()
+    // Connect recorded the host machine's daemon at boot; here once, before the first call that needs it
+    await g.host.ensureHostDaemon()
     const answer = await route(g, method, parts, url.searchParams, body, signal)
     if (answer === undefined) return { status: 404, body: { code: 'NotFound', message: `no route ${method} ${url.pathname}` } }
     if (answer instanceof Answer) return { status: answer.status, body: wire(answer.body) ?? null }

@@ -35,7 +35,7 @@ import { clockTime, dateTime } from '../ui/locale-sync.ts'
 export interface SandboxOverviewProps {
   name: string
   machine: string
-  /** The machine's title with its kind ("native (Native)"). */
+  /** The machine's title with its kind ("macos-host (Host)"). */
   machineTitle: string
   info: SandboxInfo | null
   /** What the list row knows until sandbox.get answers. */
@@ -131,8 +131,8 @@ function ImageName({ info, machine }: { info: SandboxInfo, machine: string }): R
   const { t, useMachines } = useMachinesContext()
   const name = info.machine ?? machine
   const parent = useMachines((s) => (s.data?.available && s.data.features?.imageStage === 1 ? s.data.machines.find((m) => m.name === name) : undefined))
-  if (!info.image || info.image === 'local') return info.backend === 'native' ? <>{t('imageNone')}</> : null
-  if (parent && parent.backend !== 'native') return <ReadImageName image={info.image} machine={parent} />
+  if (!info.image || info.image === 'local') return info.backend === 'process' ? <>{t('imageNone')}</> : null
+  if (parent && parent.backend !== 'process') return <ReadImageName image={info.image} machine={parent} />
   return <ImageWords image={info.image} images={cachedAnswer<SandboxImagesView>(`machines:images:${name}`)} />
 }
 

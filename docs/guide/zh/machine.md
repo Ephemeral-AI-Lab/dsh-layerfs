@@ -3,13 +3,13 @@
 
 > **位置：** `LayerFS › 主页 › 机器 › <machine>` · **打开方式：** 主页 › 机器 中的机器名、导航栏的面包屑切换器、跳转到（**机器**（Machines）分组）、Store 的位置链接、Sandbox 的 **机器**（Machine）一项 · **源码：** 见文末
 
-机器是 Sandbox 运行、SQLite Store 存放的地方：**`native`**（Sandbox 直接在这台电脑的操作系统上运行；它不是 LayerFS 主目录，主目录是这台电脑的控制数据）、内置的 **docker** 机器（运行在 Docker 容器里的 LayerFS worker），或者你创建的虚拟机（Lima、Apple Container）。机器页回答“它在运行吗，满了多少，上面有什么”，所有机器操作也都在这里：启动、停止、重启 worker、强制停止、设置和移除。
+机器是 Sandbox 运行、SQLite Store 存放的地方：**`macos-host`**（Sandbox 直接在这台电脑的操作系统上运行；它不是 LayerFS 主目录，主目录是这台电脑的控制数据）、内置的 **docker** 机器（运行在 Docker 容器里的 LayerFS worker），或者你创建的虚拟机（Lima、Apple Container）。机器页回答“它在运行吗，满了多少，上面有什么”，所有机器操作也都在这里：启动、停止、重启 worker、强制停止、设置和移除。
 
 ![docker 的机器页，带编号](../img/machine-overview.png)
 
 | # | 组件 | 说明 |
 |---|---|---|
-| 1 | 头部 | 机器的图标、名称（`native` 和其他机器一样显示名称）、状态标签、类型行（**Docker · Linux 命名空间**（Docker · Linux namespaces）），以及它的电源按钮和 ⋯ 菜单。在每个标签页上方，每种机器的布局都一样 |
+| 1 | 头部 | 机器的图标、名称（`macos-host` 和其他机器一样显示名称）、状态标签、类型行（**Docker · Linux 命名空间**（Docker · Linux namespaces）），以及它的电源按钮和 ⋯ 菜单。在每个标签页上方，每种机器的布局都一样 |
 | 2 | 标签栏 | **概览**（Overview）· **镜像**（Images）· **文件**（Files）· **Sandbox** *n* · **Store** *n* · **Worker 日志**（Worker log）。镜像、文件和 Worker 日志只在提供时出现（见[变体](#variants)） |
 | 3 | 用量卡片 | 当前的处理器、内存和数据盘，附 **运行良好**（Healthy）和读取时间 |
 | 4 | **空间去向**（Where it goes） | 打开[磁盘空间对话框](#disk-space-dialog) |
@@ -97,7 +97,7 @@
 |---|---|---|---|
 | **项目**（Project） | 选择 → 建议一个可用的名称（*项目*-1） | `project list`(读取) | **没有符合条件的项目……**（No eligible projects…），附 **打开存储**（Open Storage） |
 | **名称**（Name） | 1–63 个小写字母、数字、点、下划线或连字符 | — | 已占用的名称会被拒绝 |
-| **镜像**（Image） | Sandbox 在这里可以直接启动的镜像，以及 LayerFS 能从这台电脑的 Docker 复制的镜像（**来自本机 Docker**（From Docker on this Mac））；灰色的行会说明原因 | `machine get`、`machine images --with docker`、`sandbox list`(读取) | 在 macOS 的 native 机器（主机进程，`backend: native`）上改为显示 **此 Mac 上的 Sandbox 使用它自己的系统。**（Sandboxes on this Mac use its own system.）；Linux 上的 native 机器使用镜像 |
+| **镜像**（Image） | Sandbox 在这里可以直接启动的镜像，以及 LayerFS 能从这台电脑的 Docker 复制的镜像（**来自本机 Docker**（From Docker on this Mac））；灰色的行会说明原因 | `machine get`、`machine images --with docker`、`sandbox list`(读取) | 在 macOS 主机（主机进程，`backend: process`）上改为显示 **此 Mac 上的 Sandbox 使用它自己的系统。**（Sandboxes on this Mac use its own system.）；Linux 主机使用镜像 |
 | **创建**（Create）/ **启动并创建**（Start and create）/ **释放空间**（Free space） | 在后台创建：对话框关闭，卡片区显示一行创建中 | `sandbox create`（**启动并创建** 会先 `machine start`） | 所选 Docker 镜像放不下时显示 **释放空间**：在对话框上方打开[释放空间](#free-space-dialog) |
 | **读取 Sandbox**（Read Sandbox） | 创建结果不确定时：先读取这个 Sandbox，再决定是否创建另一个 | `sandbox get`(读取) | |
 | **取消**（Cancel） | 关闭 | — | |
@@ -110,7 +110,7 @@
 
 ## 镜像
 
-只出现在用自己保存的镜像副本启动 Sandbox 的机器上：docker、创建的虚拟机，以及在 Linux 命名空间里运行 Sandbox 的 native 机器。macOS 上的 native 机器 没有 **镜像**（Images）标签页，因为它的 Sandbox 使用 Mac 自己的系统。
+只出现在用自己保存的镜像副本启动 Sandbox 的机器上：docker、创建的虚拟机，以及在 Linux 命名空间里运行 Sandbox 的 Linux 主机。macOS 主机没有 **镜像**（Images）标签页，因为它的 Sandbox 使用 Mac 自己的系统。
 
 ![docker › 镜像，带编号](../img/machine-images.png)
 
@@ -156,7 +156,7 @@
 
 ## Worker 日志
 
-只在固定版本的 CLI 有这个调用、且 LayerFS 表示这台机器有 worker 日志时出现（docker 和创建的虚拟机；native 没有）。
+只在固定版本的 CLI 有这个调用、且 LayerFS 表示这台机器有 worker 日志时出现。
 
 ![docker › Worker 日志，带编号](../img/machine-log.png)
 
@@ -186,7 +186,7 @@ read. Lines read earlier stay below.），并附启动按钮。
 
 **强制停止 *机器*？**（Force stop *machine*?）***机器* 上正在运行的命令和 Sandbox 将停止。未提交的 Workspace 更改可能丢失。机器、Store 和已提交的项目历史会保留。**（Running commands and Sandboxes on *machine* will stop. Uncommitted
 Workspace changes may be lost. The machine, Stores and committed project history are kept.）
-（native 上是：**停止这台电脑上由 LayerFS 管理的 Sandbox 和正在运行的命令。电脑本身不会停止……**（Stop LayerFS-managed Sandboxes and running commands on this computer. The
+（主机上是：**停止这台电脑上由 LayerFS 管理的 Sandbox 和正在运行的命令，并停止其主机，直到再次启动。电脑本身不会停止……**（Stop LayerFS-managed Sandboxes and running commands on this computer, and stop its host machine until it is started again. The
 computer itself stays running…））。**强制停止**（Force stop）运行 `machine stop --force`；**取消**（Cancel）关闭对话框。
 
 ### 设置对话框
@@ -213,12 +213,12 @@ confirm），然后 **全部移除**（Remove everything）依次运行：每个
 | # | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|---|
 | 1 | ▸ / ▾ | | 点击（或点击这一行）→ 显示或隐藏它包含的内容；在这个浏览器里会记住 | — | 机器需要你处理、正在启动或是唯一一台时，默认展开 |
-| 2 | 名称 | 图标、名称（`native` 和其他机器一样显示名称）和 **类型 · 运行方式**（**原生 · 主机进程**（Native · Host processes）） | 点击 → 机器页 | `home get`、`machine list`、`machine get --with live`、`sandbox list`、`store list`(读取) | |
+| 2 | 名称 | 图标、名称（`macos-host` 和其他机器一样显示名称）和 **类型 · 运行方式**（**主机 · 主机进程**（Host · Host processes）） | 点击 → 机器页 | `home get`、`machine list`、`machine get --with live`、`sandbox list`、`store list`(读取) | |
 | 3 | **状态**（State） | 状态标签 | — | 同上 | **运行中**（Running）、**已停止**（Stopped）、**需要修复**（Needs repair）、**Docker 未运行**（Docker not running）、**不可用**（Unavailable）…… |
 | 4 | **内存**（Memory） | 一根条和 **% of total**（悬停显示已用/总量） | — | —（采样器的 `machine stats`） | 超过 75% 显示琥珀色，超过 90% 显示红色；没读到时以浅色显示已分配的内存 |
 | 5 | **磁盘**（Disk） | 一根条和 **LayerFS *大小* · 可用 *大小***（LayerFS *size* · *size* free） | — | `machine stats --with space`(读取，缓存 1 分钟) | 被阻塞的机器在这里改为显示原因 |
 | 6 | **包含**（Holds） | ***n* 个 Store**（*n* Stores）/ ***n* 个 Sandbox**（*n* Sandboxes）（正在创建的也计入） | — | — | **没有 Store**（No Stores）、**没有 Sandbox**（No Sandboxes） |
-| 7 | 电源 | 一个图标按钮：**停止 worker**（Stop worker）/ **启动 worker**（Start worker）/ **启动**（Start）/ **停止**（Stop） | 按下 → 和机器页上一样 | `machine stop` / `machine start` | native 上没有 |
+| 7 | 电源 | 一个图标按钮：**停止 worker**（Stop worker）/ **启动 worker**（Start worker）/ **启动**（Start）/ **停止**（Stop） | 按下 → 和机器页上一样 | `machine stop` / `machine start` | — |
 | 8 | ⋯ | [机器菜单](components.md#machine-menu)，第一项是 **打开**（Open） | | | |
 | 9 | **添加 Store**（Add Store） | 在展开行的 Store 一栏里 | 按下 → 存储的 **向 *机器* 添加 Store**（Add a Store to *machine*） | 见 [store.md](store.md#machine--stores-tab) | 被阻塞的机器上隐藏 |
 | 10 | **新建 Sandbox**（New Sandbox） | 在 Sandbox 一栏里 | 按下 → [新建 Sandbox 对话框](#new-sandbox-dialog) | — | 启动或停止进行中时不可用 |
@@ -242,16 +242,16 @@ created.）每个平台一行，显示它当前的就绪程度。
 | 虚拟机行 | **Apple Container**、**Lima**，附简介和版本 | **创建**（Create）→ 在该行中打开它的表单 | — | |
 | 未就绪行 | 一个标签（**需要安装**（Needs install）、**需要设置**（Needs setup）、**未运行**（Not running）、**需要运行时**（Needs runtime））和一个按钮（**安装**（Install）、**设置**（Set up）、**启动**（Start）、**在设置中修复**（Fix in setup）） | 按钮 → 该做什么、可复制的命令、**重新检查**（Check again）（或打开设置 LayerFS 对话框） | **重新检查**：带最新平台信息的机器视图读取 | |
 | **此电脑不可用（*n*）**（Not available on this computer (*n*)） | 这台电脑永远无法运行的平台，及原因 | 点击 → 展开 | — | |
-| 虚拟机表单 | **名称**（Name，建议一个可用的）、**CPU 数**（CPUs）、**内存**（Memory）、**磁盘**（Disk，**存放其 Store**（Holds its Stores）），默认值来自 LayerFS；一行显示这台电脑的余量和其他虚拟机的用量（要求超出时给出警告，但不会拒绝） | **更多**（More）› **使用原版镜像**（Use stock image） | 余量一行来自采样器的 `machine stats native` | |
+| 虚拟机表单 | **名称**（Name，建议一个可用的）、**CPU 数**（CPUs）、**内存**（Memory）、**磁盘**（Disk，**存放其 Store**（Holds its Stores）），默认值来自 LayerFS；一行显示这台电脑的余量和其他虚拟机的用量（要求超出时给出警告，但不会拒绝） | **更多**（More）› **使用原版镜像**（Use stock image） | 余量一行来自采样器的 `machine stats macos-host` | |
 | **创建**（Create） | | 创建虚拟机并显示启动进度；对话框保持打开（**创建机器期间请保持此对话框打开。**（Keep this dialog open while the machine is being created.）），完成后打开新机器的页面 | `home get`（它声明的选项），然后 `machine create <name> <platform> --cpus --memory --disk [--os-image stock]` | 失败时提供 **检查当前状态**（Inspect current state，`machine get`）和 **查看机器与移除选项**（View machine and removal options） |
 | **取消**（Cancel） | | 关闭表单 | — | 创建期间不可用 |
 
 ## 变体
 
-- **`native`**（[截图](../img/machine-native.png)）：没有电源按钮（它就是这台电脑），macOS 上没有处理器一栏，没有 **Worker 日志**（Worker log，没有 worker），没有 **更新设置…**（Update settings…），**移除…**（Remove…）不可用并显示 **内置 · 无法移除**（Built in · can’t be removed）。**镜像**（Images）标签页取决于它的 Sandbox 怎么运行：macOS 上的 native 机器 让 Sandbox 使用 Mac 自己的系统，没有这一页；Linux 上在命名空间里运行，有这一页。上面有 Sandbox 时会显示 **强制停止…**（Force stop…），使用 native 版的说明文字。
+- **`macos-host`** / **`linux-host`**（[截图](../img/machine-host.png)）：主机，即这台电脑本身。和其他机器一样有 **启动**（Start）/ **停止**（Stop）（停止会让它的 Sandbox 和 worker 停下，直到再次启动；电脑本身继续运行），macOS 上没有处理器一栏，没有 **Worker 日志**（Worker log，没有 worker），没有 **更新设置…**（Update settings…），**移除…**（Remove…）不可用并显示 **内置 · 无法移除**（Built in · can’t be removed）。**镜像**（Images）标签页取决于它的 Sandbox 怎么运行：macOS 主机让 Sandbox 使用 Mac 自己的系统，没有这一页；Linux 上在命名空间里运行，有这一页。上面有 Sandbox 时会显示 **强制停止…**（Force stop…），使用主机版的说明文字。
 - **docker**：电源按钮的文字提到 worker（**启动 worker**（Start worker）、**停止 worker**（Stop worker）、**重启 worker**（Restart worker））；**更新设置…**（Update settings…）用来设置套接字；macOS 上 Docker 引擎没运行时，状态是 **Docker 未运行**（Docker not running），启动按钮变成 **启动 Docker 和 worker**（Start Docker and worker）。除非 LayerFS 自己的修复要求移除它的记录，否则移除不可用。
 - **创建的虚拟机**（Lima、Apple Container）：**启动**（Start）/ **停止**（Stop）（worker 没有响应时为 **停止（关闭虚拟机）**（Stop (shut down the VM)）），有危险操作区和 **移除 *名称*…**（Remove *name*…），菜单里有 **移除…**（Remove…），没有设置。
-- **只在部分情况下出现的标签页**：**镜像**（Images）需要支持 Sandbox 镜像副本的 CLI（镜像阶段 1）以及从镜像启动 Sandbox 的机器（不是 macOS 上的 native 机器，它让 Sandbox 使用 Mac 自己的系统）；**文件**（Files）需要 CLI 的 `machine files`；**Worker 日志**（Worker log）需要 CLI 的 `machine log`，以及 LayerFS 表示有 worker 日志的机器（`supports: log`）。这些都不按平台名称判断。
+- **只在部分情况下出现的标签页**：**镜像**（Images）需要支持 Sandbox 镜像副本的 CLI（镜像阶段 1）以及从镜像启动 Sandbox 的机器（不是 macOS 主机，它让 Sandbox 使用 Mac 自己的系统）；**文件**（Files）需要 CLI 的 `machine files`；**Worker 日志**（Worker log）需要 CLI 的 `machine log`，以及 LayerFS 表示有 worker 日志的机器（`supports: log`）。这些都不按平台名称判断。
 - **较旧的 CLI**（没有 `machine stats`）：用量卡片变成一行记录的大小；没有 `machine stats --with space` 时，就没有磁盘分段、**空间去向**（Where it goes）和 **磁盘占用**（On disk）。
 
 ## 从这里打开的对话框

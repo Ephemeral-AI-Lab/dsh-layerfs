@@ -20,7 +20,7 @@ const en = {
   loading: 'Loading projects…',
   loadFailed: 'Could not list projects',
   onMachine: 'On {machine}',
-  /** Where a project on the native machine runs. */
+  /** Where a project on the host machine runs. */
   newEmpty: 'New project…',
   importProject: 'Import a folder…',
   configure: 'Set up {project}',

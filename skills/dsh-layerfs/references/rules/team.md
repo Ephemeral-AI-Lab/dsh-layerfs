@@ -144,7 +144,7 @@ Every Workspace in `$SB` shares one machine: `/tmp`, `HOME`, CPU, RAM and disk.
   A mounted Workspace keeps what it built until its unmount.
 - **CPU and RAM:** `CARGO_BUILD_JOBS=2`, and at most 4 cargo builds at once in `$SB`
   (fewer on a small machine: the brief says how many).
-  Where `command -v flock` finds it (Linux Sandboxes usually; native macOS has none),
+  Where `command -v flock` finds it (Linux Sandboxes usually; `macos-host` Sandboxes have none),
   take a slot with `flock /tmp/lfs-build.$((RANDOM % 4)).lock cargo …`. Exit 137
   means the kernel killed the process (memory): wait and run it again; don't raise
   the job count.

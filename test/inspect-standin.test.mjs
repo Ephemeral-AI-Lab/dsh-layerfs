@@ -64,7 +64,7 @@ test('files: the roots answer: roles in the declared order, only roots that exis
 })
 
 test('files: a LayerFS folder met in a listing carries its role; from / it is not entered, and on its own mount it is a mount; logs are listed, not read', () => {
-  const run = '/layerfs/data/machine/native/run'
+  const run = '/layerfs/data/machine/linux-guest/run'
   const f = fixture({ whole: 'machine', run_folders: [run], overlay: { '/layerfs/state/secret': { kind: 'restricted' } }, roots: [
     { role: 'data', path: '/layerfs/data', free_bytes: 5, fs: 'ext4' }, { role: 'stores', path: '/layerfs/data/store' }, { role: 'run_folders', path: run },
     { role: 'images', path: `${run}/images` }, { role: 'logs', path: '/layerfs/data/log' }, { role: 'state', path: '/layerfs/state' }, { role: 'bundle', path: '/layerfs/bundle' },
@@ -73,10 +73,10 @@ test('files: a LayerFS folder met in a listing carries its role; from / it is no
     f.put('layerfs/data/store/s/store.sqlite', 'db')
     f.put('layerfs/data/store/s/open/42', '')
     for (const n of ['worker.log', 'worker.1.log', 'other.txt']) f.put(`layerfs/data/log/${n}`, n)
-    f.put('layerfs/data/machine/native/run/rf/daemon.log', 'd')
-    f.put('layerfs/data/machine/native/run/rf/tmp/daemon.log', 'not the daemon\'s')
-    f.put('layerfs/data/machine/native/run/images/x.2.lock', '')
-    f.put('layerfs/data/machine/native/run/images/x.2.json', '{}')
+    f.put('layerfs/data/machine/linux-guest/run/rf/daemon.log', 'd')
+    f.put('layerfs/data/machine/linux-guest/run/rf/tmp/daemon.log', 'not the daemon\'s')
+    f.put('layerfs/data/machine/linux-guest/run/images/x.2.lock', '')
+    f.put('layerfs/data/machine/linux-guest/run/images/x.2.json', '{}')
     f.put('layerfs/state/secret', 's')
     f.put('layerfs/bundle/bundle.json', '{}')
     const by = (answer) => Object.fromEntries(answer.entries.map((e) => [e.path, e]))
@@ -88,10 +88,10 @@ test('files: a LayerFS folder met in a listing carries its role; from / it is no
     assert.ok(by(f.files('/', '--depth', '3').out)['/layerfs/data'] && !by(f.files('/', '--depth', '3').out)['/layerfs/data/store'], 'a deep walk from / stops at a LayerFS folder')
     // by its own path a root is read, and the roots inside it carry their roles
     const data = by(f.files('/layerfs/data', '--depth', '6').out)
-    assert.deepEqual(['store', 'log', 'machine/native/run', 'machine/native/run/images'].map((n) => [data[`/layerfs/data/${n}`].kind, data[`/layerfs/data/${n}`].role]), [['folder', 'stores'], ['folder', 'logs'], ['folder', 'run_folders'], ['folder', 'images']])
+    assert.deepEqual(['store', 'log', 'machine/linux-guest/run', 'machine/linux-guest/run/images'].map((n) => [data[`/layerfs/data/${n}`].kind, data[`/layerfs/data/${n}`].role]), [['folder', 'stores'], ['folder', 'logs'], ['folder', 'run_folders'], ['folder', 'images']])
     assert.equal(data['/layerfs/data/machine'].role, undefined)
     // logs: worker.log and its rotated part in the logs root, a run folder's daemon.log; nothing else
-    assert.deepEqual(['log/worker.log', 'log/worker.1.log', 'log/other.txt', 'machine/native/run/rf/daemon.log', 'machine/native/run/rf/tmp/daemon.log'].map((n) => [data[`/layerfs/data/${n}`].kind, data[`/layerfs/data/${n}`].role]),
+    assert.deepEqual(['log/worker.log', 'log/worker.1.log', 'log/other.txt', 'machine/linux-guest/run/rf/daemon.log', 'machine/linux-guest/run/rf/tmp/daemon.log'].map((n) => [data[`/layerfs/data/${n}`].kind, data[`/layerfs/data/${n}`].role]),
       [['file', 'log'], ['file', 'log'], ['file', undefined], ['file', 'log'], ['file', undefined]])
     for (const path of ['/layerfs/data/log/worker.log', `${run}/rf/daemon.log`]) {
       const r = f.files(path)
@@ -100,7 +100,7 @@ test('files: a LayerFS folder met in a listing carries its role; from / it is no
     }
     assert.equal(f.files('/layerfs/data/log/other.txt').out.content, 'other.txt')
     // what LayerFS keeps private: a Store's leases, lock files, the worker's secret
-    assert.deepEqual(['store/s/open', 'store/s/store.sqlite', 'machine/native/run/images/x.2.lock', 'machine/native/run/images/x.2.json'].map((n) => data[`/layerfs/data/${n}`].kind), ['restricted', 'restricted', 'restricted', 'file'])
+    assert.deepEqual(['store/s/open', 'store/s/store.sqlite', 'machine/linux-guest/run/images/x.2.lock', 'machine/linux-guest/run/images/x.2.json'].map((n) => data[`/layerfs/data/${n}`].kind), ['restricted', 'restricted', 'restricted', 'file'])
     assert.equal(data['/layerfs/data/store/s/open/42'], undefined, 'a restricted folder is not entered')
     assert.equal(by(f.files('/layerfs/state').out)['/layerfs/state/secret'].kind, 'restricted')
     // a missing path, in LayerFS's words
@@ -160,7 +160,7 @@ test('files: a file is read by window; a binary file has no content', () => {
 })
 
 test('files: kinds that are listed and never opened, and the refusals for their paths', () => {
-  const f = fixture({ whole: 'machine', o_r_outside: '/layerfs', run_folders: ['/layerfs/data/machine/native/run'], overlay: { '/proc': { kind: 'system' }, '/mnt/share': { kind: 'mount', fs: 'virtiofs' } } })
+  const f = fixture({ whole: 'machine', o_r_outside: '/layerfs', run_folders: ['/layerfs/data/machine/linux-guest/run'], overlay: { '/proc': { kind: 'system' }, '/mnt/share': { kind: 'mount', fs: 'virtiofs' } } })
   try {
     f.put('etc/hosts', 'x', 0o644)
     f.put('etc/shadow', 'secret', 0o600)
@@ -173,9 +173,9 @@ test('files: kinds that are listed and never opened, and the refusals for their 
     f.put('layerfs/data/sandbox/s/control.json', '{}')
     f.put('layerfs/data/sandbox/s/record.json', '{}')
     f.put('layerfs/data/store/s/store.sqlite', 'db')
-    f.put('layerfs/data/machine/native/run/rf/config/key', 'k')
-    f.put('layerfs/data/machine/native/run/rf/overlay/1.sqlite', 'o')
-    mkdirSync(join(f.root, 'layerfs/data/machine/native/run/rf/workspaces/1'), { recursive: true })
+    f.put('layerfs/data/machine/linux-guest/run/rf/config/key', 'k')
+    f.put('layerfs/data/machine/linux-guest/run/rf/overlay/1.sqlite', 'o')
+    mkdirSync(join(f.root, 'layerfs/data/machine/linux-guest/run/rf/workspaces/1'), { recursive: true })
     const kinds = (path) => Object.fromEntries(f.files(path).out.entries.map((e) => [e.path.slice(path.length === 1 ? 1 : path.length + 1), e.kind]))
     assert.deepEqual(kinds('/etc'), { hosts: 'file', link: 'symlink', pipe: 'other', shadow: 'unreadable' })
     assert.equal(f.files('/etc').out.entries.find((e) => e.kind === 'symlink').target, 'hosts')
@@ -183,10 +183,10 @@ test('files: kinds that are listed and never opened, and the refusals for their 
     assert.deepEqual(f.files('/mnt').out.entries.map((e) => [e.kind, e.fs]), [['mount', 'virtiofs']])
     assert.deepEqual(kinds('/layerfs/data/sandbox/s'), { 'control.json': 'restricted', 'record.json': 'file' })
     assert.deepEqual(kinds('/layerfs/data/store/s'), { 'store.sqlite': 'restricted' })
-    assert.deepEqual(kinds('/layerfs/data/machine/native/run/rf'), { config: 'restricted', overlay: 'restricted', workspaces: 'folder' })
-    assert.deepEqual(f.files('/layerfs/data/machine/native/run/rf/workspaces').out.entries.map((e) => [e.kind, e.size]), [['mount', null]], 'a Workspace mount is listed by name, never stat\'ed')
+    assert.deepEqual(kinds('/layerfs/data/machine/linux-guest/run/rf'), { config: 'restricted', overlay: 'restricted', workspaces: 'folder' })
+    assert.deepEqual(f.files('/layerfs/data/machine/linux-guest/run/rf/workspaces').out.entries.map((e) => [e.kind, e.size]), [['mount', null]], 'a Workspace mount is listed by name, never stat\'ed')
     // their paths are refused
-    for (const path of ['/etc/shadow', '/etc/link', '/etc/pipe', '/proc', '/proc/1', '/mnt/share', '/layerfs/data/sandbox/s/control.json', '/layerfs/data/machine/native/run/rf/config', '/layerfs/data/machine/native/run/rf/config/key', '/layerfs/data/machine/native/run/rf/workspaces/1', '/etc/../etc/hosts', '/etc//hosts', 'etc/hosts']) {
+    for (const path of ['/etc/shadow', '/etc/link', '/etc/pipe', '/proc', '/proc/1', '/mnt/share', '/layerfs/data/sandbox/s/control.json', '/layerfs/data/machine/linux-guest/run/rf/config', '/layerfs/data/machine/linux-guest/run/rf/config/key', '/layerfs/data/machine/linux-guest/run/rf/workspaces/1', '/etc/../etc/hosts', '/etc//hosts', 'etc/hosts']) {
       const r = f.files(path)
       assert.deepEqual([r.status, r.err?.error], [125, 'InvalidInput'], path)
     }

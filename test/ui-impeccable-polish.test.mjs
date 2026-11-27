@@ -145,16 +145,16 @@ test('#1: storeStateWords and doctor words localize known reasons and fall back 
   assert.equal(dwEn.rowWord('record:outdated'), 'Outdated')
   assert.equal(dwZh.rowWord('record:custom_code'), 'Custom code')
 
-  const nativeMachine = { key: 'machine:native', kind: 'machine', name: 'native', platform: 'native', machine: null, state: 'ready', reason: null, fix: null, message: null, op: null }
-  assert.equal(dwZh.nameOf(nativeMachine), 'native')
-  assert.equal(dwEn.nameOf(nativeMachine), 'native')
+  const nativeMachine = { key: 'machine:macos-host', kind: 'machine', name: 'macos-host', platform: 'host', machine: null, state: 'ready', reason: null, fix: null, message: null, op: null }
+  assert.equal(dwZh.nameOf(nativeMachine), 'macos-host')
+  assert.equal(dwEn.nameOf(nativeMachine), 'macos-host')
 
   const treeState = M.dm.setTree(M.dm.emptyState(), {
     at: 1000,
     home: { home: '/tmp/h', version: '2.0.0', state: 'ready', reason: null, fix: null },
-    tree: { machines: [{ machine: 'native', platform: 'native', state: 'ready', stores: [], sandboxes: [] }], stores: [], buckets: [] },
+    tree: { machines: [{ machine: 'macos-host', platform: 'host', state: 'ready', stores: [], sandboxes: [] }], stores: [], buckets: [] },
   })
-  const view = M.dm.viewOf(treeState, treeState.world.by['machine:native'])
+  const view = M.dm.viewOf(treeState, treeState.world.by['machine:macos-host'])
   assert.equal(dwZh.fact(treeState, view), '这台电脑')
   assert.equal(dwEn.fact(treeState, view), 'this computer')
 })
@@ -205,7 +205,7 @@ test('#5: OpPanel/JobPanel support compact mode on cards and .job aligns flush (
   assert.match(storageCss, /\.job\s*\{[^}]*margin:\s*0;/)
   assert.match(storageCss, /\.job\[data-compact\]/)
 
-  const store = { name: 'busy-store', kind: 'sqlite', machine: 'native', state: 'busy', op: { name: 'move', phase: 'send' }, projects: [], links: [], ownConnections: [] }
+  const store = { name: 'busy-store', kind: 'sqlite', machine: 'macos-host', state: 'busy', op: { name: 'move', phase: 'send' }, projects: [], links: [], ownConnections: [] }
   const compactHtml = renderToStaticMarkup(createElement(M.OpPanel, { store, t: makeStorageT('zh'), compact: true }))
   assert.match(compactHtml, /data-compact="true"/)
   const fullHtml = renderToStaticMarkup(createElement(M.OpPanel, { store, t: makeStorageT('zh') }))
@@ -278,9 +278,9 @@ test('#10: BucketPage deduplicates empty copy (Stores not Projects) and disables
 
   const mixedView = {
     stores: [
-      { name: 'ready-s', kind: 'sqlite', machine: 'native', state: 'ready', projects: [], links: [], ownConnections: [] },
+      { name: 'ready-s', kind: 'sqlite', machine: 'macos-host', state: 'ready', projects: [], links: [], ownConnections: [] },
       { name: 'stopped-s', kind: 'sqlite', machine: 'docker', state: 'blocked', blockedBy: { machine: 'docker', reason: 'stopped' }, projects: [], links: [], ownConnections: [] },
-      { name: 'broken-s', kind: 'sqlite', machine: 'native', state: 'broken', reason: 'corrupt', projects: [], links: [], ownConnections: [] },
+      { name: 'broken-s', kind: 'sqlite', machine: 'macos-host', state: 'broken', reason: 'corrupt', projects: [], links: [], ownConnections: [] },
     ],
     machines: [], jobs: [], at: 1000,
     buckets: [{
@@ -305,12 +305,12 @@ test('#10: BucketPage deduplicates empty copy (Stores not Projects) and disables
 
 test('#11: StoreOverview avoids nested <dl> in tiles and follows DSH hairline/focus/code-font/non-link-blue rules', () => {
   const store = {
-    name: 'ready-store', kind: 'sqlite', machine: 'native', state: 'ready',
+    name: 'ready-store', kind: 'sqlite', machine: 'macos-host', state: 'ready',
     projects: ['api'], projectsCount: 1, size: { bytes: 512000 },
     links: [{ bucket: 'b-main', file: 'ready.db', last: { op: 'backup', at: 900, bytes: 512000 } }],
     ownConnections: [], created: 500,
   }
-  const view = { stores: [store], machines: [{ name: 'native', platform: 'native', state: 'ready', stores: ['ready-store'], sandboxes: [] }], buckets: [], jobs: [], at: 1000 }
+  const view = { stores: [store], machines: [{ name: 'macos-host', platform: 'host', state: 'ready', stores: ['ready-store'], sandboxes: [] }], buckets: [], jobs: [], at: 1000 }
   const html = renderToStaticMarkup(createElement(M.StoreOverview, {
     store, view, t: makeStorageT('zh'), api: noopApi, now: 1000,
     stats: { file_bytes: 512000, stored_bytes: 300000, metadata_bytes: 100000, reusable_bytes: 112000, canonical_bytes: 700000 },
@@ -334,7 +334,7 @@ test('#11: StoreOverview avoids nested <dl> in tiles and follows DSH hairline/fo
 test('#12: Inventory/ProjectGrid use h2 (no skipped h3)', () => {
 
   const invHtml = renderToStaticMarkup(createElement(M.Inventory, {
-    m: { name: 'native', platform: 'native', state: 'ready', stores: [], sandboxes: [] },
+    m: { name: 'macos-host', platform: 'host', state: 'ready', stores: [], sandboxes: [] },
     view: { available: true, machines: [], platforms: [], stores: [], postgresql: [], live: {}, sandboxes: [], readErrors: {} },
   }))
   assert.match(invHtml, /<h2[^>]*>stores<\/h2>/)

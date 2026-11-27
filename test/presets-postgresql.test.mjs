@@ -59,7 +59,7 @@ function fakeDriver() {
     if (family === 'store' && call === 'get') { if (!stores.has(name)) throw Object.assign(new Error('no'), { code: 'NotFound' }); return stores.get(name) }
     if (family === 'store' && call === 'connect') { stores.set(name, { store: name, engine: 'postgresql', created_at: '2026-11-19T00:00:01Z', url: rest[0], machines: [] }); return { ok: true } }
     if (family === 'store' && call === 'attach') { stores.get(name).machines.push({ machine: rest[1], reached: 'ok' }); return { ok: true, outcome: 'attached' } }
-    if (family === 'store' && call === 'create') { stores.set(name, { store: name, engine: 'sqlite', created_at: '2026-11-19T00:00:02Z', machine: 'native' }); return { ok: true } }
+    if (family === 'store' && call === 'create') { stores.set(name, { store: name, engine: 'sqlite', created_at: '2026-11-19T00:00:02Z', machine: 'macos-host' }); return { ok: true } }
     if (family === 'store' && call === 'move') { stores.get(name).machine = rest[0]; return { ok: true } }
     throw new Error(`unexpected ${argv.join(' ')}`)
   }

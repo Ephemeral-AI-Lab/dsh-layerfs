@@ -27,10 +27,10 @@ const platform = (name, how, ready, missing = []) => ({ platform: name, how, rea
 
 test('New machine opens while a VM platform still needs its install or setup', () => {
   // Lima not installed yet: the dialog is where its install step shows
-  assert.equal(M.canAddMachine([platform('native', 'built-in', true), platform('lima', 'created', false, ['lima'])]), true)
+  assert.equal(M.canAddMachine([platform('host', 'built-in', true), platform('lima', 'created', false, ['lima'])]), true)
   assert.equal(M.canAddMachine([platform('apple-container', 'created', true)]), true)
   // only built-ins (or a platform the host leaves out): nothing to create
-  assert.equal(M.canAddMachine([platform('native', 'built-in', true), platform('docker', 'built-in', true)]), false)
+  assert.equal(M.canAddMachine([platform('host', 'built-in', true), platform('docker', 'built-in', true)]), false)
   assert.equal(M.canAddMachine([]), false)
   for (const path of ['src/client/storage/StoragePage.tsx', 'src/client/storage/HomeOverview.tsx']) {
     assert.match(src(path), /canAddMachine\(fleet\.platforms\)/, path)

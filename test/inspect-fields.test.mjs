@@ -25,7 +25,7 @@ test.after(() => rmSync(out, { recursive: true, force: true }))
 
 // 2.0 `sandbox get --detail [--with stats]`: Workspaces `{ workspace, branch, path, commands }`, their overlay and usage in `stats.workspaces`
 const item = (n, more = {}) => ({ workspace: `sb:w${n}`, branch: `b${n}`, path: `/run/workspaces/${n}`, ...more })
-const record = (workspaces, more = {}) => ({ sandbox: 'sb', project: 's/p', machine: 'native', workspaces, ...more })
+const record = (workspaces, more = {}) => ({ sandbox: 'sb', project: 's/p', machine: 'macos-host', workspaces, ...more })
 const iso = (ms) => new Date(ms).toISOString()
 
 function routes(answer, { labelTags, own = [] } = {}) {

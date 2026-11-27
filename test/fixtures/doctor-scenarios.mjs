@@ -25,7 +25,7 @@ const GB = 1024 ** 3
 const ws = (sandbox, branch) => ({ workspace: `${sandbox}:${branch}`, branch })
 const box = (sandbox, project, image, ...branches) => ({ sandbox, project, image, workspaces: branches.map((b) => ws(sandbox, b)) })
 const MACHINES = [
-  { machine: 'native', platform: 'native', cpus: null, memory_bytes: null, stores: ['2026-08-16', 'demo-studio', 'qv2-store', 'sim-website-c69'],
+  { machine: 'macos-host', platform: 'host', cpus: null, memory_bytes: null, stores: ['2026-08-16', 'demo-studio', 'qv2-store', 'sim-website-c69'],
     sandboxes: [box('tests', 'demo-studio/website', 'node:22', 'agent', 'main'), box('metrics', 'analytics/events', 'python:3.13', 'main')] },
   { machine: 'demo-build', platform: 'lima', cpus: 4, memory_bytes: 8 * GB, stores: ['demo-build-cache'],
     sandboxes: [box('build-1', 'demo-build-cache/compiler', 'rust:1.85', 'main'), box('build-2', 'demo-build-cache/sdk', 'node:22')] },
@@ -125,7 +125,7 @@ export const CHECK_TABLE = EXAMPLES.doctor.checks
 /**
  * The checks a report holds for one thing: its kind's frozen list, in order,
  * without the ones that do not apply (left out, never listed as skipped):
- * native has no provider, worker or data disk; a stopped machine's worker and
+ * the host machine has no provider, guest worker or data disk; a stopped machine's worker and
  * disk are not asked; `store.backups` is left out for a PostgreSQL Store and a
  * Store with no bucket link; `full_only` checks are in only after a Full
  * check; `bucket.reconcile` runs only after a put whose reply was lost.
@@ -133,9 +133,9 @@ export const CHECK_TABLE = EXAMPLES.doctor.checks
 export function checksFor(state, kind, name, { full = false } = {}) {
   let list = CHECK_TABLE[kind].filter((c) => full || !c.full_only).map((c) => c.check)
   const drop = (re) => { list = list.filter((c) => !re.test(c)) }
-  if (kind === 'machine' && name === 'native') drop(/^machine\.(provider|worker\.|capacity)/)
+  if (kind === 'machine' && name === 'macos-host') drop(/^machine\.(provider|worker\.|capacity)/)
   else if (kind === 'machine' && state.stopped.includes(name)) drop(/^machine\.(worker\.|capacity)/)
-  if (kind === 'sandbox' && MACHINES.find((m) => m.sandboxes.some((b) => b.sandbox === name))?.machine === 'native') drop(/^sandbox\.worker_compatibility$/)
+  if (kind === 'sandbox' && MACHINES.find((m) => m.sandboxes.some((b) => b.sandbox === name))?.machine === 'macos-host') drop(/^sandbox\.worker_compatibility$/)
   if (kind === 'store' && (PG_STORES.includes(name) || !LINKS[name])) drop(/^store\.backups$/)
   if (kind === 'bucket') drop(/^bucket\.reconcile$/)
   return list

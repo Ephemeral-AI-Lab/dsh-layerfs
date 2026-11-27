@@ -5,8 +5,8 @@ Part of the `dsh-layerfs` skill. Command examples start with the skill's line
 
 ## Keep all mutable Cargo state inside the Workspace
 
-The Rust toolchain comes from the Sandbox (its image, or the host for a `native`
-Sandbox): check with `command -v cargo rustc`. On a `docker` Sandbox the image's
+The Rust toolchain comes from the Sandbox (its image, or the host for a Sandbox on the host machine,
+`macos-host` / `linux-host`): check with `command -v cargo rustc`. On a `docker` Sandbox the image's
 environment is not applied, so `cargo` is not on `PATH` and rustup has no home: add
 `export RUSTUP_HOME=/usr/local/rustup PATH=/usr/local/cargo/bin:$PATH` to every exec
 (before setting `CARGO_HOME` inside the Workspace; the rustup proxies still work). Everything Cargo writes belongs inside
@@ -66,7 +66,7 @@ large ones. So:
 ## Split and label the work
 
 One bash call is one Workspace: mount, the cargo steps, commit, unmount. Keep each
-call within 600 s (inner `timeout` 30 s less; on a native macOS Sandbox, which has no
+call within 600 s (inner `timeout` 30 s less; on a `macos-host` Sandbox, which has no
 `timeout`: `perl -e 'alarm shift; exec @ARGV' 570 …`), and run longer builds as in
 [team runs: waiting](team.md#waiting). Build a test target first with
 `cargo test --locked --offline -p <package> --no-run`, commit, then run it in the next

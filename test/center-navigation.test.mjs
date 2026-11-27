@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import * as tabs from '../src/client/storage/tabs.ts'
 
 test('Center accepts existing routes and nested backup paths, rejects incomplete targets', () => {
-  for (const id of ['health', 'logs', 'machines', 'overview', 'store:one', 'backup:bucket/a/b', 'project:s/p', 'sandbox:native/s']) assert.equal(tabs.isTabId(id), true, id)
+  for (const id of ['health', 'logs', 'machines', 'overview', 'store:one', 'backup:bucket/a/b', 'project:s/p', 'sandbox:macos-host/s']) assert.equal(tabs.isTabId(id), true, id)
   for (const id of ['project:s', 'sandbox:/s', 'backup:b/', 'store:', 'unknown']) assert.equal(tabs.isTabId(id), false, id)
 })
 

@@ -84,8 +84,8 @@ guide-notes`。**修复**（Fix）这一行（4）就是同一条命令，可以
 
 ## 变体
 
-- **机器**：本机机器显示三项检查（记录、操作、状态）；Docker 或 Lima
-  机器通过它的 worker 显示十项。
+- **机器**：每台机器显示 LayerFS 为它这一类运行的检查；主机的检查包括其 worker 保留的写入结果，
+  Docker 或 Lima 机器的检查经由它的 worker 进行。
 - **Sandbox**：Workspace 由它所在 Sandbox 的诊断来检查（**从未检查。由其 Sandbox 检查。**，Never checked. Its
   Sandbox checks it.）。
 - **存储桶**：**完整检查**（Full check）还会写入并删除一个小测试对象。

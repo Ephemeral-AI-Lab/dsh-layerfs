@@ -90,7 +90,7 @@ DSH 的侧边栏里有 **LayerFS** 行（和 Plugins、Automation tasks、More �
 |---|---|---|---|---|
 | 控件块 | **无项目**（No project）或项目名；aria 为 **LayerFS 项目：{project}**（LayerFS project: {project}） | 按下 → 菜单 | `session.place`（主机状态，没有调用） | — |
 | **无项目**（No project） | 会话没有项目时打勾 | 选择 → 普通的 DSH 会话 | — | — |
-| 项目行 | **bookshelf** 和 **handbook** 均显示 **native**：名称和运行位置；悬停时有 ⚙ **设置 {project}**（Set up {project}） | 选择 → 会话加入这个项目（智能体预设变成 **LayerFS**）· ⚙ → [项目对话框](#project-dialog) | `sessions.choose`：`project get`，第一次认领时还有 `branch list`、`branch fork`；之后在后台同步 Store | **无法打开项目：{message}**（Could not open the project: {message}） |
+| 项目行 | **bookshelf** 和 **handbook** 均显示 **macos-host**：名称和运行位置；悬停时有 ⚙ **设置 {project}**（Set up {project}） | 选择 → 会话加入这个项目（智能体预设变成 **LayerFS**）· ⚙ → [项目对话框](#project-dialog) | `sessions.choose`：`project get`，第一次认领时还有 `branch list`、`branch fork`；之后在后台同步 Store | **无法打开项目：{message}**（Could not open the project: {message}） |
 | **新建项目…**（New project…）· **导入文件夹…**（Import a folder…） | — | → 以对应模式打开[项目对话框](#project-dialog) | 见那里 | — |
 | 导入进度 | **正在导入 {name}…**（Importing {name}…）· 正在统计文件（Counting files）、正在检查（Checking）、正在发送文件（Sending files）、正在写入层（Writing layers）、正在记录项目（Recording the project）、正在打开（Opening） | — | `project init`（轮询的任务） | **导入失败**（Import failed），附 **关闭**（Dismiss） |
 
@@ -163,7 +163,7 @@ DSH 的侧边栏里有 **LayerFS** 行（和 Plugins、Automation tasks、More �
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
-| 机器 | 磁贴：**docker**、**native**（本机，无隔离（This Mac, unisolated），或这台电脑，已沙箱化（This computer, sandboxed）；**默认**（Default））、**新建机器**（New machine） | 选择 Store 文件放在哪里：“存储文件所在的位置，其中项目的会话也在那里运行。”（Where the Store file lives. Its projects’ sessions run there.）· **新建机器**（New machine）→ 关闭对话框，打开 主页 › 机器，并展开添加机器（Add a machine） | `GET /api/platforms`：`home get` (读取) | 磁贴上写 **运行中**（Running）/ **已停止**（Stopped）；已停止的机器会先提供 **启动 {machine}**（Start {machine}）（`machine start`） |
+| 机器 | 磁贴：**docker**、**macos-host**（本机，无隔离（This Mac, unisolated），或这台电脑，已沙箱化（This computer, sandboxed）；**默认**（Default））、**新建机器**（New machine） | 选择 Store 文件放在哪里：“存储文件所在的位置，其中项目的会话也在那里运行。”（Where the Store file lives. Its projects’ sessions run there.）· **新建机器**（New machine）→ 关闭对话框，打开 主页 › 机器，并展开添加机器（Add a machine） | `GET /api/platforms`：`home get` (读取) | 磁贴上写 **运行中**（Running）/ **已停止**（Stopped）；已停止的机器会先提供 **启动 {machine}**（Start {machine}）（`machine start`） |
 
 ![PostgreSQL](../img/entry-project-pg.png)
 
@@ -224,8 +224,8 @@ Store 已经不在的项目会显示：“此项目的存储已不在这个 Laye
 |---|---|---|---|---|
 | LayerFS | **就绪**（Ready）或 **{n} 项待处理**（{n} to fix） | — | — | — |
 | 文件夹 | LayerFS 文件夹的路径 | 不能用时给出一行可复制的修复命令 | `home get` (读取) | **就绪**（Ready）、**刚刚创建**（Created just now）、**由旧版 LayerFS 创建**（Made by an older LayerFS）、**尚未创建**（Not created yet）、**无法读取**（Can’t be read） |
-| 运行时 | **LayerFS 2.0.0** `ed911896`（Incomplete，缺少 Linux 包） | 1 **更改…**（Change…）（或 **选择…**（Choose…））→ 运行时选择器 · **详情**（Details）→ 它的各个部分（CLI、本机守护进程（Native daemon）、Linux 包（Linux bundle）、Node SDK、终端（Terminal）命令行），带复制按钮 | `--version --json`、`help --json` (读取) | 本机机器记录的是另一个守护进程时，显示 **使用此守护进程**（Use this daemon）：`machine get native`、`machine update native --daemon` |
-| 机器 | **{n}/{total} 可用**（{n} of {total} available）：原生、Docker、Lima、Apple Container（服务商；不是 LayerFS 主目录） | **安装…**（Install…）/ **设置…**（Set up…）→ 操作说明；**检查**（Check）→ 重新读取 | `GET /api/machines?fresh=1`：`home get`、`machine get`、`machine list` (读取) | **就绪**（Ready）、**可用**（Available）、**未安装**（Not installed）、**未运行**（Not running）、**需要设置**（Needs setup）、**需要 Linux 包**（Needs the Linux bundle） |
+| 运行时 | **LayerFS 2.0.0** `ed911896`（Incomplete，缺少 Linux 包） | 1 **更改…**（Change…）（或 **选择…**（Choose…））→ 运行时选择器 · **详情**（Details）→ 它的各个部分（CLI、主机守护进程（Host daemon）、Linux 包（Linux bundle）、Node SDK、终端（Terminal）命令行），带复制按钮 | `--version --json`、`help --json` (读取) | 主机记录的是另一个守护进程时，显示 **使用此守护进程**（Use this daemon）：`machine get macos-host`、`machine update macos-host --daemon` |
+| 机器 | **{n}/{total} 可用**（{n} of {total} available）：主机、Docker、Lima、Apple Container（服务商；不是 LayerFS 主目录） | **安装…**（Install…）/ **设置…**（Set up…）→ 操作说明；**检查**（Check）→ 重新读取 | `GET /api/machines?fresh=1`：`home get`、`machine get`、`machine list` (读取) | **就绪**（Ready）、**可用**（Available）、**未安装**（Not installed）、**未运行**（Not running）、**需要设置**（Needs setup）、**需要 Linux 包**（Needs the Linux bundle） |
 | 2 重新检查（Check again） | — | 全部重新读取 | 同上 | — |
 | **稍后**（Later） | 只在缺东西时出现 | 关闭；待办挪到主页的概览头部上 | —（记在这个浏览器里） | — |
 | 3 完成（Done） | — | 关闭 | — | 缺东西时不可用 |
@@ -234,7 +234,7 @@ Store 已经不在的项目会显示：“此项目的存储已不在这个 Laye
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
-| 已安装的运行时 | 每个已安装的运行时一行 | **使用**（Use）→ 固定使用它 | `runtime.save`：`--version --json`、`help --json`、`machine update native` | **没有已安装的运行时**（No installed runtimes） |
+| 已安装的运行时 | 每个已安装的运行时一行 | **使用**（Use）→ 固定使用它 | `runtime.save`：`--version --json`、`help --json`、`machine update macos-host` | **没有已安装的运行时**（No installed runtimes） |
 | **其他构建…**（Other build…） | — | 按路径挑选 CLI、守护进程和 Linux 包 | 同上 | — |
 | **取消**（Cancel） | — | 关闭选择器 | — | — |
 
@@ -257,7 +257,7 @@ LayerFS 还没设置好时，它会出现在 Center 里、代替主页的标签�
 | 对话框 | 打开方式 | 作用 | LayerFS 调用 | 撤销 |
 |---|---|---|---|---|
 | 项目对话框 | 侧边栏 +、项目控件、⚙、主页 | 新建项目、导入文件夹、挑选、设置 | `store create`、`project init`、`store move`、`sessions.choose` | 在主页删除项目 |
-| 设置 LayerFS | 主页的运行时按钮、Center 导航栏的 **设置**（Settings）、设置卡片、自动弹出 | 文件夹、运行时、机器 | `home get`、`machine update native` | 重新选回原来的运行时 |
+| 设置 LayerFS | 主页的运行时按钮、Center 导航栏的 **设置**（Settings）、设置卡片、自动弹出 | 文件夹、运行时、机器 | `home get`、`machine update macos-host` | 重新选回原来的运行时 |
 | 选择草稿目录（Choose scratch folder） | **输入文件夹路径…**（Enter a folder path…） | 设置项目会话的草稿目录 | — | 另选一个 |
 
 ## 状态与提示

@@ -134,7 +134,7 @@ Builds of clean `095f5887d9`, release profile:
 - A runtime without its own Linux bundle is judged by the bundle LayerFS
   would use (the cache one); if that is from another build, Done is blocked
   ("From mixed builds"), as the spec's "no `matches: false`" says. Revisit if
-  native-only users should pass.
+  host-machine-only users should pass.
 - "Created/Converted just now" shows for 10 minutes after the setup check
   did it.
 - Center: while setup misses something required after Later, it is the

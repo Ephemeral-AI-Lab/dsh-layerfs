@@ -37,7 +37,7 @@
 |---|---|---|---|---|
 | 预设列表 | **入门**（Starter，*一个在 Docker 容器中运行的 SQLite 项目，包含 19 个分支和 552 个提交……*），**Studio**（*8 个示例项目，分布在 4 台机器上……*：Docker、Lima，41,640 个提交） | 点击 → 显示该预设 | `GET /api/demo-presets`（不发起 LayerFS 调用：读取主机的预设记录） | **正在读取预设…**（Loading presets…）；**无法读取预设**（Could not read the presets），附 **重试**（Retry） |
 | 状态行 | 见 #3 | **打开主页**（Open Home）→ Center 的主页 | — | 读取计划期间显示 **正在检查环境…**（Checking the environment…） |
-| 拓扑 | 每台机器（**Docker · 容器**（Docker · Container）、**本机 · 本地机器**（Native · Local machine）、**demo-build · Lima 虚拟机 · 2 个 CPU · 4G 内存 · 20G 磁盘**（demo-build · Lima virtual machine · 2 CPUs · 4G memory · 20G disk））上的 Store（**Store demo-starter**（store demo-starter）、**PostgreSQL Store demo-services**（PostgreSQL store demo-services））和项目：名称、描述、***已完成* / *计划* 个提交 · *n* 个侧分支 · *已用时间***（*done* / *planned* commits · *n* side branches · *elapsed*） | 点击项目 → **所选资源**（Selected resource，见下）。**#** → 它的脚本 | — | 构建时的项目状态：**等待中**（Waiting）、**运行中**（Running）、**已创建**（Created）、**失败**（Failed）、**已停止**（Stopped） |
+| 拓扑 | 每台机器（**Docker · 容器**（Docker · Container）、**本机 · 本地机器**（This computer · Local machine）、**demo-build · Lima 虚拟机 · 2 个 CPU · 4G 内存 · 20G 磁盘**（demo-build · Lima virtual machine · 2 CPUs · 4G memory · 20G disk））上的 Store（**Store demo-starter**（store demo-starter）、**PostgreSQL Store demo-services**（PostgreSQL store demo-services））和项目：名称、描述、***已完成* / *计划* 个提交 · *n* 个侧分支 · *已用时间***（*done* / *planned* commits · *n* side branches · *elapsed*） | 点击项目 → **所选资源**（Selected resource，见下）。**#** → 它的脚本 | — | 构建时的项目状态：**等待中**（Waiting）、**运行中**（Running）、**已创建**（Created）、**失败**（Failed）、**已停止**（Stopped） |
 | **所选资源**（Selected resource） | 项目描述、它的错误、**Store**（*机器* 上的 *store*）、**计划历史**（Planned history）/ **已验证历史**（Verified history）（提交数 · 合并数 · main Layer 数）、**侧分支**（Side branches，附 **查看名称**（View names））、**CLI 进度**（CLI progress，*已完成* / *总数* 条命令）、**已用时间**（Elapsed） | **×** 关闭 | — | |
 | 运行中的构建 | **正在构建**（Building）/ **正在停止机器**（Stopping machines），附进度 | — | 构建发起的调用（见下文） | 阶段 **检查**（Checking）· **重置**（Resetting）· **构建**（Building）· **验证**（Verifying） |
 | **上次构建**（Last build） | 结果行、***n* 个运行中 · *已完成* / *总数* 已完成 · *n* 个失败 · 已用 *时间***（*n* running · *done* / *total* completed · *n* failed · *time* elapsed）、工作区修订、四个阶段、红色的错误 | **日志**（Log）→ 任务的日志（它运行的每条 CLI 调用及耗时）。**详情**（Details）→ 主目录、清理是否已验证、保留了什么、移除的工作区、删除的会话 | — | 被更新的构建取代后显示 **上次构建**（Previous build）；停止机器之后显示 **上次停止机器**（Last machine stop） |
@@ -75,7 +75,7 @@ create`、`project init`，每个提交一次 `file write`，侧分支上还有 
 - **Studio** 还需要 Lima：它会创建两台 Lima 虚拟机（各 2 个 CPU、4 GB 内存）和若干 PostgreSQL
   Store，共 8 个项目、约 41,640 个提交。
 - **同时通过沙盒工作区提交**（Also commit through sandbox workspaces，构建的混合模式）：约 30% 的提交会在 Sandbox 的 Workspace 中运行一条 shell 命令再提交（`sandbox create`、`workspace
-  mount`、`workspace exec`、`workspace commit`）；需要本机守护进程。
+  mount`、`workspace exec`、`workspace commit`）；需要主机守护进程。
 - 主目录里还没有机器时，**停止机器…**（Stop machines…）不可用（**此 LayerFS 主目录还没有机器。**（This LayerFS home has no machines
   yet.））。
 

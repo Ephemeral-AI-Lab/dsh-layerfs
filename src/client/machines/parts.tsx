@@ -73,7 +73,7 @@ function powerKey(m: MachineInfo, power: 'start' | 'stop', engine = false) {
   return m.platform === 'docker' ? (power === 'stop' ? 'stopWorker' : 'startWorker') : (power === 'stop' ? 'stop' : 'start')
 }
 
-/** Start or Stop, when the machine is non-native and running or stopped. */
+/** Start or Stop, when the machine is running or stopped. */
 /** `compact`: an icon button (the board's rows) while nothing runs; the words come back for a start, a stop or a worker to restart. */
 /** `engine`: the Docker Engine is not running and this Start launches it first (needs.ts engineStart). */
 export function PowerButton({ m, pending, run, size = 'sm', compact, engine = false }: { m: MachineInfo, pending: string | null, run: Run, size?: 'sm' | 'md', compact?: boolean, engine?: boolean }): ReactNode {
@@ -253,7 +253,7 @@ function ForceStopDialog({ m, onClose, pending, run }: { m: MachineInfo, onClose
   const guard = usePressGuard(`force-stop:${m.name}:${m.state}`)
   return (
     <Modal open onClose={() => { if (pending === null) onClose() }} title={t('forceStopTitle', { name: m.name })}
-      description={t(m.platform === 'native' ? 'forceStopNativeBody' : 'forceStopBody', { name: m.name })} closeLabel={t('close')} className={css.dialog}
+      description={t(m.platform === 'host' ? 'forceStopHostBody' : 'forceStopBody', { name: m.name })} closeLabel={t('close')} className={css.dialog}
       footer={(
         <>
           <Button variant="outline" disabled={pending !== null} onClick={onClose}>{t('cancel')}</Button>

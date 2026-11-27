@@ -406,7 +406,7 @@ export function RunsOnList({ s, view, t, on, checking, sandboxes, cap, onMore }:
         {shown.map((a) => {
           const record = view.machines.find((m) => m.name === a.machine)
           const status = reachStatus(a.reach, { checking: checking?.has(a.machine), machine: record ? { state: record.state, reason: record.reason ?? null } : null })
-          const boxes = (sandboxes ?? []).filter((b) => (b.machine ?? 'native') === a.machine && b.project?.startsWith(`${s.name}/`)).length
+          const boxes = (sandboxes ?? []).filter((b) => b.machine === a.machine && b.project?.startsWith(`${s.name}/`)).length
           const provider = mc?.kind(record?.platform ?? '') ?? record?.platform ?? ''
           const beside = providerBeside(a.machine, provider)
           const busy = boxes ? t('rowDetachBusy', { n: boxes, machine: a.machine }) : null
@@ -451,7 +451,7 @@ function AttachedLines({ s, view, t, on, checking, sandboxes, onMore }: {
         {shown.map((a) => {
           const record = view.machines.find((m) => m.name === a.machine)
           const status = reachStatus(a.reach, { checking: checking.has(a.machine), machine: record ? { state: record.state, reason: record.reason ?? null } : null })
-          const boxes = (sandboxes ?? []).filter((b) => (b.machine ?? 'native') === a.machine && b.project?.startsWith(`${s.name}/`)).length
+          const boxes = (sandboxes ?? []).filter((b) => b.machine === a.machine && b.project?.startsWith(`${s.name}/`)).length
           const provider = mc?.kind(record?.platform ?? '') ?? record?.platform ?? ''
           const busy = boxes ? t('rowDetachBusy', { n: boxes, machine: a.machine }) : null
           return (

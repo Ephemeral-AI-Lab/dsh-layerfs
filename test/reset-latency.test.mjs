@@ -11,7 +11,7 @@ test('reset confirmation does not contact sandbox workers, including machines ma
   const calls = []
   const inventory = {
     // `machine list --detail` (2.0): records only, no probe
-    machine: { items: [{ machine: 'native', state: 'ready' }, { machine: 'offline', state: 'stopped' }, { machine: 'unresponsive', state: 'ready' }] },
+    machine: { items: [{ machine: 'macos-host', state: 'ready' }, { machine: 'offline', state: 'stopped' }, { machine: 'unresponsive', state: 'ready' }] },
     store: { items: [{ name: 's', machine: 'offline', projects: ['p'] }] },
     sandbox: { items: [{ name: 'a', machine: 'offline' }, { name: 'b', machine: 'unresponsive' }] },
   }

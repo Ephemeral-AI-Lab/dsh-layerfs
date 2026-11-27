@@ -1,7 +1,7 @@
 /**
  * Where a PostgreSQL project's Sandboxes run (spec v23 V23-11). A PostgreSQL
  * Store is on no machine and has no Store-wide default: a Sandbox runs only
- * on a machine attached to the Store (`native` is an ordinary machine, attached
+ * on a machine attached to the Store (the host machine is an ordinary machine, attached
  * or not). When none is named:
  *
  *   1. the machine the project's newest Sandbox ran on, while it is attached

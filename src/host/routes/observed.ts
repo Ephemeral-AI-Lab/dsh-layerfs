@@ -21,7 +21,7 @@ export interface MachineStats {
   platform: string | null
   /** When the answering side observed it (its clock), epoch ms. */
   observedAt: number | null
-  /** The machine's worker process; null on a machine whose calls run in the caller's process (native). */
+  /** The machine's worker process; null on a machine whose calls run in the caller's process (the host machine, whose host worker is reported apart). */
   worker: { version: string | null, pid: number | null, startedAt: number | null, protocol: string | null, bundle: string | null } | null
   resources: {
     cpus: number | null, memoryTotal: number | null, memoryUsed: number | null

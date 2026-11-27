@@ -278,7 +278,7 @@ Inputs (ask me for any that are missing, and don't guess them):
 
 Mixed means about 30% of commits run a shell command in a sandbox Workspace and
 commit the result (`workspace mount → exec → commit → unmount`) instead of writing
-files directly. It needs the matching native daemon (A.1).
+files directly. It needs the matching host daemon (A.1).
 
 - **UI:**
   1. Open LayerFS (sidebar) → the **Presets** button on the home's head card →
@@ -299,7 +299,7 @@ files directly. It needs the matching native daemon (A.1).
   3. Poll `op http '{"method":"GET","path":"/api/demo-presets/jobs/<job id>"}'` until
      it ends. If it fails, report its stage and log.
 - **Check with the CLI:**
-  - `"$L" machine list`: `native`, `docker`, `demo-build` and `demo-research`.
+  - `"$L" machine list`: `macos-host` (or `linux-host`), `docker`, `demo-build` and `demo-research`.
   - `"$L" store list`: `demo-studio`, `demo-services`, `demo-build-cache` and
     `demo-experiments`, with 8 projects between them.
   - `"$L" sandbox list`: Mixed Sandboxes `demo-mix-<project>-1`.
@@ -358,7 +358,7 @@ sessions belong to DSH workspaces and retain stock behavior. One DSH plugin bund
 
 | Where | What |
 | --- | --- |
-| Sidebar → **Machines** | LayerFS machines (native, docker, VMs): state, Sandboxes, Stores, spec, start/stop, add machine; the pinned LayerFS runtime (CLI, daemon, home) |
+| Sidebar → **Machines** | LayerFS machines (the host machine `macos-host`/`linux-host`, docker, VMs): state, Sandboxes, Stores, spec, start/stop, add machine; the pinned LayerFS runtime (CLI, daemon, home) |
 | Sidebar → **Resources** | Stores (SQLite, PostgreSQL), projects (import a folder), files, history and commit diffs, branches, Sandboxes, backups to buckets and restore, Store push/pull/move, home checks; a project's **Sessions** |
 | LayerFS home → **Presets** (head card button, **Try a preset** on an empty Projects tab, or **Add** → **Try a preset**) | A dialog listing the sample libraries this host can build into the LayerFS home. Quick starts: **Starter**, one SQLite Store on the docker machine with one project (`bookshelf`, 552 commits on 20 branches), no VMs, built in under a minute. Full demos: **Studio**, LayerFS Connect's library (4 machines, 4 stores, 8 projects with dense branch/merge/publish histories). Each shows its machine → store → project plan, each project's paged CLI script (**View script**), Filesystem or Mixed (workspace exec/commit) mode, **Build…** and **Stop machines…**, with real stage/count progress and a job log. One home holds one preset at a time; building another replaces it |
 | Sidebar → **Projects** | Every LayerFS project as a card holding its sessions; **New session** per project, **New empty project** / **Import project…** in the header, sessions stored in a project open by id |
@@ -488,9 +488,9 @@ or moved.
   its project archives), Sandbox, Workspace and custom machine is removed before
   creating the library. Its separate confirmation lists that destructive scope.
   Studio needs Docker and Lima with a matching Linux bundle; Mixed mode also needs
-  the matching native daemon.
+  the matching host daemon.
 
-- Project execution runs on the project's machine. On native machines a host
+- Project execution runs on the project's machine. On the host machine (`macos-host` / `linux-host`) a host
   mount is available; remote mounts stay inside their Sandbox. On both, local
   commands use the selected scratch folder and project commands use
   `"$DSH_LAYERFS_CLI" workspace exec "$DSH_LAYERFS_WS" '<command>' --stream`.
@@ -509,7 +509,7 @@ Specification: [Project sessions and conversation handling](docs/specs/project-s
 
 ### Project action scripts
 
-`/simulation --project design --machine native [--mixed]` prepares a fresh
+`/simulation --project design --machine macos-host [--mixed]` prepares a fresh
 Store/project and opens ordinary project conversations. Each parent and child
 uses its own script as its model, with real DSH tool calls and the same native
 session logs and LayerFS annotations as other project sessions. The conversation

@@ -12,7 +12,7 @@ mounted). The page shows the Sandbox's Workspaces as terminals, tiled like a
 TUI, in DSH's light theme. It shows no overlay, layer or file view.
 
 ```
-sbpage-box ● Running            On native · project sbpage-v/demo        Diagnose  ⋯
+sbpage-box ● Running            On macos-host · project sbpage-v/demo    Diagnose  ⋯
 ● daemon reachable · 8 of 9 slots free · 5 of 16 Workspaces
 ┌─────────────────────────────────────────────── ‹ 1 / 2 ›   + New workspace ┐
 │ build  main  workspaces/1      ⤢ ⋯ × │ sdk  sdk  workspaces/2       ⤢ ⋯ × │

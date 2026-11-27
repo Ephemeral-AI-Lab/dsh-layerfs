@@ -32,6 +32,7 @@ import {
 } from './model.ts'
 import css from './sandbox.module.css'
 import { dateTime } from '../ui/locale-sync.ts'
+import { isHostName } from '../../shared/host-machine.ts'
 
 /** Agent hues (`--lane-0` … in sandbox.module.css). */
 const LANES = 6
@@ -197,9 +198,9 @@ function useAgentCalls(api: ViewProps['api'], agents: readonly MapAgent[], root:
 
 /** A machine's kind for its mark: from the Machines list when it is readable, else guessed from the name. */
 export interface MachineKind { platform: string, os?: 'mac' | 'linux' | 'pc' }
-const PLATFORM_LABEL: Record<string, string> = { native: 'platformNative', docker: 'platformDocker', lima: 'platformLima', 'apple-container': 'platformAppleContainer', microsandbox: 'platformMicrosandbox' }
+const PLATFORM_LABEL: Record<string, string> = { host: 'platformHost', docker: 'platformDocker', lima: 'platformLima', 'apple-container': 'platformAppleContainer', microsandbox: 'platformMicrosandbox' }
 function guessKind(name: string): MachineKind {
-  if (name === 'native') return { platform: 'native' }
+  if (isHostName(name)) return { platform: 'host', ...(name === 'linux-host' ? { os: 'linux' as const } : {}) }
   const n = name.toLowerCase()
   for (const platform of ['docker', 'lima', 'apple-container', 'microsandbox']) if (n.includes(platform.split('-')[0])) return { platform }
   return { platform: 'unknown' }
@@ -214,7 +215,7 @@ function useMachineKinds(api: ViewProps['api'], names: readonly string[]) {
     Promise.resolve().then(() => api.call<MachinesView>('GET', '/api/machines')).then((view) => {
       if (!live || !view || !('machines' in view) || !Array.isArray(view.machines)) return
       setKnown(Object.fromEntries(view.machines.map((m) => [m.name, {
-        platform: m.platform, os: m.backend === 'namespaces' ? 'linux' : m.backend == null && m.platform === 'native' ? 'pc' : undefined,
+        platform: m.platform, os: m.backend === 'namespaces' ? 'linux' : m.backend == null && m.platform === 'host' ? 'pc' : undefined,
       } satisfies MachineKind])))
     }, () => {})
     return () => { live = false }

@@ -8,11 +8,12 @@ no per-project page.
 ## 1. The model the UI follows (LayerFS 2.0)
 
 - The LayerFS Home (`~/.layerfs`) holds records only. Nothing runs "in" it.
-- `native` is the host's own machine, built in and always running. `docker`
-  is built in too; Lima / apple-container machines are made by hand. Nothing
+- The host machine (`macos-host` on macOS, `linux-host` on Linux; platform
+  `host`) is this computer's own machine, built in and enabled in a new home;
+  like any machine it can be stopped and started. `docker` is built in too; Lima / apple-container machines are made by hand. Nothing
   starts a machine by itself.
 - A **SQLite Store** is one file on exactly one machine. `store create` puts it
-  on native; `store push` / `store pull` move it (both machines running; the
+  on the host machine; `store push` / `store pull` move it (both machines running; the
   whole Store moves, every project in it; refused while one of its projects
   has a Sandbox).
 - A **PostgreSQL Store** is on no machine. `store connect` records one
@@ -22,9 +23,9 @@ no per-project page.
   project.
 - A **project** is `<store>/<name>`. Its sessions run on its SQLite Store's
   machine, or on the machine its PostgreSQL Store runs on (the saved choice,
-  else docker, else native).
+  else docker, else the host machine).
 - `project init` never creates a Store. The UI creates SQLite projects on
-  native and then pushes the Store, the order the presets use.
+  the host machine and then pushes the Store, the order the presets use.
 
 ## 2. One dialog
 

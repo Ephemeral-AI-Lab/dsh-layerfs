@@ -29,7 +29,7 @@ function fixture(lfs, calls = FILES) {
   return { groups, logs: t.logs, http: (method, path, body) => R.handle(groups, { method, path, body }), close: () => rmSync(root, { recursive: true, force: true }) }
 }
 const base = () => ({
-  machine: { list: async () => ({ machines: [{ name: 'native', platform: 'native', state: 'ready' }] }), platforms: async () => ({ host: 'macos', platforms: [] }) },
+  machine: { list: async () => ({ machines: [{ name: 'macos-host', platform: 'host', state: 'ready' }] }), platforms: async () => ({ host: 'macos', platforms: [] }) },
   store: { list: async () => ({ items: [] }) },
   sandbox: { list: async () => ({ items: [], next_page_pos: null }) },
 })
@@ -172,13 +172,13 @@ test('files routes: a refused read answers the folder\'s last good first page ma
     assert.deepEqual([first.stale, first.reason, first.next], [false, null, '/home/b'], '2.0 says no reason a page ended')
     await f.http('GET', '/api/sandboxes/sb/files?path=/home&cursor=/home/b')
 
-    fail = new Refusal('Unavailable', 'machine native is stopped')
+    fail = new Refusal('Unavailable', 'machine macos-host is stopped')
     for (const [query, kept] of [['', 1], ['?path=/home', 2]]) {
       const r = await f.http('GET', `/api/sandboxes/sb/files${query}`)
       assert.equal(r.status, 200, query)
       assert.equal(r.body.kind, 'folder')
       assert.equal(r.body.entries.length, kept)
-      assert.deepEqual([r.body.stale.code, r.body.stale.message, r.body.stale.at], ['Unavailable', 'machine native is stopped', first.observedAt > 0 ? r.body.stale.at : null])
+      assert.deepEqual([r.body.stale.code, r.body.stale.message, r.body.stale.at], ['Unavailable', 'machine macos-host is stopped', first.observedAt > 0 ? r.body.stale.at : null])
       assert.equal(typeof r.body.stale.at, 'number')
     }
     // a later page, a folder never read, a file window and another target have nothing kept

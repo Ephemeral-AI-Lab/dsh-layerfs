@@ -250,7 +250,7 @@ test('live: export main, a Branch Commit, and stop a running export', { skip: !p
   const exports = new ProjectExports(t.host)
   context.after(() => {
     exports.close()
-    try { execFileSync(pin.cli, ['machine', 'stop', 'native'], { env, timeout: 30_000 }) } catch {}
+    try { execFileSync(pin.cli, ['machine', 'stop', 'macos-host'], { env, timeout: 30_000 }) } catch {}
     rmSync(root, { recursive: true, force: true })
   })
   const finish = async (job) => { await until(() => exports.get(job.id).endedAt, 120_000); return exports.get(job.id) }

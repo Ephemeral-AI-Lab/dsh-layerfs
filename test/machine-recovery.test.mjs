@@ -39,13 +39,14 @@ test('the fix line becomes the action only when the page runs exactly that call'
   assert.deepEqual(fixAction(vm('unknown')), { kind: 'check' })
 })
 
-test('a clean stop, native, and the other states are not down', () => {
+test('a clean stop, the host machine, and the other states are not down', () => {
   assert.equal(workerDown(vm('stopped')), false)
   assert.equal(machineState(vm('stopped')).key, 'stopped')
   assert.equal(powerOf(vm('stopped')), 'start')
   assert.equal(powerOf(vm('ready')), 'stop')
-  assert.equal(workerDown({ ...vm('broken', { reason: 'not_answering' }), platform: 'native' }), false)
-  assert.equal(fixAction({ ...vm('broken', { reason: 'not_answering', fix: restart }), platform: 'native' }), null)
+  // the host machine (#835) is stopped and started like any machine
+  assert.equal(powerOf({ ...vm('stopped'), platform: 'host' }), 'start')
+  assert.equal(powerOf({ ...vm('ready'), platform: 'host' }), 'stop')
   const busy = machineState(vm('busy', { op: { name: 'machine.start', phase: 'boot', started: 1 } }))
   assert.deepEqual([busy.key, busy.label], ['busy', 'stateStarting'])
   assert.equal(workerDown(vm('busy')), false)

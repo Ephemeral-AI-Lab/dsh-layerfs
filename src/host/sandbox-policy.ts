@@ -12,6 +12,7 @@
 import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
 import { existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { HOST_MACHINE } from './layerfs/machine-records.ts'
 
 export const name = 'dsh-layerfs-sandbox-policy'
 
@@ -32,7 +33,7 @@ export function sessionHomeRoots(home: string | undefined, binding: { project?: 
   if (!home || !existsSync(home)) return []
   const store = component(binding.project?.split('/')[0])
   const sandbox = component(binding.sandbox)
-  const machine = component(binding.machine ?? 'native')
+  const machine = component(binding.machine ?? HOST_MACHINE)
   // Directories only: DSH refuses a policy whose extra writable roots are not existing
   // directories (every command then fails), so the home lock `layerfs.lock` that
   // `sandbox create` opens for writing cannot be granted on its own (FIX-LOG F10).

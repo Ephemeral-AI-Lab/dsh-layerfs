@@ -53,7 +53,7 @@ function view(stores = [
 ]) {
   return {
     machines: [], buckets: [], jobs: [], at: 1,
-    stores: stores.map((s) => ({ name: s.name, kind: 'sqlite', machine: 'native', projects: s.projects, projectsCount: s.projects.length, size: null, state: 'ready', links: [], job: null })),
+    stores: stores.map((s) => ({ name: s.name, kind: 'sqlite', machine: 'macos-host', projects: s.projects, projectsCount: s.projects.length, size: null, state: 'ready', links: [], job: null })),
   }
 }
 

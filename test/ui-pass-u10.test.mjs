@@ -320,26 +320,26 @@ test('machine.start: no Create, Move, New Store or Home hero starts a machine; e
   assert.match(tiles, /aria-label=\{words\.start\(m\)\}[\s\S]{0,200}?onClick=\{guard\(\(\) => press\(m\)\)\}/, 'one Start per machine, named')
   const hero = src('src/client/storage/HomeOverview.tsx')
   assert.doesNotMatch(hero, /startMachine|t\('ovStart'\)/, 'the hero opens the machine page instead of starting it')
-  const view = { machines: [{ name: 'native', state: 'ready' }, { name: 'docker', state: 'stopped' }, { name: 'old', state: 'broken' }] }
+  const view = { machines: [{ name: 'macos-host', state: 'ready' }, { name: 'docker', state: 'stopped' }, { name: 'old', state: 'broken' }] }
   assert.deepEqual(M.setup.needsStart({ kind: 'sqlite', store: { machine: 'docker' }, machines: ['docker'] }, view), ['docker'])
-  assert.deepEqual(M.setup.stoppedOf(['old', 'native'], view), [], 'a broken machine is not offered Start')
+  assert.deepEqual(M.setup.stoppedOf(['old', 'macos-host'], view), [], 'a broken machine is not offered Start')
   for (const lang of ['en', 'zh']) for (const k of ['stoppedFirst', 'startNamed']) assert.ok(M.setupLocales[lang][k], `${lang}.${k}`)
   assert.equal(M.setupLocales.en.startsOnCreate, undefined)
 })
 
 // ---------------------------------------------------------------- add-ons (pass 2 part B1)
 
-test('add-on 1, 2: New Store and New project default to the page\'s machine, else native; never broken or one Create would start', () => {
+test('add-on 1, 2: New Store and New project default to the page\'s machine, else the host machine; never broken or one Create would start', () => {
   const machines = [
     { name: 'docker', platform: 'docker', state: 'broken', reason: 'failed', supports: ['sqlite'] },
-    { name: 'native', platform: 'native', state: 'ready', supports: ['sqlite'] },
+    { name: 'macos-host', platform: 'host', state: 'ready', supports: ['sqlite'] },
     { name: 'm2', platform: 'lima', state: 'ready', supports: ['sqlite'] },
     { name: 'm3', platform: 'lima', state: 'stopped', supports: ['sqlite'] },
   ]
-  assert.equal(M.setup.defaultMachine(machines), 'native')
+  assert.equal(M.setup.defaultMachine(machines), 'macos-host')
   assert.equal(M.setup.defaultMachine(machines, new Map(), 'm2'), 'm2', 'opened from m2\'s page')
-  assert.equal(M.setup.defaultMachine(machines, new Map(), 'docker'), 'native', 'from a broken machine\'s page: native')
-  assert.equal(M.setup.defaultMachine(machines, new Map(), 'm3'), 'native', 'a stopped machine is the person\'s pick, its start named')
+  assert.equal(M.setup.defaultMachine(machines, new Map(), 'docker'), 'macos-host', 'from a broken machine\'s page: the host machine')
+  assert.equal(M.setup.defaultMachine(machines, new Map(), 'm3'), 'macos-host', 'a stopped machine is the person\'s pick, its start named')
   const page = src('src/client/storage/StoragePage.tsx')
   assert.match(page, /kind: 'new-store', machine: active\.startsWith\('machine:'\) \? active\.slice\(8\) : undefined/)
   const dialogs = src('src/client/storage/dialogs.tsx')

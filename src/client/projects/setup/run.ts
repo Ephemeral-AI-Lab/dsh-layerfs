@@ -8,9 +8,8 @@ import { waitProject, type ProjectInitJob } from '../../picker/NewProjectForm.ts
 import type { PgAttachResult, StorageJob } from '../../storage/types.ts'
 import { pgLoginBody, type CreatePlan, type Step } from './model.ts'
 
-/** Start a machine and wait until it runs (the host waits; native answers at once). Only ever behind a press on that machine's own Start. */
+/** Start a machine and wait until it runs (the host machine too: it can be stopped). Only ever behind a press on that machine's own Start. */
 export async function startMachine(api: LayerfsApi, machine: string): Promise<void> {
-  if (machine === 'native') return
   await api.call('POST', `/api/machines/${enc(machine)}/start`)
 }
 
@@ -25,7 +24,7 @@ export async function waitJob(api: LayerfsApi, job: StorageJob): Promise<Storage
   return current
 }
 
-/** Put a SQLite Store on a machine (a push from native, a pull to native, or a move) and wait. */
+/** Put a SQLite Store on a machine (a push from the host machine, a pull to it, or a move) and wait. */
 /** @param made - the Store was just made here (New Store, a Create's new Store): the job reads "Created on", not "Pushed to". */
 export async function placeStore(api: LayerfsApi, store: string, machine: string, made = false): Promise<void> {
   const job = await api.call<StorageJob>('POST', `/api/machines/${enc(machine)}/stores`, made ? { store, made } : { store })
