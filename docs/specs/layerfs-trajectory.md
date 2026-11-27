@@ -152,7 +152,11 @@ Everything the page carries (records, checkpoint strip, the observation row)
 is identical to the whole build's first page: 397 records, 255,626 bytes whole
 and 255,719 windowed — the 93 bytes are the three window fields, the window's
 `recordTotal`, `counts` and `revision`. The OBSERVATION row itself (the folded
-read counter) is session-wide, not a window figure, and the UI says so.
+read counter) is session-wide, not a window figure, and the UI says so. It is
+not a log record: its `seq` is one past the newest record, so the client
+selects it by its own key (`v:observation`), never by seq, and its inspector
+shows the counter (the sentence, read-only calls, busiest operations, last
+read) without reading `session.trajectory.record`.
 
 **Older history stays exact.** The client's first "Load older records
 (window)" (the existing `{before}` cursor, unchanged) runs the whole parse once
