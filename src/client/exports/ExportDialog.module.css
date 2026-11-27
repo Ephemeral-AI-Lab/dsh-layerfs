@@ -188,9 +188,9 @@
 /* ---------- touch and narrow screens ----------
    The same dialog, sized for a thumb: every control a tap target, the body
    scrolls inside the frame, and the action row clears the home indicator.
-   Breakpoints are ui/responsive.css's (wide 1180, tablet 834, phone 480). */
+   Breakpoints are ui/responsive.css's (touch: coarse or <= 834, phone 480). */
 
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .close.close {
     width: var(--lfs-tap, 44px);
     height: var(--lfs-tap, 44px);

@@ -434,7 +434,7 @@
    branch; every header control is a 44 px thumb target (the tab-panel rule
    in log.module.css does the same for the controls around the pane). */
 
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .head {
     height: auto;
     min-height: var(--lfs-tap, 44px);

@@ -8,11 +8,12 @@
      phone   <= 480px   390/430 iPhone: one column, full-width rows
      compact <= 640px   phone landscape / split view: controls wrap
      tablet  <= 834px   834 iPad portrait: the Trajectory inspector is a sheet
-     wide    <= 1180px  1180 iPad 11" landscape: touch sizing still applies
 
-   A coarse pointer is treated like the wide edge: a tablet does not become a
-   mouse merely because it is 1180px wide, and a desktop window narrowed to
-   tablet size still gets the same comfortable controls. */
+   The touch layout is `(pointer: coarse), (max-width: 834px)`: a coarse
+   pointer gets 44px controls at any width (a 1180px iPad in landscape does not
+   become a mouse), and so does any window at tablet width or narrower. A mouse
+   window wider than 834px (a half-screen desktop window) keeps the desktop
+   density. HistoryGraph.tsx's TOUCH_QUERY repeats this condition for script. */
 :root {
   --lfs-tap: 30px;
   --lfs-control-h: 30px;
@@ -22,6 +23,11 @@
   --lfs-gap-control: 4px;
   /* The air between a control and the edge of the surface that holds it. */
   --lfs-inset-control: 12px;
+  /* The narrowest grid track that holds a thumb-target control: nothing with a
+     mouse (a track keeps its own width), the tap size on touch. A table track
+     that holds a chevron or a row menu is max(<its width>, this), so its 44px
+     control never spills into the next column. */
+  --lfs-tap-track: 0px;
   --lfs-space-3: 12px;
   --lfs-space-4: 16px;
   --lfs-space-5: 24px;
@@ -31,12 +37,13 @@
   --lfs-safe-right: env(safe-area-inset-right, 0px);
 }
 
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   :root {
     --lfs-tap: 44px;
     --lfs-control-h: 44px;
     --lfs-row-h: 44px;
     --lfs-gap-control: 8px;
     --lfs-inset-control: 16px;
+    --lfs-tap-track: 44px;
   }
 }

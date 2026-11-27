@@ -608,7 +608,7 @@
 
 /* LoadError's Retry is a size="sm" DSH Button (28px). It is the one action a
    failed read offers, so on a touch surface it is a thumb target. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .retry {
     min-height: var(--lfs-tap, 44px);
   }
@@ -849,7 +849,7 @@
 
 /* The short id stays a 12px inline label, but a finger gets a 44px-tall target.
    Only the button's box grows; the text and the full-id tip do not change. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .copyId {
     min-height: var(--lfs-tap, 44px);
     align-items: center;
@@ -942,7 +942,7 @@
 
 /* Touch: the menu rows, the selection anchors and the toolbar's icon buttons
    are thumb targets; a fine pointer keeps the desktop density. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .menuTouch [role='menuitem'] {
     min-height: var(--lfs-tap, 44px);
   }
@@ -1036,10 +1036,10 @@
   }
 }
 
-/* Touch: the shared confirm dialog fits the viewport and its body scrolls; its
-   close, inputs and actions are thumb targets, and a typed name is 16px so iOS
-   does not zoom the page on focus. */
-@media (max-width: 1180px), (pointer: coarse) {
+/* Touch: the shared confirm dialog fits the viewport and its content region
+   scrolls; its close, inputs and actions are thumb targets, and a typed name
+   is 16px so iOS does not zoom the page on focus. */
+@media (pointer: coarse), (max-width: 834px) {
   .confirmModal {
     max-height: 100%;
     padding-bottom: calc(24px + var(--lfs-safe-bottom, 0px) - var(--lfs-inset-control, 16px));

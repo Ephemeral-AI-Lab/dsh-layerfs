@@ -491,7 +491,7 @@
 }
 
 /* ---------- touch: every control in the modal is a thumb target ---------- */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .modal button {
     min-height: var(--lfs-tap, 44px);
   }

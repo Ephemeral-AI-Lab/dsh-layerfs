@@ -604,7 +604,7 @@
 /* Touch: the Stores board's kinds, view switch, names, place chips, project
    rows and foot actions are thumb targets. A fine pointer keeps Home's
    compact board (the phone keeps the card layout already in place). */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .tile,
   .view {
     height: var(--lfs-tap, 44px);

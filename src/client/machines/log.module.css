@@ -226,12 +226,12 @@
 
 /* ---------- touch and narrow panes ----------
    Every control inside a machine or Sandbox tab panel is a 44 px thumb
-   target on a coarse pointer or under 1180 px: the panels carry the files
+   target on a coarse pointer or at 834 px and under: the panels carry the files
    tree, the cards, the log and the terminals alike, so one rule keeps the
    whole page honest. The phone then gives the log its full width and lets
    the toolbar wrap instead of squeezing the find field. */
 
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .tabPanel :is(button, a[href], input, select) {
     min-height: var(--lfs-tap, 44px);
   }

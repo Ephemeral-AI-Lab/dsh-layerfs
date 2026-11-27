@@ -575,7 +575,7 @@
    the real heights, so the diagram re-spaces itself around the taller rows.
    The branch pills are placed on the arc by formula, so they grow only in the
    stacked phone layout below. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .agent,
   .boxHead,
   .ws,
@@ -741,7 +741,7 @@
 
 /* Coarse: the scrub bar keeps its 14 px look but a finger gets a 44 px tall
    transparent hit band (it is absolutely placed, so the map does not move). */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .scrub {
     height: var(--lfs-tap, 44px);
   }

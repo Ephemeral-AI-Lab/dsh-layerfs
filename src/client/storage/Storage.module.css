@@ -1460,7 +1460,7 @@
 }
 
 /* Touch: 12px floor on the small state words, and thumb-sized dialog actions. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .sessionTag,
   .rotateSideTag,
   .rotateSideHost,
@@ -1477,7 +1477,7 @@
 
 /* Touch: a dialog's close, its fields and its actions are thumb targets, and
    an input's text stays at 16px so iOS does not zoom the page on focus. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .modal :global(button) {
     min-height: var(--lfs-tap, 44px);
   }
@@ -1658,7 +1658,7 @@
 
 /* Touch: a bucket or backup file's rows are entered through their names, so
    each name link is a row-sized target, not a 20px line. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .table :global(button) {
     min-width: var(--lfs-tap, 44px);
     min-height: var(--lfs-tap, 44px);

@@ -623,7 +623,7 @@ div.detailModal {
   }
 }
 
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .iconOnly {
     width: var(--lfs-tap, 44px);
     height: var(--lfs-tap, 44px);
@@ -652,7 +652,7 @@ div.detailModal {
 }
 
 /* Touch: the filter row's inputs, selects and buttons are thumb targets. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .filters input,
   .filters select,
   .search input {
@@ -672,7 +672,7 @@ div.detailModal {
 }
 
 /* Touch: the log row's action links and tags are thumb targets. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .headerAction {
     min-height: var(--lfs-tap, 44px);
   }

@@ -1013,7 +1013,7 @@
 }
 
 /* A finger gets a full row and a full control, whatever the width. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .treeRow {
     padding-top: 10px;
     padding-bottom: 10px;
@@ -1095,7 +1095,7 @@
   max-width: min(360px, calc(100vw - 24px));
 }
 
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .branchMenu [role="menuitem"] {
     min-height: var(--lfs-tap, 44px);
   }
@@ -1148,7 +1148,7 @@
 }
 
 /* The compare bar's actions are thumb targets too. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .compareBar button,
   .diffHead button {
     min-height: var(--lfs-tap, 44px);

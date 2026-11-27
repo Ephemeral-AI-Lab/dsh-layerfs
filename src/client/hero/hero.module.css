@@ -292,7 +292,7 @@
 }
 
 /* Touch: the project chip and its gear are sized like the other row controls. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .chip {
     height: max(28px, var(--lfs-control-h, 44px));
   }
@@ -342,7 +342,7 @@
 
 /* Touch: every control in the row — including the workspace and preset chips
    we do not draw — is a thumb target. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   :global([data-layerfs-hero-row]) button {
     min-height: var(--lfs-tap, 44px);
   }

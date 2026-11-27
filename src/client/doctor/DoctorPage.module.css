@@ -706,7 +706,7 @@ span.marks { visibility: hidden; }
 .headActions { display: flex; align-items: center; gap: 8px; }
 
 /* ---------- touch: a row, its status, its marks and its buttons are thumb targets ---------- */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .btn,
   .btn[data-w='all'] {
     height: var(--lfs-tap, 44px);

@@ -488,7 +488,7 @@
 
 /* Touch: the hero's tabs and tools are thumb targets; on a phone the tab strip
    scrolls sideways instead of squeezing or stacking into two rows. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .toolButton {
     width: var(--lfs-tap, 44px);
     min-width: var(--lfs-tap, 44px);
@@ -540,7 +540,7 @@
 
 /* Coarse: the hero's two icon tools and the status actions get the coarse
    control gap; fine keeps its deliberate 6 px cluster. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .tools,
   .actions {
     gap: var(--lfs-gap-control, 8px);

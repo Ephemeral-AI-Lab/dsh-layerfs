@@ -135,7 +135,7 @@
   font-size: 12px;
 }
 
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .forkBaseRow {
     min-height: var(--lfs-tap, 44px);
   }
@@ -1001,7 +1001,7 @@
 
 /* ---------- a finger ---------- */
 
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .forkBaseRow {
     min-height: var(--lfs-tap, 44px);
   }
