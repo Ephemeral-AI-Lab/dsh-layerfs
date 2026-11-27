@@ -1,4 +1,4 @@
-<!-- source: 325a6bc33121 -->
+<!-- source: af22f485d684 -->
 # 入口
 
 > 截图来自独立的指南环境，使用固定版本的 LayerFS 运行时和预置的 `handbook` 项目。
@@ -152,10 +152,9 @@ DSH 的侧边栏里有 **LayerFS** 行（和 Plugins、Automation tasks、More �
 
 | # | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|---|
-| 1 | 类型 | **SQLite**“一台机器上的一个文件。”（A file on one machine.）· **PostgreSQL**“任何机器都能使用的服务器。”（A server any machine can use.） | 选择 → 存储部分随之变化；选 PostgreSQL 时 **机器** 变成 **运行于**（Runs on） | — | — |
-| 起点 | **空项目**（Empty）· **本机上的文件夹**（Folder on this Mac；Linux 上是 Folder on this computer） | **本机上的文件夹** → 出现一个文件夹字段，带 **浏览…**（Browse…） | — | — |
+| 1 | 保存到（Save to） | **已有存储**（Existing）里的各个 Store（各带引擎、机器和项目数；上次使用的那个标为 **上次使用**（Last used））· **新建 SQLite 存储**（New SQLite Store）· **连接 PostgreSQL…**（Connect PostgreSQL…） | 选一个 Store，或新建一个：存储和机器部分随所选而变 | `GET /api/storage` (读取) | 名称已被占用时预填一个可用的名字（如 `demo-store-2`），并显示“存储名 {taken} 已被占用，已自动改为 {store}。可直接在上方修改，或切换到“已有”。”；只能用的小写字母、数字、点、下划线和连字符，否则被拒绝 |
 | 名称 | **也是它在存储中的文件夹名。**（Also the name of its folder in the Store.）/ **保存为 {slug}**（Saved as {slug}） | 输入 | — | 别的项目已经用过的名称会在这里被拒绝 |
-| 存储 | **新建存储**（New Store）· **已有 · {n}**（Existing · {n}）；新存储默认按项目 slug 命名，当这个名字已被占用或被改过时，旁边才出现 **存储名称**（Store name）字段 | 选择或输入 | `GET /api/storage` (读取) | 名称已被占用时预填一个可用的名字（如 `demo-store-2`），并显示“存储名 {taken} 已被占用，已自动改为 {store}。可直接在上方修改，或切换到“已有”。”；只能用的小写字母、数字、点、下划线和连字符，否则被拒绝 |
+| 从文件夹…（From folder…） | **本机上的文件夹**（Folder on this Mac；Linux 上是 Folder on this computer） | 按下 → 出现一个文件夹字段，带 **浏览…**（Browse…） | — | — |
 | 2 | 取消（Cancel） | — | 关闭；什么都不会创建 | — | — |
 | 3 | 创建并打开（Create and open） | — | 按顺序执行各部分：检查文件夹、创建 Store、初始化项目、放置 Store、打开会话 | `store create`、`project init`（轮询的任务）、`store move`（任务，不在本机时才有）、`sessions.choose`；文件夹检查 `POST /api/project-sources/check`（仅主机） | 每一部分显示进度；被拒绝时显示 **创建已停止**（Create stopped），附 **修改{part}**（Edit {part}） |
 

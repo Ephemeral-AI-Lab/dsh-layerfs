@@ -587,8 +587,8 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
       {error ? <div role="alert" className={css.alert}>{error instanceof Error ? error.message : String(error)} <button type="button" onClick={() => setRevision((n) => n + 1)}>{t('files_retry')}</button></div> : null}
       {forkBase ? (
         <div className={css.forkBase}>
-          <button ref={forkRow} type="button" className={css.forkBaseRow} data-selected={view.selected === forkBase.base || initialCommit === forkBase.base || undefined}
-            aria-current={view.selected === forkBase.base || initialCommit === forkBase.base ? 'true' : undefined}
+          <button ref={forkRow} type="button" className={css.forkBaseRow} data-selected={view.selected === forkBase.base || undefined}
+            aria-current={view.selected === forkBase.base ? 'true' : undefined}
             title={`${forkSource ?? forkBase.source} · ${forkBase.base}`}
             onClick={() => writeView({ selected: forkBase.base, branch: view.branch })}>
             <IconBranchOutlineRegular size={14} aria-hidden="true" />

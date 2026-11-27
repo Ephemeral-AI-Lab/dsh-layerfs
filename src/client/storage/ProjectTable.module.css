@@ -312,10 +312,11 @@
   }
 }
 
-/* The chevron stays 12x20 and a count stays 8x20, but the button around
-   them offers a 44x44 target at every pointer: the box is drawn by a pseudo
-   element, so the table's columns do not move. */
-.toggle::after,
+/* A count stays 8x20, but the button around it offers a 44x44 target at
+   every pointer: the box is drawn by a pseudo element, so the table's columns
+   do not move. The chevron's box is in the touch block below: on a desktop
+   its 20px column and 16px gap are narrower than 44px, so the box would lie
+   over the project mark and a click there would unfold the row. */
 .cellLink::after {
   content: '';
   position: absolute;
@@ -602,6 +603,16 @@
   .toggle {
     width: var(--lfs-tap, 44px);
     height: var(--lfs-tap, 44px);
+  }
+
+  .toggle::after {
+    content: '';
+    position: absolute;
+    inset-block-start: 50%;
+    inset-inline-start: 0;
+    width: max(44px, 100%);
+    height: max(44px, 100%);
+    transform: translateY(-50%);
   }
 
   .add {

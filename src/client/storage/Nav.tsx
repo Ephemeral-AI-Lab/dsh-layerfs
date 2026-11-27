@@ -126,11 +126,14 @@ export function NavBar({ t, history, crumbs, jump, sessions, onSession, jobs, fi
   const barRef = useRef<HTMLElement>(null)
   const crumbListRef = useRef<HTMLOListElement | null>(null)
   // A phone's breadcrumb scrolls sideways: keep the page showing in sight when
-  // the crumbs change (Home is current, or Logs, Doctor, a Store …).
+  // the path changes (Home is current, or Logs, Doctor, a Store …). The crumbs are
+  // a new array on every render (a poll, a job's progress), so the effect keys on
+  // the path: a re-render must not snap back a strip the reader has swiped.
+  const path = crumbs.map((c) => c.key).join('\u0000')
   useLayoutEffect(() => {
     const list = crumbListRef.current
     if (list) list.scrollLeft = list.scrollWidth
-  }, [crumbs])
+  }, [path])
   // ⌘K / Ctrl+K opens Jump to while this page shows and nothing modal is open over it.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

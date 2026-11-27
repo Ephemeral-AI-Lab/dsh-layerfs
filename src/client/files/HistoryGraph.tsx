@@ -7,7 +7,7 @@
 import { IconFullscreenOutlineRegular, IconPlusOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import clsx from 'clsx'
 import { createPortal } from 'react-dom'
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent, type ReactNode } from 'react'
 import { shortId, toMs } from './format.ts'
 import { branchLabel } from './labels.ts'
 import type { TreeBranch, TreeLayout, TreeRow } from './tree-model.ts'
@@ -126,16 +126,38 @@ const AXIS = 24
 const LEFT = 18
 const TAG_ROOM = 120
 const STEP_MAX = 26
+/** The widest the lines spread at rest (with a mouse). */
 const GAP_MAX = 34
-/** The widest the lines spread when zoomed all the way in. */
+/** The widest the lines spread when zoomed all the way in (with a mouse). */
 const GAP_ZOOMED = 40
 /** Extra room, in gaps, between main and its nearest Branch on each side. */
 const MAIN_ROOM = 0.5
 /** The most of the gap between two lines a leaf may fill. */
 const LEAF_REACH = 0.4
 const GAP_MIN = 16
-/** Lanes sit 48px apart, so a Branch tag's thumb target is 44px tall and clears its neighbours. */
+/** On touch, lanes may sit 48px apart, so a Branch tag's thumb target is 44px tall and clears its neighbours. */
 const GAP_TOUCH = 48
+
+/** The touch layout: the media condition the plugin's touch tokens use (src/client/ui/responsive.css). */
+export const TOUCH_QUERY = '(max-width: 1180px), (pointer: coarse)'
+const touchNow = (): boolean => typeof matchMedia === 'function' && matchMedia(TOUCH_QUERY).matches
+const onTouchChange = (change: () => void) => {
+  if (typeof matchMedia !== 'function') return () => {}
+  const media = matchMedia(TOUCH_QUERY)
+  media.addEventListener('change', change)
+  return () => media.removeEventListener('change', change)
+}
+
+/**
+ * The gap between two lanes: as far apart as the height allows, and further as the
+ * steps widen; at most GAP_MAX at rest and GAP_ZOOMED zoomed in with a mouse, and
+ * GAP_TOUCH either way on the touch layout.
+ */
+export function laneGap(height: number, lanes: number, k: number, touch: boolean): number {
+  const rest = touch ? GAP_TOUCH : GAP_MAX
+  const zoomed = touch ? GAP_TOUCH : GAP_ZOOMED
+  return Math.max(clamp((height - AXIS - 28) / (lanes + 2 * MAIN_ROOM), GAP_MIN, rest), clamp(GAP_MIN + (k - 4) * 1.2, GAP_MIN, zoomed))
+}
 
 interface Hover { row?: TreeRow, branch: string, names?: string[], x: number, y: number }
 
@@ -190,8 +212,9 @@ export function HistoryGraph({ layout: latest, selected, branch, focus, onSelect
   onViewportRef.current = onViewport
 
   const lanes = 2 * layout.reach + 1
+  const touch = useSyncExternalStore(onTouchChange, touchNow, () => false)
   // Lines sit as far apart as the height allows, and spread further as the steps widen.
-  const gap = Math.max(clamp((size.height - AXIS - 28) / (lanes + 2 * MAIN_ROOM), GAP_MIN, GAP_TOUCH), clamp(GAP_MIN + (cam.k - 4) * 1.2, GAP_MIN, GAP_TOUCH))
+  const gap = laneGap(size.height, lanes, cam.k, touch)
   const laneY = useCallback((lane: number) => (lane + Math.sign(lane) * MAIN_ROOM) * gap, [gap])
   const overflowY = Math.max(0, ((lanes + 2 * MAIN_ROOM) * gap + 28 - (size.height - AXIS)) / 2)
   const overflowRef = useRef(overflowY)

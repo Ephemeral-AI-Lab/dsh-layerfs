@@ -1,4 +1,4 @@
-<!-- source: 41b39b388cbd -->
+<!-- source: fba411b43a5d -->
 # 日志
 
 > **位置：** `LayerFS › 日志` · **打开方式：** Center [导航栏](components.md#nav-bar)上的日志按钮（列表图标）；在调用详情里点 **此会话的调用**（Calls of this session）/ **此检查点的调用**（Calls of this checkpoint）会带着筛选重新打开它 · **源码：** 见文末
@@ -18,7 +18,7 @@
 | # | 组件 | 说明 |
 |---|---|---|
 | 1 | **刷新**（Refresh） | 从头重新读取日志 |
-| 2 | **重置…**（Reset…） | 清空调用历史（会先确认） |
+| 2 | **重置**（Reset） | 清空调用历史（会先确认） |
 | 3 | 项目搜索 | 只看提到某个项目（`store/project`）的调用 |
 | 4 | **操作**（Operation） | 只看某一类或某一个调用（`workspace`、`workspace.commit`…） |
 | 5 | **客户端**（Client） | **全部**（All）· **cli** · **node** · **python** · **rust** |
@@ -32,7 +32,7 @@
 
 ## 布局
 
-先是标题行（**日志**（Logs）、**刷新**（Refresh）、**重置…**（Reset…）），然后是筛选条件，再下面是调用列表，
+先是标题行（**日志**（Logs）、**刷新**（Refresh）、**重置**（Reset）），然后是筛选条件，再下面是调用列表，
 列表底部有 **加载更早的调用**（Load older calls）。宽面板画成表格，窄面板一次调用一张卡片。
 点一行或一张卡片会打开这次调用的详情。
 
@@ -102,12 +102,12 @@
 
 | 对话框 | 打开方式 | 作用 | LayerFS 调用 | 撤销 |
 |---|---|---|---|---|
-| **重置调用日志？**（Reset the call log?） | **重置…**（Reset…） | *将为使用此 LayerFS 主目录的所有客户端（DSH、LayerFS Connect、终端和脚本）清除调用历史。检查点和已保存的版本会保留。*（用替代日志时：*将删除本机通过 DSH 记录的所有调用…*）。**取消**（Cancel）· **重置**（Reset）→ **已删除 *n* 条调用。**（*n* calls removed.） | `logs.reset` → `home clear-log`（或替代日志文件），以及保留的输出 | 无法撤销：历史已经没了 |
+| **重置调用日志？**（Reset the call log?） | **重置**（Reset） | *将为使用此 LayerFS 主目录的所有客户端（DSH、LayerFS Connect、终端和脚本）清除调用历史。检查点和已保存的版本会保留。*（用替代日志时：*将删除本机通过 DSH 记录的所有调用…*）。**取消**（Cancel）· **重置**（Reset）→ **已删除 *n* 条调用。**（*n* calls removed.） | `logs.reset` → `home clear-log`（或替代日志文件），以及保留的输出 | 无法撤销：历史已经没了 |
 | 调用详情 | 表格中的一行 | 见上文 | — | |
 
 ![重置调用日志？](../img/logs-reset.png)
 
-日志为空时 **重置…**（Reset…）不可用。这是一个[确认对话框](components.md#confirm-dialog)。
+日志为空时 **重置**（Reset）不可用。这是一个[确认对话框](components.md#confirm-dialog)。
 
 ## 状态与提示
 

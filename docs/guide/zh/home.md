@@ -1,4 +1,4 @@
-<!-- source: 210e01182ca4 -->
+<!-- source: 62e435ba292f -->
 # 主页
 
 > 标有「隔离测试数据」的截图来自当前版本的实际组件，使用独立浏览器和示例数据。其余截图来自早期演示环境。
@@ -157,7 +157,7 @@ Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker una
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
 | 1 种类 | 两个磁贴：**SQLite** *{n}* 和 **PostgreSQL** *{n}* | 按下 → 该种类的行；会被记住 | —（本地视图状态） | — |
-| 2 显示 | **Store {n}**（Stores {n}） / **存储桶 {n}**（Buckets {n}）（仅 SQLite） | 按下 → Store 卡片或存储桶卡片；会被记住 | —（本地视图状态） | — |
+| 2 存储桶 | **存储桶 {n}**（Buckets {n}），主目录自己的标签页，和 Store、机器并列 | 按下 → 存储桶卡片 | —（页面跳转） | 每种类型下都显示 |
 | 3 新建 Store | **新建 Store**（New Store，SQLite），或 **全部检查**（Check all）和 **连接数据库**（Connect a database，PostgreSQL），在标签栏右端 | 按下 → 新建 Store / 连接数据库对话框；**全部检查** 会检查每个 PostgreSQL Store 并展开检查失败的行 | `store create` / `store connect` / `store doctor` | — |
 | 4 Store 行 | 折叠时：名称、所在机器、大小、项目数、上次备份、状态圆点。展开后：**项目**（5 个，之后为 **另有 n 个项目 →**）、**位于** 附 **迁移…**、**备份** 附 **备份** / **恢复…** | 按下该行 → 展开（按查看者记住）；名称 → Store 页面；⋯ 里是 [Store 菜单](components.md#store-menu) | `GET /api/storage` (读取)；项目 `GET /api/stores/:id/projects` (读取，展开时)；**迁移…** 用 `store move` | 迁移或备份进行时显示任务行；**机器已停止** 附 **启动** |
 
@@ -167,7 +167,7 @@ Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker una
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
-| 1 显示 | 选中了 **存储桶**（Buckets） | — | — | — |
+| 1 存储桶 | 主目录的 **存储桶**（Buckets）标签页，已选中 | — | — | — |
 | 2 列出存储桶文件 | **列出存储桶文件**（List bucket files），在标签栏右端 | 按下 → 重新列出每个存储桶 | `backup list`（每个存储桶一次），然后读取存储视图 | 列出时显示一个圆点 |
 | 3 添加存储桶 | **添加存储桶**（Add bucket），就在旁边 | 按下 → 添加存储桶对话框（[存储桶](bucket.md)） | `backup connect`（密钥通过 stdin 传入） | — |
 | 4 存储桶卡片 | 提供方、名称、`MinIO · 1 个 Store 文件 · 385 KB · 列出于 {ago}`、其中的文件及其 Store 和日期、**{n} 个来自此主目录** | 按名称或 **打开存储桶**（Open bucket） → [存储桶](bucket.md)页；按文件名 → [备份文件](bucket.md#backup-file)页；对不属于这个主目录的文件按 **恢复…**（Restore…） → 恢复对话框 | `backup list` (读取)；**恢复…** 用 `backup restore` | **文件未知**（Files unknown），带 **重新连接…**（Connect again…） / **重新列出**（List again）；**未列出**（Not listed），带 **列出文件**（List files）；列出期间显示 **正在列出…**（Listing…） |
@@ -204,9 +204,7 @@ Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker una
 
 ## 变体
 
-- **SQLite 与 PostgreSQL。** Store 标签页的种类磁贴在两者之间切换。存储桶属于
-  SQLite（备份就是一份 Store 文件的拷贝），所以 **显示** 切换和存储桶卡片只在
-  SQLite 下出现。PostgreSQL 行列出挂接到它的机器。
+- **SQLite 与 PostgreSQL。** Store 标签页的种类磁贴在两者之间切换。存储桶在主目录里有自己的标签页（备份就是一份 SQLite Store 文件的拷贝）。PostgreSQL 行列出挂接到它的机器。
 - **还没设置。** LayerFS 设置好之前，主页显示[设置卡片](entry-points.md#set-up-card)，
   而不是这些标签页。
 - **还没有存储视图。** 加载时显示 **正在读取 Store…**（Reading the Stores…）；读取失败时显示 **无法读取存储**（Could not read the storage），

@@ -5,7 +5,7 @@
  * confirmed against a fresh inventory plan. Stop machines (in the … menu)
  * confirms against the machine-stop plan. `usePresets` polls every 2 s while a
  * job runs and every 30 s otherwise, and again on `demo-preset` events and when
- * the page comes back to the front. A lost answer is reconciled by request ID,
+ * the page comes back into view. A lost answer is reconciled by request ID,
  * never resubmitted.
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
@@ -45,14 +45,17 @@ export const PRESETS_POLL_MS = 30_000
 /** While a build or reset runs its progress is read (and pushed) more often. */
 export const PRESETS_RUNNING_POLL_MS = 2_000
 
-/** Whether a poll may read now: the dialog is up, so the page is visible and focused. */
-const awake = (): boolean => typeof document === 'undefined'
-  || (document.visibilityState === 'visible' && (typeof document.hasFocus !== 'function' || document.hasFocus()))
+/**
+ * Whether a poll may read now: the page is visible. Focus is not asked for: a
+ * visible window without focus (a second monitor, a terminal or DevTools in
+ * front) still shows a running job's progress.
+ */
+const awake = (): boolean => typeof document === 'undefined' || document.visibilityState === 'visible'
 
 /**
  * The presets listing, kept fresh while a view shows it: every 2 s while a job
  * runs, every 30 s otherwise, and again on `demo-preset` and reconnect events.
- * A hidden or unfocused page reads nothing; coming back reads at once.
+ * A hidden page reads nothing; coming back into view reads at once.
  */
 export function usePresets(api: LayerfsApi): { data: DemoPresets | undefined, error: unknown, loading: boolean, reload: () => void } {
   const [tick, setTick] = useState(0)
@@ -62,8 +65,7 @@ export function usePresets(api: LayerfsApi): { data: DemoPresets | undefined, er
   useEffect(() => {
     if (typeof document === 'undefined') return
     const id = setInterval(() => { if (awake()) reload() }, active ? PRESETS_RUNNING_POLL_MS : PRESETS_POLL_MS)
-    // A page that comes back to the front reads at once; a background one reads nothing.
-    // Returning fires visibilitychange and focus together: only the first reads.
+    // A page that comes back into view reads at once; a hidden one reads nothing.
     let was = awake()
     const wake = () => {
       const now = awake()
@@ -71,15 +73,10 @@ export function usePresets(api: LayerfsApi): { data: DemoPresets | undefined, er
       was = now
       if (returned) reload()
     }
-    const win = typeof window === 'undefined' ? undefined : window
     document.addEventListener('visibilitychange', wake)
-    win?.addEventListener('focus', wake)
-    win?.addEventListener('blur', wake)
     return () => {
       clearInterval(id)
       document.removeEventListener('visibilitychange', wake)
-      win?.removeEventListener('focus', wake)
-      win?.removeEventListener('blur', wake)
     }
   }, [active, reload])
   useEffect(() => {
