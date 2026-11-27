@@ -555,17 +555,17 @@ export function endedWords(j: StorageJob, t: StorageT, size?: (n: number) => str
   if (movePushFailed(j)) {
     return inUseJob(j)
       ? t('jobMovePushInUse', { place })
-      : t('jobMovePushFailed', { place, phase: failPhase ? stepWords(failPhase, t) : '—' })
+      : failPhase ? t('jobMovePushFailed', { place, phase: stepWords(failPhase, t) }) : t('jobMovePushFailedEarly', { place })
   }
   if (j.error && j.kind === 'move' && j.half === 'pull' && j.from) {
     const from = placeWords(j.from)
     return inUseJob(j)
       ? t('jobMovePullInUse', { place, from })
-      : t('jobMovePullFailed', { place, from, phase: failPhase ? stepWords(failPhase, t) : '—' })
+      : failPhase ? t('jobMovePullFailed', { place, from, phase: stepWords(failPhase, t) }) : t('jobMovePullFailedEarly', { place, from })
   }
   // in use is its own word; a failure names its step in words, never LayerFS's step code (UI pass 3 F10)
   if (j.error && inUseJob(j)) return t('jobInUse', { what: kindWords(j.kind, t), place })
-  if (j.error) return t('jobFailed', { what: kindWords(j.kind, t), place, phase: failPhase ? stepWords(failPhase, t) : '—' })
+  if (j.error) return failedWords(j.kind, place, failPhase, t)
   switch (j.kind) {
     case 'push': return t(j.made ? 'jobMade' : 'jobPushed', { place })
     case 'pull': return t('jobPulled', { place })
@@ -671,7 +671,7 @@ export function upgradeEnd(j: StorageJob, t: StorageT): { state: UpgradeEndState
   }
   const tip = j.error ? [`${j.error.code}: ${j.error.message}`, ...(j.error.fix ? [j.error.fix] : [])].join('\n') : null
   const phase = j.error?.phase ?? j.phase ?? null
-  return { state: 'error', word: inUseJob(j) ? t('jobInUse', { what: kindWords(j.kind, t), place }) : t('jobFailed', { what: kindWords(j.kind, t), place, phase: phase ? stepWords(phase, t) : '—' }), tip, check: false }
+  return { state: 'error', word: inUseJob(j) ? t('jobInUse', { what: kindWords(j.kind, t), place }) : failedWords(j.kind, place, phase, t), tip, check: false }
 }
 
 /** Elapsed time as m:ss (h:mm:ss past an hour). */
@@ -757,4 +757,10 @@ export function pgDefaultMachine(s: Pick<StoreRow, 'attached'> | undefined, mach
   const rows = s?.attached ?? []
   if (ok(last) && rows.some((a) => a.machine === last)) return last
   return rows.length === 1 && ok(rows[0]!.machine) ? rows[0]!.machine : null
+}
+
+/** "<what> <place> failed while <step>", or without the step when LayerFS refused before naming one. */
+function failedWords(kind: JobKind, place: string, phase: string | null, t: StorageT): string {
+  const what = kindWords(kind, t)
+  return phase ? t('jobFailed', { what, place, phase: stepWords(phase, t) }) : t('jobFailedEarly', { what, place })
 }
