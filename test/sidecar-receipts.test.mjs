@@ -299,3 +299,34 @@ test('the annotations op stays metadata-sized on an 83,250-receipt session', asy
   assert.equal(page.total, 83_250)
   console.log(`# 83,250 receipts: annotations ${bytes} B / ${annotationsMs.toFixed(2)} ms; receipts page ${page.invocations.length} of ${page.total}`)
 })
+
+test('a half-converted session reads one source: the whole read and the pages agree, and the read finishes the conversion', async () => {
+  const f = session('half-converted')
+  const rows = Array.from({ length: 40 }, (_, index) => receipt(`r${index}`))
+  const original = JSON.stringify({ ...meta('s1'), invocations: rows })
+  writeFileSync(f.sidecar, original)
+  // A crash after the receipts file was written but before the metadata rewrite.
+  writeFileSync(f.receipts, rows.slice(0, 5).map((row) => JSON.stringify(row)).join('\n') + '\n')
+  const ids = rows.map((row) => row.id)
+  // the page reader first (receipts.jsonl), then the whole read: both are every receipt
+  const page = await persistence(f).readReceipts('s1')
+  assert.deepEqual(page.invocations.map((row) => row.id), ids, 'the paged reader sees every receipt')
+  const whole = (await persistence(f).readSidecar('s1')).invocations
+  assert.deepEqual(whole.map((row) => row.id), ids, 'and the whole read the same receipts')
+  // the first read converted it once: metadata only, receipts beside it, the original kept
+  assert.equal(JSON.parse(readFileSync(f.sidecar, 'utf8')).invocations, undefined)
+  assert.equal(readFileSync(f.receipts, 'utf8').trim().split('\n').length, 40)
+  assert.equal(readFileSync(`${f.sidecar}.bak`, 'utf8'), original)
+})
+
+test('a combined sidecar read whole first is converted, so the first page and older pages agree', async () => {
+  const f = session('combined-whole-first')
+  const rows = Array.from({ length: 12 }, (_, index) => receipt(`r${index}`))
+  writeFileSync(f.sidecar, JSON.stringify({ ...meta('s1'), invocations: rows }))
+  writeFileSync(f.receipts, rows.slice(0, 3).map((row) => JSON.stringify(row)).join('\n') + '\n')
+  const w = persistence(f)
+  const whole = (await w.readSidecar('s1', { cached: true })).invocations.map((row) => row.id)
+  const newest = (await w.readReceipts('s1', { from: -4, limit: 4 })).invocations.map((row) => row.id)
+  assert.deepEqual(whole, rows.map((row) => row.id))
+  assert.deepEqual(newest, whole.slice(-4), 'the newest page is the tail of the whole read')
+})
