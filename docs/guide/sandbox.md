@@ -115,10 +115,10 @@ Only when the pinned CLI can list a Sandbox's files. Read-only.
 
 | # | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|---|
-| 1 | View | **Workspaces** (each mounted Workspace as a folder of its saved files), **Sandbox folders** (home, daemon log), **Whole filesystem (/)** when offered | Click → that view | **Workspaces**: `branch get`, `file list` (read, through the project at the Workspace's base Commit); others: `sandbox files <sandbox>` (read) | **No Workspaces are mounted.** |
+| 1 | View | **Workspaces** (each mounted Workspace as a folder of its saved files), **Sandbox folders** (home, daemon log), **Whole filesystem (/)** when offered | Click → that view | **Workspaces**: `branch get`, `file list` (read, through the project at the Workspace's base Commit; on a fork with no Commit of its own, its base Layer); others: `sandbox files <sandbox>` (read) | **No Workspaces are mounted.** |
 | 2 | Path | The path shown, editable | **Go to path** → opens it | `sandbox files <sandbox> <path>` (read) | |
 | 3 | **Filter loaded entries** | | Filters what was read | — | |
-| 4 | Workspace row | **Workspace** *name* with its Branch and changes | Click → its files | `file list` (read) | |
+| 4 | Workspace row | **Workspace** *name* with its Branch and changes | Click → its saved files at that base (here `guide-ws` on a fresh fork of main: main's files) | `file list --at` (read) | |
 | 5 | A file | Its text, a window at a time | Click → opens it | `file read`, `file stat` (read; Sandbox folders: `sandbox files --byte-offset --byte-length`) | The daemon log offers **Read in the Daemon log tab** |
 
 **Refresh** reads the open folders again; a long read shows its seconds and **Cancel**. The

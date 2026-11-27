@@ -23,7 +23,7 @@ script** lists every one before you run it.
 | 4 | **View script** | Every CLI command the build runs |
 | 5 | **Build…** / **Rebuild…** | Wipes the home and builds the library (two confirms) |
 | 6 | ⋯ (**More actions**) | **Stop machines…** |
-| 7 | A project | Its machine and Store above it, its planned history, its build status (**Failed** here) |
+| 7 | A project | Its machine and Store above it, its planned history (**552 commits · 19 side branches** here), its status while a build runs or after it fails |
 | 8 | # (**View script for *project***) | The script filtered to that project's commands |
 | 9 | **Last build** | The last operation: summary, stages, error, **Log**, **Details** |
 
@@ -52,11 +52,12 @@ LayerFS call.
 
 ![bookshelf selected, and the last build's log](img/presets-resource.png)
 
-On this server the Starter build ended partway: **PresetVerificationFailed:** *Preset step
-dense.001.integration.publish.1: publication replaced a newer main head*. The stages show it
-failed in **Building**; **CLI progress** reads **250 / 679 commands** and the project
-**235 / 552 commits**. The library is kept as built so far (Home lists `bookshelf` with 235
-commits), and Starter reads **Needs a rebuild**.
+On this server the Starter build ran to the end: Starter reads **Built**, the status line
+**Built and verified · *when* · File commands only**, and **Last build** **Build complete**
+with **0 running · 1 / 1 completed · 0:09 elapsed**. All 679 build commands ran, and the
+project reads **552 commits · 19 side branches**; its **Selected resource** shows the
+**Verified history**: **552 commits · 6 merges · 115 main Layers**. The **Log** ends with the
+last `file write` / `branch publish` pairs, then the verification reads.
 
 ![Studio: four machines, eight projects](img/presets-studio.png)
 
@@ -74,10 +75,12 @@ commits), and Starter reads **Needs a rebuild**.
 | Phases (4) | **Reset environment**, **Build preset**, **Verify result**: numbered commands with notes, **Branch lane**, **Shell command / exec input**, **Step and dependencies**, **File content / standard input** | Open a disclosure | — | **No commands for this resource in the current plan.** |
 | Filter | From a project's #: ***kind*: *name*** | **Show all commands** / **Show related commands** | — | |
 
-For Starter the script is 765 commands: the reset (`machine list`, `store list`, `sandbox
-list`, then `sandbox remove` and `store remove` for what the home holds now), then `store
-create`, `project init`, and per commit `file write` with `branch fork`, `branch merge` and
-`branch publish` on the side Branches, then the verification reads.
+For Starter on this server the script is 762 commands. The reset is 10 (`machine list`,
+`store list`, `sandbox list`, then `sandbox get` and `sandbox remove` for `guide-box`, `store
+remove demo-starter` and `machine stop docker`: what the home holds now). The build is 684:
+`home get`, `machine start`, `store create`, `project init`, `store move`, then 546 `file
+write`, 13 `branch fork`, 114 `branch publish` and 6 `branch merge` on the side Branches. The
+verification is 68 reads (`branch list`, a `commit list` per Branch, `file read`, `file glob`).
 
 ## Variants
 
@@ -108,8 +111,7 @@ cannot run it. Step 2 was not opened for this guide: its **Continue** prepares t
 
 ## States and signals
 
-- **Needs a rebuild**: the saved library is out of date, or its last build did not verify
-  (as here). **Rebuild…** replaces it.
+- **Needs a rebuild**: the saved library is out of date, or its last build did not verify. **Rebuild…** replaces it.
 - **Failed** on a project, red error under **Last build**: the step and LayerFS's reason;
   the **Log** shows the calls up to it, and [Logs](logs.md) has each one.
 - **Wait for the preset operation to finish…**: a build or stop is running; the buttons are
