@@ -156,6 +156,10 @@ export async function readCalls(layerfs: LayerfsService, args: LogsListArgs): Pr
     total += matching.length - skippedMatches
     more = !!parsed.next
     cursor = parsed.next
+    // Newest first: a page that reaches a line older than a local `since` ends
+    // the search (the Logs page's refresh reads only what was logged since).
+    const since = local.since
+    if (since !== undefined && parsed.lines.some((line) => line.at < since)) more = false
     if (!more) break
   }
   const flat: { line: CallLine, page: number, index: number }[] = []

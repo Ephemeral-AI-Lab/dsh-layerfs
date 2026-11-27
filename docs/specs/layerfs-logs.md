@@ -216,6 +216,15 @@ journal: the `tools/execute` hook (`src/host/sessions/index.ts`) asks
   ends, seen as its output landing in `trace/outputs/` (an SDK record) or
   `trace/outputs/raw/` (an agent shell's `.exit`). Calls from outside DSH
   show on the page's own reloads and on focus.
+- **Page refresh:** the page folds events, focus and reconnection into one
+  refresh per window (500 ms; 3 s while a filter makes the host scan native
+  pages: Only writes or a project search) and none while it is hidden (one
+  when it shows again). A scan refresh first reads the log's newest line:
+  nothing logged since the last scan means no scan; otherwise it scans only
+  lines with `since` = that scan's newest line less 5 s (the host's local
+  `since` stops at the first older line) and puts them on top. Whether the
+  whole log is empty (Reset, "Show reads") is learned again after each
+  refresh or Reset.
 
 ## 6a. Outputs
 
