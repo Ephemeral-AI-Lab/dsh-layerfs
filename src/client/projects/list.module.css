@@ -265,6 +265,11 @@
   }
 }
 
+/* A row that cannot open right now stays focusable (aria-disabled) for its reason. */
+.session[aria-disabled='true'] {
+  cursor: default;
+}
+
 .session[data-selected] {
   background-color: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
