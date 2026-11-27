@@ -88,7 +88,9 @@ function fixture(state = liveState()) {
 
 test('one observed read reports its split under debug: identity, readiness, Workspace status and the host remainder', async () => {
   const f = fixture()
-  const slow = () => new Promise((resolve) => setTimeout(resolve, 2))
+  // 5 ms, checked against 3 ms: libuv starts a timer from its cached loop time,
+  // so under load it can fire up to ~1 ms early by performance.now().
+  const slow = () => new Promise((resolve) => setTimeout(resolve, 5))
   f.s.ctx.get = () => ({
     assertSessionIdentity: async () => { f.calls.push('identity'); await slow(); return { key: 'store/app', store: 'store', machine: 'vm' } },
     projectIdOf: () => 'permanent-id',
@@ -102,7 +104,7 @@ test('one observed read reports its split under debug: identity, readiness, Work
   assert.ok(timing, 'debug adds timing')
   assert.equal(timing.memo, false)
   assert.deepEqual(timing.calls, { identity: 2, readiness: 2, status: 1 }, 'project.get + branch.list, machine.get + store.get, workspace status --detail')
-  for (const step of ['identity', 'readiness', 'status']) assert.ok(timing.phases[step] >= 1.5, `${step} is timed`)
+  for (const step of ['identity', 'readiness', 'status']) assert.ok(timing.phases[step] >= 3, `${step} is timed`)
   assert.ok(timing.phases.total >= timing.phases.identity + timing.phases.readiness + timing.phases.status, 'the named steps fit in the total')
   assert.ok(timing.phases.other >= 0, 'the host remainder is reported')
   assert.deepEqual(f.calls, ['identity', 'machine', 'store', 'status:true'])
