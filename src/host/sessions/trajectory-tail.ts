@@ -36,6 +36,14 @@ export const TAIL_START_BYTES = 2 * 1024 * 1024
 const BACK_SCAN_BYTES = 256 * 1024
 /** The longest prompt line the anchor scan reads (a request header's catalog can be large). */
 const LINE_MAX_BYTES = 16 * 1024 * 1024
+/**
+ * How far back from EOF a page's prompt anchor may reach, as a multiple of the
+ * start span. An anchor further back costs about a whole parse and is answered
+ * by one instead, without reading the span.
+ */
+const ANCHOR_SPANS = 4
+/** How far one receipts probe scans forward for a row with a `turn` (past turnless and long rows). */
+const RECEIPT_SCAN_BYTES = 1024 * 1024
 
 /** Limits a test can shrink; production uses {@link TAIL_LOG_BYTES} and {@link TAIL_START_BYTES}. */
 export interface TailLimits {
@@ -185,8 +193,10 @@ function lineStartAt(path: string, at: number, floor: number): number | undefine
 /**
  * The byte offset of the last line before `before` containing `needle` (a JSON
  * fragment such as `"type":"turn/start"`, so key order does not matter) and
- * accepted by `accept`. `null` when the scan reached the file's start without
- * one; `undefined` when the file could not be read or a line was too long.
+ * accepted by `accept`. `null` when the scan reached `floor` without one;
+ * `undefined` when the file could not be read or a candidate line did not parse
+ * (torn, or longer than {@link LINE_MAX_BYTES}): skipping it could pass over the
+ * very line the caller needs.
  */
 function lastLineWhere(path: string, needle: Buffer, before: number, accept: (line: any) => boolean, floor = 0): number | null | undefined {
   let end = before
@@ -200,7 +210,11 @@ function lastLineWhere(path: string, needle: Buffer, before: number, accept: (li
       if (at < 0) break
       const offset = lineStartAt(path, start + at, 0)
       if (offset === undefined) return undefined
-      if (offset < before && offset > floor && accept(lineAt(path, offset))) return offset
+      if (offset < before && offset > floor) {
+        const line = lineAt(path, offset)
+        if (line === undefined) return undefined
+        if (accept(line)) return offset
+      }
       at -= 1
     }
     end = start
@@ -455,8 +469,10 @@ function preambleHasRecord(path: string): boolean {
  * window starts at {@link TAIL_START_BYTES}, doubles until it holds the newest
  * records, takes the predecessor header as a seed when the page's first request
  * needs one, and reaches back to the last system message when the page itself
- * needs the prompt text. A window that would cover the whole log is answered
- * whole instead.
+ * needs the prompt text, within {@link ANCHOR_SPANS} start spans of EOF. A
+ * window that would cover the whole log is answered whole instead. The window
+ * is keyed by the identity taken before its reads and answered only if the
+ * file still has it afterwards.
  */
 export function readTrajectoryWindow(path: string, size?: number, limits: TailLimits = {}): TrajectoryWindow | undefined {
   const minBytes = limits.minBytes ?? TAIL_LOG_BYTES
@@ -473,11 +489,12 @@ export function readTrajectoryWindow(path: string, size?: number, limits: TailLi
   // preamble check covers a first turn whose events start after a few
   // session-setup events: with no record before that turn, the window is the
   // whole record set too.
-  const wholeLog = (window: { events: any[], fromSeq: number, fromTurn: number, prompt?: WindowPrompt, seenCalls?: string[] }, bytes: number): TrajectoryWindow | undefined =>
+  const wholeLog = (window: { events: any[], fromSeq: number, fromTurn: number, prompt?: WindowPrompt, seenCalls?: string[] }, bytes: number, key: string): TrajectoryWindow | undefined =>
     window.fromSeq <= (firstSeq ?? Number.NEGATIVE_INFINITY) || (window.fromTurn === 1 && !preambleHasRecord(path))
       ? undefined
-      : { ...window, bytes, key: identityOf(path)?.key ?? '' }
-  let span = Math.min(total, limits.startBytes ?? TAIL_START_BYTES)
+      : { ...window, bytes, key }
+  const startBytes = limits.startBytes ?? TAIL_START_BYTES
+  let span = Math.min(total, startBytes)
   let bytes = 0
   for (let attempt = 0; ; attempt++) {
     // A stat is a point in time: read only after confirming its size, and again
@@ -487,7 +504,7 @@ export function readTrajectoryWindow(path: string, size?: number, limits: TailLi
     if (!live) return undefined
     if (live.size !== total) {
       total = live.size
-      span = Math.min(total, limits.startBytes ?? TAIL_START_BYTES)
+      span = Math.min(total, startBytes)
       if (attempt > 3) return undefined
       continue
     }
@@ -499,32 +516,39 @@ export function readTrajectoryWindow(path: string, size?: number, limits: TailLi
     if (!buffer) return undefined
     bytes += buffer.length
     const events = parseChunk(buffer, 'fragment')
-    const settled = events ? settle(path, events, offset) : undefined
+    let settled = events ? settle(path, events, offset) : undefined
+    if (settled?.kind === 'anchor') {
+      // The page needs a system prompt state from before the window: anchor at
+      // the turn that opens the last system message before it. Both scans stop
+      // at the bound, so an anchor further back is answered by the whole parse
+      // without reading (or parsing) that span first.
+      const floor = Math.max(0, total - ANCHOR_SPANS * startBytes)
+      const anchor = lastLineWhere(path, SYSTEM, offset, isSystem, floor)
+      if (anchor === undefined || anchor === null) return undefined
+      const turnStart = lastLineWhere(path, TURN, anchor, isTurn, floor)
+      if (turnStart === undefined || turnStart === null) return undefined
+      const anchored = readRange(path, turnStart, total - turnStart)
+      if (!anchored) return undefined
+      bytes += anchored.length
+      const tail = parseChunk(anchored, 'line')
+      settled = tail ? settle(path, tail, turnStart, false) : undefined
+      if (settled === undefined || settled.kind !== 'ok') return undefined
+    }
     if (settled !== undefined) {
+      // Every read above was of the bytes `live` names: answer only while the
+      // file is still exactly that, so a cached window is never stored under the
+      // identity of a log that grew during the read (a `since` poll would then
+      // answer unchanged without its newest events). A change reads again.
       const after = identityOf(path)
       if (!after) return undefined
-      if (after.size !== total) {
+      if (after.key !== live.key) {
         total = after.size
-        span = Math.min(total, limits.startBytes ?? TAIL_START_BYTES)
+        span = Math.min(total, startBytes)
         if (attempt > 3) return undefined
         continue
       }
-      if (settled.kind === 'ok') return wholeLog(settled.window, bytes)
+      if (settled.kind === 'ok') return wholeLog(settled.window, bytes, live.key)
       if (settled.kind === 'unsafe') return undefined
-      if (settled.kind === 'anchor') {
-        // The page needs a system prompt state from before the window: anchor at
-        // the turn that opens the last system message before it.
-        const anchor = lastLineWhere(path, SYSTEM, offset, isSystem)
-        if (anchor === undefined || anchor === null) return undefined
-        const turnStart = lastLineWhere(path, TURN, anchor, isTurn)
-        if (turnStart === undefined || turnStart === null) return undefined
-        const anchored = readRange(path, turnStart, total - turnStart)
-        if (!anchored) return undefined
-        bytes += anchored.length
-        const tail = parseChunk(anchored, 'line')
-        const next = tail ? settle(path, tail, turnStart, false) : undefined
-        return next?.kind === 'ok' ? wholeLog(next.window, bytes) : undefined
-      }
     }
     span = Math.min(total, span * 2)
   }
@@ -571,25 +595,50 @@ function parseReceipts(buffer: Buffer, offset: number): { receipts: any[], first
   return { receipts: out, firstTurn }
 }
 
-/** The `turn` of the first complete receipt at `offset`; null when none (a fragment); undefined on a read error. */
-function receiptTurnAt(path: string, offset: number): number | null | undefined {
-  const buffer = readRange(path, offset, 64 * 1024)
-  if (!buffer?.length) return undefined
-  let lines = buffer.toString('utf8').split('\n')
-  if (offset > 0) lines = lines.slice(1)
-  for (const line of lines) {
-    if (!line) continue
-    let row: any
-    try {
-      row = JSON.parse(line)
-    } catch {
-      return null
+/**
+ * The `turn` of the first receipt with an integer `turn` that starts after
+ * `offset` (at it, for offset 0). Turnless rows (host operations with no turn:
+ * binds, polls, refusals) and the marker are skipped, and a row longer than
+ * one read is read through, up to {@link RECEIPT_SCAN_BYTES} past `offset`.
+ * `null` when no such row starts at or before `stop` (EOF included): the
+ * caller's probe at `stop` then answers for this one too. Undefined when the
+ * scan cannot tell within its bound, a complete row does not parse, or the
+ * file cannot be read.
+ */
+function receiptTurnAfter(path: string, offset: number, stop: number): number | null | undefined {
+  let skip = offset > 0
+  let carry: Buffer = Buffer.alloc(0)
+  let carryStart = offset
+  for (let at = offset; at < offset + RECEIPT_SCAN_BYTES;) {
+    const buffer = readRange(path, at, 64 * 1024)
+    if (!buffer) return undefined
+    if (!buffer.length) return null
+    at += buffer.length
+    let data = carry.length ? Buffer.concat([carry, buffer]) : buffer
+    let lineStart = carryStart
+    for (;;) {
+      const newline = data.indexOf(10)
+      if (newline < 0) break
+      const line = data.subarray(0, newline)
+      const start = lineStart
+      data = data.subarray(newline + 1)
+      lineStart += newline + 1
+      if (skip) { skip = false; continue }
+      if (start > stop) return null
+      if (!line.length) continue
+      let row: any
+      try {
+        row = JSON.parse(line.toString('utf8'))
+      } catch {
+        return undefined
+      }
+      if (!row || typeof row !== 'object' || Array.isArray(row) || row[RECEIPTS_MARKER]) continue
+      if (Number.isInteger(row.turn)) return row.turn
     }
-    if (!row || typeof row !== 'object' || Array.isArray(row)) continue
-    if (row[RECEIPTS_MARKER]) continue
-    return Number.isInteger(row.turn) ? row.turn : -1
+    carry = data
+    carryStart = lineStart
   }
-  return null
+  return undefined
 }
 
 /**
@@ -617,12 +666,14 @@ export function readReceiptsWindow(path: string, fromTurn: number, size?: number
       if (attempt > 3) return undefined
       continue
     }
-    const start = Math.max(0, receiptBoundary(path, fromTurn, total) - 64 * 1024)
+    const boundary = receiptBoundary(path, fromTurn, total)
+    if (boundary === undefined) return undefined
+    const start = Math.max(0, boundary - 64 * 1024)
     const buffer = readRange(path, start, total - start)
     if (!buffer) return undefined
     const after = identityOf(path)
     if (!after) return undefined
-    if (after.size !== total) {
+    if (after.key !== live.key) {
       total = after.size
       if (attempt > 3) return undefined
       continue
@@ -642,16 +693,21 @@ export function readReceiptsWindow(path: string, fromTurn: number, size?: number
 }
 
 /**
- * A byte offset inside the first receipt whose `turn` is at or after
- * `fromTurn`, found by binary search with one 64 KB head probe per step.
+ * A byte offset before the first receipt whose `turn` is at or after
+ * `fromTurn`, found by binary search over the rows that carry a `turn` (they
+ * append in turn order; turnless rows sit anywhere between them). Each step
+ * probes the first turned row after its midpoint, so a turnless or long row
+ * there cannot move the search past the boundary. Undefined when a probe
+ * cannot tell within its bound: the caller then parses the whole file.
  */
-function receiptBoundary(path: string, fromTurn: number, total: number): number {
+function receiptBoundary(path: string, fromTurn: number, total: number): number | undefined {
   let lo = 0
   let hi = total
   while (hi - lo > 64 * 1024) {
     const mid = Math.floor((lo + hi) / 2)
-    const turn = receiptTurnAt(path, mid)
-    if (turn !== undefined && turn !== null && turn >= fromTurn) hi = mid
+    const turn = receiptTurnAfter(path, mid, hi)
+    if (turn === undefined) return undefined
+    if (turn === null || turn >= fromTurn) hi = mid
     else lo = mid
   }
   return lo
