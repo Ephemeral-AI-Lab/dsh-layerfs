@@ -18,7 +18,7 @@
 # - `preset-layerfs` is the Agent composition every bound session selects: bash
 #   plus delegation/background tools, no host filesystem tools, so sessions on
 #   remote machines work the same way — through the LayerFS CLI the host
-#   exposes as `$DSH_LAYERFS_CLI` — as sessions on a native mount.
+#   exposes as `$DSH_LAYERFS_CLI` — as sessions on a host-machine mount.
 - id: session-persistence-jsonl
   disabled: true
 - id: sandbox-policy

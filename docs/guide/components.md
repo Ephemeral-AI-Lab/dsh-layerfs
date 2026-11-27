@@ -89,7 +89,7 @@ status line.
 | Component | Tone | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
 | **Finish setting up LayerFS** (after you chose **Later**) | Warning | **Set up LayerFS…** → the dialog | `home get` | Clears when setup is complete |
-| A failed job: **{what} {place} failed while {phase}**, **Push to {place} failed while {phase} · Store stays on native**, **Interrupted · final result unavailable**, **Outcome unknown · inspect the Store** | Danger | The [fix button](#fix-buttons) (**Start {name}**, **Restart {name}**, **Compact {name}**, **Save a login…**, **Connect again…**, **Run the {n}-step fix…**), or **Open {name}** (the Sandbox holding the Store), or **Retry** (**Retry push** when a move already pulled to native). **Dismiss** | The fix's calls (for example `machine start`). **Retry** repeats the job (`store move`, …); **Retry push** pushes from native without pulling again | Clears after a later success (including a push after a failed move), when the Store is removed, or on Dismiss |
+| A failed job: **{what} {place} failed while {phase}**, **Push to {place} failed while {phase} · Store stays on this computer**, **Interrupted · final result unavailable**, **Outcome unknown · inspect the Store** | Danger | The [fix button](#fix-buttons) (**Start {name}**, **Restart {name}**, **Compact {name}**, **Save a login…**, **Connect again…**, **Run the {n}-step fix…**), or **Open {name}** (the Sandbox holding the Store), or **Retry** (**Retry push** when a move already pulled to this computer). **Dismiss** | The fix's calls (for example `machine start`). **Retry** repeats the job (`store move`, …); **Retry push** pushes from this computer without pulling again | Clears after a later success (including a push after a failed move), when the Store is removed, or on Dismiss |
 | **{kind} can’t run here now: {reason}** | Warning | **Open** → the machine | — | Clears when the platform is available |
 | **{machine}'s worker is not answering[, so {stores} cannot open]** | Danger | **Open**. **Stop {machine}** → **Confirm: stop {machine}** (shuts down {machine}'s VM and records it as stopped) | `machine stop` | Clears when the worker answers |
 | **{machine}’s VM is gone[, so {stores} cannot open]** | Danger | The fix, or **Open** | The fix's calls | |
@@ -135,7 +135,7 @@ shows its reason in a tooltip on hover or keyboard focus.
   the Backups tab's **Back up to…**, **Back up now**, **Back up as new file…** and
   **Restore…**; the Backups dialog's row actions and **Back up to another bucket**; a
   bucket's **Back up now**.
-- **Menu items:** the Store menu's **Push to…**, **Pull to native**, **Move to another
+- **Menu items:** the Store menu's **Push to…**, **Pull to this computer**, **Move to another
   machine…**, **Back up to…**, **Back up now · *bucket*/*file*** and **Compact…**; the
   PostgreSQL login group's **Remove login** (off while a Store uses the login); the
   machine menu's **Restart worker** (when its fix needs `--force`) and **Remove…**; the
@@ -236,12 +236,12 @@ accordion row; the row's ⋯ holds the foot action.
 | 1 | Name | Glyph and Store name | Click → the [Store page](store.md) | `store list` (read) | |
 | 2 | ⋯ | The [Store menu](#store-menu) | See the Store menu | per row | |
 | | Figure | SQLite: file size and **last write** *when*. PostgreSQL: packed bytes (or **n projects**) and the database name. Hover for the server and **Database id** | — | `store list`; for PostgreSQL also `store get --with stats` (read) | **Size unknown**. A size that may be out of date reads **size seen** *when*, with the tip **…its machine is stopped** or **…does not answer now**. Refused stats show `—` |
-| 3 | **Stored on** chip (SQLite, on Home rows) | The machine (`native` too) and its glyph | Click → the machine page | `home get` (read) | A red dot when the machine is broken; otherwise none (a stopped machine is a word on the chip's tip, not a dot) |
+| 3 | **Stored on** chip (SQLite, on Home rows) | The machine (`macos-host` too) and its glyph | Click → the machine page | `home get` (read) | A red dot when the machine is broken; otherwise none (a stopped machine is a word on the chip's tip, not a dot) |
 | 4 | Project rows | Up to three projects (one while a status shows), each with packed bytes and a share bar | Click → the project page | `project list`, `project stats`, `branch get` (read; polled every 2 s while counting) | **Reading…**, `—` with **Not counted here**, **No commits since Init**, **No projects · Add project** (`project init`) |
 | | Status row | Shows only when something is happening: a running or just-ended [job card](#job-card), **Another client runs …**, or a word saying what needs you (**Waiting on docker**, **Broken · …**) with its one action (**Start** *m*, a [fix](#fix-buttons), or **Repair** *m*). Only a failure keeps a dot ([Status words and dots](#status-words-and-dots)) | That action | `machine start`, or the fix's call | |
 | 5 | Backups badge (SQLite) | Provider marks, **n backup(s)**, and a dot for the worst state. Tip: **x need attention, y out of date, z current, w not listed** | Click → the Backups of *store* dialog. With no backup it reads **No backup** and opens Back up | `backup list` per linked bucket (read), when the dialog opens | |
 | | **+n projects** | The Store has more projects than the card shows | Click → the Store page | — | |
-| 6 | Foot action (SQLite; in ⋯ on Home rows) | **Push to…** for a Store on native, **Pull** for a Store on a machine | **Push to…** → the Push dialog. **Pull** → a pull job | `store move <s> <m>`, or `store get` then `store move <s> native` | Off unless the Store is Ready. Hidden while a job runs |
+| 6 | Foot action (SQLite; in ⋯ on Home rows) | **Push to…** for a Store on the host machine, **Pull** for a Store on a machine | **Push to…** → the Push dialog. **Pull** → a pull job | `store move <s> <m>`, or `store get` then `store move <s> macos-host` | Off unless the Store is Ready. Hidden while a job runs |
 
 PostgreSQL Stores have no cards: a machine page lists the ones attached to it as rows
 (address, that machine's last check and **Detach**), and Home › Stores lists them all
@@ -255,9 +255,9 @@ The ⋯ in a Store page's head and on every Store card.
 
 | Component | Shown for | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
-| **Push to…** | SQLite on native | The Push dialog → a job | `store move <s> <m>` | Off unless Ready |
-| **Pull to native** | SQLite on a machine | A job starts at once | `store get`, `store move <s> native` | Off unless Ready |
-| **Move to another machine…** | SQLite on a machine | The Move dialog → a job | `store get`, then `store move` twice, through native | Off unless Ready |
+| **Push to…** | SQLite on the host machine | The Push dialog → a job | `store move <s> <m>` | Off unless Ready |
+| **Pull to this computer** | SQLite on a machine | A job starts at once | `store get`, `store move <s> macos-host` | Off unless Ready |
+| **Move to another machine…** | SQLite on a machine | The Move dialog → a job | `store get`, then `store move` twice, through the host machine | Off unless Ready |
 | **Back up to…** | SQLite | The Back up dialog. With no bucket yet, Add bucket comes first | `backup create`, then `backup list` | Off unless Ready |
 | **Back up now · *bucket*/*file*** | SQLite, one row per linked bucket | A job starts at once | `backup create`, then `backup list` | Off unless Ready |
 | **Compact…** | Both kinds, when the runtime has `store compact` | Plain confirm → a job | `store get`, `store compact` | Off unless Ready. Tips: **Start machine** *m* **first**, **Repair machine** *m* **first**, **The Store is not ready**. Also offered on a Broken Store whose fix is a compaction |
@@ -276,8 +276,8 @@ the [Doctor](health.md) page during and after a **Back up now** fix.
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
 | Running line | Dot, what the job is doing (**Pushing to** / **Pulling from** / **Moving to** *m*, **Creating on** *m*, **Backing up to** *b*, **Restoring from** *b/f*, **Compacting** *s*), **Step n of N** across the full step list (for moves prefixed with **1/2 Pulling to Home ·** or **2/2 Pushing ·**) with the step (checking, taking a snapshot, sending, verifying, installing, recording, cleaning up, uploading, downloading, hashing, marking, building, swapping), **done of total**, a monotonic percentage shared with the nav bar's Transfers pill and Home cards (capped at 99% until ended), and a progress bar. Compact cards on Home › Stores split the title + percentage and the step + bytes onto two rows | — | The job's own call, which streams progress (`store move`, `backup create`, `backup restore`, `store compact`). The card follows `storage-job` events | |
-| Ended line | **Pushed to** / **Pulled from** / **Moved to** / **Created on** / **Backed up to** / **Restored from** / **Compacted** … (**· nothing to reclaim**, **· freed** *n*). On failure: *Kind place* **failed while** *step*, **Push to** *place* **failed while** *step* **· Store stays on native** (or **Store stays on** *from* if the pull half failed; **Moved to** *place* **· old copy on native not removed** if cleanup failed), **… : in use**, **Outcome unknown · inspect the Store**, or **Interrupted · final result unavailable**. The refusal's code, words and fix are in the tip | — | — | Green or red dot |
-| Action (failed jobs only) | One button: the [fix](#fix-buttons) when Center can run it, otherwise **Open** *Sandbox* (the Sandbox holding the Store), otherwise **Retry** (**Retry push** when a move already pulled the Store to native) | **Retry** runs the same job again; **Retry push** pushes directly from native without pulling again. **Open** goes to the Sandbox page | Retry repeats the job's calls: push `store move`; pull `store get` + `store move`; move `store move` ×2 (or `store move` ×1 for **Retry push**); backup `backup create`; restore `backup restore`; compact `store compact` | |
+| Ended line | **Pushed to** / **Pulled from** / **Moved to** / **Created on** / **Backed up to** / **Restored from** / **Compacted** … (**· nothing to reclaim**, **· freed** *n*). On failure: *Kind place* **failed while** *step*, **Push to** *place* **failed while** *step* **· Store stays on this computer** (or **Store stays on** *from* if the pull half failed; **Moved to** *place* **· old copy on this computer not removed** if cleanup failed), **… : in use**, **Outcome unknown · inspect the Store**, or **Interrupted · final result unavailable**. The refusal's code, words and fix are in the tip | — | — | Green or red dot |
+| Action (failed jobs only) | One button: the [fix](#fix-buttons) when Center can run it, otherwise **Open** *Sandbox* (the Sandbox holding the Store), otherwise **Retry** (**Retry push** when a move already pulled the Store to this computer) | **Retry** runs the same job again; **Retry push** pushes directly from this computer without pulling again. **Open** goes to the Sandbox page | Retry repeats the job's calls: push `store move`; pull `store get` + `store move`; move `store move` ×2 (or `store move` ×1 for **Retry push**); backup `backup create`; restore `backup restore`; compact `store compact` | |
 | **Dismiss** | | Hides a finished job | — (remembered in this browser) | |
 | Another client | **Another client runs** *op · phase* **on this Store** | — | `store list` (read) | No actions |
 
@@ -369,7 +369,7 @@ your pointer does nothing.
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
 | **Open** | On the board only | Opens the machine page | — | |
-| **Start worker (docker)** / **Stop worker (docker)** / **Start (name)** / **Stop (name)** | The power action that fits the machine's state | Starts the machine (with startup progress) or stops it | `machine start` / `machine stop` | Off while another power action runs. Not shown for native |
+| **Start worker (docker)** / **Stop worker (docker)** / **Start (name)** / **Stop (name)** | The power action that fits the machine's state | Starts the machine (with startup progress) or stops it | `machine start` / `machine stop` | Off while another power action runs |
 | **Restart worker (name)**, plus **Stop worker** / **Stop (shut down the VM)** | Replaces the item above when the worker is down (not answering, outdated, unreachable) | **Restart** runs the fix LayerFS suggests. **Stop** stops the machine | `machine get`, then `machine stop` and `machine start` (or just `machine start`); `machine stop` | **Restart** is off when LayerFS's fix needs `--force` because Sandboxes are on the machine. Hover for the reason |
 | **Force stop…** (red) | When the CLI's `machine stop` accepts force and the machine is running or holds Sandboxes. Not for ssh or Firecracker machines | **Force stop *name*?** → **Force stop** | `machine stop --force` | |
 | **Update settings…** | Docker machines only | **Update settings** (Docker socket: Automatic or a socket it found) → **Save** | `machine update docker --docker <socket>` (empty means Automatic) | |
@@ -388,7 +388,7 @@ come first, with a warning edge.
 | State chip | **Running**, **Daemon not running**, **Needs repair**, … Hover for LayerFS's message | — | `sandbox list` (read) | |
 | ⋯ | **Delete Sandbox…** (or **Read Sandbox** after a delete whose result is unclear), **Force delete Sandbox…** | Opens a [confirm](#confirm-dialog) | `sandbox remove` / `sandbox remove --force` (`sandbox get` for **Read Sandbox**) | **Delete** is off while an operation runs |
 | Sub line | Project · **up *time*** · ***n* Workspaces** | — | the metrics sampler; `sandbox list` | No Workspace count when the list doesn't report one |
-| **Image** | The image's name, linking to the Images tab, or a short id when the name is unknown | → the Images tab | `machine images` (read) | Not shown for native |
+| **Image** | The image's name, linking to the Images tab, or a short id when the name is unknown | → the Images tab | `machine images` (read) | Not shown for the macOS host machine |
 | Figures | **Processor** (*n* **of** *cpus*), **Memory**, **On disk** (a bar split into Workspace changes, the Sandbox's own files, and runtime and log) | — | the sampler's `machine stats`; `machine stats --with space` (read) | A dash, with the reason, when a figure is unknown. For host processes: **Processor and memory not read: *why*.** |
 | Gone / broken notice | **Folder kept on disk** (*size*) or **Unusable · records kept** | **Close** | `sandbox remove` | Takes the place of the figures |
 | **Terminals** / **Files** | | Opens the Sandbox page on Workspaces or on Files | — | Hidden when the Sandbox is gone |

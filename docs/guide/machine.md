@@ -2,7 +2,7 @@
 
 > **Where:** `LayerFS › Home › Machines › <machine>` · **Opens from:** a machine's name on Home › Machines, the nav bar's crumb switcher, Jump to (**Machines** group), a Store's place link, a Sandbox's **Machine** fact · **Source:** see the end
 
-A machine is where Sandboxes run and where SQLite Stores live: **`native`** (Sandboxes run
+A machine is where Sandboxes run and where SQLite Stores live: **`macos-host`** (Sandboxes run
 directly on this computer's OS; not the LayerFS home, which is this computer's control data), the built-in **docker** machine (a LayerFS worker in a Docker
 container) or a VM you create (Lima, Apple Container). Its page answers "is it running, how
 full is it, what is on it", and holds every machine action: start, stop, restart the worker,
@@ -12,7 +12,7 @@ force stop, settings and remove.
 
 | # | Component | What it is |
 |---|---|---|
-| 1 | Head | The machine's glyph, name (`native` like any machine), state chip, kind line (**Docker · Linux namespaces**), its power button and its ⋯ menu. Above every tab, the same on every kind of machine |
+| 1 | Head | The machine's glyph, name (`macos-host` like any machine), state chip, kind line (**Docker · Linux namespaces**), its power button and its ⋯ menu. Above every tab, the same on every kind of machine |
 | 2 | Tab bar | **Overview** · **Images** · **Files** · **Sandboxes** *n* · **Stores** *n* · **Worker log**. Images, Files and the Worker log only show when offered (see [Variants](#variants)) |
 | 3 | Usage card | Processor, memory and data disk now, with **Healthy** and the time they were read |
 | 4 | **Where it goes** | Opens the [Disk space dialog](#disk-space-dialog) |
@@ -114,7 +114,7 @@ whose Store is on this machine, PostgreSQL projects when the machine supports th
 |---|---|---|---|
 | **Project** | Pick → suggests a free name (*project*-1) | `project list` (read) | **No eligible projects…** with **Open Storage** |
 | **Name** | 1–63 lowercase letters, digits, dots, underscores or hyphens | — | A taken name is refused |
-| **Image** | The images a Sandbox here starts from at once, and this computer's Docker images LayerFS can copy (**From Docker on this Mac**); greyed rows say why | `machine get`, `machine images --with docker`, `sandbox list` (read) | On a macOS native machine (host processes, `backend: native`): **Sandboxes on this Mac use its own system.** instead; a Linux native machine uses images |
+| **Image** | The images a Sandbox here starts from at once, and this computer's Docker images LayerFS can copy (**From Docker on this Mac**); greyed rows say why | `machine get`, `machine images --with docker`, `sandbox list` (read) | On the macOS host machine (host processes, `backend: process`): **Sandboxes on this Mac use its own system.** instead; the Linux host machine uses images |
 | **Create** / **Start and create** / **Free space** | Creates in the background: the dialog closes and the card shows a creating row | `sandbox create` (`machine start` first for **Start and create**) | **Free space** when the chosen Docker image does not fit: opens [Free space](#free-space-dialog) over the dialog |
 | **Read Sandbox** | After an uncertain create: reads the Sandbox before creating another | `sandbox get` (read) | |
 | **Cancel** | Closes | — | |
@@ -130,7 +130,7 @@ as Home › Stores and is described in
 ## Images
 
 Only on a machine that starts its Sandboxes from an image it keeps a copy of: docker, created
-VMs, and a native machine whose Sandboxes run in Linux namespaces. A macOS native machine has no
+VMs, and the Linux host machine, whose Sandboxes run in Linux namespaces. The macOS host machine has no
 **Images** tab, because its Sandboxes use the Mac's own system.
 
 ![docker › Images, numbered](img/machine-images.png)
@@ -179,8 +179,7 @@ Only when the pinned CLI can list a machine's files. Read-only: nothing here cha
 
 ## Worker log
 
-Only when the pinned CLI has the call and LayerFS says this machine has a worker log (docker
-and created VMs; not native).
+Only when the pinned CLI has the call and LayerFS says this machine has a worker log.
 
 ![docker › Worker log, numbered](img/machine-log.png)
 
@@ -210,8 +209,8 @@ See [Components › Machine menu](components.md#machine-menu). On this page it h
 
 **Force stop *machine*?** **Running commands and Sandboxes on *machine* will stop. Uncommitted
 Workspace changes may be lost. The machine, Stores and committed project history are kept.**
-(native: **Stop LayerFS-managed Sandboxes and running commands on this computer. The
-computer itself stays running…**). **Force stop** runs `machine stop --force`; **Cancel**
+(host machine: **Stop LayerFS-managed Sandboxes and running commands on this computer, and
+stop its host machine until it is started again. The computer itself stays running…**). **Force stop** runs `machine stop --force`; **Cancel**
 closes.
 
 ### Settings dialog
@@ -245,12 +244,12 @@ opens (▸) to show what the machine holds; its name opens the machine page.
 | # | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|---|
 | 1 | ▸ / ▾ | | Click (or click the row) → shows or hides what it holds; remembered in this browser | — | Open by default when the machine needs you, is starting, or is the only one |
-| 2 | Name | Glyph, name (`native` like any machine) and **kind · runtime** (**Native · Host processes**) | Click → the machine page | `home get`, `machine list`, `machine get --with live`, `sandbox list`, `store list` (read) | |
+| 2 | Name | Glyph, name (`macos-host` like any machine) and **kind · runtime** (**Host · Host processes**) | Click → the machine page | `home get`, `machine list`, `machine get --with live`, `sandbox list`, `store list` (read) | |
 | 3 | **State** | The state chip | — | as above | **Running**, **Stopped**, **Needs repair**, **Docker not running**, **Unavailable**, … |
 | 4 | **Memory** | A bar and **% of total** (used of total on hover) | — | — (the sampler's `machine stats`) | Amber past 75 %, red past 90 %; the allocated memory, muted, when not read |
 | 5 | **Disk** | A bar and **LayerFS *size* · *size* free** | — | `machine stats --with space` (read, kept a minute) | A blocked machine shows why here instead |
 | 6 | **Holds** | ***n* Stores** / ***n* Sandboxes** (those being created count) | — | — | **No Stores**, **No Sandboxes** |
-| 7 | Power | An icon button: **Stop worker** / **Start worker** / **Start** / **Stop** | Press → as on the machine page | `machine stop` / `machine start` | Not on native |
+| 7 | Power | An icon button: **Stop worker** / **Start worker** / **Start** / **Stop** | Press → as on the machine page | `machine stop` / `machine start` | — |
 | 8 | ⋯ | [Machine menu](components.md#machine-menu) with **Open** first | | | |
 | 9 | **Add Store** | In the open row's Stores column | Press → Storage's Add a Store to *machine* | see [store.md](store.md#machine--stores-tab) | Hidden on a blocked machine |
 | 10 | **New Sandbox** | In the Sandboxes column | Press → [New Sandbox dialog](#new-sandbox-dialog) | — | Off while a start or stop runs |
@@ -275,18 +274,19 @@ created.** One row per platform at its step of readiness.
 | VM row | **Apple Container**, **Lima** with what it is and its version | **Create** → opens its form in the row | — | |
 | Not-ready row | A tag (**Needs install**, **Needs setup**, **Not running**, **Needs runtime**) and one button (**Install**, **Set up**, **Start**, **Fix in setup**) | The button → what to do, commands to copy, **Check again** (or the Set up LayerFS dialog) | **Check again**: the machines view read with fresh platforms | |
 | **Not available on this computer (*n*)** | Platforms this computer can never run, with why | Click → unfolds | — | |
-| VM form | **Name** (a free one suggested), **CPUs**, **Memory**, **Disk** (**Holds its Stores**), from LayerFS's defaults; a line with this computer's room and what other VMs use (a warning, never a refusal, when it asks for more) | **More** › **Use stock image** | the sampler's `machine stats native` for the room line | |
+| VM form | **Name** (a free one suggested), **CPUs**, **Memory**, **Disk** (**Holds its Stores**), from LayerFS's defaults; a line with this computer's room and what other VMs use (a warning, never a refusal, when it asks for more) | **More** › **Use stock image** | the sampler's `machine stats macos-host` for the room line | |
 | **Create** | | Creates the VM, with startup progress; the dialog stays open (**Keep this dialog open while the machine is being created.**), then the new machine's page opens | `home get` (its declared options), then `machine create <name> <platform> --cpus --memory --disk [--os-image stock]` | A failure offers **Inspect current state** (`machine get`) and **View machine and removal options** |
 | **Cancel** | | Closes the form | — | Off while creating |
 
 ## Variants
 
-- **`native`** ([screenshot](img/machine-native.png)): no power button (it is
-  this computer), no Processor column on macOS, no **Worker log** (no worker), no **Update
+- **`macos-host`** / **`linux-host`** ([screenshot](img/machine-host.png)): the host machine, this
+  computer itself. **Start** / **Stop** like any machine (stopping it stops its Sandboxes and
+  worker until it is started again; the computer keeps running), no Processor column on macOS, no **Worker log** (no worker), no **Update
   settings…**, and **Remove…** off with **Built in · can’t be removed**. Its **Images** tab
-  depends on how its Sandboxes run: a macOS native machine runs them on the Mac's own system and
+  depends on how its Sandboxes run: the macOS host machine runs them on the Mac's own system and
   has none, a Linux one runs them in namespaces and has it. **Force stop…** shows while it has
-  Sandboxes, with the native wording.
+  Sandboxes, with the host machine's wording.
 - **docker**: power words name the worker (**Start worker**, **Stop worker**, **Restart
   worker**); **Update settings…** for the socket; with the Docker Engine down on macOS the
   state is **Docker not running** and Start becomes **Start Docker and worker**. Remove is off
@@ -295,7 +295,7 @@ created.** One row per platform at its step of readiness.
   when its worker does not answer), a Danger zone with **Remove *name*…**, **Remove…** in the
   menu, no settings.
 - **Tabs that only show sometimes**: **Images** needs a CLI with Sandbox image copies (image
-  stage 1) and a machine whose Sandboxes start from an image (not a macOS native machine, which
+  stage 1) and a machine whose Sandboxes start from an image (not the macOS host machine, which
   runs them on the Mac's own system); **Files** needs the CLI's
   `machine files`; **Worker log** needs the CLI's `machine log` and a machine LayerFS says has
   a worker log (`supports: log`). Nothing is decided by the platform's name.

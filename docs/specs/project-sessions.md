@@ -49,9 +49,9 @@ that their scratch files are isolated.
 
 Project file operations target the session's LayerFS execution context. The
 selected folder remains available for local scratch work. Prompts and controls
-must distinguish the project files from scratch, including on native machines
+must distinguish the project files from scratch, including on the host machine
 where the LayerFS mount has a host path. A local shell command must not silently
-change meaning based on whether the project's machine is native or remote.
+change meaning based on whether the project's machine is the host machine or remote.
 
 Record the local folder selection as machine-local state. Opening a portable
 session elsewhere may require selecting another folder; this does not change

@@ -38,7 +38,7 @@ Sandbox 列表绘制，所以页面不会等某一次慢读取；只有 Workspac
 | **诊断**（Diagnose） | | 按下 → 诊断页面运行这个 Sandbox 的检查 | `sandbox doctor`（在诊断页面上） | |
 | **刷新**（Refresh） | | 立即读取 Sandbox | `sandbox get` (读取) | |
 | ⋯ | **删除 Sandbox…**（Delete Sandbox…）（删除结果不确定后变为 **读取 Sandbox**（Read Sandbox））、**强制删除 Sandbox…**（Force delete Sandbox…） | 见[对话框](#modals-opened-here) | `sandbox remove` / `sandbox remove --force` | 有操作在运行时 **删除**（Delete）不可用 |
-| 用量卡片 | **处理器**（Processor）（*n* **/ *m* 个处理器**（of *m* processors），一条进度条）、**内存**（Memory）（当前、**峰值**（peak）、文件缓存和 tmpfs）、**进程**（Processes）（**当前**（now））、**内存不足终止**（Out-of-memory kills）（**自启动以来**（since it started），大于 0 时显示红色）、**读取于**（read）*时间* | — | — （主机的指标采样器每 15 秒在机器上读取一次 `machine stats`） | 没有独立 cgroup 的 Sandbox（native）：**未单独测量此 Sandbox：*原因*。下面显示的是整台机器。**（Not measured for this Sandbox: *reason*. The whole machine is shown instead.）；较旧的 worker：**这台机器的 worker 是较旧的构建：它不发送每个 Sandbox 的数值。**（This machine's worker is an older build: it sends no per-Sandbox values.） |
+| 用量卡片 | **处理器**（Processor）（*n* **/ *m* 个处理器**（of *m* processors），一条进度条）、**内存**（Memory）（当前、**峰值**（peak）、文件缓存和 tmpfs）、**进程**（Processes）（**当前**（now））、**内存不足终止**（Out-of-memory kills）（**自启动以来**（since it started），大于 0 时显示红色）、**读取于**（read）*时间* | — | — （主机的指标采样器每 15 秒在机器上读取一次 `machine stats`） | 没有独立 cgroup 的 Sandbox（macOS 主机）：**未单独测量此 Sandbox：*原因*。下面显示的是整台机器。**（Not measured for this Sandbox: *reason*. The whole machine is shown instead.）；较旧的 worker：**这台机器的 worker 是较旧的构建：它不发送每个 Sandbox 的数值。**（This machine's worker is an older build: it sends no per-Sandbox values.） |
 | 用量行 | 没有 `machine stats` 时：**用量**（Usage）CPU 时间、当前和峰值内存、进程，来自 `sandbox get` | — | `sandbox get` (读取) | 较旧的 CLI |
 | 磁盘占用 | 总量、一条进度条，以及 **Workspace 改动**（Workspace changes）、**自身文件**（Own files）、**运行时和日志**（Runtime and log） | — | 在其所在机器上 `machine stats --with space` (读取，缓存 1 分钟) | **正在读取磁盘占用…**（Reading disk use…）；未读取时说明原因 |
 | 守护进程 | **守护进程可连接**（Daemon reachable）/ **无法连接守护进程**（Daemon not reached）/ **守护进程未运行**（Daemon not running）/ **守护进程未报告**（Daemon not reported），每个控制槽位一个方块，**_m_ 个槽位中 _n_ 个空闲 · pid _n_ · 启动于 _时间_**（*n* of *m* slots free · pid *n* · started *time*），**保留 _n_ 次失败**（*n* retained failures） | **查看**（View）/ **收起**（Hide）→ 一张 **保留的守护进程失败**（Retained daemon failures）表（槽位、原因、时长） | `sandbox get` (读取) | |
@@ -134,12 +134,12 @@ Sandbox daemon 的日志，实时跟随：一个[日志窗格](components.md#log
 
 ## 变体
 
-- **项目对话的 Sandbox**（A project conversation's Sandbox）（名为 `dsh-…`，`handbook` 的在 native 上）：
+- **项目对话的 Sandbox**（A project conversation's Sandbox）（名为 `dsh-…`，`handbook` 的在 `macos-host` 上）：
   它的 Workspace 就是对话的 Workspace。**删除 Sandbox…**（Delete Sandbox…）按对话关闭它的方式来关闭：先保存
   一个检查点（`workspace status`、`workspace commit`），再 `sandbox remove --force`。它目前由会话拥有：
   项目 Sandboxes 标签页上它的卡片带一个安静的 **会话**（Session）标签（悬停：*这个 Sandbox 属于一个对话，
   对话关闭时会被移除。*），对话关闭时它会被移除。项目拥有的 Sandbox（每项目一个）曾被考虑，但不在计划内。
-- **native** 上的 Sandbox 以主机进程运行（native 和任何机器一样是一台机器）：镜像一项显示 **无 · 主机进程**（None · host processes），
+- **macos-host** 上的 Sandbox 以主机进程运行（主机和任何机器一样是一台机器）：镜像一项显示 **无 · 主机进程**（None · host processes），
   用量卡片显示整台机器，以灰色显示并说明原因。
 - **已消失的 Sandbox**（A gone Sandbox）（其 daemon 随机器一起结束了）：没有 **新建 Workspace**（New workspace），
   守护进程卡片显示 **守护进程未运行**（Daemon not running），机器页面上它的卡片提供 **关闭**（Close）。

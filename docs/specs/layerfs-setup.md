@@ -12,7 +12,7 @@ decisions still open.
   layerfs-project#104). The plugin refuses reads while `layerfs.json` is
   missing (`src/host/layerfs/cli.ts`), so on Linux, or on macOS with no daemon,
   the home is never created and every view fails.
-- **Builds mix silently.** The CLI, the native daemon, the Linux bundle and the
+- **Builds mix silently.** The CLI, the host daemon, the Linux bundle and the
   Node SDK can come from different commits. Only the CLI carries a commit
   (`layerfs-cli/build.rs`); the bundle has `source.head` but no dirty flag; the
   daemon has neither. The plugin always sets `LAYERFS_BUNDLE`, so LayerFS's own
@@ -38,8 +38,8 @@ additive and lands without it.
 nothing; an older home is `broken` `outdated` and refused with the fix
 `mv <home> <home>.old && layerfs home init`.)
 
-Creates an empty home (0700, `layerfs.json`, the built-in `native` and `docker`
-records), converts a layout 2 or 1.1.0 home, and finishes an interrupted
+Creates an empty home (0700, `layerfs.json`, the built-in host machine (`macos-host` or
+`linux-host`) and `docker` records), converts a layout 2 or 1.1.0 home, and finishes an interrupted
 conversion (`v2::finish`). A current home is left alone.
 
 ```jsonc
@@ -141,7 +141,7 @@ Needs: `source.dirty` in `bundle.json`, a commit stamped into
 | Check | Change |
 |---|---|
 | `machine.provider` | A built-in machine never started (provider `missing`, no recorded state) is a warning: "docker was never started; Start creates its worker container". A machine that ran and lost its container stays an error |
-| `host.native_daemon` | Checks the recorded daemon, else the default daemon the native launch uses, and its commit (not `<cache>/…/macos-<arch>/layerfs-daemon` alone), reusing the `DaemonMismatch` wording. A missing or non-executable recorded daemon is an error, the default one a warning; "commit unknown or tree dirty" passes as not comparable. Not run on Linux yet |
+| `home.host_daemon` | Checks the recorded daemon, else the default daemon the host machine's launch uses, and its commit (not `<cache>/…/macos-<arch>/layerfs-daemon` alone), reusing the `DaemonMismatch` wording. A missing or non-executable recorded daemon is an error, the default one a warning; "commit unknown or tree dirty" passes as not comparable. Not run on Linux yet |
 
 ### 2.7 Reads never change the home (needs agreement)
 
@@ -187,7 +187,7 @@ list` call `home init`, and the SDK knows `Uninitialized`.
   mixed set unless `DSH_LAYERFS_ALLOW_MIXED=1` (development). A runtime folder
   whose bundle is from another build may have it replaced while no worker
   machine runs (`placeBundle` refuses this today).
-- **Native daemon.** Re-recorded only when the recorded one is missing or
+- **Host daemon.** Re-recorded only when the recorded one is missing or
   unreadable. A mismatch is a warning, not an automatic re-record (two hosts
   sharing a home would flip it). `cleanRuntimes` also keeps a runtime that a
   pin lease names (`<home>/runtime/<id>/pins/<host id>`), so one host never
@@ -230,13 +230,13 @@ Settings (Check setup…) and Health fixes. Later is remembered per viewer
 |---|---|---|
 | Runtime | One line for the chosen runtime; Change… opens the shared runtime picker. Its CLI, daemon, bundle and SDK each say Matches, From another build, or Can't tell | Change…, Other build… |
 | LayerFS folder | Path and state: "Created just now", "Made by an older LayerFS" (LayerFS's sentence as the tip), "Other users can read it" | Copy LayerFS's fix (`mv <home> <home>.old && layerfs home init`: LayerFS 2.0 converts no older home since the CUT of 2026-11-19, and the page never moves a folder), Copy `chmod` |
-| Machines | The native machine (required) and Docker (optional) as two cards: mark, name, state tag, role, facts (OS and architecture; Docker's socket or what blocks it), with readiness from `needs.ts` | Start Docker; Socket… opens docker's socket setting |
+| Machines | The host machine (required) and Docker (optional) as two cards: mark, name, state tag, role, facts (OS and architecture; Docker's socket or what blocks it), with readiness from `needs.ts` | Start Docker; Socket… opens docker's socket setting |
 
 No Environment section. Lima and Apple Container are one line pointing to
 Machines. **Done** requires: a runtime, the folder `current`, and no `matches:
 false` (unknown passes). The SDK and the folder mode are notes.
 
-Names: the section says "LayerFS folder" because the native machine is already
+Names: the section says "LayerFS folder" because the host machine was once called
 "LayerFS Home" in the UI; machine rows keep their existing names, and the
 platform word comes from LayerFS's `host` (This Mac, This computer).
 
@@ -244,7 +244,7 @@ platform word comes from LayerFS's `host` (This Mac, This computer).
 
 One component for the setup modal and Settings' Change…: the installed
 runtimes (`runtime.installed`), each with version, commit and what is wrong
-("Linux bundle from another build", "No Linux bundle: only the native machine
+("Linux bundle from another build", "No Linux bundle: only the host machine
 can run"); path fields behind Other build….
 
 ### 4.3 Changes to existing views
@@ -258,7 +258,7 @@ can run"); path fields behind Other build….
   Automatic (naming the one in use) or a candidate from `platforms`; `denied`
   shows the docker group fix. The "Docker isn't answering" message links here.
 - **New project, Runs on:** tiles use `machineBlock` (they don't today); the
-  default is the native machine when Docker cannot run.
+  default is the host machine when Docker cannot run.
 - **Health:** "Not checked yet" before any check; `home get` warnings appear as
   findings with `FindingActions` linking into the setup modal (the only place
   that fixes them); a never-started Docker is a warning with Start.
@@ -276,7 +276,7 @@ on this computer"), bundle (`bundle:` → Fix in setup). Any of these blocks
 Create.
 
 **Create, inline in the row:** name; CPUs, memory and disk from `options` with
-their `default`; a room line from `machine stats native` and the other VMs'
+their `default`; a room line from `machine stats macos-host` and the other VMs'
 recorded sizes ("This Mac has 14 CPUs and 36 GB of memory, 304 GB free on the
 LayerFS folder's disk; your other VMs are set to 4 CPUs and 8 GB"), where too
 much is a warning, not a refusal; OS image left to LayerFS (prepared when there

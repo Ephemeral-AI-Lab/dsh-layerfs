@@ -44,7 +44,7 @@ LayerFS call.
 |---|---|---|---|---|
 | Preset list | **Starter** (*One project on SQLite in a Docker container, with 19 branches and 552 commits…*), **Studio** (*8 sample projects on 4 machines…*: Docker, Lima, 41,640 commits) | Click → shows that preset | `GET /api/demo-presets` (no LayerFS call: the host's preset records) | **Loading presets…**; **Could not read the presets** with **Retry** |
 | Status line | See #3 | **Open Home** → Center's Home | — | **Checking the environment…** while a plan is read |
-| Topology | Per machine (**Docker · Container**, **Native · Local machine**, **demo-build · Lima virtual machine · 2 CPUs · 4G memory · 20G disk**) its Store (**store demo-starter**, **PostgreSQL store demo-services**) and projects: name, description, ***done* / *planned* commits · *n* side branches · *elapsed*** | Click a project → **Selected resource** (below). **#** → its script | — | Project status while building: **Waiting**, **Running**, **Created**, **Failed**, **Stopped** |
+| Topology | Per machine (**Docker · Container**, **This computer · Local machine**, **demo-build · Lima virtual machine · 2 CPUs · 4G memory · 20G disk**) its Store (**store demo-starter**, **PostgreSQL store demo-services**) and projects: name, description, ***done* / *planned* commits · *n* side branches · *elapsed*** | Click a project → **Selected resource** (below). **#** → its script | — | Project status while building: **Waiting**, **Running**, **Created**, **Failed**, **Stopped** |
 | **Selected resource** | The project's description, its error, **Store** (*store* on *machine*), **Planned history** / **Verified history** (commits · merges · main Layers), **Side branches** (**View names**), **CLI progress** (*done* / *total* commands), **Elapsed** | **×** closes it | — | |
 | Running build | **Building** / **Stopping machines** with progress | — | the build's calls (see below) | Stages **Checking** · **Resetting** · **Building** · **Verifying** |
 | **Last build** | Outcome line, ***n* running · *done* / *total* completed · *n* failed · *time* elapsed**, workspace revisions, the four stages, the error in red | **Log** → the job's log (each CLI call it ran, timed). **Details** → the home, cleanup verified or not, what was kept, forgotten workspaces, deleted sessions | — | **Previous build** when a newer one replaced it; **Last machine stop** after a stop |
@@ -86,7 +86,7 @@ create`, `project init`, and per commit `file write` with `branch fork`, `branch
   Stores, 8 projects and about 41,640 commits.
 - **Also commit through sandbox workspaces** (the build's mixed mode): about 30% of commits
   run a shell command in a Sandbox Workspace and commit it (`sandbox create`, `workspace
-  mount`, `workspace exec`, `workspace commit`); needs the native daemon.
+  mount`, `workspace exec`, `workspace commit`); needs the host daemon.
 - **Stop machines…** is off until the home has machines (**This LayerFS home has no machines
   yet.**).
 

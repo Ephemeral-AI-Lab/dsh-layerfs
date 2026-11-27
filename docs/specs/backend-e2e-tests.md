@@ -37,7 +37,7 @@ Every suite runs on a private home and a side server (`scripts/dev.mjs` with
 | CLI call durations, outcome | call log `{at, ms, argv, outcome, tag}` (`src/host/layerfs/call-log.ts`), read through the `logs.list` op (`since`, `outcome`, `tag` prefix `dsh:-:` for host calls) | durations no; counts and outcomes yes |
 | Host requests from the page | wrap `window.__dshLayerfs.call` and `.op` (`src/client/index.tsx`, enabled by the `dsh-layerfs:debug` flag `tools/e2e-lib.mjs` sets); `call` uses `op` internally (`src/client/api.ts`), so wrap both | yes (count, status, transport) |
 | Long tasks, TTFC | `PerformanceObserver('longtask')` via `addInitScript`; panel click → content selector | no: trend only |
-| LayerFS state | `layerfs sandbox list`, `store list`, `doctor`, `mount`, the native daemon log under the private home | yes |
+| LayerFS state | `layerfs sandbox list`, `store list`, `doctor`, `mount`, the host daemon log under the private home | yes |
 
 Note: discovery (`help --json`, `--version --json`) is not written to the call
 log; only the count shim sees it.
@@ -93,7 +93,7 @@ run it there). Point `DSH_LAYERFS_CLI` at it with `LFS_REAL_CLI` set to the pinn
 
 ### 3.3 Data tiers — `tools/perf-fixture.mjs`
 
-Built with plain CLI calls on a native SQLite Store (no Docker or Lima), cached
+Built with plain CLI calls on a SQLite Store on the host machine (no Docker or Lima), cached
 under `.dev-perf-<tier>/` with a manifest of the CLI commit and fixture
 version. History comes from the preset recipe's plain argv steps
 (`projectHistorySteps` in `src/host/presets/recipe/recipe.js`: branch fork,
@@ -145,7 +145,7 @@ injected `now` of `project-storage.ts` / `storage-observations.ts`.
 `test/routes.test.mjs`). Per route: spawn count and p50/p95 duration. Scaling
 rule: `spawns(M) − spawns(S)` must be within a declared allowance per route
 (`GET /api/storage`: one `store.status` per Store; `GET /api/machines`: one
-`machine.status` per non-native machine); anything else that grows fails as
+`machine.status` per machine other than the host machine); anything else that grows fails as
 N+1.
 
 ### 4.3 `test/perf/ui.perf.mjs` (side server with the count shim, tier M/L)
@@ -278,7 +278,7 @@ Baseline: `test/perf/baseline.json` (tier S, 21 pages).
 | crawl | the project page's tab ids had no project in them: two open projects duplicated six ids | fixed (`useId`) |
 | crawl | Logs "Writes only" showed `file revision` and `doctor` as writes | fixed; `logs-classify.test` checks every pinned call, and `lfs-check` uses the same rule |
 | crawl | a project's Sandboxes tab said "No workspaces" (the list carries none, `unread`) | fixed: the tab reads each open Sandbox's Workspaces |
-| crawl | LayerFS: the native daemon logs `ConnectionFailure … CloseFailed/UnexpectedEof` for every normal disconnect, and `doctor` then warns about every Sandbox | upstream; recorded as a crawl note |
+| crawl | LayerFS: the host daemon logs `ConnectionFailure … CloseFailed/UnexpectedEof` for every normal disconnect, and `doctor` then warns about every Sandbox | upstream; recorded as a crawl note |
 | ui.perf | concurrent project-list and Storage reads each ran `store list` | fixed: one Storage view in flight, reread after a write |
 | ui.perf | `GET /api/machines` twice per page (sidebar and machines store) | fixed: one machines view in flight; any write makes the next GET read anew |
 | ui.perf, host.perf | History read each Branch twice (`branch get` + `branch commits`): `history.page` 21 → 65 spawns from S to M | fixed: the client passes each Branch's head and fork point from the Branch list (no `branch get`), skips side Branches with nothing saved since their fork, and the host keeps pages read at a head; `history.page` 12 → 34 (one `branch commits` per Branch read up front, capped by `INITIAL_BRANCHES`, is the 2.0 floor) and `history.reopen` 2 → 2 |

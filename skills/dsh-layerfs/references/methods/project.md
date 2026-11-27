@@ -30,7 +30,7 @@ layerfs project get "$P"
 With `--detail`:
 
 ```json
-{"store":"shop","state":"ready","commit":"12ad2061f04f…","op":null,"blocked_by":null,"reason":null,"fix":null,"project":"shop/api","engine":"sqlite","machine":"native","created_at":"2026-11-18T22:04:15Z"}
+{"store":"shop","state":"ready","commit":"12ad2061f04f…","op":null,"blocked_by":null,"reason":null,"fix":null,"project":"shop/api","engine":"sqlite","machine":"macos-host","created_at":"2026-11-18T22:04:15Z"}
 ```
 
 ## `project stats`

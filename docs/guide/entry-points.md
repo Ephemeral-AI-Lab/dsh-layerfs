@@ -95,7 +95,7 @@ the folder becomes scratch.
 |---|---|---|---|---|
 | Chip | **No project** or the project; aria **LayerFS project: {project}** | Press → the menu | `session.place` (host state, no call) | — |
 | **No project** | Checked when the session has none | Choose → a plain DSH session | — | — |
-| Project rows | **bookshelf** and **handbook**, both on **native**: the name and where it runs; a ⚙ **Set up {project}** on hover | Choose → the session joins the project (the agent preset becomes **LayerFS**) · ⚙ → the [project dialog](#project-dialog) | `sessions.choose`: `project get`, and on the first claim `branch list`, `branch fork`; then a background Store sync | **Could not open the project: {message}** |
+| Project rows | **bookshelf** and **handbook**, both on **macos-host**: the name and where it runs; a ⚙ **Set up {project}** on hover | Choose → the session joins the project (the agent preset becomes **LayerFS**) · ⚙ → the [project dialog](#project-dialog) | `sessions.choose`: `project get`, and on the first claim `branch list`, `branch fork`; then a background Store sync | **Could not open the project: {message}** |
 | **New project…** · **Import a folder…** | — | → the [project dialog](#project-dialog) in that mode | see there | — |
 | Import progress | **Importing {name}…** · Counting files, Checking, Sending files, Writing layers, Recording the project, Opening | — | `project init` (polled job) | **Import failed** with **Dismiss** |
 
@@ -164,14 +164,14 @@ the home indicator. Long notes and errors wrap instead of ending in an ellipsis.
 | Name | **Also the name of its folder in the Store.** / **Saved as {slug}** | Type | — | a name another project already uses is refused here |
 | From folder… | **Folder on this Mac** (**Folder on this computer** on Linux) | Press → a Folder field with **Browse…** | — | — |
 | 2 | Cancel | — | Closes; nothing is made | — | — |
-| 3 | Create and open | — | Runs the parts in order: check the folder, make the Store, init the project, place the Store, open a session | `store create`, `project init` (polled job), `store move` (a job, when not on native), `sessions.choose`; folder check `POST /api/project-sources/check` (host only) | progress per part; **Create stopped** with **Edit {part}** on a refusal |
+| 3 | Create and open | — | Runs the parts in order: check the folder, make the Store, init the project, place the Store, open a session | `store create`, `project init` (polled job), `store move` (a job, when not on the host machine), `sessions.choose`; folder check `POST /api/project-sources/check` (host only) | progress per part; **Create stopped** with **Edit {part}** on a refusal |
 
 ![The Store part](img/entry-project-store.png)
 ![The Machine part](img/entry-project-machine.png)
 
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
-| Machines | Tiles: **docker**, **native** (This Mac, unisolated, or This computer, sandboxed; **Default**), **New machine** | Choose where the Store file lives: "Where the Store file lives. Its projects’ sessions run there." · **New machine** → closes the dialog and opens Home › Machines with Add machine | `GET /api/platforms`: `home get` (read) | a tile says **Running** / **Stopped**; a stopped machine offers **Start {machine}** first (`machine start`) |
+| Machines | Tiles: **docker**, **macos-host** (This Mac, unisolated, or This computer, sandboxed; **Default**), **New machine** | Choose where the Store file lives: "Where the Store file lives. Its projects’ sessions run there." · **New machine** → closes the dialog and opens Home › Machines with Add machine | `GET /api/platforms`: `home get` (read) | a tile says **Running** / **Stopped**; a stopped machine offers **Start {machine}** first (`machine start`) |
 
 ![PostgreSQL](img/entry-project-pg.png)
 
@@ -233,8 +233,8 @@ load on its own when something is missing (unless you chose **Later**). It reads
 |---|---|---|---|---|
 | LayerFS | **Ready** or **{n} to fix** | — | — | — |
 | Folder | The LayerFS folder's path | A copyable fix line when it cannot be used | `home get` (read) | **Ready**, **Created just now**, **Made by an older LayerFS**, **Not created yet**, **Can’t be read** |
-| Runtime | **LayerFS 2.0.0** `ed911896` (Incomplete · No Linux bundle) | 1 **Change…** (or **Choose…**) → the runtime picker · **Details** → its pieces (CLI, Native daemon, Linux bundle, Node SDK, Terminal line) with copy buttons | `--version --json`, `help --json` (read) | **Use this daemon** when the native machine records another daemon: `machine get native`, `machine update native --daemon` |
-| Machines | **{n} of {total} available**: Native, Docker, Lima, Apple Container (the providers; not the LayerFS home) | **Install…** / **Set up…** → how-to; **Check** → reads again | `GET /api/machines?fresh=1`: `home get`, `machine get`, `machine list` (read) | **Ready**, **Available**, **Not installed**, **Not running**, **Needs setup**, **Needs the Linux bundle** |
+| Runtime | **LayerFS 2.0.0** `ed911896` (Incomplete · No Linux bundle) | 1 **Change…** (or **Choose…**) → the runtime picker · **Details** → its pieces (CLI, Host daemon, Linux bundle, Node SDK, Terminal line) with copy buttons | `--version --json`, `help --json` (read) | **Use this daemon** when the host machine records another daemon: `machine get macos-host`, `machine update macos-host --daemon` |
+| Machines | **{n} of {total} available**: Host, Docker, Lima, Apple Container (the providers; not the LayerFS home) | **Install…** / **Set up…** → how-to; **Check** → reads again | `GET /api/machines?fresh=1`: `home get`, `machine get`, `machine list` (read) | **Ready**, **Available**, **Not installed**, **Not running**, **Needs setup**, **Needs the Linux bundle** |
 | 2 Check again | — | Reads everything again | as above | — |
 | **Later** | Only when something is missing | Closes; the need moves to Home's Overview head | — (remembered in this browser) | — |
 | 3 Done | — | Closes | — | disabled while something is missing |
@@ -243,7 +243,7 @@ load on its own when something is missing (unless you chose **Later**). It reads
 
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
-| Installed runtimes | One row per installed runtime | **Use** → pins it | `runtime.save`: `--version --json`, `help --json`, `machine update native` | **No installed runtimes** |
+| Installed runtimes | One row per installed runtime | **Use** → pins it | `runtime.save`: `--version --json`, `help --json`, `machine update macos-host` | **No installed runtimes** |
 | **Other build…** | — | Pick a CLI, daemon and bundle by path | as above | — |
 | **Cancel** | — | Closes the picker | — | — |
 
@@ -267,7 +267,7 @@ folder to start using projects and machines." (or **Finish setting up LayerFS**)
 | Modal | Opened by | What it does | LayerFS call | Undo |
 |---|---|---|---|---|
 | Project dialog | sidebar +, project control, ⚙, Home | New project, Import a folder, Pick, settings | `store create`, `project init`, `store move`, `sessions.choose` | delete the project on Home |
-| Set up LayerFS | Home's runtime and Center’s **Settings**, Set up card, on its own | Folder, runtime, machines | `home get`, `machine update native` | choose the old runtime again |
+| Set up LayerFS | Home's runtime and Center’s **Settings**, Set up card, on its own | Folder, runtime, machines | `home get`, `machine update macos-host` | choose the old runtime again |
 | Choose scratch folder | **Enter a folder path…** | Sets a project session's scratch | — | choose another |
 
 ## States and signals

@@ -40,7 +40,7 @@
 | 状态行 | **未列出 · 密钥被拒绝**（Not listed · key refused）、**· 未及时响应**（· no answer in time）、**· 正忙**（· busy）、**· 响应丢失**（· answer lost），或 **已损坏**（Broken），并排显示 LayerFS 原因（悬停看完整原话） | **重新连接…**（Connect again…）（密钥被拒绝或记录中没有密钥时）→ [重新连接 *bucket*](#modals-opened-here) | `backup connect`，然后 `backup list` | 存储桶列出期间隐藏 |
 | 分组行 | 先是 **已绑定到此主目录的 Store**（Bound to a Store in this home），再是 **不在此主目录中**（Not in this home） | — | — | 分组有行时才显示 |
 | 文件 | `<file>/store.sqlite` | 文件名 → 它的[备份文件页面](#backup-file) | — | |
-| 关联的 Store | Store 及其所在位置（所在机器（`native` 也一样）或 **PostgreSQL**） | Store 名称 → 它的 Store 页面 | — | **未关联**（Not linked）；不在此主目录中的文件显示 `—` |
+| 关联的 Store | Store 及其所在位置（所在机器（`macos-host` 也一样）或 **PostgreSQL**） | Store 名称 → 它的 Store 页面 | — | **未关联**（Not linked）；不在此主目录中的文件显示 `—` |
 | 状态 | **已备份**（Backed up）、**Store 已更改**（Store changed）、**存储桶已更改**（Bucket changed）、**双方都已更改**（Both changed）、**缺失**（Missing）、**未检查**（Not checked）、**未列出**（Not listed）；悬停可看 LayerFS 给出的原因 | — | `backup list` (读取：`behind`、`changed`、`missing`) | 列出之前是虚线标签 |
 | 大小、写入时间 | 字节数，以及对象写入的时间 | 悬停 → 精确时间 | `backup list` (读取) | |
 | **立即备份**（Back up now）/ **另存为新文件…**（Back up as new file…） | | 按下 → **立即备份** 立即开始覆盖该文件的备份任务（任务卡片显示在 Store 上）；对象 **缺失** 时为 **另存为新文件…**，打开[备份](store.md#modals-opened-here)对话框并自动填好新文件名 | `backup create <store> <bucket> --file`，然后 `backup list` | **立即备份** 用于 **Store 已更改**（Store changed）或尚未列出的关联；**缺失**（Missing）使用 **另存为新文件…**（LayerFS 拒绝复用缺失文件名）；当关联的 SQLite Store 停机、正忙、受阻或损坏时按钮置灰并附悬停原因 |

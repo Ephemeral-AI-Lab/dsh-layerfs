@@ -84,8 +84,8 @@ lost reply may have worked, so nothing runs it again: check the row to see where
 
 ## Variants
 
-- **Machines**: native shows three checks (record, operation, state); a Docker or Lima
-  machine ten, through its worker.
+- **Machines**: each machine shows the checks LayerFS runs for its kind; the host machine's
+  include its worker's kept write outcomes, and a Docker or Lima machine's go through its worker.
 - **Sandboxes**: Workspaces are checked by their Sandbox's doctor (**Never checked. Its
   Sandbox checks it.**).
 - **Buckets**: **Full check** also writes and deletes a small test object.

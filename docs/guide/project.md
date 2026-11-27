@@ -224,7 +224,7 @@ imported belongs to the Store, not to a save.
   `<machine>` broken**), LayerFS's sentence as its tip, and its one fix (see [Fix
   buttons](components.md#fix-buttons)) instead of failed reads. Sessions shows the same
   word and hides **New session** and **Open** until it is fixed.
-- **SQLite or PostgreSQL, native or a machine.** The page is the same; the reads go to
+- **SQLite or PostgreSQL, the host machine or another machine.** The page is the same; the reads go to
   wherever the Store lives, so a Store on a stopped machine fails its reads until the
   machine runs (see [Needs you notices](components.md#needs-you-notices)).
 - **Session Branches.** A project with sessions has Branches named `dsh.<id>`; the views

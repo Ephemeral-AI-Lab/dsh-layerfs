@@ -30,7 +30,7 @@ use. LayerFS records none.
 2. else the saved choice, while that machine exists and runs PostgreSQL
    Sandboxes;
 3. else `docker`, when it exists and runs them;
-4. else `native`.
+4. else the host machine (`macos-host` / `linux-host`).
 
 A default (3, 4) is not written down. Connect saves the machine picked in
 the dialog; `POST /api/stores/:s/runs-on` saves a change; Disconnect drops
@@ -83,7 +83,7 @@ localhost:5432   ● Reachable · 2 ms   layerfs · PG 17        + Add database
 ┌───────────────────────┐ ┌───────────────────────┐
 │ demo-services      ⋯  │ │ demo-experiments   ⋯  │
 │ 48 MB  demo_services  │ │ 12 MB  demo_exp…      │
-│ Runs on [docker] Change│ │ Runs on [native] Change│
+│ Runs on [docker] Change│ │ On [macos-host] Change│
 │ api        31 MB ▆▆▆  │ │ trials     12 MB ▆▆▆  │
 │ worker     17 MB ▆▆   │ │                       │
 └───────────────────────┘ └───────────────────────┘
