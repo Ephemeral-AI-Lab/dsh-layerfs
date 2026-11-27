@@ -371,11 +371,13 @@ export class MachinesController {
    * A `machine-progress` host event: `{ name, kind?, progress }`, LayerFS 2.0's `{ phase, done, total }`
    * (or the host's own Docker Engine launch, `{ stage, state }`), with `elapsed_ms`
    * (or the progress fields at the top level). It updates the running startup of that machine.
+   * Kind `probe`: a live probe found the machine's state changed, so a shown page reads the view again.
    */
   private progress(event: HostEvent): void {
     const data = event.data ?? {}
     const name = typeof data.name === 'string' ? data.name : typeof data.machine === 'string' ? data.machine : null
     if (!name) return
+    if (data.kind === 'probe') { if (this.active) this.reload(); return }
     const current = this.startups.getSnapshot()[name]
     if (!current || current.status !== 'running') return
     // a restart's stop phases (check, stop) belong to its start's progress; any other kind's do not

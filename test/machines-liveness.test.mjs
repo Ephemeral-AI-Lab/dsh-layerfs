@@ -86,7 +86,8 @@ test('/api/machines answers from the records and the sampler without probing; fr
     // the user's explicit ask probes now (the page's Check again / Refresh)
     const fresh = await R.handle(groups, { method: 'GET', path: '/api/machines?fresh=1' })
     assert.equal(probeCalls(f.calls).length, 1, 'fresh=1 probes')
-    assert.deepEqual(probeCalls(f.calls)[0].options, { detail: true, with: ['live'] })
+    // its own budget: a fresh probe skips the SDK client's kept machine.get answer
+    assert.deepEqual(probeCalls(f.calls)[0].options, { detail: true, with: ['live'], timeout_ms: R.cli.PROBE_TIMEOUT_MS })
     assert.equal(fresh.body.live.docker.freeDisk, 500)
     assert.equal(fresh.body.machines[0].observedAt, iso(1_000_000), 'the answer carries the liveness timestamp')
   } finally { f.close() }
