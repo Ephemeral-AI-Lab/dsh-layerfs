@@ -93,6 +93,38 @@ export function mergeOlder(answer: TrajectoryAnswer, older: TrajectoryAnswer): T
   return merged
 }
 
+/**
+ * Older pages kept across a first-page refresh (a running session's poll or event
+ * rereads only the newest page). `loaded` is what was on screen: an earlier first
+ * page with the older pages merged under it. The result is `first` with every
+ * record `loaded` holds before `first`'s oldest record, joined by seq as
+ * {@link mergeOlder} does, and `loaded`'s cursor, so the next older read continues
+ * where the last one stopped. A non-windowed `first` keeps its own (newer) totals.
+ *
+ * Null when the older pages no longer apply: `first` reaches the log's start, or it
+ * moved past every record `loaded` holds (more than a page arrived between reads),
+ * where joining them would show a gap as continuous history.
+ */
+export function rebaseOlder(loaded: TrajectoryAnswer, first: TrajectoryAnswer): TrajectoryAnswer | null {
+  if (!first.hasMore || first.olderBefore === undefined) return null
+  const from = first.olderBefore
+  let newest = -Infinity
+  for (const turn of loaded.turns) for (const record of turn.records) newest = Math.max(newest, record.seq)
+  if (newest < from) return null
+  const turns: TrajectoryTurn[] = []
+  for (const turn of loaded.turns) {
+    const records = turn.records.filter((record) => record.seq < from)
+    if (records.length === turn.records.length) turns.push(turn)
+    else if (records.length) turns.push({ ...turn, records })
+  }
+  const merged = mergeOlder(first, { ...loaded, turns })
+  if (!first.windowed) {
+    merged.counts = first.counts
+    if (first.recordTotal !== undefined) merged.recordTotal = first.recordTotal
+  }
+  return merged
+}
+
 // ---------------------------------------------------------------- selection
 
 /** What the inspector shows: a record by seq, a checkpoint, an orphan call or a turn's host calls. */
@@ -352,24 +384,31 @@ export const MARK_MIN_PX = 5
 const TONE_RANK: Record<string, number> = { refused: 3, running: 2, created: 1 }
 
 /**
- * One lane's items thinned to at most `bins` marks: items whose start falls in the same
- * bin of `span` share one mark (a long team run has ten thousand LayerFS calls; a button
- * each makes every redraw take seconds). The mark is the selected item if the bin holds
- * it, else the one with the strongest tone (refused, running, created), else the first.
- * `more` counts the other items it stands for. A lane within `bins` is returned as is.
+ * One lane's items thinned to at most `bins` marks plus its checkpoints: items whose
+ * start falls in the same bin of `span` share one mark (a long team run has ten thousand
+ * LayerFS calls; a button each makes every redraw take seconds). The mark is the selected
+ * item if the bin holds it, else the one with the strongest tone (refused, running,
+ * created), else the first. `more` counts the other items it stands for. Checkpoint ticks
+ * (`cp…` keys) are never thinned: they are what the strip counts, and a checkpoint outside
+ * the loaded turns is how History opens at its commit. A lane within `bins` is returned as is.
  */
-export function thinLane<I extends Pick<LaneItem, 'start' | 'select' | 'tone'>>(items: readonly I[], span: { start: number, end: number }, selected: Selection | null, bins = LANE_BINS): (I & { more: number })[] {
+export function thinLane<I extends Pick<LaneItem, 'start' | 'select' | 'tone'> & { key?: string }>(items: readonly I[], span: { start: number, end: number }, selected: Selection | null, bins = LANE_BINS): (I & { more: number })[] {
   if (items.length <= bins) return items.map((item) => ({ ...item, more: 0 }))
   const total = span.end - span.start || 1
   const best = new Map<number, { item: I, n: number }>()
+  const kept: (I & { more: number })[] = []
   const rank = (item: I) => (selected && item.select === selected ? 10 : TONE_RANK[item.tone ?? ''] ?? 0)
   for (const item of items) {
+    if (item.key?.startsWith('cp')) { kept.push({ ...item, more: 0 }); continue }
     const bin = Math.min(bins - 1, Math.max(0, Math.floor(((item.start - span.start) / total) * bins)))
     const had = best.get(bin)
     if (!had) best.set(bin, { item, n: 1 })
     else { had.n++; if (rank(item) > rank(had.item)) had.item = item }
   }
-  return [...best.entries()].sort((a, b) => a[0] - b[0]).map(([, { item, n }]) => ({ ...item, more: n - 1 }))
+  const thinned = [...best.entries()].sort((a, b) => a[0] - b[0]).map(([, { item, n }]) => ({ ...item, more: n - 1 }))
+  if (!kept.length) return thinned
+  // In time order, as the strip draws them (`sort` is stable: equal starts keep their order).
+  return [...thinned, ...kept].sort((a, b) => a.start - b.start)
 }
 
 /**

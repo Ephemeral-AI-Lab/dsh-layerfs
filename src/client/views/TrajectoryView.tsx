@@ -24,7 +24,7 @@ import { openLogs } from '../logs/request.ts'
 import { clock, durationText, KindCell, OlderFooter, OpLine, toolsDelta, usageText, Versions, type OpenVersion } from './TrajectoryParts.tsx'
 import { TrajectoryTimeline } from './TrajectoryTimeline.tsx'
 import {
-  checkpointVersion, filterTurns, flattenRows, focusTarget, mergeOlder, opWrites, recentTurns, recordMatches, ROW_PAGE, SAVES, totalRecords,
+  checkpointVersion, filterTurns, flattenRows, focusTarget, mergeOlder, opWrites, rebaseOlder, recentTurns, recordMatches, ROW_PAGE, SAVES, totalRecords,
   selectionTurn, timeSpan, type Row, type Selection,
 } from './trajectory-model.ts'
 import views from './views.module.css'
@@ -347,11 +347,28 @@ export function TrajectoryView(props: ViewProps): ReactNode {
   const { byId } = useSessionRows(sessions)
   const running = !!byId[sessionId]?.running
   const { answer: first, error, reload } = useTrajectory(api, sessionId, running)
-  // Older pages loaded on request, merged under the first page they belong to.
-  // A new first page (a change, or a reconnect) drops them.
+  // Older pages loaded on request, merged under the first page they were read
+  // for (`base`). A new first page (a poll, an event, a reconnect) keeps them:
+  // they are merged onto it by seq (`rebaseOlder`); only a new session drops them.
   const [older, setOlder] = useState<{ base: TrajectoryAnswer, answer: TrajectoryAnswer } | null>(null)
   const [olderBusy, setOlderBusy] = useState(false)
-  const answer = first && older?.base === first ? older.answer : first
+  const [olderError, setOlderError] = useState<unknown>(null)
+  const answer = useMemo(() => {
+    if (!first || !older) return first
+    return older.base === first ? older.answer : rebaseOlder(older.answer, first) ?? first
+  }, [first, older])
+  // Move the kept pages onto each new first page, so the next one rebases from it.
+  useEffect(() => {
+    if (!first) return
+    setOlder((prev) => {
+      if (!prev || prev.base === first) return prev
+      const rebased = rebaseOlder(prev.answer, first)
+      return rebased ? { base: first, answer: rebased } : null
+    })
+  }, [first])
+  /** The session on screen, for an older page that answers after a switch. */
+  const shownSession = useRef(sessionId)
+  shownSession.current = sessionId
   // The running step's text arrives on the session's live feed; the host answer
   // gains its record only after the step's message is logged.
   const live = useLiveSteps(props.liveStep)
@@ -381,21 +398,33 @@ export function TrajectoryView(props: ViewProps): ReactNode {
   // A new conversation starts over.
   useEffect(() => {
     setSelected(null); setTurnOverride(new Map()); setCallOverride(new Map()); setContextOpen(new Set()); setLimit(ROW_PAGE)
-    setOlder(null); setOlderBusy(false)
+    setOlder(null); setOlderBusy(false); setOlderError(null)
     setFiltersOpen(false)
     setTimelineOpen(phoneTimeline.get(sessionId) ?? false)
     cache.clear(); diffs.clear()
   }, [sessionId, cache, diffs])
 
-  /** Ask for the next older page; one request at a time, and only while this first page says there is one. */
+  /** Ask for the next older page; one request at a time, and only while the answer on screen says there is one. */
   const loadOlder = useCallback(() => {
     if (!first || !answer || olderBusy || !answer.hasMore || answer.olderBefore === undefined) return
     const base = first
+    const shown = answer
     const before = answer.olderBefore
+    const asked = sessionId
     setOlderBusy(true)
+    setOlderError(null)
     api.op<TrajectoryAnswer>('session.trajectory', { sessionId, before }).then((page) => {
-      setOlder((prev) => ({ base, answer: mergeOlder(prev && prev.base === base ? prev.answer : base, page) }))
-    }).catch(() => { /* the button stays; the next press retries */ }).finally(() => setOlderBusy(false))
+      if (shownSession.current !== asked) return
+      setOlder((prev) => {
+        // Continue the kept pages when they still end at this read's cursor (a
+        // refresh meanwhile rebased them), else the answer the read was asked from.
+        const from = prev && prev.answer.olderBefore === before ? prev : { base, answer: shown }
+        return { base: from.base, answer: mergeOlder(from.answer, page) }
+      })
+    }, (e: unknown) => {
+      // The button stays for a retry; the refusal is said beside it.
+      if (shownSession.current === asked) setOlderError(e)
+    }).finally(() => { if (shownSession.current === asked) setOlderBusy(false) })
   }, [api, sessionId, first, answer, olderBusy])
 
   const now = useMemo(() => Date.now(), [answer]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -436,6 +465,7 @@ export function TrajectoryView(props: ViewProps): ReactNode {
   useEffect(() => {
     if (!viewRequest || viewRequest.view !== TRAJECTORY_VIEW) return
     focusPages.current = 0
+    setOlderError(null)
     setPending({ focus: viewRequest.focus, missedOn: null })
     completeViewRequest?.()
     reload()
@@ -448,11 +478,13 @@ export function TrajectoryView(props: ViewProps): ReactNode {
       // or older than the page: read the next older page, at most FOCUS_PAGES,
       // then give up.
       if (answer.hasMore && answer.olderBefore !== undefined) {
-        if (!olderBusy && focusPages.current < FOCUS_PAGES) {
-          focusPages.current++
-          if (pending.missedOn !== answer) setPending({ ...pending, missedOn: answer })
-          loadOlder()
-        }
+        if (olderBusy) return
+        // A refused older read ends the search (its refusal shows at the footer);
+        // the bound is spent: give up too, so a much later answer cannot move the selection.
+        if (olderError || focusPages.current >= FOCUS_PAGES) { setPending(null); return }
+        focusPages.current++
+        if (pending.missedOn !== answer) setPending({ ...pending, missedOn: answer })
+        loadOlder()
         return
       }
       if (!pending.missedOn) setPending({ ...pending, missedOn: answer })
@@ -463,7 +495,7 @@ export function TrajectoryView(props: ViewProps): ReactNode {
     const key = `r:${target.record.seq}` as const
     select(key, 'summary')
     reveal(key, target.record)
-  }, [pending, answer, select, reveal, olderBusy, loadOlder])
+  }, [pending, answer, select, reveal, olderBusy, olderError, loadOlder])
 
   // Scroll a revealed row into view once it is rendered (raising the row cap when needed).
   useEffect(() => {
@@ -593,7 +625,9 @@ export function TrajectoryView(props: ViewProps): ReactNode {
           {/* Outside the rows' branch: a filter can empty the table, and a
               windowed answer must still offer its older records. */}
           {rows.length <= limit && answer.hasMore && answer.olderBefore !== undefined
-            ? OlderFooter({ answer, busy: olderBusy, t, onLoadOlder: loadOlder })
+            ? olderError && !olderBusy
+              ? <ErrorState className={css.more} title={t('trajOlderFailed')} error={olderError} retryLabel={t('retry')} onRetry={loadOlder} />
+              : OlderFooter({ answer, busy: olderBusy, t, onLoadOlder: loadOlder })
             : null}
         </div>
         {inspected ? (

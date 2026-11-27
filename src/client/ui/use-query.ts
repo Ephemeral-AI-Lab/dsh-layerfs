@@ -24,6 +24,11 @@ export interface QueryOptions {
    * small answers (a few KB); the stored copy is a hint, always followed by a fresh read.
    */
   persist?: boolean
+  /**
+   * False holds the read: none starts, `reload` and `refresh` are ignored, and nothing is
+   * written under `cache` (the kept answer still draws). Turning it on reads at once.
+   */
+  enabled?: boolean
 }
 
 interface Kept { value: unknown, at: number }
@@ -99,7 +104,7 @@ export function cachedAnswer<T>(key: string | undefined, persist = false): T | u
  * @returns the read's state.
  */
 export function useQuery<T>(load: () => Promise<T>, deps: readonly unknown[], options: QueryOptions = {}): Query<T> {
-  const { refresh = [], cache, persist = false } = options
+  const { refresh = [], cache, persist = false, enabled = true } = options
   const [data, setData] = useState<T | undefined>(() => cachedAnswer<T>(cache, persist))
   const [error, setError] = useState<unknown>(undefined)
   const [loading, setLoading] = useState(true)
@@ -110,6 +115,8 @@ export function useQuery<T>(load: () => Promise<T>, deps: readonly unknown[], op
   cacheKey.current = cache
   const persisted = useRef(persist)
   persisted.current = persist
+  const on = useRef(enabled)
+  on.current = enabled
   /** Goes up when `deps` change: an answer read for older deps is dropped. */
   const identity = useRef(0)
   const flight = useRef<object | null>(null)
@@ -144,13 +151,14 @@ export function useQuery<T>(load: () => Promise<T>, deps: readonly unknown[], op
     identity.current++
     const had = cachedAnswer<T>(cacheKey.current, persisted.current)
     if (had !== undefined) setData(had)
-    run()
+    if (enabled) run()
     return () => { identity.current++ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps)
+  }, [...deps, enabled])
   const started = useRef(false)
   useEffect(() => {
     if (!started.current) { started.current = true; return }
+    if (!on.current) return
     if (flight.current) queued.current = true
     else run()
     // eslint-disable-next-line react-hooks/exhaustive-deps
