@@ -35,6 +35,20 @@ test('file parts are shares of what LayerFS reported (2.0 `stats` bytes); unknow
   assert.equal(P.compressionOf({ canonical_bytes: 500, stored_bytes: 0 }), null)
 })
 
+test('metadata packs counted in both stored and metadata are drawn once (demo-studio, 2.0 stats)', () => {
+  // LayerFS: stored = every pack body; metadata = metadata packs + page overhead (file - free - stored)
+  const stats = { stored_bytes: 46499, metadata_bytes: 344582, reusable_bytes: 0, file_bytes: 372736 }
+  assert.equal(P.metadataPackOverlap(stats), 18345)
+  const parts = P.fileParts(stats)
+  assert.deepEqual(parts.map((p) => [p.key, p.bytes]), [['stored', 28154], ['metadata', 344582], ['free', 0]])
+  assert.equal(parts.reduce((a, p) => a + p.bytes, 0), stats.file_bytes, 'the parts add up to the file')
+  // nothing reported to subtract from: no overlap, nothing guessed
+  assert.equal(P.metadataPackOverlap({ stored_bytes: 10, metadata_bytes: 5, reusable_bytes: null }), 0)
+  assert.equal(P.metadataPackOverlap({ stored_bytes: 10, metadata_bytes: 5, file_bytes: 100 }), 0)
+  const [[point]] = P.growthRuns({ gapAfterMs: 100, series: [{ identity: 'a', startedAt: 0, points: [{ observedAt: 1, stats }] }] })
+  assert.deepEqual([point.stored, point.metadata, point.file], [28154, 344582, 372736])
+})
+
 test('growth uses the newest series and breaks at gaps over the journal gap', () => {
   const pt = (observedAt, file) => ({ observedAt, stats: { file_bytes: file, stored_bytes: file / 2, metadata_bytes: 1 } })
   const journal = { gapAfterMs: 100, series: [

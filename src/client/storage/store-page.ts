@@ -3,7 +3,7 @@
  * they are unit tested (test/store-page.test.mjs).
  *
  * - Tabs (SQLite): Overview, Projects, and Backups.
- * - The database file's parts (`store get --with stats`: stored content, metadata, reusable pages).
+ * - The database file's parts (`store get --with stats`: content packs, metadata, reusable pages).
  * - The Store's growth from the host's observation journal of `store.stats` reads.
  * - Each project's share of the Store's packed bytes, from the project ledgers.
  * - The project cards: order, search and the Sandboxes running per project.
@@ -35,15 +35,32 @@ export interface StoreStats {
 export interface FilePart { key: 'stored' | 'metadata' | 'free', bytes: number, share: number }
 
 /**
- * What fills the database file: stored content, metadata (with page overhead)
- * and free pages. Shares are of their sum, which is the file's pages; parts
- * LayerFS did not report are left out, never guessed. Null when none is known.
+ * The metadata pack bytes LayerFS counts twice in a Store's stats. Its
+ * `stored_bytes` is every pack body, metadata packs included; its
+ * `metadata_bytes` is the metadata packs plus the file's page overhead
+ * (file - free - stored). So stored + metadata + free exceeds the file by
+ * exactly the metadata packs. Zero when the file or a part is not reported.
+ */
+export function metadataPackOverlap(stats: StoreStats | null | undefined): number {
+  const file = num(stats?.file_bytes), stored = num(stats?.stored_bytes), metadata = num(stats?.metadata_bytes)
+  if (file === null || stored === null || metadata === null) return 0
+  const over = stored + metadata + (num(stats?.reusable_bytes) ?? 0) - file
+  return Math.max(0, Math.min(stored, metadata, over))
+}
+
+/**
+ * What fills the database file: content packs, metadata (its packs with the
+ * page overhead) and free pages. The metadata packs LayerFS also counts in
+ * `stored_bytes` are taken out of the content part once (metadataPackOverlap),
+ * so with the file reported the parts add up to its pages. Parts LayerFS did
+ * not report are left out, never guessed. Null when none is known.
  */
 export function fileParts(stats: StoreStats | null | undefined): FilePart[] | null {
   if (!stats) return null
   const field = { stored: 'stored_bytes', metadata: 'metadata_bytes', free: 'reusable_bytes' } as const
+  const overlap = metadataPackOverlap(stats)
   const parts = (['stored', 'metadata', 'free'] as const)
-    .map((key) => ({ key, bytes: num(stats[field[key]]) }))
+    .map((key) => { const bytes = num(stats[field[key]]); return { key, bytes: key === 'stored' && bytes !== null ? bytes - overlap : bytes } })
     .filter((p): p is { key: FilePart['key'], bytes: number } => p.bytes !== null)
   const sum = parts.reduce((a, p) => a + p.bytes, 0)
   if (!parts.length || sum <= 0) return null
@@ -62,6 +79,7 @@ export interface ObservationJournal {
   series: { identity: string, startedAt: number, points: { observedAt: number, stats: StoreStats }[] }[]
 }
 
+/** One read: the file, its content packs (`stored`, metadata packs taken out) and metadata. */
 export interface GrowthPoint { at: number, file: number | null, stored: number | null, metadata: number | null }
 
 /**
@@ -76,7 +94,9 @@ export function growthRuns(journal: ObservationJournal | null | undefined): Grow
   const runs: GrowthPoint[][] = []
   let last: number | null = null
   for (const p of [...series.points].sort((a, b) => a.observedAt - b.observedAt)) {
-    const point = { at: p.observedAt, file: num(p.stats?.file_bytes), stored: num(p.stats?.stored_bytes), metadata: num(p.stats?.metadata_bytes) }
+    // `stored` is the content packs, as the file card's part: metadata packs are in `metadata`
+    const stored = num(p.stats?.stored_bytes)
+    const point = { at: p.observedAt, file: num(p.stats?.file_bytes), stored: stored === null ? null : stored - metadataPackOverlap(p.stats), metadata: num(p.stats?.metadata_bytes) }
     if (last === null || p.observedAt - last > gap) runs.push([point])
     else runs[runs.length - 1]!.push(point)
     last = p.observedAt
