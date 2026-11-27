@@ -380,6 +380,7 @@ export class LayerfsSessions extends Service {
       if (projectId) await persistence?.catalog?.assert(project, projectId, { claim: true })
       await this.lfs.project.get(project); this.ensureAnchor(project)
     }
+    const ownerBefore = persistence?.ownerOf?.(sessionId)?.project ?? null
     await persistence?.migrateProject?.(live ?? sessionId, project)
     const written = project ? { project, ...(machine ? { machine } : {}) } : undefined
     // A placement change can change the place (and with it identity/readiness).
@@ -409,6 +410,11 @@ export class LayerfsSessions extends Service {
         const pending = s.pending[sessionId]
         if (pending && pending.project === written.project && (pending.machine ?? undefined) === (written.machine ?? undefined)) delete s.pending[sessionId]
       })
+      // The owner route moved with the choice: move it back, or the draft stays
+      // owned by a project no pending placement names (pruneNeverStarted skips it).
+      if ((persistence?.ownerOf?.(sessionId)?.project ?? null) !== ownerBefore) {
+        await persistence.migrateProject(live ?? sessionId, ownerBefore).catch((undo: any) => this.ctx.logger('layerfs').warn('session %s: owner not restored after a failed choice: %s', sessionId, undo?.message ?? undo))
+      }
       throw error
     }
   }
