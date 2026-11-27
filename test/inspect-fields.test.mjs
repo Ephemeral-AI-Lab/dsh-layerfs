@@ -50,6 +50,16 @@ test('host: an older answer has none of the fields (absent stays absent)', async
   } finally { done() }
 })
 
+test('host: a Workspace on a fork with no Commit of its own has its Layer as base, as `workspace status` names it', async () => {
+  const { groups, done } = routes(record([item(1, { commit: null, base_layer: 'L1' }), item(2, { commit: 'C2', base_layer: 'L2' }), item(3)]))
+  try {
+    const [fork, saved, older] = (await get(groups)).workspaces
+    assert.deepEqual([fork.base, fork.baseLayer], ['L1', 'L1'], 'commit null: the base Layer lists its saved files')
+    assert.deepEqual([saved.base, saved.baseLayer], ['C2', 'L2'], 'a base Commit wins')
+    assert.deepEqual([older.base, older.baseLayer], [null, null], 'neither named: no base')
+  } finally { done() }
+})
+
 test('host: workspace_capacity, running (oldest first, own marked by exact exec id, sessions labelled) and overlay_bytes', async () => {
   const tag = 'dsh:sess-1234abcd:rcpt-1'
   const answer = record([
