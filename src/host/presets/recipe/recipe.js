@@ -102,7 +102,10 @@ export function assertProjectStep(step, result) {
   if (expected.commit && result.unchanged === true) fail('expected a new Commit, LayerFS answered unchanged')
   if (expected.ok && result?.ok !== true) fail('expected ok')
   if (expected.divergent && result.fast_forward === true) fail('expected a divergent merge with a new Commit')
-  if (expected.notForced && result.previous != null) fail('publication replaced a newer main head')
+  // Never forced: without --force LayerFS refuses Conflict when main gained a publication since the
+  // Branch forked, so a newer head is never replaced. `previous` is no such sign: it names main's head
+  // before whenever that was not the Branch's base, as after this Branch's own earlier publication.
+  if (expected.notForced && step.argv.some((a) => a === '--force' || a === '--force=true')) fail('a publication must not be forced')
 }
 
 /** What a confirmed history step made, from its call and its 2.0 answer: the Commit, and whether it added a Branch or a publication. */
