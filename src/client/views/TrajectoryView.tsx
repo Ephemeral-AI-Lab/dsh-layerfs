@@ -539,8 +539,10 @@ export function TrajectoryView(props: ViewProps): ReactNode {
   const timelineSummary = answer
     ? [
       span ? durationText(t, span.end - span.start) : null,
-      t(answer.windowed ? 'trajSummaryVersionsWindow' : 'trajSummaryVersions', { n: answer.counts.versionsCreated }),
-      checkpoints.length ? t('trajSummaryCheckpoints', { n: checkpoints.length }) : null,
+      answer.counts.versionsCreated === 1
+        ? t(answer.windowed ? 'trajSummaryVersionOneWindow' : 'trajSummaryVersionOne')
+        : t(answer.windowed ? 'trajSummaryVersionsWindow' : 'trajSummaryVersions', { n: answer.counts.versionsCreated }),
+      checkpoints.length === 1 ? t('trajSummaryCheckpointOne') : checkpoints.length ? t('trajSummaryCheckpoints', { n: checkpoints.length }) : null,
     ].filter(Boolean).join(' · ')
     : ''
   const handlers: RowHandlers = {
