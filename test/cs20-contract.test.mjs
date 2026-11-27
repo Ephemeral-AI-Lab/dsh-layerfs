@@ -482,8 +482,8 @@ test('the Store attach/detach required options are the pairs the call sites send
 // LayerFS N-D and Q: the machine answers the Machines page reads. An unreadable record
 // is a `machine list` item (broken, failed, no platform, fix `layerfs machine doctor`);
 // `machine get` refuses it `Failed` with that fix, so the page does not probe it; the
-// other lists still answer. Native's live probe answers its free disk.
-test('machine answers: an unreadable record is listed broken/failed and not probed; native\'s live probe has its free disk', { skip }, async () => {
+// other lists still answer. The host machine's live probe answers its free disk.
+test('machine answers: an unreadable record is listed broken/failed and not probed; the host machine\'s live probe has its free disk', { skip }, async () => {
   const dir = tmpRoot('dsh-cs20-machines-')
   try {
     const home = join(dir, 'home')
@@ -495,15 +495,16 @@ test('machine answers: an unreadable record is listed broken/failed and not prob
     const items = (await lfs.machine.list({ detail: true })).items
     const bad = items.find((m) => m.machine === 'bad')
     assert.deepEqual([bad.state, bad.reason, bad.platform, bad.fix], ['broken', 'failed', null, 'layerfs machine doctor bad'])
-    assert.ok(items.some((m) => m.machine === 'native' && m.state === 'ready'), 'the other machines are listed')
+    assert.ok(items.some((m) => m.machine === 'macos-host' && m.state === 'ready'), 'the other machines are listed')
     await assert.rejects(lfs.machine.get('bad', { detail: true, with: ['live'] }), (e) => e.code === 'Failed' && e.fix === 'layerfs machine doctor bad')
     for (const family of ['store', 'sandbox']) assert.ok(Array.isArray((await lfs[family].list({ detail: true })).items), `${family} list answers beside it`)
-    const native = await lfs.machine.get('native', { detail: true, with: ['live'] })
-    assert.equal(typeof native.live?.disk_free_bytes, 'number', 'native live answers disk_free_bytes')
+    const host = await lfs.machine.get('macos-host', { detail: true, with: ['live'] })
+    assert.equal(typeof host.live?.disk_free_bytes, 'number', 'the host machine\'s live probe answers disk_free_bytes')
+    assert.equal(host.platform, 'host')
     // the page's probe set (routes/machines.ts readView): every machine whose record reads
     const { unreadableRecord } = await import(pathToFileURL(join(root, 'src/host/layerfs/machine-records.ts')).href)
     assert.deepEqual(items.filter((m) => !unreadableRecord(m)).map((m) => m.machine).sort(), items.map((m) => m.machine).filter((n) => n !== 'bad').sort())
-    assert.ok(sent().includes('machine get --detail --with live -- native'))
+    assert.ok(sent().includes('machine get --detail --with live -- macos-host'))
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 

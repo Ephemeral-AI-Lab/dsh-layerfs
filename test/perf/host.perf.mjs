@@ -12,7 +12,7 @@
 // ~/.layerfs as a home, never a server.
 //
 // Each measurement is cold: new route groups (fresh in-memory caches) per
-// repetition, the native daemon recorded once per tier (as the host does once per
+// repetition, the host daemon recorded once per tier (as the host does once per
 // process). Per route: spawns (discovery `--version`/`help` apart), by
 // `family.call`, p50/p95 duration over the repetitions. Spawn counts must not vary
 // between repetitions. Scaling rule (both tiers measured): spawns(M) − spawns(S)
@@ -132,7 +132,7 @@ async function measureTier(tier) {
   // Kept reads off: each repetition must spawn what a cold page would.
   const lfs = R.cli.client({ cli: shim, home, keepReads: false })
   let recorded
-  const ensureNative = () => recorded ??= (process.platform === 'darwin' && fixture.daemon ? lfs.machine.update('native', { daemon: fixture.daemon }) : Promise.resolve())
+  const ensureHostDaemon = () => recorded ??= (process.platform === 'darwin' && fixture.daemon ? lfs.machine.update('macos-host', { daemon: fixture.daemon }) : Promise.resolve())
   const scratch = mkdtempSync(join(out, `run-${tier}-`))
   const sharedStats = join(scratch, 'stat')
   const fx = { project: fixture.projects[0], store: fixture.projects[0].split('/')[0] }
@@ -145,8 +145,8 @@ async function measureTier(tier) {
   // A new CLI client per route group, as a freshly started host has: the client keeps polling
   // reads briefly (cli.ts KEPT_READS) and shares reads in flight, so a reused one would answer
   // later repetitions from the first and the variance check would measure the cache instead.
-  const groupsFor = (stats) => R.createGroups(testHost({ lfs: R.cli.client({ cli: shim, home }), root: scratch, home, cli: shim, daemon: fixture.daemon, stats, discovery: () => R.cli.discover({ cli: shim }), ensureNative }).host, async () => ({ ok: true }))
-  // Warm discovery and the native record outside any window (the host does both once),
+  const groupsFor = (stats) => R.createGroups(testHost({ lfs: R.cli.client({ cli: shim, home }), root: scratch, home, cli: shim, daemon: fixture.daemon, stats, discovery: () => R.cli.discover({ cli: shim }), ensureHostDaemon }).host, async () => ({ ok: true }))
+  // Warm discovery and the host machine record outside any window (the host does both once),
   // and build the measured project's storage ledger in the shared folder (storage.steady).
   { const g = groupsFor(sharedStats); await R.handle(g, { method: 'GET', path: '/api/machines' }); await storageVisit(async (path) => (await R.handle(g, { method: 'GET', path })).body, fx, g) }
   // ledger pages a first Stats visit must read: ceil(saves / 25) per side Branch, from the ledger just built

@@ -376,7 +376,6 @@ test('F10: an in-use compaction is a word, its holders as the tip and Open <Sand
   assert.deepEqual(end.holders.map((b) => b.name), ['sbn'])
   assert.equal(end.tip.split('\n')[0], 'jobInUseHolders {"holders":"sbn"}', 'the holders lead the tip')
   assert.equal(M.sm.holderTab(end.holders[0]), 'sandbox:lima1/sbn')
-  assert.equal(M.sm.holderTab({ name: 'x', machine: null }), 'sandbox:native/x')
   const panel = src('src/client/storage/JobProgress.tsx')
   assert.doesNotMatch(panel, /<Refusal error=\{j\.error\}/, 'no raw refusal under the job')
   assert.match(panel, /title=\{tip \?\? \(compact \? label : undefined\)\}/)
@@ -546,13 +545,13 @@ test('R1 F3: New project offers a PostgreSQL Store only running, not-broken mach
   assert.equal(M.sm.pgPlaceable({ state: 'broken', supports: ['postgresql_sandbox'] }), false)
   assert.equal(M.sm.pgPlaceable({ state: 'ready', supports: ['sqlite'] }), false)
   assert.equal(M.sm.pgPlaceable({ state: 'ready', supports: ['postgresql_sandbox'] }), true)
-  // default: last used while attached, then the only attached one; otherwise none (the person picks); never a stopped one, never native by default
-  const machines = [{ name: 'native', state: 'ready' }, { name: 'demo-research', state: 'stopped' }, { name: 'lima1', state: 'ready' }]
+  // default: last used while attached, then the only attached one; otherwise none (the person picks); never a stopped one, never the host machine by default
+  const machines = [{ name: 'macos-host', state: 'ready' }, { name: 'demo-research', state: 'stopped' }, { name: 'lima1', state: 'ready' }]
   assert.equal(M.sm.pgDefaultMachine({ attached: [{ machine: 'demo-research', reached: 'ok' }, { machine: 'lima1', reached: 'ok' }] }, machines), null, 'two attached: the person picks')
   assert.equal(M.sm.pgDefaultMachine({ attached: [{ machine: 'demo-research', reached: 'ok' }] }, machines), null, 'the only attached one is stopped')
   assert.equal(M.sm.pgDefaultMachine({ attached: [{ machine: 'lima1', reached: null }] }, machines), 'lima1', 'the only attached one')
-  assert.equal(M.sm.pgDefaultMachine({ attached: [{ machine: 'lima1', reached: null }, { machine: 'native', reached: 'ok' }] }, machines, 'lima1'), 'lima1')
-  assert.equal(M.sm.pgDefaultMachine({ attached: [] }, machines, 'lima1'), null, 'a last machine no longer attached is not the default, and native is no fallback')
+  assert.equal(M.sm.pgDefaultMachine({ attached: [{ machine: 'lima1', reached: null }, { machine: 'macos-host', reached: 'ok' }] }, machines, 'lima1'), 'lima1')
+  assert.equal(M.sm.pgDefaultMachine({ attached: [] }, machines, 'lima1'), null, 'a last machine no longer attached is not the default, and the host machine is no fallback')
   const dialog = src('src/client/projects/setup/ProjectDialog.tsx')
   assert.match(dialog, /const offered = kind === 'postgresql' \? machines\.filter\(\(m\) => pgPlaceable\(m\) && !blocks\.has\(m\.name\)\) : machines/)
   assert.match(dialog, /<LocationPicker machines=\{offered\} value=\{chosenPg \?\? ''\}/)
@@ -600,7 +599,7 @@ test('M9: a lost VM (missing) is "VM gone": not worker down, no Stop or Restart,
   assert.equal(M.mm.workerDown(gone), false)
   assert.equal(M.mm.powerOf(gone), null)
   assert.equal(M.mm.machineState(gone).label, 'stateVmGone')
-  assert.equal(M.mm.vmGone({ ...gone, platform: 'native' }), false)
+  assert.equal(M.mm.vmGone({ ...gone, platform: 'host' }), false)
   assert.equal(M.mm.workerDown({ ...gone, reason: 'not_answering' }), true)
   const home = src('src/client/storage/HomeOverview.tsx')
   assert.match(home, /\} else if \(vmGone\(m\)\) \{[^]*?t\('ovVmGoneStores'[^]*?action: fix && fixes \? \{ label: fixes\.label\(fix\), run: \(\) => fixes\.run\(fix\) \}/)

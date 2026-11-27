@@ -6,8 +6,8 @@ import { CliInventory } from './inventory.js'
 import { fixtureBusy, liveReceipt } from './environment-reset.js'
 
 const save = (file, value) => { const temporary = `${file}.${process.pid}.tmp`; writeFileSync(temporary, JSON.stringify(value), { mode: 0o600 }); renameSync(temporary, file) }
-// 2.0 six states: native has no worker to stop, so ready counts as closed there.
-const terminal = machine => !machine.op && (machine.name === 'native' ? ['ready', 'stopped'].includes(machine.state) : machine.state === 'stopped')
+// 2.0 six states: every machine, the host machine (`macos-host` / `linux-host`) too, ends `stopped`.
+const terminal = machine => !machine.op && machine.state === 'stopped'
 
 export class MachineStop extends CliInventory {
   constructor({ spec, driver, report = () => {}, progress = () => {} }) { super(driver); this.spec = spec; this.report = report; this.progress = progress; this.lock = join(spec.state, 'demo-fixtures.lock') }

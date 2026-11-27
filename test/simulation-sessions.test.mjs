@@ -19,12 +19,12 @@ function fixture() {
   const persistence = { migrateProject: async () => {}, updateSidecar: async (id, fn) => { const v = sidecars.get(id) ?? { sessionId: id }; fn(v); sidecars.set(id, v) } }
   const lfs = {
     // 2.0 long forms: project get, NotFound for no Sandbox, `sandbox remove`, `workspace mount` answering `workspace` and `commit`
-    project: { get: async () => ({ store: 'store', engine: 'sqlite', machine: 'native', state: 'ready' }) },
+    project: { get: async () => ({ store: 'store', engine: 'sqlite', machine: 'macos-host', state: 'ready' }) },
     branch: { fork: async (...args) => { calls.push(['fork', ...args]); return { commit: 'b'.repeat(66) } } },
     sandbox: { get: async () => { const e = new Error('absent'); e.code = 'NotFound'; throw e }, create: async (...args) => { calls.push(['sandbox', ...args]); return { ok: true } }, remove: async () => ({ ok: true }) },
     workspace: { mount: async (...args) => { calls.push(['mount', ...args]); return { path: dir, workspace: 'sandbox:main', commit: 'a'.repeat(66) } }, status: async () => { throw new Error('automatic status must not run') } },
   }
-  const ctx = { layerfs: { root: dir, lfs, emit() {}, ensureNative: async () => {} },
+  const ctx = { layerfs: { root: dir, lfs, emit() {}, ensureHostDaemon: async () => {} },
     sessions: { get: (id) => agents.get(id)?.session }, workspaceRegistry: { list: () => [] },
     workingDirectory: { get: () => dir, set: async () => {} }, logger: () => ({ warn() {} }),
     get: (key) => key === 'sessionPersistence' ? persistence : key === 'agents' ? { get: (id) => agents.get(id) } : key === 'layerfsSimulations' ? simulations : undefined }

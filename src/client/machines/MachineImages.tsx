@@ -1,6 +1,6 @@
 /**
  * A machine's cached Sandbox images (docs/specs/sandbox-images.md §5.1.3,
- * Stage 1 only, not on macOS native): the Images tab on its page (a disk
+ * Stage 1 only, not on the macOS host machine): the Images tab on its page (a disk
  * bar, the stored images as cards with Remove on unused ones, and this
  * computer's Docker images with Copy) and the
  * Free space dialog (one checkbox per image, the unused ones preselected),
@@ -278,7 +278,7 @@ function DockerSection({ m, images }: { m: MachineInfo, images: Query<SandboxIma
  * its card): badge, name and tags, where it came from, the machine default,
  * its size, the Sandboxes using it and when one last started from it, and
  * Remove on an unused copied one. Rendered only at Stage 1 and when the
- * machine runs images (not macOS native).
+ * machine runs images (not the macOS host machine).
  */
 export function ImagesSection({ m, images, onCreate }: { m: MachineInfo, images: Query<SandboxImagesView>, /** New Sandbox from an image (its Id); absent where no Sandbox can be made here. */ onCreate?: ((image: string) => void) | undefined }): ReactNode {
   const { t, tw, refusal, pruneImages } = useMachinesContext()

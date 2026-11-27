@@ -62,16 +62,16 @@ function fakeGroups(impl, discover = discovery, secrets = undefined) {
 const base = {
   // the 2.0 machine family (long forms): records from machine.list, the live probe from machine.get --with live
   machine: {
-    list: async () => ({ items: [{ machine: 'native', platform: 'native', state: 'ready', stores: ['s1'], sandboxes: [], supports: ['sqlite'] }, { machine: 'lima1', platform: 'lima', state: 'stopped', stores: [], sandboxes: [], supports: ['sqlite'] }] }),
-    get: async (name) => ({ machine: name, platform: name === 'native' ? 'native' : 'lima', state: name === 'native' ? 'ready' : 'stopped', live: { disk_free_bytes: 10, tool_version: null, worker: null } }),
+    list: async () => ({ items: [{ machine: 'macos-host', platform: 'host', state: 'ready', stores: ['s1'], sandboxes: [], supports: ['sqlite'] }, { machine: 'lima1', platform: 'lima', state: 'stopped', stores: [], sandboxes: [], supports: ['sqlite'] }] }),
+    get: async (name) => ({ machine: name, platform: name === 'macos-host' ? 'host' : 'lima', state: name === 'macos-host' ? 'ready' : 'stopped', live: { disk_free_bytes: 10, tool_version: null, worker: null } }),
   },
   home: {
     get: async () => ({ state: 'ready', version: '2.0.0', platforms: { host: 'macos', items: [{ platform: 'lima', how: 'created', ready: true, options: [{ option: 'cpus', kind: 'int' }, { option: 'nested', kind: 'bool' }] }, { platform: 'ssh', how: 'created', ready: true, options: [] }] } }),
   },
   // the 2.0 store family: `store list --detail [--with stats]` rows keyed `store` (a ready row may leave `state` out)
   store: {
-    list: async () => ({ items: [{ store: 's1', machine: 'native', engine: 'sqlite', projects: ['p'], state: 'ready', size: 105 }] }),
-    get: async (name) => ({ store: name, machine: 'native', engine: 'sqlite', projects: ['p'], state: 'ready' }),
+    list: async () => ({ items: [{ store: 's1', machine: 'macos-host', engine: 'sqlite', projects: ['p'], state: 'ready', size: 105 }] }),
+    get: async (name) => ({ store: name, machine: 'macos-host', engine: 'sqlite', projects: ['p'], state: 'ready' }),
     create: async () => ({ ok: true }),
   },
   sandbox: { list: async () => ({ items: [] }) },
@@ -82,7 +82,7 @@ test('dispatch: machines view, platforms filter, unknown route 404', async () =>
   try {
     const m = await http('GET', '/api/machines')
     assert.equal(m.status, 200)
-    assert.deepEqual(m.body.machines.map((x) => x.name), ['native', 'lima1'])
+    assert.deepEqual(m.body.machines.map((x) => x.name), ['macos-host', 'lima1'])
     assert.equal(m.body.layerfs, '2.0.0-test')
     // B4: a plain read is records only and never waits on the live probe; the
     // page's Check again (`?fresh=1`) probes now and its answer is the liveness
@@ -164,7 +164,7 @@ test('storage view: a Store with more than 20 projects lists every name by proje
   const asked = []
   const { http, root } = fakeGroups({
     ...base,
-    store: { ...base.store, list: async () => ({ items: [{ store: 's1', machine: 'native', engine: 'sqlite', projects: names.slice(0, 20), projects_count: 25, state: 'ready', size: 1 }, { store: 's2', machine: 'native', engine: 'sqlite', projects: ['a'], state: 'ready', size: 1 }] }) },
+    store: { ...base.store, list: async () => ({ items: [{ store: 's1', machine: 'macos-host', engine: 'sqlite', projects: names.slice(0, 20), projects_count: 25, state: 'ready', size: 1 }, { store: 's2', machine: 'macos-host', engine: 'sqlite', projects: ['a'], state: 'ready', size: 1 }] }) },
     project: {
       list: async (o) => {
         asked.push(o.store)
@@ -286,7 +286,7 @@ test('store projects: every project with its ledger, newest Commit and main file
 })
 
 const pgMachines = async () => ({ items: [
-  { machine: 'native', platform: 'native', state: 'ready', supports: ['sqlite', 'postgresql_sandbox'] },
+  { machine: 'macos-host', platform: 'host', state: 'ready', supports: ['sqlite', 'postgresql_sandbox'] },
   { machine: 'docker', platform: 'docker', state: 'ready', supports: ['sqlite', 'postgresql_sandbox'] },
   { machine: 'vm1', platform: 'lima', state: 'stopped', supports: ['sqlite', 'postgresql_sandbox'] },
   { machine: 'nopg', platform: 'x', state: 'ready', supports: ['sqlite'] },
@@ -439,10 +439,10 @@ test('postgresql: a Sandbox is made on the machine asked for, else its project\'
     attached = [{ machine: 'vm1', reached: 'ok' }, { machine: 'docker', reached: null }]
     last = 'vm1'
     assert.equal((await create({ name: 'b4' })).status, 200, 'vm1 is stopped, and two are attached: none named (LayerFS answers with next.machines)')
-    last = 'native'
-    attached = [...attached, { machine: 'native', reached: null }]
-    assert.equal((await create({ name: 'b5' })).status, 200, 'native, attached like any machine, as the last machine')
-    assert.deepEqual(made, [['b1', undefined], ['b2', 'vm1'], ['b3', 'docker'], ['b4', undefined], ['b5', 'native']])
+    last = 'macos-host'
+    attached = [...attached, { machine: 'macos-host', reached: null }]
+    assert.equal((await create({ name: 'b5' })).status, 200, 'the host machine, attached like any machine, as the last machine')
+    assert.deepEqual(made, [['b1', undefined], ['b2', 'vm1'], ['b3', 'docker'], ['b4', undefined], ['b5', 'macos-host']])
     assert.equal(existsSync(join(root, 'store-machines.json')), false, 'nothing Store-wide is written')
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
@@ -630,7 +630,7 @@ test('storage jobs: compact runs as a job with its steps, phases and report (2.0
     ...base,
     store: {
       ...base.store,
-      get: async () => ({ store: 's1', engine: kind, machine: kind === 'sqlite' ? 'native' : null }),
+      get: async () => ({ store: 's1', engine: kind, machine: kind === 'sqlite' ? 'macos-host' : null }),
       compact: (store, options) => new Promise((resolve) => { given = options; options.on_progress?.({ phase: 'mark', done: null, total: null }); options.on_progress?.({ phase: 'build', done: null, total: null }); finish = resolve }),
     },
   })
@@ -674,9 +674,9 @@ test('project init job and saved reads route to their calls', async () => {
     ...base,
     // 2.0 long forms: project rows, `branch get`/list `commit`, `file list` items `{ path, type }`, `file stat`, `file read --detail`
     project: {
-      init: async (key) => ({ project: key, store: 's1', engine: 'sqlite', machine: 'native' }),
+      init: async (key) => ({ project: key, store: 's1', engine: 'sqlite', machine: 'macos-host' }),
       list: async () => ({ items: [{ project: 's1/p', store: 's1', engine: 'sqlite' }] }),
-      get: async (key) => ({ project: key, store: 's1', engine: 'sqlite', machine: 'native' }),
+      get: async (key) => ({ project: key, store: 's1', engine: 'sqlite', machine: 'macos-host' }),
     },
     branch: { get: async () => ({ commit: head }), list: async () => ({ items: [{ branch: 'main', commit: head }] }) },
     file: {
@@ -713,7 +713,7 @@ test('project init job and saved reads route to their calls', async () => {
 const pin = pinned()
 
 test('live: machines, store create, project init, list/get, branches, fs, file', { skip: !pin && liveSkipReason(), timeout: 600_000 }, async (context) => {
-  // a short-ish path: the native daemon's sockets live in the home
+  // a short-ish path: the host daemon's sockets live in the home
   const root = tmpRoot('dshrt-')
   const home = join(root, 'home')
   // a 2.0 CLI makes no home on a read: `home init` first, as Set up LayerFS does
@@ -727,7 +727,7 @@ test('live: machines, store create, project init, list/get, branches, fs, file',
   const t = testHost({
     lfs, root, home, cli: pin.cli, daemon: pin.daemon ?? null,
     discovery: () => R.cli.discover({ cli: pin.cli }),
-    ensureNative: () => recorded ??= (process.platform === 'darwin' && pin.daemon ? lfs.machine.update('native', { daemon: pin.daemon }) : Promise.resolve()),
+    ensureHostDaemon: () => recorded ??= (process.platform === 'darwin' && pin.daemon ? lfs.machine.update('macos-host', { daemon: pin.daemon }) : Promise.resolve()),
   })
   const groups = R.createGroups(t.host, async () => ({ ok: true }))
   const http = async (method, path, body) => {
@@ -743,15 +743,15 @@ test('live: machines, store create, project init, list/get, branches, fs, file',
   context.after(async () => {
     await http('POST', `/api/projects/${key}/close-sandboxes`, { force: true }).catch(() => {})
     await groups.projects.close()
-    execFileSync(pin.cli, ['machine', 'stop', 'native'], { env: { ...process.env, LAYERFS_HOME: home }, timeout: 30_000 })
+    execFileSync(pin.cli, ['machine', 'stop', 'macos-host'], { env: { ...process.env, LAYERFS_HOME: home }, timeout: 30_000 })
     rmSync(root, { recursive: true, force: true })
   })
   const machines = await ok('GET', '/api/machines')
-  assert.ok(machines.machines.some((m) => m.name === 'native'))
+  assert.ok(machines.machines.some((m) => m.name === 'macos-host'))
   const status = await ok('GET', '/api/status')
   assert.equal(status.settings.home, home)
   const view = await ok('POST', '/api/stores', { name: 'rt' })
-  assert.ok(view.stores.some((s) => s.name === 'rt' && s.machine === 'native'))
+  assert.ok(view.stores.some((s) => s.name === 'rt' && s.machine === 'macos-host'))
   assert.ok(t.events.some((e) => e.type === 'storage'))
   const job = await ok('POST', '/api/projects', { store: 'rt', name: 'demo', source: src })
   let init = job
@@ -783,11 +783,11 @@ test('live: machines, store create, project init, list/get, branches, fs, file',
   assert.ok(storage.stores.some((s) => s.name === 'rt' && s.projects.includes('demo')))
 })
 
-// A Linux native Sandbox needs root for FUSE; the docker machine's worker runs
-// namespaces Sandboxes as the container's own user. On macOS the native machine runs
+// A Linux host machine Sandbox needs root for FUSE; the docker machine's worker runs
+// namespaces Sandboxes as the container's own user. On macOS the host machine runs
 // them directly. Either way the project sits on a Store of that machine.
-const sandboxHost = !pin ? null : process.platform === 'darwin' ? 'native' : existsSync('/var/run/docker.sock') && pin.bundle ? 'docker' : null
-const sandboxSkip = !pin ? liveSkipReason() : !sandboxHost && 'needs Docker and DSH_LAYERFS_BUNDLE: a native Linux Sandbox backend needs root for FUSE'
+const sandboxHost = !pin ? null : process.platform === 'darwin' ? 'macos-host' : existsSync('/var/run/docker.sock') && pin.bundle ? 'docker' : null
+const sandboxSkip = !pin ? liveSkipReason() : !sandboxHost && 'needs Docker and DSH_LAYERFS_BUNDLE: a Linux host machine Sandbox needs root for FUSE'
 
 test('live: a Sandbox, a forked side Branch mounted in it, its status, unmount and close', { skip: sandboxSkip, timeout: 600_000 }, async (context) => {
   const root = tmpRoot('dshsb-'), home = join(root, 'home'), src = join(root, 'src')
@@ -795,7 +795,10 @@ test('live: a Sandbox, a forked side Branch mounted in it, its status, unmount a
   const savedBundle = process.env.LAYERFS_BUNDLE
   if (pin.bundle) process.env.LAYERFS_BUNDLE = pin.bundle
   const lfs = R.cli.client({ cli: pin.cli, home, bundle: pin.bundle })
-  const t = testHost({ lfs, root, home, cli: pin.cli, daemon: pin.daemon ?? null, discovery: () => R.cli.discover({ cli: pin.cli }) })
+  // the host machine's Sandboxes run this build's daemon, recorded once before the first call (as the host does)
+  let recorded
+  const ensureHostDaemon = () => recorded ??= (sandboxHost === 'macos-host' && pin.daemon ? lfs.machine.update('macos-host', { daemon: pin.daemon }) : Promise.resolve())
+  const t = testHost({ lfs, root, home, cli: pin.cli, daemon: pin.daemon ?? null, discovery: () => R.cli.discover({ cli: pin.cli }), ensureHostDaemon })
   const groups = R.createGroups(t.host, async () => ({ ok: true }))
   const http = async (method, path, body) => R.handle(groups, { method, path, body })
   const ok = async (method, path, body) => {
@@ -916,7 +919,7 @@ test('project storage: a ledger of each save\'s counters from 2.0 commit list --
   const impl = {
     ...base,
     project: {
-      get: async (key) => ({ project: key, store: 's1', engine: 'sqlite', machine: 'native', created_at: new Date(7).toISOString() }),
+      get: async (key) => ({ project: key, store: 's1', engine: 'sqlite', machine: 'macos-host', created_at: new Date(7).toISOString() }),
       stats: async () => ({ size: 100, file_count: 3, dir_count: 1, symlink_count: 0 }),
     },
     store: { ...base.store, get: async (name, o = {}) => ({ store: 's1', engine: 'sqlite', projects: ['p', 'q'], ...(o.with?.includes('stats') ? { stats: { logical_bytes: 1000, canonical_bytes: 400, stored_bytes: 100, metadata_bytes: 50, file_bytes: 4096 } } : {}) }) },
@@ -993,7 +996,7 @@ test('project size: one call a row (the Store alone, the record otherwise), coun
   const gate = new Promise((resolve) => { open = resolve })
   const impl = {
     ...base,
-    project: { get: async (key) => ({ project: key, store: 's1', engine: 'sqlite', machine: 'native', created_at: new Date(7).toISOString() }), stats: async () => ({ size: 900, file_count: 3, dir_count: 1, symlink_count: 0 }) },
+    project: { get: async (key) => ({ project: key, store: 's1', engine: 'sqlite', machine: 'macos-host', created_at: new Date(7).toISOString() }), stats: async () => ({ size: 900, file_count: 3, dir_count: 1, symlink_count: 0 }) },
     store: { ...base.store, get: async (name, o = {}) => ({ store: 's1', engine: 'sqlite', projects: ['p'], ...(o.with?.includes('stats') ? { stats: { stored_bytes: 8423, metadata_bytes: 222021 } } : {}) }) },
     branch: { list: async () => ({ items: [{ branch: 'a', commit: history[0].commit, forked_from: null }] }) },
     commit: {

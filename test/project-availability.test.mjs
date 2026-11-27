@@ -54,8 +54,8 @@ test('running machine does not conceal storage blockers, including unknown stora
   assert.equal(availability({ ...project, storeState: 'ready' }, view('ready')).canRun, true)
 })
 
-test('native machines are never offered a power action; PostgreSQL uses the default execution machine', () => {
-  const native = { available: true, machines: [{ name: 'native', platform: 'native', state: 'stopped' }], live: {} }
-  assert.equal(availability({ ...project, machine: 'native' }, native).canStart, false)
-  assert.equal(availability({ ...project, kind: 'postgresql', machine: null }, native).machine, 'native')
+test('a stopped host machine is offered Start like any machine; PostgreSQL uses the host machine by default', () => {
+  const host = { available: true, machines: [{ name: 'macos-host', platform: 'host', state: 'stopped' }], live: {} }
+  assert.equal(availability({ ...project, machine: 'macos-host' }, host).canStart, true)
+  assert.equal(availability({ ...project, kind: 'postgresql', machine: null }, host).machine, 'macos-host')
 })

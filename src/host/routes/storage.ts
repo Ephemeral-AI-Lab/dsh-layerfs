@@ -11,7 +11,7 @@
  *                     with their last reach; reads never dial), machine.list
  *                     for the groups, the buckets from `home get --with tree`
  *                     and their last listing, and the job table
- *   createStore       store.create(name): a sqlite Store on native
+ *   createStore       store.create(name): a sqlite Store on the host machine
  *   removeStore       store.remove(name), `confirm` naming it
  *   connectPostgresql store.connect(name, url, { user, password,
  *                     synchronous_commit }): the URL is an address alone; the
@@ -30,8 +30,9 @@
  *   disconnectBucket  backup.disconnect(name): every Store's link to it goes
  *   listBucket        backup.list({ bucket }): its files, `behind`, `changed`,
  *                     `missing`; a bucket that cannot be listed is `not_listed`
- *   push/pull/move    store.move as jobs: to a machine from native, to native,
- *                     or between two machines through native (two moves, #537 U5)
+ *   push/pull/move    store.move as jobs: to a machine from the host machine
+ *                     (`macos-host` / `linux-host`), back to it, or between two
+ *                     machines through it (two moves, #537 U5)
  *   place             the one of push, pull or move that puts a Store on a machine
  *   backup/restore    backup.create / backup.restore as jobs
  *   compact           store.compact as a job, its phases from on_progress (a
@@ -64,7 +65,7 @@ import { killGroup } from './project-exports.ts'
 import { computer } from './computer.ts'
 import { cliFeatures, fixOf, pages, refuse, wire, type RouteHost } from './util.ts'
 import { StoreSizes } from './store-sizes.ts'
-import { attachedOf, companionsOf, machineRows, msAt, opOf } from '../layerfs/machine-records.ts'
+import { HOST_MACHINE, attachedOf, companionsOf, isHostName, machineRows, msAt, opOf } from '../layerfs/machine-records.ts'
 
 /** Finished jobs kept in the table. */
 const KEEP_JOBS = 30
@@ -396,7 +397,7 @@ export class Storage {
     })
     const view = {
       machines: machines.map((m) => ({ name: m.name, platform: m.platform, state: m.state, supports: m.supports, reason: m.reason ?? null })),
-      // this computer (the native machine): its OS names it
+      // this computer (the host machine): its OS names it
       computer: computer(),
       stores,
       buckets,
@@ -732,7 +733,7 @@ export class Storage {
       if (from !== undefined) job.from = from
       Object.assign(job, { half, phase: null, done: null, total: null })
       emit()
-      // between a move's halves the Store is on native: the view follows
+      // between a move's halves the Store is on the host machine: the view follows
       this.changed()
     }
     this.jobStore.save()
@@ -767,12 +768,12 @@ export class Storage {
     return { ...job }
   }
 
-  /** store.move(store, machine): a sqlite Store on native to `machine`. */
+  /** store.move(store, machine): a sqlite Store on the host machine to `machine`. */
   push(store: unknown, machine: unknown, made = false) {
     checkName(store, 'A move')
     checkName(machine, 'A move')
     const job = this.start('push', store, machine, null, async (on_progress, _step, on_spawn) => {
-      await this.host.ensureNative()
+      await this.host.ensureHostDaemon()
       return this.lfs.store.move(store, machine, { on_progress, on_spawn, detail: true })
     })
     if (!made) return job
@@ -782,30 +783,30 @@ export class Storage {
     return { ...job, made: true }
   }
 
-  /** store.move(store, native): a sqlite Store on a machine back to this computer. */
+  /** store.move(store, host): a sqlite Store on a machine back to this computer's host machine. */
   async pull(store: unknown) {
     checkName(store, 'A move')
     // the machine it comes from (store.get reads the record; it starts nothing): the job row reads "<store> ← <machine>"
     const from = (await this.lfs.store.get(store))?.machine ?? null
-    return this.start('pull', store, 'native', null, async (on_progress, _step, on_spawn) => {
-      await this.host.ensureNative()
-      return this.lfs.store.move(store, 'native', { on_progress, on_spawn, detail: true })
+    return this.start('pull', store, HOST_MACHINE, null, async (on_progress, _step, on_spawn) => {
+      await this.host.ensureHostDaemon()
+      return this.lfs.store.move(store, HOST_MACHINE, { on_progress, on_spawn, detail: true })
     }, from)
   }
 
   /**
-   * A Store on one machine to another: to native, then to the target, two
-   * moves (a sqlite Store goes to or from this computer only; U5). When the
-   * second fails the Store stays on native; the error's `note` says so (`pulled`).
+   * A Store on one machine to another: to the host machine, then to the target,
+   * two moves (a sqlite Store goes to or from this computer only; U5). When the
+   * second fails the Store stays on the host machine; the error's `note` says so (`pulled`).
    */
   move(store: unknown, machine: unknown) {
     checkName(store, 'A move')
     checkName(machine, 'A move')
     return this.start('move', store, machine, null, async (on_progress, step, on_spawn) => {
-      await this.host.ensureNative()
+      await this.host.ensureHostDaemon()
       const source = await this.lfs.store.get(store)
       step('pull', source.machine ?? null)
-      await this.lfs.store.move(store, 'native', { on_progress, on_spawn, detail: true })
+      await this.lfs.store.move(store, HOST_MACHINE, { on_progress, on_spawn, detail: true })
       let pushPhase: string | null = null
       const trackPush = (p: any) => {
         if (typeof p?.phase === 'string') pushPhase = p.phase
@@ -822,7 +823,7 @@ export class Storage {
     })
   }
 
-  /** Puts sqlite Store `store` on `machine`: a move from native, to native, else two moves through native. */
+  /** Puts sqlite Store `store` on `machine`: a move from the host machine, to it, else two moves through it. */
   /** @param made - a Store a New Store dialog just made: the push job is marked so its words read "created on". */
   async place(store: unknown, machine: unknown, made = false) {
     checkName(store, 'A Store')
@@ -830,8 +831,8 @@ export class Storage {
     const record = await this.lfs.store.get(store)
     if (record.engine && record.engine !== 'sqlite') throw refuse(400, 'InvalidInput', `${store} is a PostgreSQL Store; it is never moved`)
     if (record.machine === machine) throw refuse(400, 'InvalidInput', `${store} is on ${machine} already`)
-    if (machine === 'native') return this.pull(store)
-    if (record.machine === 'native') return this.push(store, machine, made)
+    if (isHostName(machine)) return this.pull(store)
+    if (isHostName(record.machine)) return this.push(store, machine, made)
     return this.move(store, machine)
   }
 
@@ -860,7 +861,7 @@ export class Storage {
     return this.start('backup', store, bucket, file, (on_progress, _step, on_spawn) => this.lfs.backup.create(store, bucket, { ...(file ? { file } : {}), on_progress, on_spawn, detail: true }))
   }
 
-  /** backup.restore(bucket, file, store): a Store on native from a bucket's file (default: the file named after the Store). */
+  /** backup.restore(bucket, file, store): a Store on the host machine from a bucket's file (default: the file named after the Store). */
   restore({ store, bucket, file }: any = {}) {
     checkName(store, 'A restore')
     checkName(bucket, 'A restore')

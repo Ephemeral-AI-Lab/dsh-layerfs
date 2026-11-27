@@ -137,7 +137,7 @@ export function listWords(items: readonly string[]): string {
   try { return new Intl.ListFormat(timeLocale() ?? 'en', { type: 'conjunction' }).format(items) } catch { return items.join(', ') }
 }
 
-/** A provider's words beside a name, unless they say the same thing ("docker Docker", "native Native"). */
+/** A provider's words beside a name, unless they say the same thing ("docker Docker", "host Host"). */
 export const providerBeside = (name: string, provider: string): string | null => (provider && provider.toLowerCase() !== name.toLowerCase() ? provider : null)
 
 /** A status tone as a StatusDot state: the one rule for every dot on the tab. */

@@ -12,7 +12,7 @@ import { SandboxGlyph } from './icons.tsx'
 import { ImageMenu, defaultPick, findPick, imagePlan, useSandboxImages } from './ImageMenu.tsx'
 import { FreeSpaceDialog } from './MachineImages.tsx'
 import {
-  BUILT_IN, SANDBOX_NAME, clearingCall, opWords, projectRef, shortImage, stateLook, supports,
+  BUILT_IN_NAMES, SANDBOX_NAME, clearingCall, opWords, projectRef, shortImage, stateLook, supports,
   type MachineInfo, type MachineSandbox, type ProjectSummary, type SandboxInfo,
 } from './model.ts'
 import { useQuery } from '../ui/use-query.ts'
@@ -141,8 +141,8 @@ export function NewSandboxDialog({ machine, taken: existing, image, onClose }: {
   const taken = [...existing, ...Object.values(creations).filter((c) => c.phase !== 'done').map((c) => c.input.name)]
   const images = useSandboxImages(machine)
   const answer = images.data ?? null
-  // macOS native runs Sandboxes on the Mac itself: no Image row (its backend says so before the answer does)
-  const host = answer ? answer.mode === 'host' : machine.backend === 'native'
+  // the macOS host machine runs Sandboxes on the Mac itself (`process` backend): no Image row (its backend says so before the answer does)
+  const host = answer ? answer.mode === 'host' : machine.backend === 'process'
   // undefined: not chosen, the default (D7) follows the answer; null: LayerFS's default
   const [chosen, setChosen] = useState<string | null | undefined>(image)
   const pick = host ? null : chosen === undefined ? defaultPick(answer) : chosen === null ? null : findPick(answer, chosen) ?? defaultPick(answer)
@@ -168,7 +168,7 @@ export function NewSandboxDialog({ machine, taken: existing, image, onClose }: {
     for (let n = 1; ; n++) if (!taken.includes(`${stem}-${n}`)) { setName(`${stem}-${n}`); break }
     setError(null)
   }
-  const valid = SANDBOX_NAME.test(name) && !BUILT_IN.has(name) && !taken.includes(name)
+  const valid = SANDBOX_NAME.test(name) && !BUILT_IN_NAMES.has(name) && !taken.includes(name)
   const ready = !busy && !uncertain && valid && !imagesPending && eligible.some((p) => p.key === project)
   // Free space (a Docker pick whose copy does not fit): a dialog on top of this one, so the form is kept (D14)
   const [freeing, setFreeing] = useState(false)
@@ -221,7 +221,7 @@ export function NewSandboxDialog({ machine, taken: existing, image, onClose }: {
                     <Input value={name} onChange={(e) => setName(e.target.value)} disabled={busy || uncertain} spellCheck={false} maxLength={63} />
                   </Field>
                   {host
-                    ? <p className={css.muted}>{t('nativeOwnSystem')}</p>
+                    ? <p className={css.muted}>{t('hostOwnSystem')}</p>
                     : (
                       <Field label={t('image')} hint={plan.note && !imagesFailed ? tw(plan.note) : undefined}>
                         <ImageMenu machine={machine} images={images} value={pick?.id ?? null} disabled={busy || uncertain}

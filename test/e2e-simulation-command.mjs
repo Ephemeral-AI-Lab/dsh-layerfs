@@ -13,7 +13,7 @@ try {
   assert.ok(origin.ok, origin.error)
   const input = page.locator('[data-composer-input=true]').first()
   await input.click()
-  await page.keyboard.insertText('/simulation --project design --machine native')
+  await page.keyboard.insertText('/simulation --project design --machine macos-host')
   await page.getByRole('button', { name: 'Send message', exact: true }).click()
   await page.waitForFunction((source) => {
     const current = window.__dshLayerfs?.selectedSessionId()

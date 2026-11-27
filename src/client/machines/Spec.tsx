@@ -19,7 +19,7 @@ import { upTime, unitsOf } from './metrics.ts'
 import { liveCounts } from './stats.ts'
 import css from './machines.module.css'
 
-const RUNS_AS: Record<string, MachinesKey> = { docker: 'runsContainers', native: 'runsProcessesNotIsolated', namespaces: 'runsNamespacesCgroup' }
+const RUNS_AS: Record<string, MachinesKey> = { docker: 'runsContainers', process: 'runsProcessesNotIsolated', namespaces: 'runsNamespacesCgroup' }
 const KERNEL: Record<string, MachinesKey> = { nfs: 'kernelNfs', fuse: 'kernelFuse' }
 const CALLS: Record<string, MachinesKey> = { in_process: 'callsInProcess', worker: 'callsWorker' }
 const HOW: Record<string, MachinesKey> = { built_in: 'howBuiltIn', created: 'howCreated' }

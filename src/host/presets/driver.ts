@@ -17,7 +17,7 @@ export const presetTimeout = (argv: readonly string[], read: boolean): number =>
 export interface PresetSpec extends CliSpec {
   /** The preset state folder (manifest, step journal, sample sources, receipts). */
   readonly state: string
-  /** The matching native daemon, if pinned. */
+  /** The matching host machine daemon (`layerfs-daemon`), if pinned. */
   readonly daemon: string | null
 }
 

@@ -35,6 +35,7 @@ import { pgDefaultMachine, pgPlaceable } from '../../storage/model.ts'
 import { LocationPicker, StartFirst, Tick, type LocationWords } from './MachineTiles.tsx'
 import { placeStore, runStep, startMachine } from './run.ts'
 import css from './dialog.module.css'
+import { isHostName } from '../../../shared/host-machine.ts'
 
 const PG_URL = /^postgres(?:ql)?:\/\//i
 const enc = encodeURIComponent
@@ -132,8 +133,8 @@ function Group({ label, hint, children }: { label: string, hint?: string | undef
 
 // ---------- pieces ----------
 
-/** The tiles' words; `os` names the native machine (This Mac, unisolated; This computer, sandboxed; This PC). */
-const wordsOf = (t: SetupT, os?: string): LocationWords => ({ thisMac: t(os === 'linux' ? 'thisLinux' : os === 'windows' ? 'thisPc' : 'thisMac'), nativeOs: os === 'linux' ? 'linux' : os === 'windows' || os === 'other' ? 'pc' : 'mac', running: t('running'), stopped: t('stopped'), default: t('default'), here: t('here'), blocked: t('machineBlocked'), engineDown: t('engineDown'), state: (s) => setupStateWord(s, t) })
+/** The tiles' words; `os` names the host machine (This Mac, unisolated; This computer, sandboxed; This PC). */
+const wordsOf = (t: SetupT, os?: string): LocationWords => ({ thisMac: t(os === 'linux' ? 'thisLinux' : os === 'windows' ? 'thisPc' : 'thisMac'), hostOs: os === 'linux' ? 'linux' : os === 'windows' || os === 'other' ? 'pc' : 'mac', running: t('running'), stopped: t('stopped'), default: t('default'), here: t('here'), blocked: t('machineBlocked'), engineDown: t('engineDown'), state: (s) => setupStateWord(s, t) })
 
 function NewMachineTile({ api, t }: { api: LayerfsApi, t: SetupT }): ReactNode {
   return <button type="button" className={clsx(css.machine, css.newMachine)} onClick={() => { projectDialog.close(); openStorage(api, 'machines:new') }}>
@@ -231,8 +232,8 @@ function pgMissing(problem: PgLoginProblem | 'url' | null, t: SetupT): string {
 type StartFrom = 'empty' | 'folder'
 /** Existing Stores shown before the list folds (the last-used first; the chosen one always shows). */
 const FOLD = 4
-/** `native` in a summary line: This Mac, This PC or This computer, by the host's OS (Mac for an older host). */
-const nativeKey = (os?: string): 'nativeMac' | 'nativePc' | 'nativeLinux' => (os === 'windows' ? 'nativePc' : os === 'macos' || os === undefined ? 'nativeMac' : 'nativeLinux')
+/** The host machine in a summary line: This Mac, This PC or This computer, by the host's OS. */
+const hostWordKey = (os?: string): 'hostMac' | 'hostPc' | 'hostLinux' => (os === 'windows' ? 'hostPc' : os === 'macos' || os === undefined ? 'hostMac' : 'hostLinux')
 
 /**
  * Create (docs/specs/layerfs-workspaces.md §3): a name (From folder… turns it
@@ -288,7 +289,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const kind: StoreKind = existing ? (existing.kind === 'postgresql' ? 'postgresql' : 'sqlite') : picked.kind === 'pg' ? 'postgresql' : 'sqlite'
   const creatingStore = !existing
   const machines = machinesFor(data, kind)
-  // a machine whose platform is not ready here shows blocked; the default is native when docker cannot run now
+  // a machine whose platform is not ready here shows blocked; the default is the host machine when docker cannot run now
   const blocks = useMemo(() => tileBlocks(data?.machines ?? [], platforms, data?.computer?.os), [data, platforms])
   // PostgreSQL (V23-11): only machines that run now, are not broken or blocked here and run PostgreSQL Sandboxes are offered; never a stopped one
   const offered = kind === 'postgresql' ? machines.filter((m) => pgPlaceable(m) && !blocks.has(m.name)) : machines
@@ -305,7 +306,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const running = steps !== null && !error && !failure
   useEffect(() => { onBusy(running) }, [running])
   const words = wordsOf(t, data?.computer?.os)
-  const machineWord = (m: string) => (m === 'native' ? t(nativeKey(data?.computer?.os)) : m)
+  const machineWord = (m: string) => (isHostName(m) ? t(hostWordKey(data?.computer?.os)) : m)
 
   const folderName = (path: string) => path.replace(/\/+$/, '').split('/').pop() ?? ''
   const pickSource = (path: string) => { setSource(path); if (!nameTyped) setName(folderName(path)) }
@@ -414,7 +415,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const matched = ordered.filter((s) => !q || s.name.toLowerCase().includes(q) || (s.postgresql?.target ?? '').toLowerCase().includes(q))
   const folding = !q && !showAll && matched.length > FOLD + 1
   const listed = folding ? matched.filter((s, i) => i < FOLD || s.name === existing?.name) : matched
-  const moving = kind === 'sqlite' && existing && (existing.machine ?? 'native') !== chosenSqlite
+  const moving = kind === 'sqlite' && existing && existing.machine !== chosenSqlite
   const where = existing ? existing.name : kind === 'sqlite' ? t('sumNewSqlite') : t('sumNewPg')
   const isOn = (c: StoreChoice) => (c.kind === 'existing' ? existing?.name === c.store : !existing && picked.kind === c.kind)
   const fellBack = choice === null && auto.fellBack && last
@@ -442,12 +443,12 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
       <p className={css.hint}>{t('passwordHint')}</p>
     </> : null}
     {existing && kind === 'sqlite' && !moveOpen
-      ? <p className={css.hint}>{t('storeOn', { machine: machineWord(existing.machine ?? 'native') })}{' '}
+      ? <p className={css.hint}>{t('storeOn', { machine: machineWord(existing.machine ?? '') })}{' '}
         <button type="button" className={css.inlineLink} onClick={() => setMoveOpen(true)}>{t('moveStore')}</button></p>
       : <Group label={kind === 'sqlite' ? t('storeFileOn') : t('sessionRunsOn')} hint={kind === 'sqlite' ? (existing ? undefined : t('storeFileHint')) : t('runsOnPg')}>
         {kind === 'sqlite'
           ? <LocationPicker machines={machines} value={chosenSqlite} onChange={setSqliteMachine} words={words} label={t('storeFileOn')}
-            current={existing ? existing.machine ?? 'native' : null} fallback={fallback} blocks={blocks}>
+            current={existing?.machine ?? null} fallback={fallback} blocks={blocks}>
             <NewMachineTile api={api} t={t} />
           </LocationPicker>
           : <LocationPicker machines={offered} value={chosenPg ?? ''} onChange={setPgChoice} words={words} label={t('sessionRunsOn')}
@@ -526,7 +527,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
                 const count = s.projectsCount ?? s.projects.length
                 const sKind: StoreKind = s.kind === 'postgresql' ? 'postgresql' : 'sqlite'
                 return storeRow({ kind: 'existing', store: s.name }, sKind, s.name,
-                  <>{sKind === 'postgresql' ? `${t('kindPgTitle')} · ${s.postgresql?.target ?? ''}` : `${t('kindSqliteTitle')} · ${machineWord(s.machine ?? 'native')}`}{' · '}{count === 1 ? t('oneProject') : t('projects', { n: count })}</>,
+                  <>{sKind === 'postgresql' ? `${t('kindPgTitle')} · ${s.postgresql?.target ?? ''}` : `${t('kindSqliteTitle')} · ${machineWord(s.machine ?? '')}`}{' · '}{count === 1 ? t('oneProject') : t('projects', { n: count })}</>,
                   {
                     tag: <>{s.name === last?.name ? <span className={css.lastUsed}>{t('lastUsed')}</span> : null}{storeFail ? <span className={clsx(css.storeStatusTag, broken ? css.storeStatusError : css.storeStatusWarn)}>{storeFail.short}</span> : null}</>,
                     broken, title: storeFail?.message,
@@ -613,7 +614,7 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
 
   const words = wordsOf(t, view.data?.computer?.os)
   if (!pg) {
-    const current = store.machine ?? 'native'
+    const current = store.machine ?? ''
     const chosen = target ?? current
     return <>{head}
       <div className={css.body}><div className={css.fields}>

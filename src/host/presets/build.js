@@ -8,7 +8,7 @@ import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { DemoRunner, PRESET_HISTORY_LIMITS, TOOL } from './runner.js'
 import { StepJournal } from './recipe/step-journal.js'
-import { CONTENT_VERSION, presetOf } from './recipe/presets.js'
+import { CONTENT_VERSION, HOST_MACHINE, presetOf } from './recipe/presets.js'
 import { MIXED_RECIPE_VERSION } from './recipe/mixed-recipe.js'
 import { projectHistorySteps, projectHistoryPlan, machineCreateArgs } from './recipe/recipe.js'
 import { projectVerificationSteps } from './recipe/project-verification.js'
@@ -110,7 +110,7 @@ function presetCommandPlan({ configuration, spec, sandboxes, resetPlan, resetNot
     if (typeof machine !== 'string') add('build', machineCreateArgs(machine))
     if (configuration.stores.some(store => usesMachine(store, name))) add('build', ['machine', 'start', name], { note: 'Only if the machine is not already running or ready.' })
   }
-  if (sandboxes && spec.daemon && configuration.stores.some(store => store.machine === 'native')) add('build', ['machine', 'update', 'native', '--daemon', spec.daemon], { note: 'Only if the native daemon path differs.' })
+  if (sandboxes && spec.daemon && configuration.stores.some(store => store.machine === HOST_MACHINE)) add('build', ['machine', 'update', HOST_MACHINE, '--daemon', spec.daemon], { note: 'Only if the host machine daemon path differs.' })
   // A PostgreSQL Store: a fresh database on the preset's own server, then connect; it is placed on no machine.
   const postgres = new PresetPostgres({ state: spec.state })
   const port = postgres.recorded()?.port ?? '<port>'
@@ -121,7 +121,7 @@ function presetCommandPlan({ configuration, spec, sandboxes, resetPlan, resetNot
   // a PostgreSQL Store's sessions run only on an attached machine: its preset machine is attached (checked from there)
   const placeStore = store => isPostgresql(store)
     ? add('build', ['store', 'attach', store.name, '--machine', store.machine], { note: 'Only if the machine is not attached yet.' })
-    : store.machine !== 'native' && add('build', ['store', 'move', store.name, store.machine, '--progress'])
+    : store.machine !== HOST_MACHINE && add('build', ['store', 'move', store.name, store.machine, '--progress'])
   if (configuration.concurrentHistory) {
     for (const store of configuration.stores) {
       createStore(store, 'Preparation only: project imports are serial within this store; independent stores can prepare concurrently.')

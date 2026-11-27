@@ -7,7 +7,7 @@
 // environment, the stand-in and hook contract, and what every row also fails
 // on). This file adds what the Files rows need.
 //
-//   INSPECT_MACHINE          a machine without the Whole filesystem view (default `native`)
+//   INSPECT_MACHINE          a machine without the Whole filesystem view (default `macos-host`)
 //   INSPECT_WHOLE_MACHINE    a machine whose roots answer offers `/` (docker, Lima, Apple Container). Stand-in: `docker`.
 //   INSPECT_WHOLE_MACHINE_TITLE  its title in "Jump to" (default: its name with a capital, as the page titles built-in kinds)
 //   INSPECT_SANDBOX          a running Sandbox on INSPECT_MACHINE with at least five Workspaces: the first by mount
@@ -15,7 +15,7 @@
 //   INSPECT_WHOLE_SANDBOX    a running Sandbox whose roots answer offers `/` (a namespaces Sandbox)
 //   INSPECT_FILES_BASE_<TARGET>   for a real build: the folder that holds the rows' material in the target, where
 //                            TARGET is MACHINE, WHOLE_MACHINE, SANDBOX or WHOLE_SANDBOX (a path the target's files call reads:
-//                            under a LayerFS root on a native machine, under the home of a host-process Sandbox). Its content,
+//                            under a LayerFS root on a host machine, under the home of a host-process Sandbox). Its content,
 //                            made by whoever prepares the run (`node test/e2e-inspect-files-lib.mjs material <dir>` writes it):
 //                              notes.txt (3 lines), sub/deep/file.txt, empty.txt (0 bytes), data.bin (4096 bytes with NULs),
 //                              emptydir/, many/e0000 … e2999 (3,000 files), big.log (50 MB of 64-byte lines), link -> notes.txt,
@@ -45,7 +45,7 @@ export * from './e2e-inspect-logs-lib.mjs'
 
 const standin = cfg.standin
 export const home = process.env.DSH_LAYERFS_HOME || join(cfg.devDir, 'layerfs-home')
-const title = (name) => (name === 'native' ? name : name.charAt(0).toUpperCase() + name.slice(1))
+const title = (name) => (name === 'macos-host' ? name : name.charAt(0).toUpperCase() + name.slice(1))
 /** The four targets a row can use; `name` null when the environment names none. */
 export const T = {
   machine: { kind: 'machine', name: cfg.machine, title: cfg.machineTitle, env: 'MACHINE' },
@@ -123,7 +123,7 @@ export function baseOf(target) {
 /**
  * The stand-in's world, written once per run (idempotent): fixture trees
  * under <stand-in dir>/files and their declaration in files.json.
- * - `native`: the private home's own folders by role (stores, Sandbox records, run folders, logs); no `/`.
+ * - `macos-host`: the private home's own folders by role (stores, Sandbox records, run folders, logs); no `/`.
  * - INSPECT_WHOLE_MACHINE (docker): a fixture tree that is its `/`: LayerFS's folders under /layerfs by role, at
  *   the paths and on the mounts a docker machine of the real build has them (machine.md `machine.files`),
  *   system folders, a host mount, a Workspace mount, unreadable entries; and one root with a role no build
@@ -137,18 +137,18 @@ export function setup() {
   for (const target of Object.values(T)) { const given = process.env[`INSPECT_FILES_BASE_${target.env}`]; if (given) bases[target.env] = given }
   if (!standin) return
   const config = { machine: {}, sandbox: {} }
-  // ---- the native machine: the home's own folders
+  // ---- the host machine: the home's own folders
   mkdirSync(join(home, 'log'), { recursive: true })
   if (!existsSync(join(home, 'log', 'e2e-files'))) mkdirSync(join(home, 'log', 'e2e-files'))
   writeMaterial(join(home, 'log', 'e2e-files'))
   bases.MACHINE ??= join(home, 'log', 'e2e-files')
-  const nativeRoots = [{ role: 'stores', path: join(home, 'store') }, { role: 'sandbox_records', path: join(home, 'sandbox') }, { role: 'run_folders', path: join(home, 'machine', 'native', 'run') }, { role: 'logs', path: join(home, 'log') }]
-  config.machine.native = { binds: [{ at: home, from: home }], roots: nativeRoots, confine: nativeRoots.map((r) => r.path), run_folders: [join(home, 'machine', 'native', 'run')], restricted_names: ['control.json', 'worker.json', 'store.sqlite', 'store.sqlite-wal', 'store.sqlite-shm', 'layerfs.lock', 'lock', 'serve.lock'] }
+  const hostRoots = [{ role: 'stores', path: join(home, 'store') }, { role: 'sandbox_records', path: join(home, 'sandbox') }, { role: 'run_folders', path: join(home, 'machine', 'macos-host', 'run') }, { role: 'logs', path: join(home, 'log') }]
+  config.machine['macos-host'] = { binds: [{ at: home, from: home }], roots: hostRoots, confine: hostRoots.map((r) => r.path), run_folders: [join(home, 'machine', 'macos-host', 'run')], restricted_names: ['control.json', 'worker.json', 'store.sqlite', 'store.sqlite-wal', 'store.sqlite-shm', 'layerfs.lock', 'lock', 'serve.lock'] }
 
   // ---- a machine with a Whole filesystem view
-  if (T.wholeMachine.name && T.wholeMachine.name !== 'native') {
+  if (T.wholeMachine.name && T.wholeMachine.name !== 'macos-host') {
     const root = rootOf('machine', T.wholeMachine.name)
-    const run = '/layerfs/data/machine/native/run/layerfs-0a1b2c3d-shop'
+    const run = '/layerfs/data/machine/linux-guest/run/layerfs-0a1b2c3d-shop'
     put(join(root, 'layerfs/data/store/shop/store.sqlite'), 'SQLite format 3\0')
     put(join(root, 'layerfs/data/store/shop/record.json'), '{"v":1,"name":"shop"}\n')
     put(join(root, 'layerfs/data/sandbox/shop/control.json'), '{"secret":"never shown"}\n')
@@ -158,8 +158,8 @@ export function setup() {
     put(join(root, run, 'tmp/hello.txt'), 'hello from the Sandbox home\n')
     put(join(root, run, 'daemon.log'), 'daemon started\n')
     mkdirSync(join(root, run, 'workspaces/1'), { recursive: true })
-    put(join(root, 'layerfs/data/machine/native/run/images/1f2e3d.2.json'), '{}\n')
-    put(join(root, 'layerfs/data/machine/native/run/images/1f2e3d.2.lock'), '')
+    put(join(root, 'layerfs/data/machine/linux-guest/run/images/1f2e3d.2.json'), '{}\n')
+    put(join(root, 'layerfs/data/machine/linux-guest/run/images/1f2e3d.2.lock'), '')
     put(join(root, 'layerfs/data/store/shop/open/4242'), '')
     mkdirSync(join(root, 'layerfs/data/incoming'), { recursive: true })
     put(join(root, 'layerfs/data/log/worker.log'), 'worker listening\n')
@@ -184,11 +184,11 @@ export function setup() {
       roots: [
         // as a docker machine answers: the data volume, the worker's tmpfs and the bundle bind are mounts of their own
         { role: 'data', path: '/layerfs/data', free_bytes: 48_500_000_000, fs: 'ext4' }, { role: 'stores', path: '/layerfs/data/store' }, { role: 'sandbox_records', path: '/layerfs/data/sandbox' },
-        { role: 'run_folders', path: '/layerfs/data/machine/native/run' }, { role: 'images', path: '/layerfs/data/machine/native/run/images' }, { role: 'staging', path: '/layerfs/data/incoming' },
+        { role: 'run_folders', path: '/layerfs/data/machine/linux-guest/run' }, { role: 'images', path: '/layerfs/data/machine/linux-guest/run/images' }, { role: 'staging', path: '/layerfs/data/incoming' },
         { role: 'logs', path: '/layerfs/data/log' }, { role: 'state', path: '/layerfs/state', fs: 'tmpfs' }, { role: 'bundle', path: '/layerfs/bundle', fs: 'fakeowner' }, { role: 'image', path: '/layerfs/image' },
         { role: 'cache_future', path: '/layerfs/cache' },
       ],
-      run_folders: ['/layerfs/data/machine/native/run'],
+      run_folders: ['/layerfs/data/machine/linux-guest/run'],
       overlay: {
         '/proc': { kind: 'system' }, '/sys': { kind: 'system' }, '/dev': { kind: 'system' }, '/run': { kind: 'system' },
         '/mnt': { kind: 'mount', fs: 'virtiofs' }, '/layerfs/state/secret': { kind: 'restricted' },

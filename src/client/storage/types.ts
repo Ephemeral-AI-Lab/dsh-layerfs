@@ -192,7 +192,7 @@ export type MachineSupports = readonly string[]
 /** GET /api/storage. */
 export interface StorageView {
   machines: { name: string, platform: string, state: string | null, supports: MachineSupports | null, reason?: string | null }[]
-  /** This computer (the native machine); absent from an older host. */
+  /** This computer (the host machine). */
   computer?: { os: 'macos' | 'linux' | 'windows' | 'other', name: string | null, arch: string }
   stores: StoreRow[]
   buckets: BucketRow[]

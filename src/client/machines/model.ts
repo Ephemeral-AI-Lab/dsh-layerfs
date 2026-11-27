@@ -13,6 +13,7 @@
 import type { Tone } from '../ui/index.tsx'
 import { parseTag, type CallLabel } from '../../shared/logs.ts'
 import { removesMachine, runnableFix } from '../../shared/doctor.ts'
+import { HOST_PLATFORM, PROCESS_BACKEND } from '../../shared/host-machine.ts'
 import type { MachinesKey } from './locale.ts'
 
 // ---------- host shapes ----------
@@ -63,7 +64,7 @@ export interface MachinePlatformInfo {
   platform: string
   how: string
   backend: string | null
-  /** How Workspaces are served: `nfs` (native on macOS) or `fuse`. */
+  /** How Workspaces are served: `nfs` (the macOS host machine) or `fuse`. */
   route: string | null
   sqlite: string | null
   postgresql: { store_calls: string, sandbox: boolean, reason: string | null }
@@ -80,7 +81,7 @@ export interface MachinePlatformInfo {
 
 /**
  * One machine (`machine list --detail`, then `machine get --detail --with
- * live` for each machine but native). `state` is one of LayerFS 2.0's six:
+ * live` for each machine). `state` is one of LayerFS 2.0's six:
  * `ready`, `busy` (with `op`), `stopped`, `broken` (with `reason` and `fix`),
  * `unknown` (with `observedAt`); a machine is never `blocked`.
  */
@@ -198,7 +199,7 @@ export interface CliFeatures {
   machineSpace?: boolean
 }
 
-/** The computer this host runs on (the native machine): its OS names and marks it. */
+/** The computer this host runs on (the host machine): its OS names and marks it. */
 export interface Computer {
   os: 'macos' | 'linux' | 'windows' | 'other'
   /** The OS release in words (macOS 15.4, Ubuntu 24.04.1 LTS), or null. */
@@ -208,7 +209,6 @@ export interface Computer {
 
 export interface AvailableView {
   available: true
-  /** Absent from an older host: the native machine is then named as a Mac's. */
   computer?: Computer
   readErrors?: Record<string, { error: { code: string, message: string }, at: number }>
   layerfs: string | null
@@ -219,7 +219,7 @@ export interface AvailableView {
   stores: MachineStore[]
   postgresql: MachinePgStore[]
   sandboxes: MachineSandbox[]
-  /** Each machine but native: its live probe. */
+  /** Each machine: its live probe. */
   live: Record<string, MachineLive>
 }
 
@@ -409,7 +409,7 @@ export interface SandboxImagesView {
   platform: string
   state: string
   stage: 0 | 1
-  /** `host`: macOS native, Sandboxes run on the Mac itself (no Image row). */
+  /** `host`: the macOS host machine (`process` backend), Sandboxes run on the Mac itself (no Image row). */
   mode: 'images' | 'host'
   architecture: string | null
   free: number | null
@@ -594,7 +594,10 @@ export const unresolvedOf = (x: { state?: string | null, reason?: string | null 
 
 export const GIB = 2 ** 30
 export const VM_KINDS = ['apple-container', 'microsandbox', 'lima'] as const
-export const BUILT_IN = new Set(['native', 'docker'])
+/** The built-in machines' platforms: the host machine (`host`) and `docker`. */
+export const BUILT_IN = new Set([HOST_PLATFORM, 'docker'])
+/** The built-in machines' names, refused for a new machine or Sandbox. */
+export const BUILT_IN_NAMES = new Set(['macos-host', 'linux-host', 'docker'])
 
 /**
  * Whether New machine opens: some platform here creates machines (a VM kind),
@@ -605,7 +608,7 @@ export const canAddMachine = (platforms: readonly Pick<MachinePlatformInfo, 'pla
   platforms.some((p) => p.how === 'created' && (VM_KINDS as readonly string[]).includes(p.platform))
 
 const KIND_LABEL: Record<string, MachinesKey> = {
-  native: 'kindNative',
+  host: 'kindHost',
   docker: 'kindDocker',
   'apple-container': 'kindAppleContainer',
   microsandbox: 'kindMicrosandbox',
@@ -615,7 +618,7 @@ const KIND_LABEL: Record<string, MachinesKey> = {
 export const kindKey = (platform: string): MachinesKey | null => KIND_LABEL[platform] ?? null
 
 const KIND_BLURB: Record<string, MachinesKey> = {
-  native: 'blurbNative',
+  host: 'blurbHost',
   docker: 'blurbDocker',
   'apple-container': 'blurbAppleContainer',
   microsandbox: 'blurbMicrosandbox',
@@ -626,9 +629,9 @@ export const blurbKey = (platform: string): MachinesKey | null => KIND_BLURB[pla
 /** LayerFS's defaults for a new VM. */
 export const VM_DEFAULTS = { cpus: 2, memory: 4 * GIB, disk: 20 * GIB } as const
 
-/** Native and Docker first, then the rest by name. */
+/** The host machine and Docker first, then the rest by name. */
 export function machineOrder(machines: MachineInfo[]): MachineInfo[] {
-  const rank = (m: MachineInfo) => (m.platform === 'native' ? 0 : m.platform === 'docker' ? 1 : 2)
+  const rank = (m: MachineInfo) => (m.platform === HOST_PLATFORM ? 0 : m.platform === 'docker' ? 1 : 2)
   return [...machines].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name))
 }
 
@@ -768,7 +771,7 @@ export function heldWords(held: { stores: number }): Words {
  * `missing`). Its `fix` says how; {@link fixAction} says what the page runs.
  */
 export const workerDown = (m: MachineInfo, _live?: MachineLive): boolean =>
-  m.platform !== 'native' && m.state === 'broken' && ['not_answering', 'outdated', 'unreachable', 'engine_down'].includes(m.reason ?? '') && !recordOutdated(m)
+  m.state === 'broken' && ['not_answering', 'outdated', 'unreachable', 'engine_down'].includes(m.reason ?? '') && !recordOutdated(m)
 
 /**
  * A machine whose VM or container is gone (LayerFS reason `missing`, fix
@@ -776,7 +779,7 @@ export const workerDown = (m: MachineInfo, _live?: MachineLive): boolean =>
  * Nothing to restart or stop; LayerFS's fix is the one action.
  */
 export const vmGone = (m: Pick<MachineInfo, 'platform' | 'state' | 'reason'>): boolean =>
-  m.platform !== 'native' && m.state === 'broken' && m.reason === 'missing'
+  m.platform !== HOST_PLATFORM && m.state === 'broken' && m.reason === 'missing'
 
 /**
  * An `outdated` record no call repairs (UI pass 3 R FAIL 2): a record with no
@@ -787,9 +790,9 @@ export const vmGone = (m: Pick<MachineInfo, 'platform' | 'state' | 'reason'>): b
 export const recordOutdated = (m: Pick<MachineInfo, 'name' | 'state' | 'reason' | 'fix'>): boolean =>
   m.state === 'broken' && m.reason === 'outdated' && removesMachine(runnableFix(m.fix)) === m.name
 
-/** Start or Stop: Stop when it is ready, Start when it is stopped (never for native). */
+/** Start or Stop: Stop when it is ready, Start when it is stopped (the host machine too: LayerFS stops and starts it). */
 export const powerOf = (m: MachineInfo): 'start' | 'stop' | null =>
-  m.platform !== 'native' && (m.state === 'ready' || m.state === 'stopped') ? (m.state === 'ready' ? 'stop' : 'start') : null
+  (m.state === 'ready' || m.state === 'stopped') ? (m.state === 'ready' ? 'stop' : 'start') : null
 
 /**
  * The one action a machine's state offers (UI rule: dot, word, tip, one
@@ -808,7 +811,6 @@ export type FixAction =
   | { kind: 'forced', sandboxes: number, line: string }
   | { kind: 'copy', line: string }
 export function fixAction(m: MachineInfo): FixAction | null {
-  if (m.platform === 'native') return null
   if (m.state === 'unknown') return { kind: 'check' }
   if (m.state !== 'broken') return null
   if (m.reason === 'engine_down') return { kind: 'engine' }
@@ -832,7 +834,7 @@ export const fixRemoves = (m: MachineInfo): boolean => { const f = fixAction(m);
 export const runsFix = (m: MachineInfo): boolean => { const f = fixAction(m); return !!f && f.kind !== 'copy' && f.kind !== 'check' }
 
 /** Force stop remains available for registered runtimes even when the worker
- * is stopped or unavailable; native stops its managed runtimes, not the host. */
+ * is stopped or unavailable; on the host machine it tears down its Sandboxes and stops it. */
 export const forceStopOf = (m: MachineInfo, hasSandboxes = heldSandboxes(m) > 0, features?: CliFeatures): boolean =>
   features?.forceStop !== false && m.platform !== 'ssh' && m.platform !== 'firecracker' && (powerOf(m) === 'stop' || hasSandboxes)
 
@@ -850,7 +852,7 @@ export function sizeOf(m: MachineInfo, live?: MachineLive): Words {
 
 /** How a machine runs its Sandboxes. */
 export function runtimeOf(m: MachineInfo): Words {
-  if (m.backend === 'native') return w('runsProcesses')
+  if (m.backend === PROCESS_BACKEND) return w('runsProcesses')
   if (m.backend === 'docker') return w('runsContainers')
   if (m.backend === 'namespaces') return w('runsNamespaces')
   return m.backend ? w('raw', { text: m.backend }) : w('runsUnknown')
@@ -913,20 +915,20 @@ export function emptyVm(platform?: Pick<MachinePlatformInfo, 'options'>): VmForm
   }
 }
 
-/** What this computer has for VMs, as `machine stats native` observed it (null: not observed). */
+/** What this computer has for VMs, as `machine stats` of the host machine observed it (null: not observed). */
 export interface HostRoom { cpus: number | null, memory: number | null, diskFree: number | null }
 
 /** The room line's facts: this computer, the other VMs' recorded sizes, and what the new one would overcommit. */
 export interface Room {
   host: HostRoom
-  /** The VMs already made (not native or docker), their recorded sizes summed. */
+  /** The VMs already made (not the host machine or docker), their recorded sizes summed. */
   others: { count: number, cpus: number, memory: number }
   /** Where the new VM with the others asks for more than this computer has: a warning, never a refusal. */
   over: ('cpus' | 'memory' | 'disk')[]
 }
 
 /**
- * The room a new VM has: `host` from `machine stats native`, the other VMs'
+ * The room a new VM has: `host` from the host machine's `machine stats`, the other VMs'
  * recorded CPUs and memory, and which of `ask` (the form's values; null when
  * unreadable) would go past this computer's: CPUs and memory with the others
  * counted, the disk against the free space on the LayerFS folder's disk.
@@ -945,7 +947,7 @@ export function vmErrors(f: VmForm, machines: MachineInfo[]): FormErrors {
   const e: FormErrors = {}
   const n = f.name.trim()
   if (!n) e.name = w('errNameRequired')
-  else if (BUILT_IN.has(n)) e.name = w('errNameBuiltIn', { name: n })
+  else if (BUILT_IN_NAMES.has(n)) e.name = w('errNameBuiltIn', { name: n })
   else if (!NAME.test(n)) e.name = w('errNameShape')
   else if (machines.some((m) => m.name === n)) e.name = w('errNameTaken', { name: n })
   const cpus = Number(f.cpus)

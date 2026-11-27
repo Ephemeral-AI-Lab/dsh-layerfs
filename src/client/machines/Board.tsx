@@ -20,7 +20,7 @@ import {
   RANK, downReason, gib, machineOrder, machineState, runsFix, runtimeOf, sandboxesOn, unreadableNamed, unreadableRecord, unreportedDiskKey,
   type AvailableView, type MachineInfo,
 } from './model.ts'
-import { engineStart, machineBlock, nativeGlyphOs, osOfView, stepReasons, type Readiness } from './needs.ts'
+import { engineStart, machineBlock, hostGlyphOs, osOfView, stepReasons, type Readiness } from './needs.ts'
 import { MachineDialogs, MachineMenu, MachineProgress, MachineStateChip, PowerButton, useMachineRun } from './parts.tsx'
 import { ObservedDisk, useMachineStats } from './MachineStats.tsx'
 import { MemoryCell } from './MetricsViews.tsx'
@@ -101,8 +101,8 @@ export function attentionOf(m: MachineInfo, view: AvailableView): 'danger' | 'wa
 /** What keeps `m` from running here (needs.ts machineBlock). */
 export const blockedOf = (m: MachineInfo, view: AvailableView): Readiness | null => machineBlock(m, view)
 
-/** The machine's mark: the native machine's is this computer's OS. */
-export const glyphOs = (m: MachineInfo, view: AvailableView) => (m.platform === 'native' ? nativeGlyphOs(osOfView(view)) : undefined)
+/** The machine's mark: the host machine's is this computer's OS. */
+export const glyphOs = (m: MachineInfo, view: AvailableView) => (m.platform === 'host' ? hostGlyphOs(osOfView(view)) : undefined)
 
 /**
  * A machine's disk in words, with a meter. With a CLI that has machine.stats
@@ -262,7 +262,7 @@ function MachineRow({ m, view, chosen, onToggle, onOpen, onAddStore, storeMenu, 
         </span>
         <span role="cell" className={css.fleetHolds}><HoldsCell m={m} view={view} /></span>
         <span role="cell" className={css.fleetActions}>
-          {m.platform === 'native' || (block && !engine) ? null : <PowerButton m={m} pending={pending} run={run} compact engine={engine} />}
+          {block && !engine ? null : <PowerButton m={m} pending={pending} run={run} compact engine={engine} />}
           <MachineMenu m={m} pending={pending} run={run} onOpen={onOpen} onDialog={setDialog} />
         </span>
       </div>

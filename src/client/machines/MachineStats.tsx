@@ -106,7 +106,7 @@ export function ObservedCpuMemory({ read }: { read: StatsRead | undefined }): Re
   )
 }
 
-/** The worker in one line: its LayerFS version and when it began to serve. Null on a machine with no worker (native) or no stats. */
+/** The worker in one line: its LayerFS version and when it began to serve. Null on a machine with no guest worker (the host machine) or no stats. */
 export function workerLine(stats: MachineStats | null | undefined, t: ReturnType<typeof useMachinesContext>['t']): string | null {
   const w = stats?.worker
   if (!w) return null

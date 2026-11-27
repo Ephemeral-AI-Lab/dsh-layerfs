@@ -180,11 +180,11 @@ export function shortVersion(version: string | null | undefined): string | null 
 /** This computer's OS, `macos` when an older host did not say. */
 export const osOfView = (view: { computer?: Computer | undefined }): HostOs => view.computer?.os ?? 'macos'
 
-/** The native machine's mark for this OS. */
-export const nativeGlyphOs = (os: HostOs): 'mac' | 'linux' | 'pc' => (os === 'macos' ? 'mac' : os === 'linux' ? 'linux' : 'pc')
+/** The host machine's mark for this OS. */
+export const hostGlyphOs = (os: HostOs): 'mac' | 'linux' | 'pc' => (os === 'macos' ? 'mac' : os === 'linux' ? 'linux' : 'pc')
 
-/** The native machine's name on this OS: This Mac, This computer, This PC. */
-export const nativeNameKey = (os: HostOs): MachinesKey => (os === 'macos' ? 'nativeMac' : os === 'windows' ? 'nativePc' : 'nativeComputer')
+/** The host machine's name on this OS: This Mac, This computer, This PC. */
+export const hostNameKey = (os: HostOs): MachinesKey => (os === 'macos' ? 'hostMac' : os === 'windows' ? 'hostPc' : 'hostComputer')
 
 /** The step's button and its tag. */
 export const STEP_WORDS: Record<Exclude<Step, 'ready' | 'unsupported'>, { button: MachinesKey, tag: MachinesKey }> = {

@@ -3,6 +3,7 @@
  * this host can Init into, the default Store name when there is none, the
  * machines attached to a PostgreSQL Store, and project-name slugs.
  */
+import { isHostName } from '../../shared/host-machine.ts'
 
 /** One Store a project can be made in. */
 export interface Location {
@@ -21,12 +22,12 @@ export function slugify(text: string): string {
 
 /**
  * The Stores of a `/api/storage` view a project can be made in from this host:
- * SQLite Stores on native, then PostgreSQL Stores; never the Scratch Store.
+ * SQLite Stores on the host machine, then PostgreSQL Stores; never the Scratch Store.
  */
 export function locationsOf(view: any, scratchStore?: string | null): Location[] {
   const stores: any[] = Array.isArray(view?.stores) ? view.stores : []
   const usable = stores.filter((s) => s?.name && s.name !== scratchStore)
-  const sqlite = usable.filter((s) => (s.kind ?? 'sqlite') !== 'postgresql' && (s.machine ?? 'native') === 'native')
+  const sqlite = usable.filter((s) => (s.kind ?? 'sqlite') !== 'postgresql' && isHostName(s.machine))
     .map((s): Location => ({ store: String(s.name), kind: 'sqlite', server: null, attached: [] }))
   const pg = usable.filter((s) => s.kind === 'postgresql')
     .map((s): Location => ({ store: String(s.name), kind: 'postgresql', server: s.postgresql?.target ?? null, attached: (Array.isArray(s.attached) ? s.attached : []).map((c: any) => (typeof c?.machine === 'string' ? c.machine : '')).filter(Boolean) }))

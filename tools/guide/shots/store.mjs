@@ -218,7 +218,7 @@ export default [
     callouts: [
       (page) => card(page, 'guide-notes').getByRole('button', { name: 'guide-notes', exact: true }),
       (page) => card(page, 'guide-notes').getByRole('button', { name: 'guide-notes actions' }),
-      (page) => card(page, 'guide-notes').getByRole('button', { name: 'Open native on Machines' }),
+      (page) => card(page, 'guide-notes').getByRole('button', { name: 'Open macos-host on Machines' }),
       (page) => card(page, 'guide-notes').getByRole('button', { name: /handbook/ }).first(),
       (page) => card(page, 'guide-notes').getByText('Backups', { exact: true }),
       (page) => page.getByRole('menuitem', { name: 'Push to…' }),

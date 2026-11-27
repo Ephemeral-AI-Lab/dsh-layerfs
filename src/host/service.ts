@@ -9,7 +9,7 @@ import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 import { boolOptions, CliError, client, discover, execute, hasNativeLogs, knownIdentity, knownNativeLogs, plain, uninitialized, type Discovery, type Lfs } from './layerfs/cli.ts'
 import { managedCli } from './layerfs/tracing.ts'
-import { machineRows } from './layerfs/machine-records.ts'
+import { HOST_MACHINE, isHostMachine, machineRows } from './layerfs/machine-records.ts'
 import { findSdk, managedSdk } from './layerfs/agent-sdk.ts'
 import { fileURLToPath } from 'node:url'
 
@@ -40,7 +40,7 @@ export interface LayerfsConfig {
   projectSessionHome?: string
   /** Absolute pinned `layerfs` CLI; else runtime.json, else DSH_LAYERFS_CLI, else the newest runtime installed in the home. */
   cli?: string
-  /** Absolute matching `layerfs-daemon` (macOS native machine). */
+  /** Absolute matching `layerfs-daemon` (the macOS host machine, `macos-host`). */
   daemon?: string
   /** Absolute Linux bundle folder (holds bundle.json) the docker/VM machines start workers from. */
   bundle?: string
@@ -59,7 +59,7 @@ export interface LayerfsConfig {
    * DSH_LAYERFS_SECRETS.
    */
   secrets?: string
-  /** The `<store>/<name>` project sessions without a project of their own work in (a SQLite Store on native, made on first use). */
+  /** The `<store>/<name>` project sessions without a project of their own work in (a SQLite Store on the host machine, made on first use). */
   scratchProject?: string
   /** Checkpoint each turn that changed files. */
   checkpoints?: 'turn' | 'off'
@@ -177,7 +177,7 @@ export interface SetupStatus {
   readonly needs: readonly SetupNeed[]
   /** Mixed builds may be saved (DSH_LAYERFS_ALLOW_MIXED=1, development): a piece from another build is a note, not a need. */
   readonly mixedAllowed: boolean
-  /** The native machine records another daemon than this runtime's, and this runtime's is from its build: the modal offers to record it. */
+  /** The host machine records another daemon than this runtime's, and this runtime's is from its build: the modal offers to record it. */
   readonly daemonRecordable: boolean
   /** The setup check could not finish (the CLI failed): its refusal. */
   readonly error: { readonly code: string, readonly message: string } | null
@@ -265,7 +265,7 @@ export class LayerfsService extends Service {
   readonly settings: JsonFile<{ cli?: string, daemon?: string, bundle?: string, cacheHome?: string }>
   private pin!: { cli: string | null, daemon: string | null, bundle: string | null, cacheHome: string | null, cacheHomeSource: RuntimeStatus['cacheHomeSource'], source: RuntimeStatus['source'] }
   private sdk: Lfs | undefined
-  private nativeRecorded: Promise<unknown> | undefined
+  private hostDaemonRecorded: Promise<unknown> | undefined
   /** Set while an operation holds the whole home (a preset build or reset): why new Sandboxes must wait, or null. */
   exclusive: (() => string | null) | undefined
   /** The LayerFS folder's last known state (the setup check); `outdated` closes the home gate. */
@@ -374,7 +374,7 @@ export class LayerfsService extends Service {
     this.homeState = null
     // a pin change makes a running check's answer stale
     this.homeGeneration = (this.homeGeneration ?? 0) + 1
-    this.nativeRecorded = undefined
+    this.hostDaemonRecorded = undefined
     // this host's lease on the runtime folder it pins, so no host's cleanup removes it (only once the plugin runs: never from a test)
     if (this.started) leasePin(this.home, this.root, cli)
     // Discover the CLI (identity, call log kind) now, so the first agent shell already gets $DSH_LAYERFS_SDK.
@@ -490,11 +490,11 @@ export class LayerfsService extends Service {
     return await this.setup()
   }
 
-  /** Re-records this runtime's daemon on the native machine (the setup modal's fix for a daemon from another build). */
+  /** Re-records this runtime's daemon on the host machine (the setup modal's fix for a daemon from another build). */
   async recordDaemon(): Promise<SetupStatus> {
-    if (!this.pin.daemon) throw new CliError('InvalidInput', 'This runtime has no native daemon to record')
-    this.nativeRecorded = undefined
-    await this.ensureNative(true)
+    if (!this.pin.daemon) throw new CliError('InvalidInput', 'This runtime has no host daemon to record')
+    this.hostDaemonRecorded = undefined
+    await this.ensureHostDaemon(true)
     this.emit('setup-changed')
     return await this.setup()
   }
@@ -545,7 +545,7 @@ export class LayerfsService extends Service {
     const bundle: Piece | null = got?.bundle
       ? (got.bundle.present ? { path: got.bundle.path, commit: got.bundle.commit, dirty: got.bundle.dirty, verdict: judged(got.bundle.matches) } : { path: got.bundle.path, commit: null, dirty: null, verdict: 'missing' })
       : pieceOf(this.pin.bundle, bundleStamp(this.pin.bundle), cliStamp)
-    // the daemon the native machine has recorded when LayerFS says (what its DaemonMismatch is about); else the pinned one
+    // the daemon the host machine has recorded when LayerFS says (what its DaemonMismatch is about); else the pinned one
     const daemon: Piece | null = process.platform !== 'darwin' ? null
       : got?.daemon
         ? (got.daemon.present === false ? { path: got.daemon.path, commit: null, dirty: null, verdict: 'missing' } : { path: got.daemon.path, commit: got.daemon.commit, dirty: got.daemon.dirty ?? null, verdict: judged(got.daemon.matches) })
@@ -603,8 +603,9 @@ export class LayerfsService extends Service {
   private async workersIdle(): Promise<boolean> {
     try {
       if (!this.pin.cli || !existsSync(join(this.home, 'layerfs.json'))) return true
-      // records only (2.0): every worker machine stopped; a built-in docker never started reads `stopped`
-      return (await machineRows(this.lfs, { timeout_ms: 15000 })).every((m) => m.platform === 'native' || m.state === 'stopped')
+      // records only (2.0): every worker machine stopped; a built-in docker never started reads `stopped`.
+      // The host machine mounts no bundle: its state does not count.
+      return (await machineRows(this.lfs, { timeout_ms: 15000 })).every((m) => isHostMachine(m) || m.state === 'stopped')
     } catch { return false }
   }
 
@@ -687,27 +688,27 @@ export class LayerfsService extends Service {
   }
 
   /**
-   * Before calls that need the native machine (macOS): record the pinned daemon
-   * on `native` when none, or a missing one, is recorded; after a runtime
+   * Before calls that need the host machine (macOS): record the pinned daemon
+   * on `macos-host` when none, or a missing one, is recorded; after a runtime
    * change (`moved`), whenever another one is recorded. Never throws.
    */
-  ensureNative(moved = false): Promise<unknown> {
-    if (this.nativeRecorded) return this.nativeRecorded
+  ensureHostDaemon(moved = false): Promise<unknown> {
+    if (this.hostDaemonRecorded) return this.hostDaemonRecorded
     let failed = false
     const attempt: Promise<unknown> = (async () => {
       if (process.platform !== 'darwin' || !this.pin.cli || !this.pin.daemon) return
       try {
-        const recorded = existsSync(join(this.home, 'layerfs.json')) ? (await this.lfs.machine.get('native', { detail: true })).daemon ?? null : null
+        const recorded = existsSync(join(this.home, 'layerfs.json')) ? (await this.lfs.machine.get(HOST_MACHINE, { detail: true })).daemon ?? null : null
         if (recorded && existsSync(recorded) && (!moved || recorded === this.pin.daemon)) return
-        await this.lfs.machine.update('native', { daemon: this.pin.daemon })
+        await this.lfs.machine.update(HOST_MACHINE, { daemon: this.pin.daemon })
       } catch (error) {
         failed = true
-        this.ctx.logger('layerfs').warn('native daemon not recorded: %s', (error as Error)?.message ?? error)
+        this.ctx.logger('layerfs').warn('host daemon not recorded: %s', (error as Error)?.message ?? error)
       }
     })()
-    this.nativeRecorded = attempt
+    this.hostDaemonRecorded = attempt
     // Not recorded: the next caller tries again (unless the pin changed meanwhile).
-    void attempt.then(() => { if (failed && this.nativeRecorded === attempt) this.nativeRecorded = undefined })
+    void attempt.then(() => { if (failed && this.hostDaemonRecorded === attempt) this.hostDaemonRecorded = undefined })
     return attempt
   }
 
@@ -774,8 +775,8 @@ export class LayerfsService extends Service {
     }
     this.settings.write({ ...(pin.cli === null ? {} : { cli: pin.cli, ...(pin.daemon ? { daemon: pin.daemon } : {}), ...(pin.bundle ? { bundle: pin.bundle } : {}) }), ...(cacheHome ? { cacheHome } : {}) })
     this.resolvePin()
-    // the native machine follows the new daemon (the installed copy in the home)
-    if (pin.daemon) await this.ensureNative(true)
+    // the host machine follows the new daemon (the installed copy in the home)
+    if (pin.daemon) await this.ensureHostDaemon(true)
     this.emit('runtime-changed')
     this.emit('setup-changed')
     // a new runtime folder was installed: remove the ones nothing uses any more (never fails the save)
@@ -798,7 +799,7 @@ export class LayerfsService extends Service {
       this.config.cli, this.config.daemon, this.config.bundle,
       process.env.DSH_LAYERFS_CLI, process.env.DSH_LAYERFS_DAEMON, process.env.DSH_LAYERFS_BUNDLE, process.env.LAYERFS_BUNDLE]
     let machines: unknown = null
-    // a deliberate probe (its own budget), so the answer is read now, after the native record moved
+    // a deliberate probe (its own budget), so the answer is read now, after the host machine's record moved
     try { if (this.pin.cli && existsSync(join(this.home, 'layerfs.json'))) machines = await this.lfs.machine.list({ timeout_ms: 15000, detail: true }) } catch { machines = null }
     const result = cleanRuntimes(this.home, { pinned, machines, processes: runningCommands() })
     const logger = this.ctx.logger('layerfs')

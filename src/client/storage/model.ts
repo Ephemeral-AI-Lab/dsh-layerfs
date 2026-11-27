@@ -3,9 +3,10 @@ import type { Tone } from '../ui/index.tsx'
 import type { BackupFile, BucketRow, JobKind, StorageJob, StorageView, StoreBackupLink, StoreFormat, StoreRow } from './types.ts'
 import type { StorageKey, StorageT } from './locale.ts'
 import { connectBucketFix } from '../../shared/doctor.ts'
+import { isHostName } from '../../shared/host-machine.ts'
 
-/** A sqlite Store saved under the LayerFS home (`native`). */
-export const inHome = (s: StoreRow): boolean => s.kind === 'sqlite' && s.machine === 'native'
+/** A sqlite Store saved under the LayerFS home (on the host machine, `macos-host` / `linux-host`). */
+export const inHome = (s: StoreRow): boolean => s.kind === 'sqlite' && isHostName(s.machine)
 
 /** project.init goes into a ready Store (LayerFS refuses a busy, blocked or broken one). */
 export const canAddProject = (s: StoreRow): boolean => s.state === 'ready'
@@ -114,10 +115,10 @@ export function orderStores(stores: readonly StoreRow[]): StoreRow[] {
 /** Which group of the board a Store belongs to. */
 export const groupOf = (s: StoreRow): 'home' | 'machines' | 'postgresql' => s.kind === 'postgresql' ? 'postgresql' : inHome(s) ? 'home' : 'machines'
 
-/** The machines a sqlite Store can live on (native is the home), by name. */
+/** The machines a sqlite Store can live on (the host machine is the home), by name. */
 export function machinePlaces(view: StorageView): StorageView['machines'] {
   return view.machines
-    .filter((m) => m.name !== 'native' && (!m.supports || m.supports.includes('sqlite')))
+    .filter((m) => !isHostName(m.name) && (!m.supports || m.supports.includes('sqlite')))
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
@@ -173,7 +174,7 @@ export function overviewMachineHealth(s: Pick<StoreRow, 'kind' | 'machine' | 'st
   }
   if (stoppedBlock(s) || (s.kind === 'sqlite' && machineState === 'stopped')) return { tone: 'info', key: 'spMachineStopped' }
   if (machineState === 'busy' || (s.state === 'blocked' && s.blockedBy?.reason === 'busy')) return { tone: 'info', key: 'spMachineBusy' }
-  if (machineState === 'ready' || (s.machine === 'native' && machineState !== 'broken')) return { tone: 'ok', key: 'spMachineRunning' }
+  if (machineState === 'ready' || (isHostName(s.machine) && machineState !== 'broken')) return { tone: 'ok', key: 'spMachineRunning' }
   return { tone: 'info', key: 'spMachineUnknown' }
 }
 
@@ -537,7 +538,7 @@ export function jobEnd<B extends Holder>(j: Pick<StorageJob, 'error' | 'store'>,
 }
 
 /** The page a holding Sandbox opens on. */
-export const holderTab = (b: Holder): `sandbox:${string}` => `sandbox:${b.machine ?? 'native'}/${b.name}`
+export const holderTab = (b: Holder): `sandbox:${string}` => `sandbox:${b.machine ?? ''}/${b.name}`
 
 /** How a job ended, in words. `size` writes a byte count (a compaction's freed space); without it the count is left out. */
 export function endedWords(j: StorageJob, t: StorageT, size?: (n: number) => string): string {

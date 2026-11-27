@@ -32,7 +32,7 @@ function fixture(lfs, calls = PINNED, features = [], sessionOf = undefined) {
 
 // the 2.0 machine family: rows keyed `machine`; platforms from home.get --with platforms
 const machineBase = {
-  list: async () => ({ items: [{ machine: 'native', platform: 'native', state: 'ready', supports: ['sqlite'], stores: [], sandboxes: [] }] }),
+  list: async () => ({ items: [{ machine: 'macos-host', platform: 'host', state: 'ready', supports: ['sqlite'], stores: [], sandboxes: [] }] }),
 }
 const homeBase = { get: async () => ({ state: 'ready', platforms: { host: 'macos', items: [] } }) }
 const viewLfs = (extra = {}, sandboxes = []) => ({
@@ -95,7 +95,7 @@ function glibcLayer(dir) {
   return readFileSync(join(dir, 'glibc.tar'))
 }
 
-test('sandbox-images: Stage 0 ready rows from the archive a Sandbox runs from (bundle, machine record, native)', async () => {
+test('sandbox-images: Stage 0 ready rows from the archive a Sandbox runs from (bundle, machine record, host machine)', async () => {
   const OWN = `sha256:${hex('2')}`
   const records = {}
   const f = fixture(viewLfs({ get: async (name) => records[name] }, [
@@ -119,7 +119,7 @@ test('sandbox-images: Stage 0 ready rows from the archive a Sandbox runs from (b
     docker: { name: 'docker', platform: 'docker', state: 'running', image: 'debian:13' },
     pinnedvm: { name: 'pinnedvm', platform: 'lima', state: 'stopped', image: OWN },
     vm: { name: 'vm', platform: 'lima', state: 'stopped', image: many },
-    native: { name: 'native', platform: 'native', state: 'ready' },
+    'macos-host': { name: 'macos-host', platform: 'host', state: 'ready' },
   })
   f.host.bundle = () => bundle
   const get = async (name) => (await f.http('GET', `/api/machines/${name}/sandbox-images`)).body
@@ -147,9 +147,9 @@ test('sandbox-images: Stage 0 ready rows from the archive a Sandbox runs from (b
     // the record's digest wins when it is a usable row
     records.vm = { ...records.vm, image_archive: many, image: `sha256:${hex('5')}` }
     assert.equal((await get('vm')).default, `sha256:${hex('5')}`)
-    const native = await get('native')
-    assert.equal(native.mode, process.platform === 'linux' ? 'images' : 'host')
-    if (process.platform !== 'linux') assert.deepEqual([native.ready, native.default, native.docker], [[], null, null])
+    const host = await get('macos-host')
+    assert.equal(host.mode, process.platform === 'linux' ? 'images' : 'host')
+    if (process.platform !== 'linux') assert.deepEqual([host.ready, host.default, host.docker], [[], null, null])
   } finally { f.close() }
 })
 
@@ -203,8 +203,8 @@ test('create: Stage 0 takes a full digest only (501 image-refs before any call);
   const created = []
   // 2.0: a sqlite project's Sandbox runs on its Store's machine (LayerFS's default): no machine is named
   const lfs = {
-    project: { get: async (key) => ({ project: key, store: 's1', machine: 'native', engine: 'sqlite' }) },
-    store: { get: async () => ({ store: 's1', engine: 'sqlite', machine: 'native' }) },
+    project: { get: async (key) => ({ project: key, store: 's1', machine: 'macos-host', engine: 'sqlite' }) },
+    store: { get: async () => ({ store: 's1', engine: 'sqlite', machine: 'macos-host' }) },
     sandbox: { create: async (...args) => { created.push(args); return { sandbox: args[1] } } },
   }
   const pinned = fixture(lfs)
@@ -329,8 +329,8 @@ test('Sandboxes: a project binding labels its Sandbox with its sessionId; a shar
     { sandbox: 'plain', project: 's1/p', state: 'ready' },
   ]
   const lfs = {
-    project: { get: async (key) => ({ project: key, store: 's1', engine: 'sqlite', machine: 'native', created_at: new Date(7).toISOString() }) },
-    store: { get: async (name) => ({ store: name, machine: 'native', engine: 'sqlite', state: 'ready' }) },
+    project: { get: async (key) => ({ project: key, store: 's1', engine: 'sqlite', machine: 'macos-host', created_at: new Date(7).toISOString() }) },
+    store: { get: async (name) => ({ store: name, machine: 'macos-host', engine: 'sqlite', state: 'ready' }) },
     branch: { list: async () => ({ items: [{ branch: 'main', commit: head }], next_cursor: null }) },
     sandbox: {
       list: async () => ({ items: rows, next_cursor: null }),
@@ -753,7 +753,7 @@ test('sandbox-images Stage 1: ready rows, free, default and the Docker group com
   } finally { f.close() }
 })
 
-test('sandbox-images Stage 1: Docker off, LayerFS default without last_used, macOS native host mode', async () => {
+test('sandbox-images Stage 1: Docker off, LayerFS default without last_used, the macOS host machine (host mode)', async () => {
   let answer = imagesAnswer({ docker: { images: [], reason: 'not_running', message: 'Cannot connect to the Docker daemon' } })
   answer.items[1].last_used_at = null
   const f = stage1Fixture({ images: async () => answer })
@@ -905,8 +905,8 @@ test('create: no on_progress option when the CLI declares none (Stage 0 sends ex
   const created = []
   // 2.0: a sqlite project's Sandbox runs on its Store's machine (LayerFS's default): no machine is named
   const lfs = {
-    project: { get: async (key) => ({ project: key, store: 's1', machine: 'native', engine: 'sqlite' }) },
-    store: { get: async () => ({ store: 's1', engine: 'sqlite', machine: 'native' }) },
+    project: { get: async (key) => ({ project: key, store: 's1', machine: 'macos-host', engine: 'sqlite' }) },
+    store: { get: async () => ({ store: 's1', engine: 'sqlite', machine: 'macos-host' }) },
     sandbox: { create: async (...args) => { created.push(args); return { sandbox: args[1] } } },
   }
   const f = fixture(lfs)
@@ -931,13 +931,13 @@ test('features: each monitoring call is its own feature, read from the call tabl
   for (const name of ['machine.log', 'sandbox.log', 'sandbox.files', 'machine.files']) assert.ok(!R.cli.REQUIRED_CALLS.includes(name), `${name} is optional`)
   // the machines view carries them, and a machine's `supports` list says whether it has a log (2.0: `log` in the list)
   const f = fixture(viewLfs({ list: async () => ({ items: [
-    { machine: 'native', platform: 'native', state: 'ready', supports: ['sqlite', 'postgresql_sandbox'] },
+    { machine: 'macos-host', platform: 'host', state: 'ready', supports: ['sqlite', 'postgresql_sandbox'] },
     { machine: 'docker', platform: 'docker', state: 'ready', supports: ['sqlite', 'postgresql_sandbox', 'log'] },
   ] }), get: async (name) => ({ machine: name, platform: name, state: 'ready', live: {} }) }), LOGS)
   try {
     const view = (await f.http('GET', '/api/machines')).body
     assert.deepEqual(view.features.inspect, { machineLog: true, sandboxLog: true, files: false, machineFiles: false, machineStats: false })
-    assert.deepEqual(view.machines.map((m) => [m.name, m.supports.includes('log')]), [['native', false], ['docker', true]])
+    assert.deepEqual(view.machines.map((m) => [m.name, m.supports.includes('log')]), [['macos-host', false], ['docker', true]])
   } finally { f.close() }
 })
 
@@ -994,7 +994,7 @@ test('log routes: the answer as the page reads it, with the options LayerFS take
     // the machines view makes no log call, and a log GET does not make the view read again
     seen.length = 0
     let lists = 0
-    lfs.machine.list = async () => { lists++; return { items: [{ machine: 'native', platform: 'native', state: 'ready' }] } }
+    lfs.machine.list = async () => { lists++; return { items: [{ machine: 'macos-host', platform: 'host', state: 'ready' }] } }
     const first = f.http('GET', '/api/machines')
     await f.http('GET', '/api/machines/docker/log')
     await Promise.all([first, f.http('GET', '/api/machines')])

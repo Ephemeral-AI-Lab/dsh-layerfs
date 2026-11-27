@@ -4,6 +4,7 @@ import { mkdtemp, rm, appendFile, writeFile, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { compileSimulation, SIMULATION_PROFILES } from '../src/host/simulations/compiler.ts'
+import { HOST_MACHINE } from '../src/host/layerfs/machine-records.ts'
 import { writeSimulationPackage, validateSimulationPackage, claimSimulationExecution, SimulationJournal } from '../src/host/simulations/package.ts'
 import { SimulationExecution, WorkspaceLifecycleGate } from '../src/host/simulations/gate.ts'
 const project = Object.keys(SIMULATION_PROFILES)[0]
@@ -38,7 +39,7 @@ test('journal serializes records, recovers a torn tail and rejects earlier corru
 })
 test('durable intent precedes mutation, uncertain attempts cannot replay after restart', async t => {
   const { directory } = await fixture(t)
-  const plan = { steps: [{ key: 'a', phase: 'setup', argv: ['machine', 'get', 'native'], dependsOn: [] }], tasks: [], agents: [] }
+  const plan = { steps: [{ key: 'a', phase: 'setup', argv: ['machine', 'get', 'macos-host'], dependsOn: [] }], tasks: [], agents: [] }
   let journal = await SimulationJournal.open(directory)
   let engine = new SimulationExecution(plan, journal)
   await assert.rejects(engine.execute('a', { origin: 'host' }, async () => {
@@ -54,8 +55,8 @@ test('durable intent precedes mutation, uncertain attempts cannot replay after r
 test('Stop releases dependency waits without dispatching mutation; independent agent remains usable', async t => {
   const { directory } = await fixture(t)
   const plan = { steps: [
-    { key: 'a', phase: 'setup', argv: ['machine', 'get', 'native'], dependsOn: [] },
-    { key: 'b', phase: 'setup', argv: ['machine', 'get', 'native'], dependsOn: ['a'] },
+    { key: 'a', phase: 'setup', argv: ['machine', 'get', 'macos-host'], dependsOn: [] },
+    { key: 'b', phase: 'setup', argv: ['machine', 'get', 'macos-host'], dependsOn: ['a'] },
   ], tasks: [], agents: [] }
   const engine = new SimulationExecution(plan, await SimulationJournal.open(directory))
   let spawned = false
@@ -79,7 +80,7 @@ test('a workspace lifecycle waiter consumes no shared command slot', async t => 
   const { directory } = await fixture(t)
   const plan = { steps: [
     { key: 'detach', phase: 'conversation', conversationId: 'c1', agentId: null, argv: ['workspace', 'unmount', 'box:work'], dependsOn: [] },
-    { key: 'independent', phase: 'conversation', conversationId: 'c2', agentId: null, argv: ['machine', 'get', 'native'], dependsOn: [] },
+    { key: 'independent', phase: 'conversation', conversationId: 'c2', agentId: null, argv: ['machine', 'get', 'macos-host'], dependsOn: [] },
   ], tasks: [], agents: [{ agentKey: 'c1-main', conversationId: 'c1', agentId: null }, { agentKey: 'c2-main', conversationId: 'c2', agentId: null }] }
   const journal = await SimulationJournal.open(directory)
   await journal.bind('c1-main', 'one'); await journal.bind('c2-main', 'two')
@@ -113,13 +114,13 @@ test('selected stopped or SQLite-incompatible machines fail before any dependent
     assert.equal(journal.records.some(record => record.type === 'intent' && record.stepKey === 'setup.store'), false)
   }
 })
-test('the recorded native ready machine shape and ready workers pass setup readiness', async t => {
-  for (const [index, platform] of ['native', 'lima'].entries()) {
+test('the recorded host ready machine shape and ready workers pass setup readiness', async t => {
+  for (const [index, [machine, platform]] of [[HOST_MACHINE, 'host'], ['lima', 'lima']].entries()) {
     const root = await mkdtemp(join(tmpdir(), 'dsh-simulation-ready-'))
     t.after(() => rm(root, { recursive: true, force: true }))
     const run = compileSimulation({ project, runId: `ready-${index}`, cycles: 1 })
     const directory = await writeSimulationPackage(root, run)
-    const receipt = { machine: platform, platform, backend: platform === 'native' ? 'native' : 'namespaces', supports: ['sqlite', 'postgresql_sandbox'], state: 'ready', op: null }
+    const receipt = { machine, platform, backend: platform === 'host' ? 'process' : 'namespaces', supports: ['sqlite', 'postgresql_sandbox'], state: 'ready', op: null }
     assert.deepEqual(await new SimulationExecution(run.plan, await SimulationJournal.open(directory)).execute('setup.machine', { origin: 'host' }, async () => receipt), receipt)
   }
 })

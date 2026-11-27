@@ -28,7 +28,7 @@ export const isWriteCall = (argv) => isWrite((argv ?? []).map(String))
 /** Daemon log lines that are problems. */
 const LOG_ERROR = /\bpanic(?:ked)?\b|\bERROR\b|\bFATAL\b|\bAbort(?:ed)?\b/
 /**
- * Daemon log lines recorded but not failures. ConnectionFailure: the native daemon logs one
+ * Daemon log lines recorded but not failures. ConnectionFailure: the host daemon logs one
  * for every client connection that closes after its reply (cause `CloseFailed … UnexpectedEof`,
  * request `end-session`), i.e. on every ordinary CLI read; reported as a note with the count.
  */

@@ -23,10 +23,10 @@ const a = process.argv.slice(2)
 appendFileSync(${JSON.stringify(join(dir, 'last.log'))}, JSON.stringify(a) + '\\n')
 const out = (v) => console.log(JSON.stringify(v))
 if (a[0] === 'help') out({ calls: [{ family: 'sandbox', call: 'list', args: [], options: [{ name: 'page_size', kind: 'int' }] }, { family: 'machine', call: 'list', args: [], options: [] }] })
-else if (a[0] === 'machine' && a[1] === 'list') out({ machines: [{ name: 'native', platform: 'native', state: 'ready', sandboxes: ['a', 'b'] }, { name: 'docker', platform: 'docker', state: 'stopped', sandboxes: [] }] })
+else if (a[0] === 'machine' && a[1] === 'list') out({ machines: [{ name: 'macos-host', platform: 'host', state: 'ready', sandboxes: ['a', 'b'] }, { name: 'docker', platform: 'docker', state: 'stopped', sandboxes: [] }] })
 else if (a[0] === 'machine' && a[1] === 'get') out({ name: a.at(-1), platform: 'docker', state: 'stopped' })
 else if (a[0] === 'machine' && a[1] === 'status') out({ name: a.at(-1), platform: 'docker', state: 'stopped', free_disk: null, tool_version: '28', down_reason: 'the machine is stopped', stores: [] })
-else if (a[0] === 'sandbox' && a[1] === 'list') { if (a.some((x) => x.startsWith('--live'))) { console.error('layerfs: unknown option --live'); process.exit(2) } out({ items: [{ name: 'a', machine: 'native', state: 'running' }, { name: 'b', machine: 'native', state: 'running' }, { name: 'c', machine: 'native', state: 'closing' }], next_page_pos: null }) }
+else if (a[0] === 'sandbox' && a[1] === 'list') { if (a.some((x) => x.startsWith('--live'))) { console.error('layerfs: unknown option --live'); process.exit(2) } out({ items: [{ name: 'a', machine: 'macos-host', state: 'running' }, { name: 'b', machine: 'macos-host', state: 'running' }, { name: 'c', machine: 'macos-host', state: 'closing' }], next_page_pos: null }) }
 else if (a[0] === 'sandbox' && a[1] === 'get') out({ name: a.at(-1), state: 'running', created: 1794781675311, workspaces: [], daemon_capacity: {} })
 else if (a[0] === 'doctor' && a.length === 1) { out({ ok: true, findings: [{ severity: 'warning', entity: { kind: 'store', name: 's' }, message: 'm', fix: 'f' }] }); process.exit(1) }
 else { console.error(JSON.stringify({ error: 'NotFound', message: 'no machine named ' + a.at(-1) })); process.exit(125) }
@@ -85,7 +85,7 @@ test('machines: a declared row replaces fields of a real one, or is a machine th
   const f = fixture({ machines: { docker: { state: 'running', free_disk: 5, tool_version: '29' }, vm: { add: true, platform: 'lima', state: 'running', disk: 50 } } })
   try {
     const rows = f.run('machine', 'list').out.machines
-    assert.deepEqual(rows.map((m) => [m.name, m.platform, m.state]), [['docker', 'docker', 'running'], ['native', 'native', 'ready'], ['vm', 'lima', 'running']])
+    assert.deepEqual(rows.map((m) => [m.name, m.platform, m.state]), [['docker', 'docker', 'running'], ['macos-host', 'host', 'ready'], ['vm', 'lima', 'running']])
     assert.ok(!('free_disk' in rows[0]) && !('add' in rows[2]), 'what is not a row field stays out of the row')
     assert.equal(f.run('machine', 'get', '--', 'docker').out.state, 'running')
     assert.deepEqual(f.run('machine', 'get', '--', 'vm').out.disk, 50)

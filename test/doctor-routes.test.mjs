@@ -80,7 +80,7 @@ test('the tree is one records read: no doctor runs, concurrent readers share it'
   assert.equal(a, b)
   assert.equal(a.home.state, 'ready')
   assert.equal(a.home.version, '2.0.0')
-  assert.deepEqual(a.tree.machines.map((m) => [m.machine, m.state]), [['native', 'ready'], ['demo-build', 'ready'], ['docker', 'stopped'], ['dev', 'ready']])
+  assert.deepEqual(a.tree.machines.map((m) => [m.machine, m.state]), [['macos-host', 'ready'], ['demo-build', 'ready'], ['docker', 'stopped'], ['dev', 'ready']])
   assert.deepEqual(a.tree.machines[0].sandboxes[0].workspaces, [{ workspace: 'tests:agent', branch: 'agent' }, { workspace: 'tests:main', branch: 'main' }])
   assert.deepEqual(a.tree.buckets.map((x) => x.bucket), ['r2-main', 'minio-local', 'r2-old'])
   assert.deepEqual(f.spawns(), [['home', 'get', '--with', 'tree', '--detail']], 'opening the page spawns the records read only')
@@ -142,7 +142,7 @@ test('Full check takes --full on a project and a bucket; a bucket reports no pro
   const b = await f.start('bucket', 'r2-main', { full: true })
   const [ea, eb] = [await f.ended(a.runId), await f.ended(b.runId)]
   assert.equal(ea.report.tree.coverage, 'full')
-  assert.deepEqual(ea.report.tree.checks.map((c) => c.check), ['project.record', 'project.listed', 'project.mount_holders', 'project.data'])
+  assert.deepEqual(ea.report.tree.checks.map((c) => c.check), ['project.record', 'project.listed', 'project.data'])
   assert.equal(eb.report.tree.coverage, 'full')
   assert.deepEqual(f.spawns('project', 'doctor'), [['project', 'doctor', '--detail', '--progress', '--full', '--', 'shop/api']])
   assert.deepEqual(f.spawns('backup', 'doctor'), [['backup', 'doctor', '--detail', '--full', '--', 'r2-main']])
@@ -162,7 +162,7 @@ test('what is asked for is checked before anything runs', async () => {
     { runs: [{ id: id(), kind: 'home', name: 'x' }] },
     { runs: [{ id: id(), kind: 'machine', name: '--force' }] },
     { runs: [{ id: id(), kind: 'machine', name: 'dev; rm -rf /' }] },
-    { runs: [{ id: 'same-id-twice', kind: 'machine', name: 'dev' }, { id: 'same-id-twice', kind: 'machine', name: 'native' }] },
+    { runs: [{ id: 'same-id-twice', kind: 'machine', name: 'dev' }, { id: 'same-id-twice', kind: 'machine', name: 'macos-host' }] },
     { runs: [{ id: id(), kind: 'machine', name: 'dev' }], group: 'no' },
   ]
   for (const body of bad) assert.equal((await refusal(f.post('runs', body))).status, 400, JSON.stringify(body))

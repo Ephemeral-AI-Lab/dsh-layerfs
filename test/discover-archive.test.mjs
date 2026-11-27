@@ -180,7 +180,7 @@ test('a fresh lookup still waits for the Store', async () => {
 function sessions({ state = S.initialState(), lfs = {}, layerfsRoot = '/lfs-root' } = {}) {
   const s = Object.create(S.LayerfsSessions.prototype)
   const ctx = {
-    layerfs: { root: layerfsRoot, scratchProject: 'dsh-scratch/scratch', lfs, emit: () => {}, ensureNative: async () => {} },
+    layerfs: { root: layerfsRoot, scratchProject: 'dsh-scratch/scratch', lfs, emit: () => {}, ensureHostDaemon: async () => {} },
     sessions: { get: () => undefined },
     logger: () => ({ warn() {}, info() {} }),
   }

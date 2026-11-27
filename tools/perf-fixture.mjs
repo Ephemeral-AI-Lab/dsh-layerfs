@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Seed a perf data tier (docs/specs/backend-e2e-tests.md §3.3). Native only: SQLite
-// Stores on the native machine, no Docker or Lima. Two modes:
+// Seed a perf data tier (docs/specs/backend-e2e-tests.md §3.3). Host only: SQLite
+// Stores on the host machine (macos-host / linux-host), no Docker or Lima. Two modes:
 //
 //   node tools/perf-fixture.mjs --tier S|M [--dir <abs dir>] [--force]
 //     In process, no server: the host routes from src (test/routes-helper.mjs, as
@@ -27,7 +27,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { runtimePin } from '../scripts/runtime-pin.mjs'
 import { baseProjectHistorySteps, stepEffect } from '../src/host/presets/recipe/recipe.js'
-import { sourceFiles } from '../src/host/presets/recipe/presets.js'
+import { HOST_MACHINE, sourceFiles } from '../src/host/presets/recipe/presets.js'
 
 export const FIXTURE_VERSION = 4
 const root = fileURLToPath(new URL('..', import.meta.url))
@@ -168,7 +168,7 @@ export async function buildHome({ tier, dir = join(root, `.dev-perf-${tier}`), f
   const t = testHost({
     lfs, root: dir, home, cli, daemon: pin?.daemon ?? null,
     discovery: () => R.cli.discover({ cli }),
-    ensureNative: () => recorded ??= (process.platform === 'darwin' && pin?.daemon ? lfs.machine.update('native', { daemon: pin.daemon }) : Promise.resolve()),
+    ensureHostDaemon: () => recorded ??= (process.platform === 'darwin' && pin?.daemon ? lfs.machine.update(HOST_MACHINE, { daemon: pin.daemon }) : Promise.resolve()),
   })
   const groups = R.createGroups(t.host, async () => ({ ok: true }))
   const http = async (method, path, body) => {
@@ -178,7 +178,7 @@ export async function buildHome({ tier, dir = join(root, `.dev-perf-${tier}`), f
   }
   const started = Date.now()
   try {
-    // No Sandbox: each one keeps a native daemon process running for the life of the fixture.
+    // No Sandbox: each one keeps a host daemon process running for the life of the fixture.
     const made = await seed({ tier, http, cli, home, fixtures: join(dir, 'src'), log })
     const manifest = { version: FIXTURE_VERSION, tier, mode: 'home', cli, cliCommit, daemon: pin.daemon, home, createdAt: new Date().toISOString(), seconds: Math.round((Date.now() - started) / 1000), ...made }
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
@@ -226,7 +226,7 @@ async function buildServer({ tier, force }) {
       if (state.checkpoints.filter((c) => c.kind === 'turn' && c.commit).length >= 2) break
       await sleep(500)
     }
-    const session = { id: placed.sessionId, workspaceId: placed.workspaceId, project, sandbox: state.binding?.sandbox ?? null, machine: state.binding?.machine ?? 'native', branch: state.binding?.branch ?? null }
+    const session = { id: placed.sessionId, workspaceId: placed.workspaceId, project, sandbox: state.binding?.sandbox ?? null, machine: state.binding?.machine ?? HOST_MACHINE, branch: state.binding?.branch ?? null }
     const manifest = { version: FIXTURE_VERSION, tier, mode: 'server', cli, cliCommit, createdAt: new Date().toISOString(), seconds: Math.round((Date.now() - started) / 1000), ...made, session }
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
     console.log(`perf-fixture: tier ${tier} seeded in ${manifest.seconds} s → ${manifestPath}`)

@@ -2,7 +2,8 @@
  * Compute's machines (LayerFS 2.0, layerfs#533): `GET /api/machines` and the
  * calls the Machines page makes. Port of Connect `host/machines.js`.
  *
- * A LayerFS 2.0 home's compute is a set of machines: `native` and `docker`
+ * A LayerFS 2.0 home's compute is a set of machines: the host machine
+ * (`macos-host` / `linux-host`, platform `host`) and `docker`
  * built in, and VMs it creates (apple-container, microsandbox, lima).
  * LayerFS's ssh hosts and Firecracker machines are turned off (OFF): the
  * platforms list leaves them out and machine.create refuses them. A
@@ -19,7 +20,7 @@
  *
  * Liveness is sampled, not awaited (layerfs-project#B4). The live probe
  * (`machine get <m> --detail --with live`: the state it finds, free disk, tool
- * version, worker; native's is its free disk) runs in the metrics sampler's
+ * version, worker; the host's is its free disk, `machine_state` and worker health) runs in the metrics sampler's
  * machine turns (metrics.ts), which is also where a Docker machine that died
  * is noticed. `GET /api/machines` answers from the last probe with its
  * timestamp, so the read no longer pays the 200+ ms probe; `?fresh=1` (the
@@ -38,12 +39,11 @@ import { liveOf, spaceAnswer, type MachineSpace, type MachineSpaceView, type Mac
 import { Answer, cliFeatures, featuresOf, fixOf, pages, refuse, type CliFeatures, type RouteHost } from './util.ts'
 import { ImageLoads, type LoadReport } from './image-loads.ts'
 import { createPhase } from './projects.ts'
-import { attachedOf, companionsOf, machineOf, opOf, unreadableRecord, probedRecord } from '../layerfs/machine-records.ts'
+import { attachedOf, companionsOf, isHostName, machineOf, opOf, unreadableRecord, probedRecord } from '../layerfs/machine-records.ts'
 
 export { machineOf, opOf, STATES } from '../layerfs/machine-records.ts'
 import { engineSocket, realEngineDeps, startEngine, type EngineDeps } from './docker-engine.ts'
 
-const BUILT_IN = new Set(['native', 'docker'])
 /** Platforms LayerFS has that are turned off here: not offered, not created or connected. */
 export const OFF = new Set(['ssh', 'firecracker'])
 /** Create options only Firecracker used (a nested Lima machine hosts it): not offered either. */
@@ -97,7 +97,7 @@ export interface SandboxImagesView {
   platform: string | null
   state: string
   stage: 0 | 1
-  /** `host`: macOS native, no Image row. */
+  /** `host`: the macOS host machine (`process` backend), no Image row. */
   mode: 'images' | 'host'
   /** The machine's Linux architecture. */
   architecture: string | null
@@ -109,7 +109,7 @@ export interface SandboxImagesView {
   /** The ready rows are the last good answer kept in memory (this read failed: `code`, `message`; `WorkerOutdated`: the worker runs another LayerFS build). */
   stale: false | { at: number, code: string, message?: string }
   ready: ReadyImage[]
-  /** The "From Docker" group: null at Stage 0 and on macOS native. */
+  /** The "From Docker" group: null at Stage 0 and on the macOS host machine. */
   docker: null | { available: false, reason: 'not-installed' | 'not-running' | 'error', message?: string } | { available: true, images: DockerImage[] }
 }
 
@@ -192,7 +192,7 @@ export function readyOf(i: any): ReadyImage | null {
  * group (§4.1): the host's Docker images the machine does not hold (D3), each
  * `{image, refs, size, os, architecture, usable, needed_bytes, fits,
  * unusable}`; `reason` and `message` say why Docker did not answer (then
- * `images` is empty). Null when LayerFS gives no section (macOS native).
+ * `images` is empty). Null when LayerFS gives no section (the macOS host machine).
  */
 export function dockerOf(answer: any): SandboxImagesView['docker'] {
   const d = answer?.docker
@@ -339,9 +339,9 @@ export class Machines {
    */
   constructor(private readonly host: RouteHost, private readonly place: ((store: string, machine: string, made?: boolean) => Promise<unknown>) | null = null, options: { clock?: Clock } = {}) {
     this.metrics = new MetricsSampler({
-      // the native daemon is recorded once before the first call, as the router does before every route
+      // the host machine's daemon is recorded once before the first call, as the router does before every route
       list: async () => {
-        await this.host.ensureNative()
+        await this.host.ensureHostDaemon()
         return list((await this.lfs.machine.list({ detail: true })).items).map((m: any) => ({
           name: String(m?.machine ?? ''), state: text(m?.state) ?? 'ready',
           readable: !unreadableRecord({ state: m?.state, reason: m?.reason, platform: m?.platform }),
@@ -656,11 +656,11 @@ export class Machines {
     let record: any = null
     try { record = await lfs.machine.get(name, { detail: true }) } catch (error: any) { if (error?.code === 'NotFound') throw error }
     const state = text(record?.state)
-    const platform = text(record?.platform) ?? (BUILT_IN.has(name) ? name : null)
+    const platform = text(record?.platform) ?? (name === 'docker' ? name : isHostName(name) ? 'host' : null)
     const stage = (await cliFeatures(this.host)).imageStage
     const base = { machine: name, platform, state: state ?? 'unknown', stage: 0 as const, free: null, docker: null, observedAt: Date.now() }
-    // a native Sandbox off Linux runs on the computer itself: no image
-    if (platform === 'native' && process.platform !== 'linux') return { ...base, stage, mode: 'host', architecture: null, default: null, stale: false, ready: [] }
+    // a host Sandbox off Linux (the `process` backend) runs on the computer itself: no image
+    if (platform === 'host' && process.platform !== 'linux') return { ...base, stage, mode: 'host', architecture: null, default: null, stale: false, ready: [] }
     // Stage 1: everything from machine.images (ready images, free space, and the Docker images LayerFS can copy)
     if (stage === 1) return this.stage1Images(name, base)
     const architecture = linuxArchitecture()

@@ -195,8 +195,8 @@ test('control.json: refusal codes, a delay, supports.log false; each process is 
       assert.equal(f.run(['logs', 'sandbox', '--', 'whatever']).err.message, 'any Sandbox')
       assert.equal(f.run(['logs', 'machine', '--', 'other']).status, 0, 'another machine is not refused')
     }
-    f.control({ supports_log: { native: false } })
-    assert.equal(f.run(['logs', 'machine', '--', 'native']).err.code, 'Unsupported')
+    f.control({ supports_log: { 'macos-host': false } })
+    assert.equal(f.run(['logs', 'machine', '--', 'macos-host']).err.code, 'Unsupported')
     assert.equal(f.run(['logs', 'machine', '--', 'docker']).status, 0)
     f.control({ delay_ms: { 'machine:docker': 700 } })
     const started = Date.now()

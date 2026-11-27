@@ -103,7 +103,7 @@ const makeT = (lang) => (key, vars) => fill(M.storageLocales[lang][key] ?? key, 
 const makeDocT = (lang) => (key, vars) => fill(M.doctorLocales[lang][key] ?? key, vars)
 
 const fixtureMachines = [
-  { name: 'native', platform: 'native', state: 'ready', stores: ['ok-store', 'broken-store'], sandboxes: [] },
+  { name: 'macos-host', platform: 'host', state: 'ready', stores: ['ok-store', 'broken-store'], sandboxes: [] },
   { name: 'docker', platform: 'docker', state: 'stopped', stores: ['stopped-store'], sandboxes: [] },
   { name: 'vm-broken', platform: 'lima', state: 'broken', reason: 'outdated', fix: 'layerfs machine repair vm-broken', stores: ['mbroken-store'], sandboxes: [] },
 ]
@@ -111,7 +111,7 @@ globalThis.__u205Machines = fixtureMachines
 
 const fixtureStores = [
   {
-    name: 'ok-store', kind: 'sqlite', machine: 'native', state: 'ready',
+    name: 'ok-store', kind: 'sqlite', machine: 'macos-host', state: 'ready',
     projects: ['app'], projectsCount: 1, size: { bytes: 4096 }, links: [], ownConnections: [],
   },
   {
@@ -125,7 +125,7 @@ const fixtureStores = [
     projects: ['worker'], projectsCount: 1, size: { bytes: 2048, stale: true, seen: 1000 }, links: [], ownConnections: [],
   },
   {
-    name: 'broken-store', kind: 'sqlite', machine: 'native', state: 'broken',
+    name: 'broken-store', kind: 'sqlite', machine: 'macos-host', state: 'broken',
     reason: 'corrupt', message: 'Store header unreadable', fix: 'layerfs store compact broken-store',
     projects: ['legacy'], projectsCount: 1, size: { bytes: 1024 }, links: [], ownConnections: [],
   },
@@ -251,7 +251,7 @@ test('ui/205 StorePage: header chip, notice banner, and Health › Machine match
     const okHealthIdx = okHtml.indexOf('data-store-health')
     const okHealth = okHtml.slice(okHealthIdx, okHtml.indexOf('</ul>', okHealthIdx))
     assert.ok(okHealth.includes('data-tone="ok"'), `ready Health › Machine row must be ok (${lang})`)
-    assert.ok(okHealth.includes(t('spMachineRunning', { machine: 'native' })), `ready Health › Machine must say running (${lang})`)
+    assert.ok(okHealth.includes(t('spMachineRunning', { machine: 'macos-host' })), `ready Health › Machine must say running (${lang})`)
   }
 })
 

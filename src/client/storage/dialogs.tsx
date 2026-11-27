@@ -23,6 +23,7 @@ import type { MachinesView, ProjectInitJob, StorageJob, StorageView, StoreRow } 
 import { AttachPicker, ConnectDialog, EditConnectionDialog } from './PgDialogs.tsx'
 import { BackUpDialog, BackupsDialog } from './BackupDialogs.tsx'
 import css from './Storage.module.css'
+import { isHostName } from '../../shared/host-machine.ts'
 
 const NAME = /^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/
 
@@ -184,7 +185,7 @@ function NewStoreDialog({ api, t, view, opened, initialPane, onClose, done, onDi
     if (made !== store) {
       setStage(making)
       const result = await make()
-      if (place === 'native') return
+      if (isHostName(place)) return
       // a restore is a job: the Store is there once it ends
       if (result && typeof result === 'object' && 'id' in result && 'ended' in result) await waitJob(api, result as StorageJob)
       setMade(store)
@@ -194,7 +195,7 @@ function NewStoreDialog({ api, t, view, opened, initialPane, onClose, done, onDi
     await placeStore(api, store, place, true)
     setMade(null)
   }
-  const moveOnly = made !== null && made === name.trim() && place !== 'native'
+  const moveOnly = made !== null && made === name.trim() && !isHostName(place)
   const form = {
     empty: {
       action: moveOnly ? t('nsMoveTo', { machine: where }) : t('createStore'), description: t('newStoreEmptyBody'),
@@ -332,7 +333,7 @@ function PlaceDialog({ api, t, kind, store: s, onClose, done }: { api: LayerfsAp
   const machines = useQuery(() => api.call<MachinesView>('GET', '/api/machines'), [api])
   const [target, setTarget] = useState('')
   const view = machines.data?.available ? machines.data : null
-  const targets = (view?.machines ?? []).filter((m) => m.name !== 'native' && m.name !== s.machine && (!m.supports || m.supports.includes('sqlite')))
+  const targets = (view?.machines ?? []).filter((m) => !isHostName(m.name) && m.name !== s.machine && (!m.supports || m.supports.includes('sqlite')))
   const chosen = targets.find((m) => m.name === target)
   const free = chosen ? view?.live[chosen.name]?.freeDisk ?? null : null
   const fit = chosen ? diskFit(free, s.size?.bytes ?? null) : null
@@ -423,11 +424,11 @@ function ToMachineDialog({ api, t, view, machine, onClose, done, onDialog }: {
   const fit = pick ? diskFit(free, pick.s.size?.bytes ?? null) : null
   const sandboxes = pick ? (liveView?.sandboxes ?? []).filter((b) => b.project?.startsWith(`${pick.s.name}/`) && b.state !== 'gone') : []
   const mState = m?.state ?? 'ready'
-  const stopped = machine !== 'native' && mState === 'stopped' ? [machine] : []
-  const targetNotReady = machine !== 'native' && mState !== 'ready'
+  const stopped = !isHostName(machine) && mState === 'stopped' ? [machine] : []
+  const targetNotReady = !isHostName(machine) && mState !== 'ready'
   const held = sandboxes.length > 0
   const tooLarge = fit?.state === 'full'
-  const crossMachine = !!pick && pick.s.machine !== 'native' && machine !== 'native'
+  const crossMachine = !!pick && !isHostName(pick.s.machine) && !isHostName(machine)
   const valid = !!pick && !targetNotReady && !tooLarge && !held
   const hint = held ? t('pushHintHeld')
     : stopped.length ? t('compactNeedsMachine', { machine: placeName(machine) })
@@ -476,7 +477,7 @@ function ToMachineDialog({ api, t, view, machine, onClose, done, onDialog }: {
         </Notice>
       ) : pick && free !== null ? (
         <p className={css.formNote}>{t('freeDisk', { free: bytes(free), machine: placeName(machine), size: bytes(pick.s.size?.bytes ?? null) })}</p>
-      ) : pick && machine !== 'native' && !stopped.length && machines.data ? (
+      ) : pick && !isHostName(machine) && !stopped.length && machines.data ? (
         <p className={css.formNote}>{t('freeUnknown', { machine: placeName(machine) })}</p>
       ) : null}
       {crossMachine ? <p className={css.formNote}>{t('moveBody')}</p> : null}
@@ -492,7 +493,7 @@ function ToMachineDialog({ api, t, view, machine, onClose, done, onDialog }: {
           <span>{sandboxes.map((b) => t('heldSandbox', { name: b.name })).join(' · ')}</span>
         </Notice>
       ) : null}
-      {onDialog && machine === 'native' ? (
+      {onDialog && isHostName(machine) ? (
         <p className={css.formNote}>
           {t('addStoreOrNew')}{' '}
           <button type="button" className={css.textLink} onClick={() => swap({ kind: 'new-store', machine })}>{t('newStore')}</button>

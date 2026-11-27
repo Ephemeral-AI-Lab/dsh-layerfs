@@ -13,7 +13,7 @@
 #   HOOK_CLI         the real CLI, for machine-stop / machine-start; HOOK_CACHE_HOME its XDG_CACHE_HOME when the
 #                    home was made with one
 #
-# What is done by real means, on the machine itself (native: this computer; docker: `docker exec`
+# What is done by real means, on the machine itself (the host machine: this computer; docker: `docker exec`
 # in the worker container; lima: `limactl shell … sudo`; apple-container: `container exec`):
 #   fill, append, truncate   the worker log (<worker root>/log/worker.log) or a Sandbox's daemon.log
 #   rotate                   worker.log -> worker.1.log and a new empty worker.log, as a worker's start does. A daemon
@@ -39,22 +39,22 @@ id8=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["id"][:8])'
 if [ "$kind" = machine ]; then machine=$name; else machine=$(rec "$LAYERFS_HOME/sandbox/$name/record.json" machine); fi
 platform=$(rec "$LAYERFS_HOME/machine/$machine/record.json" platform)
 vm=$(rec "$LAYERFS_HOME/machine/$machine/record.json" vm_name)
-[ "$machine" = native ] && platform=native
+case "$machine" in macos-host|linux-host) platform=host;; esac
 # run a root shell script on the machine's side, stdin passed
 side() {
   case "$platform" in
-    native) sh -c "$1";;
+    host) sh -c "$1";;
     docker) docker exec -i "${vm:-layerfs-$id8-$machine}" sh -c "$1";;
     lima) limactl shell --workdir / "$vm" sudo sh -c "$1";;
     apple-container) container exec -i "$vm" sh -c "$1";;
     *) echo "machine $machine: platform '$platform' is not one this hook reaches" >&2; return 2;;
   esac
 }
-root=/layerfs/data; [ "$platform" = native ] && root=$LAYERFS_HOME
+root=/layerfs/data; [ "$platform" = host ] && root=$LAYERFS_HOME
 if [ "$kind" = machine ]; then log=$root/log/worker.log; old=$root/log/worker.1.log
-else run=$root/machine/native/run/layerfs-$id8-$name; [ -d "$run" ] || [ "$platform" != native ] || run=$root/machine/native/run/lfs-$id8-$name; log=$run/daemon.log; old=$run/daemon.1.log; fi
+else run=$root/machine/$machine/run/layerfs-$id8-$name; [ -d "$run" ] || [ "$platform" != host ] || run=$root/machine/$machine/run/lfs-$id8-$name; log=$run/daemon.log; old=$run/daemon.1.log; fi
 lines() { node -e 'const [tag,from,n]=[process.argv[1],Number(process.argv[2]),Number(process.argv[3])];let s="";for(let i=from;i<from+n;i++)s+=`${new Date(Date.UTC(2026,10,16,10,0,0)+i*1000).toISOString()} INFO ${tag} ${String(i).padStart(6,"0")} served\n`;process.stdout.write(s)' "$@"; }
-haslog() { [ "$kind" = sandbox ] || [ "$platform" != native ] || cannot "the native machine has no worker log: its calls run in the caller's process"; }
+haslog() { [ "$kind" = sandbox ] || [ "$platform" != host ] || cannot "the host machine has no worker log: its calls run in the caller's process"; }
 
 # ---- the fault shim's control file
 control() {
@@ -107,16 +107,16 @@ case "$action" in
   stats-unrefuse) control del refuse "stats:$name"; did "shim";;
   # ---- reads of the machine's side (test/e2e-inspect-leases.mjs): the entries of <worker root>/store/<store>/open, and the worker's pid
   leases) [ "$kind" = machine ] || cannot "leases is for a machine"
-    if [ "$platform" = native ]; then ls -1 "$root/store/$1/open" 2>/dev/null; echo "worker -"; else side "ls -1 $root/store/$1/open 2>/dev/null; echo worker \$(cat /layerfs/state/worker.pid)" </dev/null || exit 1; fi; exit 0;;
+    if [ "$platform" = host ]; then ls -1 "$root/store/$1/open" 2>/dev/null; echo "worker -"; else side "ls -1 $root/store/$1/open 2>/dev/null; echo worker \$(cat /layerfs/state/worker.pid)" </dev/null || exit 1; fi; exit 0;;
   # ---- real means only (test/e2e-inspect-real.mjs)
   worker-pause|worker-resume)
     [ "$kind" = machine ] || cannot "$action is for a machine"
-    [ "$platform" != native ] || cannot "the native machine has no worker: its calls run in the caller's process"
+    [ "$platform" != host ] || cannot "the host machine has no worker: its calls run in the caller's process"
     sig=STOP; [ "$action" = worker-resume ] && sig=CONT
     side "kill -$sig \$(cat /layerfs/state/worker.pid)" </dev/null || exit 1; did "real: SIG$sig to the worker of $machine";;
   machine-stop|machine-start)
     [ "$kind" = machine ] || cannot "$action is for a machine"
-    [ "$platform" != native ] || cannot "the native machine is not stopped or started"
+    [ "$platform" != host ] || cannot "the host machine is stopped and started by machine stop and machine start, not by this hook"
     [ -n "${HOOK_CLI:-}" ] || cannot "HOOK_CLI (the real CLI) is not set"
     [ -z "${HOOK_CACHE_HOME:-}" ] || export XDG_CACHE_HOME=$HOOK_CACHE_HOME
     if [ "$action" = machine-stop ]; then "$HOOK_CLI" machine stop "$name" --force >/dev/null || exit 1; did "real: layerfs machine stop $name --force"

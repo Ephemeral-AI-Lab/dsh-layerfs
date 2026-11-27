@@ -1045,7 +1045,7 @@
   }
 }
 
-/* Inside a fact row a fact reads at the row's weight, even a muted one (native's shared disk). */
+/* Inside a fact row a fact reads at the row's weight, even a muted one (the host machine's shared disk). */
 .factRow dd .muted {
   color: inherit;
 }

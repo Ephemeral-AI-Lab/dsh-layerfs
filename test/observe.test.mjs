@@ -41,14 +41,14 @@ function fixture(lfs, calls = OBSERVE) {
   return { groups, logs: t.logs, http: (method, path, body) => R.handle(groups, { method, path, body }), close: () => rmSync(dir, { recursive: true, force: true }) }
 }
 const viewLfs = (machine = {}, sandbox = {}) => ({
-  machine: { list: async () => ({ items: [{ machine: 'native', platform: 'native', state: 'ready', supports: ['sqlite'], stores: [], sandboxes: [] }] }), ...machine },
+  machine: { list: async () => ({ items: [{ machine: 'macos-host', platform: 'host', state: 'ready', supports: ['sqlite'], stores: [], sandboxes: [] }] }), ...machine },
   home: { get: async () => ({ state: 'ready', platforms: { host: 'macos', items: [] } }) },
   store: { list: async () => ({ items: [] }) },
   sandbox: { list: async () => ({ items: [], next_page_pos: null }), ...sandbox },
 })
 
 // The answers as the merged build gives them (docs/architecture/api/sdk/machine.md, sandbox.md).
-const NATIVE = { machine: 'native', platform: 'native', observed_at: 1794776707857, worker: null, resources: { cpus: 14, memory_total: 38654705664, memory_used: 31340068864, disk_total: 994662584320, disk_used: 641705943040, disk_free: 352956641280, scope: 'host' }, data_disk: { path: '/Users/me/.layerfs', fs: 'apfs', scope: 'host_fs', volume: null, inodes_free: 3446842200 }, stores: [{ name: 'shop', bytes: 217088, allocated: 217088 }], sandboxes: { recorded: 12, live: 10 }, complete: true }
+const HOST = { machine: 'macos-host', platform: 'host', observed_at: 1794776707857, worker: null, resources: { cpus: 14, memory_total: 38654705664, memory_used: 31340068864, disk_total: 994662584320, disk_used: 641705943040, disk_free: 352956641280, scope: 'host' }, data_disk: { path: '/Users/me/.layerfs', fs: 'apfs', scope: 'host_fs', volume: null, inodes_free: 3446842200 }, stores: [{ name: 'shop', bytes: 217088, allocated: 217088 }], sandboxes: { recorded: 12, live: 10 }, complete: true }
 
 // ---------------------------------------------------------------- host: features and the lane
 
@@ -78,13 +78,13 @@ test('machine.stats is a monitoring read: the inspect lane, whatever lane the ca
 
 test('stats route: 501 without machine.stats, and no call', async () => {
   let calls = 0
-  const f = fixture({ ...viewLfs({ stats: async () => { calls++; return NATIVE } }) }, BASE)
+  const f = fixture({ ...viewLfs({ stats: async () => { calls++; return HOST } }) }, BASE)
   try {
-    const r = await f.http('GET', '/api/machines/native/stats')
+    const r = await f.http('GET', '/api/machines/macos-host/stats')
     assert.equal(r.status, 501); assert.equal(r.body.code, 'Unsupported'); assert.equal(r.body.detail.need, 'machine.stats')
     assert.equal(calls, 0)
     assert.deepEqual(f.logs, [], 'an expected refusal logs no stack')
-    assert.equal((await f.http('POST', '/api/machines/native/stats', {})).status, 404, 'only GET')
+    assert.equal((await f.http('POST', '/api/machines/macos-host/stats', {})).status, 404, 'only GET')
   } finally { f.close() }
 })
 
@@ -92,7 +92,7 @@ test('stats route: 501 without machine.stats, and no call', async () => {
 
 test('sandbox.get: daemon, usage and usage_reason by presence', async () => {
   // 2.0 `sandbox get --detail --with stats`: the process facts in `stats` (null when nothing was observed); usage in cpu_ms, bytes, pid_count
-  const record = (stats) => ({ sandbox: 'sb', project: 's/p', machine: 'native', workspaces: [], ...(stats === undefined ? {} : { stats }) })
+  const record = (stats) => ({ sandbox: 'sb', project: 's/p', machine: 'macos-host', workspaces: [], ...(stats === undefined ? {} : { stats }) })
   const iso = (ms) => new Date(ms).toISOString()
   const get = async (answer) => {
     const f = fixture({ ...viewLfs(), sandbox: { get: async () => answer } })
@@ -144,7 +144,7 @@ const stats = (n) => ({ platform: 'docker', observedAt: n, worker: null, resourc
 test('a stopped machine is never asked and reads "not observed (machine stopped)"; scopes and reasons in plain words', () => {
   const stopped = { name: 'dev', platform: 'lima', state: 'stopped' }
   assert.equal(S.statsAskable(stopped), false)
-  assert.equal(S.statsAskable({ platform: 'native', state: 'ready' }), true, 'native answers in the caller\'s process')
+  assert.equal(S.statsAskable({ platform: 'host', state: 'ready' }), true, 'the host machine answers in the caller\'s process')
   assert.equal(S.statsAskable({ platform: 'docker', state: 'ready' }), true)
   assert.equal(S.statsAskable({ platform: 'docker', state: 'broken' }), false)
   assert.deepEqual(S.notObserved(stopped, undefined), { key: 'notObservedStopped' })

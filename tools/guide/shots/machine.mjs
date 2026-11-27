@@ -1,4 +1,4 @@
-// Shots for docs/guide/machine.md: the machine page (docker and native), its tabs,
+// Shots for docs/guide/machine.md: the machine page (docker and the host machine), its tabs,
 // its ⋯ menu and dialogs, the Machines board on Home and the Add machine dialog.
 // Read-only: every dialog is opened and closed (Escape) without its action.
 
@@ -130,8 +130,8 @@ export default [
       (p) => p.getByRole('button', { name: 'Read again' }),
       (p) => p.locator('[data-log-scroll]'),
     ] },
-  { file: 'machine-native',
-    run: async (page, h) => { await jump(page, h, 'native', /^native Native/); await tab(page, h, 'Overview', 4000); await page.locator('[data-machine-details]').waitFor() },
+  { file: 'machine-host',
+    run: async (page, h) => { await jump(page, h, 'macos-host', /^macos-host Host/); await tab(page, h, 'Overview', 4000); await page.locator('[data-machine-details]').waitFor() },
   },
   { file: 'machine-board',
     run: async (page, h) => { await board(page, h); await page.locator('[data-machine="docker"] [data-sandbox-row="guide-box"]').waitFor() },

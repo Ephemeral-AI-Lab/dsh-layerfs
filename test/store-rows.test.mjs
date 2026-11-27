@@ -28,7 +28,7 @@ const pg = (name, more = {}) => ({
   attached: [], ...more,
 })
 const machines = [
-  { name: 'native', platform: 'native', state: 'ready', supports: ['sqlite', 'postgresql_sandbox'] },
+  { name: 'macos-host', platform: 'host', state: 'ready', supports: ['sqlite', 'postgresql_sandbox'] },
   { name: 'docker', platform: 'docker', state: 'ready', supports: ['sqlite', 'postgresql_sandbox'] },
   { name: 'vm1', platform: 'lima', state: 'stopped', supports: ['sqlite', 'postgresql_sandbox'] },
   { name: 'vm2', platform: 'lima', state: 'broken', reason: 'outdated', supports: ['sqlite', 'postgresql_sandbox'] },
@@ -71,18 +71,18 @@ test('the host\'s check: its recorded reach, else a broken unreachable Store\'s 
 })
 
 test('a PostgreSQL row\'s summary: projects, the host, every machine with its status, failures and stopped machines', () => {
-  const attached = ['native', 'docker', 'vm1', 'vm2', 'win'].map((m, i) => ({ machine: m, reached: null, reach: i === 1 ? reach(false, 'connection refused') : i === 0 ? reach(true) : null }))
+  const attached = ['macos-host', 'docker', 'vm1', 'vm2', 'win'].map((m, i) => ({ machine: m, reached: null, reach: i === 1 ? reach(false, 'connection refused') : i === 0 ? reach(true) : null }))
   const sum = R.pgSummary(pg('a', { attached }), { machines })
   assert.equal(sum.projects, 2)
   assert.equal(sum.host.key, 'reachable')
-  assert.deepEqual(sum.machines.slice(0, 3).map((m) => [m.machine, m.platform, m.status.key]), [['native', 'native', 'reachable'], ['docker', 'docker', 'address'], ['vm1', 'lima', 'machineStopped']])
+  assert.deepEqual(sum.machines.slice(0, 3).map((m) => [m.machine, m.platform, m.status.key]), [['macos-host', 'host', 'reachable'], ['docker', 'docker', 'address'], ['vm1', 'lima', 'machineStopped']])
   assert.equal(sum.machines.length, 5)
   assert.equal(sum.failed, 1, 'a stopped machine or one needing an update is not a failure')
   assert.equal(sum.stopped, 1)
   // machines as icons, one per provider: a group's dot is its worst member's
   const members = sum.machines.map((m) => ({ name: m.machine, provider: m.platform ?? '', tone: m.status.tone, words: m.status.key }))
   assert.deepEqual(R.providerGroups(members).map((g) => [g.provider, g.members.map((m) => m.name), g.tone]),
-    [['native', ['native'], 'ok'], ['docker', ['docker'], 'danger'], ['lima', ['vm1', 'vm2'], 'warning'], ['wsl', ['win'], 'idle']])
+    [['host', ['macos-host'], 'ok'], ['docker', ['docker'], 'danger'], ['lima', ['vm1', 'vm2'], 'warning'], ['wsl', ['win'], 'idle']])
   assert.deepEqual(R.providerGroups([{ name: 'b', provider: 'docker', tone: 'ok', words: '' }, { name: 'a', provider: 'docker', tone: 'danger', words: '' }])
     .map((g) => [g.members.map((m) => m.name), g.tone]), [[['a', 'b'], 'danger']], 'several of one provider: one icon, its worst dot, members by name')
   assert.equal(R.worstTone([]), 'ok')
@@ -115,17 +115,17 @@ test('a SQLite row\'s state: busy, its machine stopped (neutral), needs attentio
 })
 
 test('the attach picker: machines not attached, by provider; one that cannot attach is greyed with why', () => {
-  const store = pg('a', { attached: [{ machine: 'native', reached: 'ok', reach: reach(true) }] })
+  const store = pg('a', { attached: [{ machine: 'macos-host', reached: 'ok', reach: reach(true) }] })
   const groups = R.attachMachines(store, machines)
   assert.deepEqual(groups.map((g) => [g.platform, g.items.map((m) => [m.name, m.block])]), [
     ['docker', [['docker', null]]],
     ['lima', [['vm1', 'stopped'], ['vm2', null]]],
     ['wsl', [['win', 'platform']]],
-  ], 'native is attached already; providers by name, like any machine')
-  assert.deepEqual(R.attachMachines(pg('none'), machines).map((g) => g.platform), ['docker', 'lima', 'native', 'wsl'], 'native is listed like any machine, in its own group')
+  ], 'the host machine is attached already; providers by name, like any machine')
+  assert.deepEqual(R.attachMachines(pg('none'), machines).map((g) => g.platform), ['docker', 'host', 'lima', 'wsl'], 'the host machine is listed like any machine, in its own group')
   const local = pg('l', { postgresql: { ...pg('l').postgresql, url: 'postgresql://localhost:5432/x', target: 'localhost:5432/x', server: 'localhost:5432', database: 'x' } })
   const blocks = (list) => Object.fromEntries(R.attachMachines(local, list).flatMap((g) => g.items.map((m) => [m.name, m.block])))
-  assert.deepEqual(blocks(machines), { docker: null, vm1: 'stopped', vm2: null, native: null, win: 'platform' }, 'a local address greys nothing: each machine is tested')
+  assert.deepEqual(blocks(machines), { docker: null, vm1: 'stopped', vm2: null, 'macos-host': null, win: 'platform' }, 'a local address greys nothing: each machine is tested')
   assert.deepEqual(R.attachMachines(store, machines, { query: 'vm' }).flatMap((g) => g.items.map((m) => m.name)), ['vm1', 'vm2'])
   // from a machine page: the Stores not attached to it, the ones it can attach first
   const stores = [pg('z'), local, pg('b', { attached: [{ machine: 'docker', reached: null, reach: null }] }), { ...pg('s'), kind: 'sqlite', postgresql: null }]
@@ -159,16 +159,16 @@ test('a refused connect is one mapped line about one field, from its step, never
   for (const k of ['pgErrPassword', 'pgErrAddress', 'pgErrDatabase', 'pgErrNotThisStore', 'pgErrFailed']) assert.ok(R.locales.zh[k], k)
 })
 
-test('three terms: "this computer" is the host\'s own check; machine native is named native; a local address names the machines that share its network', () => {
+test('three terms: "this computer" is the host\'s own check; the host machine is named by its name; a local address names the machines that share its network', () => {
   const { en, zh } = R.locales
   assert.equal(en.pgHostCheck, 'Checked from this computer')
   assert.equal(zh.pgHostCheck, '从这台电脑检查')
   assert.equal(en.rowHostDot, 'Checked from this computer: {status} · {when}')
   assert.equal(en.pgRecheckMachines, 'Checks from this computer, then from {machines}.')
-  assert.equal(en.pgThisComputer, undefined, 'no "This computer" label for machine native')
+  assert.equal(en.pgThisComputer, undefined, 'no "This computer" label for the host machine')
   assert.equal(en.pgLoopbackNote, undefined, 'no local-address copy: reach is tested')
   assert.match(en.pgTestLoses + zh.pgTestLoses, /\{machines\}.*\{machines\}/s)
-  assert.equal(R.providerBeside('native', 'Native'), null, 'no "native Native"')
+  assert.equal(R.providerBeside('host', 'Host'), null, 'no "host Host"')
   assert.equal(R.providerBeside('docker', 'Docker'), null)
   assert.equal(R.providerBeside('vm1', 'Lima'), 'Lima')
   assert.equal(R.listWords(['a']), 'a')

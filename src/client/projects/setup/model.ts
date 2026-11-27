@@ -7,19 +7,20 @@ import type { MachinePlatformInfo } from '../../machines/model.ts'
 import { engineStart, machineBlock, type HostOs } from '../../machines/needs.ts'
 import { attachedMachines, pgDefaultMachine } from '../../storage/model.ts'
 import type { StorageView, StoreRow } from '../../storage/types.ts'
+import { hostOf, isHostName } from '../../../shared/host-machine.ts'
 
 export type StoreKind = 'sqlite' | 'postgresql'
 export type Machine = StorageView['machines'][number]
 
 /** LayerFS 2.0: a machine that runs is `ready`. */
 const RUNNING = new Set(['ready'])
-export const isRunning = (m: Pick<Machine, 'name' | 'state'> | undefined) => !!m && (m.name === 'native' || RUNNING.has(m.state ?? ''))
+export const isRunning = (m: Pick<Machine, 'name' | 'state'> | undefined) => !!m && RUNNING.has(m.state ?? '')
 
-/** Machines that can run a project of this Store kind: docker first, then native, then the rest by name. */
+/** Machines that can run a project of this Store kind: docker first, then the host machine, then the rest by name. */
 export function machinesFor(view: Pick<StorageView, 'machines'> | undefined, kind: StoreKind): Machine[] {
   const can = (m: Machine) => m.state !== 'unsupported'
     && (kind === 'sqlite' ? !m.supports || m.supports.includes('sqlite') : !m.supports || m.supports.includes('postgresql_sandbox'))
-  const rank = (m: Machine) => (m.name === 'docker' ? 0 : m.name === 'native' ? 1 : 2)
+  const rank = (m: Machine) => (m.name === 'docker' ? 0 : isHostName(m.name) ? 1 : 2)
   return (view?.machines ?? []).filter(can).sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name))
 }
 
@@ -49,7 +50,7 @@ export function tileBlocks(
 
 /**
  * The default machine (U10): the machine whose page the dialog was opened
- * from, else native, else the first that runs. Never a machine that is
+ * from, else the host machine, else the first that runs. Never a machine that is
  * broken, blocked here, or not running: Create would have to start it, and a
  * start is only ever the person's own press on that machine (spec v21).
  */
@@ -57,9 +58,9 @@ export function defaultMachine(machines: readonly Machine[], blocks: ReadonlyMap
   const ok = (m: Machine | undefined): boolean => !!m && m.state !== 'broken' && !blocks.has(m.name) && isRunning(m)
   const from = machines.find((m) => m.name === opened)
   if (from && ok(from)) return from.name
-  const native = machines.find((m) => m.name === 'native')
-  if (native && ok(native)) return native.name
-  return machines.find((m) => ok(m))?.name ?? native?.name ?? 'native'
+  const host = hostOf(machines)
+  if (host && ok(host)) return host.name
+  return machines.find((m) => ok(m))?.name ?? host?.name ?? machines[0]?.name ?? ''
 }
 
 /** Whether `name` can be picked: not blocked here, or only waiting on the Docker Engine its Start launches. */
@@ -71,7 +72,7 @@ export const pickable = (name: string, blocks: ReadonlyMap<string, TileBlock>): 
  */
 export function runsOn(store: Pick<StoreRow, 'kind' | 'machine' | 'attached'> | undefined): string[] {
   if (!store) return []
-  return store.kind === 'postgresql' ? attachedMachines(store) : [store.machine ?? 'native']
+  return store.kind === 'postgresql' ? attachedMachines(store) : store.machine ? [store.machine] : []
 }
 
 /**
@@ -83,7 +84,7 @@ export function runsOn(store: Pick<StoreRow, 'kind' | 'machine' | 'attached'> | 
  */
 export function primaryMachine(store: Pick<StoreRow, 'kind' | 'machine' | 'attached'> | undefined, machines: Pick<StorageView, 'machines'>['machines'] = []): string | null {
   if (!store) return null
-  return store.kind === 'postgresql' ? pgDefaultMachine(store, machines) : store.machine ?? 'native'
+  return store.kind === 'postgresql' ? pgDefaultMachine(store, machines) : store.machine ?? null
 }
 
 const MAX_STORE_NAME = 63
@@ -168,11 +169,12 @@ export function createSteps(plan: CreatePlan, _view?: Pick<StorageView, 'machine
   // the folder is checked before anything is made, so a wrong one leaves no empty Store
   const steps: Step[] = plan.source ? [{ id: 'check' }] : []
   if (plan.kind === 'sqlite') {
-    const target = plan.machines[0] ?? 'native'
-    const at = plan.store?.machine ?? 'native'
+    // a new Store is made on the host machine (`store create` without `--machine`)
+    const at = plan.store?.machine ?? null
+    const target = plan.machines[0] ?? at
     if (!plan.store) steps.push({ id: 'store' })
     steps.push({ id: 'init' })
-    if (target !== at) steps.push({ id: `place:${target}`, machine: target })
+    if (target && (at ? target !== at : !isHostName(target))) steps.push({ id: `place:${target}`, machine: target })
   } else {
     if (!plan.store) steps.push({ id: 'connect' })
     steps.push({ id: 'init' })
@@ -185,26 +187,25 @@ export function createSteps(plan: CreatePlan, _view?: Pick<StorageView, 'machine
 }
 
 /**
- * The machines a Create needs running that are not (never native): a SQLite
- * project's Store machine and the machine it moves to, a PostgreSQL project's
+ * The machines a Create needs running that are not: a SQLite project's Store
+ * machine (the host machine for a new Store) and the machine it moves to, a PostgreSQL project's
  * machine its session runs on. Each is started only by a press on its own
  * Start; Create waits until none is left.
  */
 export function needsStart(plan: Pick<CreatePlan, 'kind' | 'store' | 'machines'>, view: Pick<StorageView, 'machines'> | undefined): string[] {
   const names = plan.kind === 'sqlite'
-    ? [plan.store?.machine ?? 'native', plan.machines[0] ?? 'native']
+    ? [plan.store?.machine ?? hostOf(view?.machines)?.name, plan.machines[0]].filter((n): n is string => !!n)
     : plan.machines.slice(0, 1)
   return stoppedOf(names, view)
 }
 
 /**
- * Of these machines, the ones known and not running (native never needs a
- * start), each once. A broken machine is not one: Start is not its fix (F1),
+ * Of these machines, the ones known and not running (the host machine too:
+ * it can be stopped), each once. A broken machine is not one: Start is not its fix (F1),
  * LayerFS's refusal carries that.
  */
 export function stoppedOf(names: readonly string[], view: Pick<StorageView, 'machines'> | undefined): string[] {
   return [...new Set(names)].filter((n) => {
-    if (n === 'native') return false
     const m = view?.machines.find((x) => x.name === n)
     return !!m && m.state !== 'broken' && !isRunning(m)
   })

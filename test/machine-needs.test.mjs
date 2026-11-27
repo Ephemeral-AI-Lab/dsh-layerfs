@@ -16,7 +16,7 @@ await build({
   absWorkingDir: root, entryPoints: { needs: 'src/client/machines/needs.ts', computer: 'src/host/routes/computer.ts' }, outdir: out,
   bundle: true, format: 'esm', platform: 'node', target: 'node24', logLevel: 'warning', outExtension: { '.js': '.mjs' },
 })
-const { readinessOf, blockOf, fixOf, setupOf, machineBlock, engineStart, shortVersion, nativeGlyphOs, nativeNameKey } = await import(pathToFileURL(join(out, 'needs.mjs')).href)
+const { readinessOf, blockOf, fixOf, setupOf, machineBlock, engineStart, shortVersion, hostGlyphOs, hostNameKey } = await import(pathToFileURL(join(out, 'needs.mjs')).href)
 const { osOf, prettyName } = await import(pathToFileURL(join(out, 'computer.mjs')).href)
 process.on('exit', () => rmSync(out, { recursive: true, force: true }))
 
@@ -44,16 +44,16 @@ test('a host fact no install fixes wins: Lima on Linux is unsupported, not "inst
   assert.equal(readinessOf(row('lima', ['tool:limactl']), 'linux').step, 'unsupported')
 })
 
-test('Windows: native and Docker through WSL2 are unsupported', () => {
-  assert.equal(readinessOf(row('native', ['host:macos-or-linux']), 'windows').step, 'unsupported')
+test('Windows: the host machine and Docker through WSL2 are unsupported', () => {
+  assert.equal(readinessOf(row('host', ['host:macos-or-linux']), 'windows').step, 'unsupported')
   assert.equal(readinessOf(row('docker', ['host:wsl2-worker']), 'windows').step, 'unsupported')
 })
 
-test('Linux native: root, /dev/fuse and cgroup v2 are setup steps', () => {
-  const r = readinessOf(row('native', ['host:root', 'host:/dev/fuse', 'host:cgroup2']), 'linux')
+test('Linux host machine: root, /dev/fuse and cgroup v2 are setup steps', () => {
+  const r = readinessOf(row('host', ['host:root', 'host:/dev/fuse', 'host:cgroup2']), 'linux')
   assert.equal(r.step, 'setup')
   assert.deepEqual(r.fixes.map((f) => f.need), ['host:root', 'host:/dev/fuse', 'host:cgroup2'])
-  assert.deepEqual(fixOf('host:/dev/fuse', 'native', 'linux').commands, ['sudo modprobe fuse'])
+  assert.deepEqual(fixOf('host:/dev/fuse', 'host', 'linux').commands, ['sudo modprobe fuse'])
 })
 
 test('Docker’s socket that does not answer is a start step, per OS', () => {
@@ -103,7 +103,7 @@ test('docker’s socket: denied is the docker group, not Start; other sockets li
 test('machineBlock reads a view without a LayerFS version (New project’s tiles)', () => {
   const view = { platforms: [row('docker', ['host:/var/run/docker.sock'])], computer: { os: 'linux', name: null, arch: 'x86_64' } }
   assert.equal(machineBlock({ platform: 'docker' }, view).step, 'start')
-  assert.equal(machineBlock({ platform: 'native' }, view), null)
+  assert.equal(machineBlock({ platform: 'host' }, view), null)
 })
 
 test('an unknown need stays in view in LayerFS’s words', () => {
@@ -128,9 +128,9 @@ test('versions are shown short', () => {
   assert.equal(shortVersion(null), null)
 })
 
-test('the native machine is named and marked by this computer’s OS', () => {
-  assert.deepEqual(['macos', 'linux', 'windows', 'other'].map(nativeNameKey), ['nativeMac', 'nativeComputer', 'nativePc', 'nativeComputer'])
-  assert.deepEqual(['macos', 'linux', 'windows'].map(nativeGlyphOs), ['mac', 'linux', 'pc'])
+test('the host machine is named and marked by this computer’s OS', () => {
+  assert.deepEqual(['macos', 'linux', 'windows', 'other'].map(hostNameKey), ['hostMac', 'hostComputer', 'hostPc', 'hostComputer'])
+  assert.deepEqual(['macos', 'linux', 'windows'].map(hostGlyphOs), ['mac', 'linux', 'pc'])
 })
 
 test('host: LayerFS’s and Node’s OS words, and an os-release name', () => {

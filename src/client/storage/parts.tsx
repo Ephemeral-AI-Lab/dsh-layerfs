@@ -224,7 +224,7 @@ export function locationWords(t: StorageT, view: Pick<StorageView, 'computer'> |
   return {
     thisMac: t(os === 'linux' ? 'nsThisLinux' : os === 'windows' ? 'nsThisPc' : 'nsThisMac'),
     running: t('nsRunning'), stopped: t('nsStopped'), default: t('nsDefault'), here: t('nsHere'),
-    nativeOs: os === 'linux' ? 'linux' : os === 'windows' || os === 'other' ? 'pc' : 'mac',
+    hostOs: os === 'linux' ? 'linux' : os === 'windows' || os === 'other' ? 'pc' : 'mac',
     state: (s) => storeStateWords(s, t),
   }
 }

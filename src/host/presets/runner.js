@@ -14,7 +14,7 @@ import { randomUUID } from 'node:crypto'
 import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { stringify } from '../routes/util.ts'
-import { CONTENT_VERSION, presetOf, sourceFiles } from './recipe/presets.js'
+import { CONTENT_VERSION, HOST_MACHINE, presetOf, sourceFiles } from './recipe/presets.js'
 import { verifyProject } from './recipe/project-verification.js'
 import { runBounded } from './recipe/scheduler.js'
 import { DEFAULT_HISTORY_LIMITS, runHistoryDAG } from './recipe/history-scheduler.js'
@@ -217,7 +217,7 @@ export class DemoRunner extends CliInventory {
       const problem = await this.postgres.available()
       if (problem) fail(`This preset's PostgreSQL Stores live on a PostgreSQL server it runs in Docker, and Docker is not available: ${problem}`)
     }
-    if ((this.sandboxes || this.executionMode === 'mixed') && this.preset.stores.some(store => store.machine === 'native') && !this.driver.spec.daemon) fail('Native sandboxes need a matching layerfs-daemon. Choose it in Center → Settings → Change… (or DSH_LAYERFS_DAEMON), or use Filesystem mode.')
+    if ((this.sandboxes || this.executionMode === 'mixed') && this.preset.stores.some(store => store.machine === HOST_MACHINE) && !this.driver.spec.daemon) fail('Host machine sandboxes need a matching layerfs-daemon. Choose it in Center → Settings → Change… (or DSH_LAYERFS_DAEMON), or use Filesystem mode.')
   }
   async startMachine(name) {
     const current = await this.query(['machine', 'get', name, '--detail'])
@@ -254,7 +254,7 @@ export class DemoRunner extends CliInventory {
       return
     }
     if (placed.machine !== store.machine) {
-      if (placed.machine !== 'native') fail(`Store ${store.name} moved outside the fixture plan. Inspect it or reset.`)
+      if (placed.machine !== HOST_MACHINE) fail(`Store ${store.name} moved outside the fixture plan. Inspect it or reset.`)
       reportProgress(`Moving ${store.name} to ${store.machine}`)
       await this.once(`store.move:${store.name}`, ['store', 'move', store.name, store.machine, '--progress'])
     }
@@ -456,9 +456,9 @@ export class DemoRunner extends CliInventory {
       if (this.preset.stores.some(store => usesMachine(store, name))) await this.startMachine(name)
       advance(`Machine ${name} ready`)
     }
-    if ((this.sandboxes || this.executionMode === 'mixed') && this.preset.stores.some(store => store.machine === 'native')) {
-      const native = await this.query(['machine', 'get', 'native', '--detail'])
-      if (native.daemon !== this.driver.spec.daemon) await this.once(`native.daemon:${this.driver.spec.daemon}`, ['machine', 'update', 'native', '--daemon', this.driver.spec.daemon])
+    if ((this.sandboxes || this.executionMode === 'mixed') && this.preset.stores.some(store => store.machine === HOST_MACHINE)) {
+      const host = await this.query(['machine', 'get', HOST_MACHINE, '--detail'])
+      if (host.daemon !== this.driver.spec.daemon) await this.once(`host.daemon:${this.driver.spec.daemon}`, ['machine', 'update', HOST_MACHINE, '--daemon', this.driver.spec.daemon])
     }
     if (this.preset.concurrentHistory) {
       await this.setupConcurrentProjects({ advance, reportProgress })

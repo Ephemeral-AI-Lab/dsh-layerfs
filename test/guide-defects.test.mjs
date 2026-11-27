@@ -78,7 +78,7 @@ test('6: the Store\'s Backups tab says a backup\'s state and provider in the wor
   assert.match(links, /providerWords\(bucket\.provider, t\)/)
   const noop = () => {}
   const store = {
-    name: 'notes', kind: 'sqlite', machine: 'native', state: 'ready', projects: [], projectsCount: 0,
+    name: 'notes', kind: 'sqlite', machine: 'macos-host', state: 'ready', projects: [], projectsCount: 0,
     links: [
       { bucket: 'ok-b', file: 'notes', last: { op: 'backup', at: 1000, bytes: 1024 } },
       { bucket: 'unlisted-b', file: 'notes', last: { op: 'backup', at: 1000, bytes: 1024 } },
@@ -108,10 +108,10 @@ test('6: the Store\'s Backups tab says a backup\'s state and provider in the wor
   for (const lang of ['en', 'zh']) assert.equal(Object.keys(M.storageLocales[lang]).some((k) => k.startsWith('spBackupState_')), false)
 })
 
-test('7 (revised 2026-11-24): a Store on the native machine names native like any machine; the LayerFS home is not a machine', () => {
-  assert.equal(M.placeWords('native'), 'native')
+test('7 (revised 2026-11-24): a Store on the host machine names the host machine like any machine; the LayerFS home is not a machine', () => {
+  assert.equal(M.placeWords('macos-host'), 'macos-host')
   assert.equal(M.placeWords('docker'), 'docker')
-  assert.doesNotMatch(src('src/client/hero/HeroProject.tsx'), /m === 'native' \? t\('home'\)/)
+  assert.doesNotMatch(src('src/client/hero/HeroProject.tsx'), /m === 'macos-host' \? t\('home'\)/)
   assert.doesNotMatch(src('src/client/projects/setup/ProjectDialog.tsx'), /placeName\(/)
   for (const file of ['src/client/storage/locale.ts', 'src/client/machines/locale.ts', 'src/client/projects/setup/locale.ts', 'src/client/doctor/locale.ts', 'src/client/picker/locale.ts', 'src/client/hero/locale.ts']) assert.doesNotMatch(src(file), /LayerFS Home/, file)
 })

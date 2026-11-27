@@ -13,7 +13,7 @@ export interface ProjectAvailability {
 
 /** Machine readiness and Store readiness are independent observations. */
 export function projectAvailability(project: ProjectRow, view?: MachinesView, error?: unknown): ProjectAvailability {
-  const name = project.machine ?? (project.kind === 'postgresql' ? 'native' : null)
+  const name = project.machine ?? (project.kind === 'postgresql' && view?.available ? view.machines.find((m) => m.platform === 'host')?.name ?? null : null)
   const catalogBlocked = !!project.catalogState && project.catalogState !== 'available'
   const storageBlocked = catalogBlocked || project.storeState !== 'ready'
   const base = { machine: name, canStart: false, canRun: false, storageBlocked }
@@ -30,7 +30,7 @@ export function projectAvailability(project: ProjectRow, view?: MachinesView, er
   }
   const state = machine.state
   if (state === 'broken' || state === 'unknown') return { ...base, state: 'unavailable', reason: machine.message ?? view.live[machine.name]?.error?.message ?? machine.reason ?? state }
-  if (state === 'stopped') return { ...base, state: 'stopped', canStart: machine.platform !== 'native' }
+  if (state === 'stopped') return { ...base, state: 'stopped', canStart: true }
   if (catalogBlocked) return { ...base, state: 'unavailable', reason: project.catalogError }
   if (state === 'ready') return { ...base, state: 'available', canRun: !storageBlocked }
   return { ...base, state: 'unavailable', reason: state }

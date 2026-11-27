@@ -62,7 +62,7 @@ const settle = () => new Promise((r) => setTimeout(r, 10))
 const done = async () => ({ exit_code: 0 })
 const hash = (ws) => createHash('sha1').update(ws).digest('hex').slice(0, 16)
 const wsFile = (jobs, ws) => join(jobs, 'sandbox-commands', ws.split(':')[0], `${hash(ws)}.json`)
-const groups = (h) => M.createGroups({ ...h, home: h.jobs, root: h.jobs, stats: h.jobs, secrets: h.jobs, cli: () => null, daemon: () => null, discover: async () => ({}), ensureNative: async () => {} }, async () => ({}))
+const groups = (h) => M.createGroups({ ...h, home: h.jobs, root: h.jobs, stats: h.jobs, secrets: h.jobs, cli: () => null, daemon: () => null, discover: async () => ({}), ensureHostDaemon: async () => {} }, async () => ({}))
 const call = (g, method, path, body = {}) => {
   const url = new URL(path, 'http://x')
   return M.route(g, method, url.pathname.split('/').filter(Boolean).map(decodeURIComponent), url.searchParams, body)

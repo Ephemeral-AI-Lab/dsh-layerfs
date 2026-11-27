@@ -30,7 +30,7 @@ export async function loadRoutes() {
 }
 
 /** A RouteHost for tests. */
-export function testHost({ lfs, root, home, secrets = join(root, 'secrets'), jobs = join(home, 'job'), stats = join(home, 'stat'), discovery, cli = null, daemon = null, ensureNative = async () => {}, sessionOf = undefined }) {
+export function testHost({ lfs, root, home, secrets = join(root, 'secrets'), jobs = join(home, 'job'), stats = join(home, 'stat'), discovery, cli = null, daemon = null, ensureHostDaemon = async () => {}, sessionOf = undefined }) {
   const events = []
   const logs = []
   return {
@@ -46,7 +46,7 @@ export function testHost({ lfs, root, home, secrets = join(root, 'secrets'), job
       cli: () => cli,
       daemon: () => daemon,
       discover: discovery,
-      ensureNative,
+      ensureHostDaemon,
       emit: (type, data) => events.push({ type, data }),
       log: (line) => logs.push(line),
       ...(sessionOf ? { sessionOf } : {}),

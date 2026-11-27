@@ -9,7 +9,7 @@
 //     [--shots <dir>] [--dom <file>] [--keys] [--size 1280x820] [--headed]
 //
 // Seeds the project `e2etree/files` once in the server's private LayerFS home (a
-// Store on native and a folder of 1,200 files, a 6,000-line file, a binary file,
+// Store on the host machine and a folder of 1,200 files, a 6,000-line file, a binary file,
 // an empty file and a symlink) with plain CLI calls; `node tools/cleanup-dev.mjs`
 // removes it. After seeding, everything is a read: the tools/lfs-check.mjs
 // snapshots before and after must not differ.

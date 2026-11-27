@@ -192,10 +192,10 @@ test('NOTE 3: each start a page press sends names its machine in the label or th
   assert.match(src('src/client/storage/HomeCards.tsx'), /t\('ovRestartWorker', \{ machine: m\.name \}\)/)
 })
 
-test('NOTE 3: Build and Reset name every machine they may start before the press (studio: demo-build, demo-research, docker)', () => {
-  const studio = { projectGroups: [{ machine: 'native' }, { machine: 'docker' }, { machine: 'demo-build' }, { machine: 'demo-research' }] }
+test('NOTE 3: Build and Reset name every machine they may start before the press (studio: demo-build, demo-research, docker, the host machine)', () => {
+  const studio = { projectGroups: [{ machine: 'macos-host' }, { machine: 'docker' }, { machine: 'demo-build' }, { machine: 'demo-research' }] }
   const plan = { scope: 'environment', startMachines: ['demo-build'] }
-  assert.deepEqual(M.machinesStarted(studio, plan, true), ['demo-build', 'demo-research', 'docker'], 'never native')
+  assert.deepEqual(M.machinesStarted(studio, plan, true), ['demo-build', 'demo-research', 'docker', 'macos-host'], 'the host machine too: it can be stopped')
   assert.deepEqual(M.machinesStarted(studio, plan, false), ['demo-build'], 'a Reset alone starts only what it needs to reach')
   assert.deepEqual(M.machinesStarted(studio, { scope: 'machines', stopMachines: ['demo-build'] }, false), [], 'Stop machines starts none')
   assert.match(src('src/client/presets/PresetsSection.tsx'), /starts=\{machinesStarted\(preset, dialog\.plan, dialog\.kind === 'build'\)\}/)

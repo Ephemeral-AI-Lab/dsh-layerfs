@@ -8,7 +8,7 @@
 //   DSH_LAYERFS_DEV_DIR    the side server's dev dir (url.txt, layerfs-home/, state/)   required
 //   DSH_LAYERFS_HOME       the LayerFS home that server uses, when it is not <dev dir>/layerfs-home
 //   DSH_LAYERFS_CLI        the CLI that server pins                                      required
-//   INSPECT_MACHINE        the machine whose page is opened (default `native`)
+//   INSPECT_MACHINE        the machine whose page is opened (default `macos-host`)
 //   INSPECT_MACHINE_TITLE  its title in "Jump to" (default: its name)
 //   INSPECT_SANDBOX        a running Sandbox on that machine
 //   INSPECT_TARGET         `machine` or `sandbox`: the log the one-log rows use
@@ -52,7 +52,7 @@ export const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 const devDir = process.env.DSH_LAYERFS_DEV_DIR
 if (!devDir || !process.env.DSH_LAYERFS_CLI) { console.error('e2e-inspect-logs: set DSH_LAYERFS_DEV_DIR and DSH_LAYERFS_CLI (the side server\'s dev dir and pinned CLI)'); process.exit(2) }
-const machine = process.env.INSPECT_MACHINE || 'native'
+const machine = process.env.INSPECT_MACHINE || 'macos-host'
 const standin = process.env.INSPECT_STANDIN_DIR || null
 export const cfg = {
   devDir,

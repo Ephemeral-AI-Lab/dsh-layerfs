@@ -5,23 +5,24 @@ import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { devUrl, dismiss } from './ui.mjs'
+import { isHostName } from '../src/shared/host-machine.ts'
 
 /**
- * The machine e2e project Stores run on. Unset keeps the web API's native
- * default; set `DSH_E2E_MACHINE=docker` on a host whose native Sandboxes need
- * root. A sqlite Store's machine is the project's machine, so this is set once
+ * The machine e2e project Stores run on. Unset keeps the web API's default,
+ * the host machine (`macos-host` / `linux-host`); set `DSH_E2E_MACHINE=docker`
+ * on a computer whose host Sandboxes need root. A sqlite Store's machine is the project's machine, so this is set once
  * where the test makes its Store.
  */
 export const E2E_MACHINE = process.env.DSH_E2E_MACHINE ?? null
 
 /**
- * Make a Store for an e2e run. `POST /api/stores` always makes a native Store;
+ * Make a Store for an e2e run. `POST /api/stores` always makes a Store on the host machine;
  * any other machine is named once by the private CLI `store create --machine`
  * (the same LayerFS home the dev server uses). `http` is the calling test's
  * `http(method, path, body)` helper.
  */
 export async function createStore(http, name) {
-  if (!E2E_MACHINE || E2E_MACHINE === 'native') return await http('POST', '/api/stores', { name })
+  if (!E2E_MACHINE || isHostName(E2E_MACHINE)) return await http('POST', '/api/stores', { name })
   const devDir = process.env.DSH_LAYERFS_DEV_DIR ?? fileURLToPath(new URL('../.dev', import.meta.url))
   const cli = process.env.DSH_LAYERFS_CLI ?? join(devDir, 'agent-bin', 'layerfs')
   execFileSync(cli, ['store', 'create', name, '--machine', E2E_MACHINE], { stdio: ['ignore', 'pipe', 'pipe'] })

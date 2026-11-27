@@ -109,7 +109,7 @@ function mixedDoctorState() {
     tree: {
       machines: [
         { machine: 'docker', platform: 'docker', state: 'stopped', stores: [], sandboxes: [] },
-        { machine: 'native', platform: 'native', state: 'ready', stores: [{ store: 'alpha-store', engine: 'sqlite', projects: ['app'] }, { store: 'broken-store', engine: 'sqlite', projects: ['web'] }], sandboxes: [{ sandbox: 'box-1', project: 'alpha-store/app', workspaces: [] }] },
+        { machine: 'macos-host', platform: 'host', state: 'ready', stores: [{ store: 'alpha-store', engine: 'sqlite', projects: ['app'] }, { store: 'broken-store', engine: 'sqlite', projects: ['web'] }], sandboxes: [{ sandbox: 'box-1', project: 'alpha-store/app', workspaces: [] }] },
       ],
       stores: [],
       buckets: [],
@@ -148,7 +148,7 @@ function mixedDoctorState() {
           ],
         },
         {
-          machine: 'native',
+          machine: 'macos-host',
           status: 'ok',
           coverage: 'shallow',
           checks: [

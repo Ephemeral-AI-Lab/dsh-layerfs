@@ -17,6 +17,7 @@ import { createHash } from 'node:crypto'
 import { sessionFormatCatalog } from '@deepseek-ai/dsh-session-format-catalog'
 import { mergeInvocations, withoutTraceContext } from '../layerfs/tracing.ts'
 import { CliError, pages } from '../layerfs/cli.ts'
+import { HOST_MACHINE } from '../layerfs/machine-records.ts'
 import type { LayerfsSessions } from './service.ts'
 import type { ArchivePiece, StreamMark, SimulationBinding } from './state.ts'
 
@@ -577,7 +578,7 @@ export class SessionStore {
       if ((manifest.codeBranch || simulation) && !s.sessions[sessionId]) {
         s.sessions[sessionId] = {
           sessionId, kind: manifest.bindingKind === 'shared' && manifest.sharedParent ? 'shared' : 'project',
-          ...(manifest.bindingKind === 'shared' && manifest.sharedParent ? { parent: manifest.sharedParent } : {}), project, anchor, scratch, scratchManaged: true, machine: 'native',
+          ...(manifest.bindingKind === 'shared' && manifest.sharedParent ? { parent: manifest.sharedParent } : {}), project, anchor, scratch, scratchManaged: true, machine: HOST_MACHINE,
           branch: manifest.codeBranch, sandbox: `dsh-${compact(sessionId).slice(0, 20)}`, ws: `dsh-${compact(sessionId).slice(0, 20)}:main`,
           ...(simulation ? { simulation, resumeFromArchive: true, sandbox: undefined, ws: undefined, branch: undefined } : {}),
           state: 'closed', createdAt: Date.now(), updatedAt: Date.now(),
