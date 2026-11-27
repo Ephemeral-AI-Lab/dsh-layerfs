@@ -1618,25 +1618,32 @@ export class LayerfsSessions extends Service {
    * Delete this home's conversations that never started (an empty New Session
    * that was placed in a project but never received a message). A candidate is
    * pending (or bound) and proven blank by {@link neverStarted}; the current
-   * selection and every loaded conversation are always kept. `dryRun` defaults
-   * to true, so only `{ dryRun: false }` deletes; a real run removes each
-   * candidate's log and owner route through the persistence row (the same path
-   * Presets Reset uses), its binding/pending choice and checkpoint/mirror
-   * rows, and emits one `layerfs-session {deleted: true}` per id. Safe to
-   * re-run: a second run finds no candidates.
+   * selection and every loaded conversation are always kept. An id the person
+   * archived in DSH is never a draft to prune, and `exclude` keeps further ids
+   * for a caller that already knows them. `dryRun` defaults to true, so only
+   * `{ dryRun: false }` deletes; a real run removes each candidate's log and
+   * owner route through the persistence row (the same path Presets Reset uses),
+   * its binding/pending choice and checkpoint/mirror rows, and emits one
+   * `layerfs-session {deleted: true}` per id. Safe to re-run: a second run finds
+   * no candidates.
    * @returns the candidates the scan proved blank, and the ids actually deleted.
    */
-  async pruneNeverStarted(options: { dryRun?: boolean, project?: string, current?: string | readonly string[] } = {}): Promise<{ candidates: string[], deleted: string[] }> {
+  async pruneNeverStarted(options: { dryRun?: boolean, project?: string, current?: string | readonly string[], exclude?: string | readonly string[] } = {}): Promise<{ candidates: string[], deleted: string[] }> {
     const state = this.state.read()
     const only = typeof options.project === 'string' && options.project ? options.project : undefined
     const current = new Set<string>(Array.isArray(options.current) ? options.current : options.current ? [options.current] : [])
+    // Archived conversations are an explicit keep, not drafts: the person put
+    // them in DSH's archive. `exclude` is the caller's own keep list for an id
+    // that is not archived (the CLI's --exclude).
+    const archived = new Set<string>((this.ctx.workspaceRegistry as any)?.archivedSessionIds ?? [])
+    const exclude = new Set<string>([...archived, ...(Array.isArray(options.exclude) ? options.exclude : options.exclude ? [options.exclude] : [])])
     const catalog = this.ctx.get?.('sessions' as never) as any
     const candidates: string[] = []
     for (const id of [...new Set([...Object.keys(state.pending), ...Object.keys(state.sessions)])].sort()) {
       const project = state.pending[id]?.project ?? state.sessions[id]?.project
       if (only && project !== only) continue
-      // The conversation open under a cursor never vanishes; nor does one that is loaded and may be running.
-      if (current.has(id) || catalog?.get?.(id as never)) continue
+      // The conversation open under a cursor never vanishes; nor does one that is loaded and may be running, archived, or explicitly excluded.
+      if (current.has(id) || exclude.has(id) || catalog?.get?.(id as never)) continue
       if (await this.neverStarted(id).catch(() => false)) candidates.push(id)
     }
     if (options.dryRun !== false || !candidates.length) return { candidates, deleted: [] }

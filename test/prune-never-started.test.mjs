@@ -234,3 +234,30 @@ test('pruneNeverStarted keeps the current conversation and everything of another
   // With no project filter, the other project's draft is included.
   assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ current: ['mine', 'open'], dryRun: true }), { candidates: ['other'], deleted: [] })
 })
+
+test('pruneNeverStarted keeps DSH-archived and explicitly excluded blank drafts, and deletes only the rest', async () => {
+  const state = S.initialState()
+  for (const id of ['archived', 'excluded', 'remaining']) state.pending[id] = { project }
+  const f = harness({ state, logs: { archived: blankLog(), excluded: blankLog(), remaining: blankLog() } })
+  // DSH's archive set is a default keep, not a candidate source.
+  f.ctx.workspaceRegistry.archivedSessionIds = ['archived']
+  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, dryRun: true }), { candidates: ['excluded', 'remaining'], deleted: [] })
+  // `exclude` (string or array) keeps another blank id, dry run and apply alike.
+  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, exclude: 'excluded', dryRun: true }), { candidates: ['remaining'], deleted: [] })
+  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, exclude: ['excluded'], dryRun: false }), { candidates: ['remaining'], deleted: ['remaining'] })
+  assert.ok(f.state().pending.archived, 'the archived draft stays')
+  assert.ok(f.state().pending.excluded, 'the excluded draft stays')
+  assert.equal(f.state().pending.remaining, undefined, 'only the other blank draft is removed')
+  assert.deepEqual(f.deletedSessions, ['remaining'], 'the persistence row deletes only the rest')
+  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, exclude: ['excluded'], dryRun: false }), { candidates: [], deleted: [] }, 'a second run finds nothing new')
+})
+
+test('pruneNeverStarted keeps a blank id passed as current (the tool fallback for a predating host)', async () => {
+  const state = S.initialState()
+  state.pending.blank = { project }
+  const f = harness({ state, logs: { blank: blankLog() } })
+  assert.deepEqual(await f.ops['sessions.pruneNeverStarted']({ project, current: 'blank', dryRun: false }), { candidates: [], deleted: [] })
+  assert.ok(f.state().pending.blank, 'the kept draft is still pending')
+  assert.deepEqual(f.deletedSessions, [])
+})
+

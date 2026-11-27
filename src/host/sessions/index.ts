@@ -793,7 +793,8 @@ export function apply(ctx: Context): void {
         const dryRun = args?.dryRun !== false
         const project = typeof args?.project === 'string' && args.project ? args.project : undefined
         const current = Array.isArray(args?.current) ? args.current.filter((id: unknown) => typeof id === 'string' && id) as string[] : typeof args?.current === 'string' && args.current ? args.current : undefined
-        return await sessions.pruneNeverStarted({ dryRun, ...(project ? { project } : {}), ...(current ? { current } : {}) })
+        const exclude = Array.isArray(args?.exclude) ? args.exclude.filter((id: unknown) => typeof id === 'string' && id) as string[] : typeof args?.exclude === 'string' && args.exclude ? args.exclude : undefined
+        return await sessions.pruneNeverStarted({ dryRun, ...(project ? { project } : {}), ...(current ? { current } : {}), ...(exclude ? { exclude } : {}) })
       },
       'sessions.open': async (args: any) => {
         const sessionId = need(args, 'sessionId')
