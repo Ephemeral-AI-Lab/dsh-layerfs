@@ -128,7 +128,11 @@ export class ReadQueue {
 let requests = 0
 
 /** What a files read asks: the roots without a path; a folder page by `cursor`; a file window by `offset`. */
-export interface FilesAsk { path?: string | null, cursor?: string | null, depth?: number, limit?: number, offset?: number, length?: number }
+export interface FilesAsk {
+  path?: string | null, cursor?: string | null, depth?: number, limit?: number, offset?: number, length?: number
+  /** The caller wants a file window (the file viewer): a saved-files read skips its folder probe. */
+  file?: boolean
+}
 
 /** The files route of a machine or a Sandbox. */
 export const filesRoute = (kind: DetailKind, name: string): string => `/api/${kind === 'machine' ? 'machines' : 'sandboxes'}/${enc(name)}/files`
@@ -248,7 +252,7 @@ export function readWorkspace(api: Pick<LayerfsApi, 'call'>, queue: ReadQueue, s
   }))
   return queue.run(async () => {
     if (signal?.aborted) throw new Dropped()
-    const answer: FilesView = ask.offset !== undefined ? await file(ask.offset)
+    const answer: FilesView = ask.offset !== undefined || ask.file ? await file(ask.offset ?? 1)
       : rel === '/' || ask.cursor ? await folder()
       : await folder().catch((error: unknown) => file(1).catch(() => { throw error }))
     if (signal?.aborted) throw new Dropped()

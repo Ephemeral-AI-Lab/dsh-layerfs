@@ -331,6 +331,12 @@ test('a Workspace is read from its saved files: its Branch at its base, under th
   // Go to path on a file: not a folder, so read as one
   const gone = await F.readWorkspace(api, queue, source, { path: `${root}/README.md`, depth: 1 })
   assert.equal(gone.kind, 'file')
+  // the file viewer's first window (no offset, `file`): one file read, no folder probe that fails first
+  const before = calls.length
+  const window = await F.readWorkspace(api, queue, source, { path: `${root}/README.md`, file: true })
+  assert.deepEqual([window.kind, window.offset], ['file', 1])
+  assert.equal(calls.length - before, 1, 'one call')
+  assert.doesNotMatch(calls.at(-1), /\/fs\?/, 'not a folder listing')
   assert.equal(F.readKey(F.WS_ROOTS), F.ROOTS)
   assert.equal(F.readKey(F.SB_ROOTS), F.ROOTS)
   assert.equal(F.isWorkspaceEntry({ path: root, depth: 1, kind: 'mount', size: null, mode: null, mtime: null, role: 'workspace' }), true)
