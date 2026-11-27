@@ -303,6 +303,9 @@
   .table td:nth-child(5) { grid-area: duration; justify-self: end; }
   .table td:nth-child(6) { grid-area: saved; display: block; min-width: 0; }
   .table td:nth-child(7) { grid-area: session; min-width: 0; }
+  /* a card has no column headers: an empty Saved or Session cell is not drawn
+     as a bare dash, and a call with neither has no third line */
+  .table td[data-empty] { display: none; }
 
   .commandCell {
     max-width: none;
