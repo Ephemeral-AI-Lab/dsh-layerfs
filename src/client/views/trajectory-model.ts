@@ -306,6 +306,8 @@ export function timeSpan(turns: readonly TrajectoryTurn[], now: number, checkpoi
   for (const turn of turns) {
     see(turn.at); see(turn.endAt)
     for (const r of turn.records) {
+      // the observation row is a live read counter, not session activity: it must not stretch the axis
+      if (r.kind === 'observation') continue
       see(r.at)
       if (r.kind === 'assistant') see(r.startedAt)
       if (r.kind === 'tool') { see(r.endedAt); if (r.endedAt === undefined && r.at !== undefined) see(now); r.ops.forEach((op) => see(op.at)) }

@@ -20,7 +20,8 @@ In LayerFS mode:
 - Under each tool call, the LayerFS calls it made and the 0..n saved versions
   they created (`+`), saved unchanged (`=`) or pointed at (`→`).
 - Each turn ends with its checkpoint rows; DSH's own writes outside tool calls
-  show as "By DSH" (reads are counted, not listed).
+  show as "By DSH" (reads are counted, not listed: one READS row, the
+  observation, whose time is now and so is left off the timeline's axis).
 - A version opens the **History** tab on that commit. Chat's "Inspect" on a
   call opens this view on that call.
 
@@ -118,7 +119,7 @@ combined sidecar (receipts inside `layerfs.json`, the old layout, possibly
 half-converted by a crash) is converted once by the sidecar read that comes
 first, so the window and the whole path read the same `receipts.jsonl` and
 cannot diverge. Receipts are read, not the sidecar's `invocations`
-array, so the first page never parses the receipts file whole; the OBSERVATION
+array, so the first page never parses the receipts file whole; the READS
 row's counter comes from the sidecar metadata.
 
 **What is read.** The log's tail from a `turn/start` to EOF (`TAIL_START_BYTES`
@@ -155,7 +156,7 @@ and `counts`/`opsTotal` are window values too. `hasMore` is always true.
 Everything the page carries (records, checkpoint strip, the observation row)
 is identical to the whole build's first page: 397 records, 255,626 bytes whole
 and 255,719 windowed — the 93 bytes are the three window fields, the window's
-`recordTotal`, `counts` and `revision`. The OBSERVATION row itself (the folded
+`recordTotal`, `counts` and `revision`. The READS row itself (the folded
 read counter) is session-wide, not a window figure, and the UI says so. It is
 not a log record: its `seq` is one past the newest record, so the client
 selects it by its own key (`v:observation`), never by seq, and its inspector
@@ -208,7 +209,7 @@ whole parse behind that cursor; the footer stays visible when a filter empties
 the table, so the full history can still be loaded. The counts line gains "· in
 the loaded window"; the phone summary says "N versions in the loaded window",
 and a note under the toolbar says totals, counts and per-turn counts cover the
-loaded records only, while the OBSERVATION row keeps counting the whole
+loaded records only, while the READS row keeps counting the whole
 session. After the merge, the footer returns to "Load older records (n not
 loaded)" with the full counts.
 

@@ -102,6 +102,15 @@ test('filterTurns: a search drops turns without a match', () => {
   assert.deepEqual(filterTurns(answer.turns, { onlyWrites: false, query: 'zzz' }), [])
 })
 
+test('timeSpan leaves out the observation row: a read counter days later does not stretch the axis', () => {
+  const turn = { turn: 1, at: 1000, endAt: 3700, orphanCalls: [], hostOps: [], checkpoints: [], records: [
+    { kind: 'user', seq: 1, turn: 1, at: 1000, text: 'hi' },
+    { kind: 'assistant', seq: 2, turn: 1, at: 3700, startedAt: 1100, text: 'ok' },
+    { kind: 'observation', seq: 3, turn: 1, at: 1000 + 13 * 86_400_000, text: 'polled 12 times', top: [], reads: 12 },
+  ] }
+  assert.deepEqual(timeSpan([turn], 1000 + 14 * 86_400_000), { start: 1000, end: 3700 })
+})
+
 test('timeSpan covers every time, running calls up to now, and widens an instant', () => {
   assert.deepEqual(timeSpan(answer.turns, T0 + 20_000), { start: T0, end: T0 + 20_000 }, 'call-d runs: up to now')
   assert.deepEqual(timeSpan([turn1], T0 + 99_000), { start: T0, end: T0 + 6000 })
