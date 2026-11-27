@@ -146,7 +146,7 @@ export function BucketPage({ name, view, t, api, doctorT, now, listing, runningS
                       <td data-label={t('colLinked')}>{g.key === 'other' ? <span className={css.muted}>—</span> : r.storeName ? <span className={css.linkList}>{s ? <LinkButton onClick={() => onOpenStore(r.storeName!)}>{r.storeName}</LinkButton> : <span>{r.storeName}</span>}{s ? <span className={css.muted}>{s.kind === 'postgresql' ? t('postgresql') : placeWords(s.machine)}</span> : null}</span> : <span className={css.muted}>{t('notLinked')}</span>}</td>
                       <td data-label={t('colState')} title={r.reason ?? undefined}>{g.key === 'other' ? null : <StateChip tone={chip.tone} label={chip.label} dashed={chip.dashed} />}</td>
                       <td data-label={t('colSize')} className={`${css.num} ${css.wide} ${css.muted}`}>{bytes(r.bytes)}</td>
-                      <td data-label={t('colWritten')} className={`${css.wide} ${css.muted}`} title={when(r.modified)}>{r.modified ? ago(r.modified, now, tt) : '—'}</td>
+                      <td data-label={t('colWritten')} className={`${css.wide} ${css.muted} ${css.ago}`} title={when(r.modified)}>{r.modified ? ago(r.modified, now, tt) : '—'}</td>
                       <td className={css.actionsCell}>
                         {wantsBackUp ? (
                           isMissing && onBackupNewFile
