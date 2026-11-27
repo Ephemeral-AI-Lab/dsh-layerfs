@@ -154,7 +154,9 @@ export default [
       await board(page, h)
       await page.getByRole('button', { name: 'New machine' }).click(); await h.wait(1500)
       await dialog(page).getByText('Add a machine').first().waitFor()
-      await dialog(page).getByRole('button', { name: /Not available on this computer/ }).click(); await h.wait(1200)
+      // the unavailable group shows only when some kind cannot run here
+      const unavailable = dialog(page).getByRole('button', { name: /Not available on this computer/ })
+      if (await unavailable.count()) { await unavailable.click(); await h.wait(1200) }
     },
     clip: (p) => dialog(p), pad: 24 },
 ]

@@ -18,7 +18,12 @@ async function logs(page, h) {
   }
   await page.getByRole('table', { name: 'Calls' }).waitFor({ timeout: 20000 })
   await h.wait(1200)
-  // later calls may push the fixture conversation's row onto an older page
+  // every page load reads the fixture again, so its conversation's commit sinks under newer
+  // reads: show writes only, which keeps that row on screen below the filters
+  const writes = page.getByRole('checkbox', { name: 'Writes only' })
+  if (!(await writes.isChecked())) await writes.click()
+  await h.wait(2500)
+  // later writes may still push the row onto an older page
   for (let i = 0; i < 8 && !(await SESSION_ROW(page).isVisible().catch(() => false)); i++) {
     const older = page.getByRole('button', { name: 'Load older calls' })
     if (!(await older.count())) break

@@ -1,5 +1,5 @@
 // Shots for docs/guide/README.md: the whole window, once on Center and once on a project conversation.
-const SESSION = 'session-b103116f-da49-4cb7-a158-fdd38a0d450f'
+const SESSION = 'session-64678a65-777f-4a45-9d48-2a548a901691'
 
 export default [
   {

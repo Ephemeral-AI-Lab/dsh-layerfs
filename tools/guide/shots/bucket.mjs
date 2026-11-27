@@ -1,4 +1,4 @@
-// Shots for docs/guide/bucket.md: the bucket cards on Home › Stores, the Bucket page and a Backup file page.
+// Shots for docs/guide/bucket.md: the bucket cards on Home › Buckets, the Bucket page and a Backup file page.
 // Opening a bucket page lists it once (backup list, a read); nothing here backs up, restores or disconnects.
 //   DSH_LAYERFS_DEV_DIR=$PWD/.dev-guide node tools/guide/shoot.mjs tools/guide/shots/bucket.mjs [--only <file>]
 
@@ -7,13 +7,12 @@ const dialog = (page) => page.getByRole('dialog').last()
 const menu = (page) => page.getByRole('menu').last()
 const bucketCard = (page) => page.locator('article[data-bucket="guide-backups"]')
 
-/** Home › Stores › SQLite › Buckets. */
+const homeTab = (page) => page.getByRole('tablist', { name: 'Projects, Stores, backups, connections and machines' }).getByRole('tab', { name: /^Buckets\b/ })
+
+/** Home › Buckets. */
 async function buckets(page, h) {
   await h.home()
-  await page.getByRole('tab', { name: /^Stores/ }).first().click()
-  await h.wait(800)
-  await page.getByRole('tab', { name: /^SQLite/ }).first().click()
-  await page.getByRole('tab', { name: /^Buckets/ }).first().click()
+  await homeTab(page).click()
   await bucketCard(page).waitFor({ timeout: 20000 })
   await h.wait(1500)
 }
@@ -41,7 +40,7 @@ export default [
     file: 'bucket-cards',
     run: async (page, h) => { await buckets(page, h) },
     callouts: [
-      (page) => page.getByRole('tablist', { name: 'Show' }),
+      (page) => homeTab(page),
       (page) => bucketCard(page).locator('header'),
       (page) => bucketCard(page).locator('p').first(),
       (page) => bucketCard(page).locator('ul'),

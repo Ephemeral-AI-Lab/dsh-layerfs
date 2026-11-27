@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 
 /** Draw numbered callouts over the given elements; returns a remover. */
@@ -31,14 +32,34 @@ async function drawCallouts(page, locators) {
   return () => page.evaluate(() => document.getElementById('guide-callouts')?.remove())
 }
 
-/** Show this computer's home folder as `~` in text, titles and field values, so no account name lands in a shot. */
+/**
+ * The paths a shot must not show, longest first, each with what shows instead: a private dev dir
+ * (DSH_LAYERFS_DEV_DIR, also through /private and its real path) as `~/.dev-guide`, then this
+ * computer's home folder as `~`. A dev dir in a temporary folder also shows its parent as `~`.
+ */
+function masks() {
+  const pairs = []
+  const dev = process.env.DSH_LAYERFS_DEV_DIR?.replace(/\/$/, '')
+  if (dev) {
+    let real = dev
+    try { real = realpathSync(dev) } catch {}
+    for (const p of new Set([dev, real, real.replace(/^\/private(?=\/)/, ''), `/private${dev}`])) pairs.push([p, '~/.dev-guide'])
+    // a dev dir in a temporary folder: its siblings (a fixture's source folder) show under ~ too
+    const parent = real.replace(/\/[^/]+$/, '')
+    if (/^\/(private\/)?(tmp|var\/folders)\//.test(parent)) for (const p of new Set([parent, parent.replace(/^\/private(?=\/)/, '')])) pairs.push([p, '~'])
+  }
+  pairs.push([homedir(), '~'])
+  return pairs.sort((a, b) => b[0].length - a[0].length)
+}
+
+/** Show the private dev dir and this computer's home folder short in text and field values, so no account name lands in a shot. */
 async function maskHome(page) {
-  await page.evaluate((home) => {
-    const swap = (s) => (s && s.includes(home) ? s.split(home).join('~') : s)
+  await page.evaluate((pairs) => {
+    const swap = (s) => { if (!s) return s; for (const [from, to] of pairs) if (s.includes(from)) s = s.split(from).join(to); return s }
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
     for (let n = walker.nextNode(); n; n = walker.nextNode()) { const v = swap(n.nodeValue); if (v !== n.nodeValue) n.nodeValue = v }
     for (const el of document.querySelectorAll('input, textarea')) { const v = swap(el.value); if (v !== el.value) el.value = v }
-  }, homedir())
+  }, masks())
 }
 
 /** Capture one numbered guide image from a prepared browser view. */

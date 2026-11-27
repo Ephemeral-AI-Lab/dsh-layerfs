@@ -72,7 +72,7 @@ LayerFS 只有恢复它才能读到其中的项目。
 
 | # | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|---|
-| 1 | 视图切换 | **Store**（Stores）*n* · **存储桶**（Buckets）*n* | 点击 → 切到该视图 | — （记在浏览器里） | 只在 SQLite 一侧 |
+| 1 | **存储桶**（Buckets）标签 | 主页的 **存储桶**（Buckets）*n* 标签 | 点击 → 存储桶卡片 | — | |
 | 2 | 卡片头部 | 提供方标志、名称、无法列出或记录损坏时的红点、⋯ | 名称 → 存储桶页面；⋯ → **列出文件**（List files）/ **重新列出**（List again）、**打开存储桶**（Open bucket） | 按 **列出文件** / **重新列出** 时 `backup list` (读取) | 列出期间菜单中的列出项禁用 |
 | 3 | 说明行 | 提供方 · **n 个 Store 文件 · 大小 · 列出于**（n Store files · size · Listed）*多久前* | 悬停在失败上 → LayerFS 的原话 | 最近一次 `backup list` | **未列出**（Not listed）、**正在列出…**（Listing…）；失败字样显示为红色 |
 | 4 | 文件行 | 最多五行：文件、大小，然后是它备份的 Store（名称、日期或状态），不在此主目录中的文件则显示 **恢复…**（Restore…）；正在向该存储桶备份或从中恢复的任务排在最上面 | 文件名 → [备份文件页面](#backup-file)；Store 名称 → Store 页面；**恢复…**（Restore…）→ 以新 Store [恢复](#modals-opened-here) | `backup restore` | **还没有 Store 文件**（No Store files yet）；**文件未知 · 重新连接…**（Files unknown · Connect again…）/ **重新列出**（List again）；**列出后查看其中的备份文件 · 列出文件**（List to see Store files · List files）；**正在列出…**（Listing…） |
