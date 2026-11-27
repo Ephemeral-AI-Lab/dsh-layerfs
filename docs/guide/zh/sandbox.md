@@ -113,10 +113,10 @@ Sandbox 的 Workspace，可以显示为卡片（**网格**（Grid））或终端
 
 | # | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|---|
-| 1 | 视图 | **Workspace**（Workspaces）（每个已挂载的 Workspace 作为一个文件夹，内容是其已保存的文件）、**Sandbox 文件夹**（Sandbox folders）（home、daemon 日志），以及提供时的 **整个文件系统 (/)**（Whole filesystem (/)） | 点击 → 切到该视图 | **Workspace**：`branch get`, `file list` (读取，通过项目在 Workspace 的基准提交处读取)；其他视图：`sandbox files <sandbox>` (读取) | **没有挂载的 Workspace。**（No Workspaces are mounted.） |
+| 1 | 视图 | **Workspace**（Workspaces）（每个已挂载的 Workspace 作为一个文件夹，内容是其已保存的文件）、**Sandbox 文件夹**（Sandbox folders）（home、daemon 日志），以及提供时的 **整个文件系统 (/)**（Whole filesystem (/)） | 点击 → 切到该视图 | **Workspace**：`branch get`, `file list` (读取，通过项目在 Workspace 的基准提交处读取；分叉出来、自己还没有提交的分支，则在它的基准 Layer 处读取)；其他视图：`sandbox files <sandbox>` (读取) | **没有挂载的 Workspace。**（No Workspaces are mounted.） |
 | 2 | 路径 | 当前显示的路径，可编辑 | **转到路径**（Go to path）→ 打开它 | `sandbox files <sandbox> <path>` (读取) | |
 | 3 | **筛选已加载的条目**（Filter loaded entries） | | 筛选已经读到的内容 | — | |
-| 4 | Workspace 行 | **Workspace** *name*，附其分支和改动 | 点击 → 它的文件 | `file list` (读取) | |
+| 4 | Workspace 行 | **Workspace** *name*，附其分支和改动 | 点击 → 它在该基准处已保存的文件（这里 `guide-ws` 是刚从 main 分叉的分支：显示 main 的文件） | `file list --at` (读取) | |
 | 5 | 文件 | 文件文本，每次显示一段 | 点击 → 打开它 | `file read`, `file stat` (读取；Sandbox 文件夹：`sandbox files --byte-offset --byte-length`) | daemon 日志会提示 **在“Daemon 日志”标签页中读取**（Read in the Daemon log tab） |
 
 **刷新**（Refresh）重新读取已展开的文件夹；读取较久时会显示秒数和 **取消**（Cancel）。

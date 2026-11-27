@@ -1,4 +1,4 @@
-<!-- source: 18110cd8278e -->
+<!-- source: bf172cc5e7f2 -->
 # 预设
 
 > **位置：** `LayerFS › 主页 ›` **试用预设**（Try a preset）· **打开方式：** 主页[概览头部](components.md#overview-head)上的预设按钮（刷新按钮旁）· **源码：** 见文末
@@ -21,7 +21,7 @@
 | 4 | **查看脚本**（View script） | 构建要运行的每条 CLI 命令 |
 | 5 | **构建…**（Build…）/ **重新构建…**（Rebuild…） | 清空主目录并构建项目库（需确认两次） |
 | 6 | ⋯（**更多操作**（More actions）） | **停止机器…**（Stop machines…） |
-| 7 | 一个项目 | 上方是它的机器和 Store，下面是它的计划历史和构建状态（这里是 **失败**（Failed）） |
+| 7 | 一个项目 | 上方是它的机器和 Store，下面是它的计划历史（这里是 **552 个提交 · 19 个侧分支**（552 commits · 19 side branches）），以及构建进行中或失败后的状态 |
 | 8 | #（**查看 *项目* 的脚本**（View script for *project*）） | 只显示该项目命令的脚本 |
 | 9 | **上次构建**（Last build） | 最近一次操作：摘要、各阶段、错误、**日志**（Log）、**详情**（Details） |
 
@@ -45,8 +45,7 @@
 
 ![选中 bookshelf，以及上次构建的日志](../img/presets-resource.png)
 
-在这台服务器上，入门（Starter）构建中途停了下来：**PresetVerificationFailed:** *Preset step
-dense.001.integration.publish.1: publication replaced a newer main head*。阶段显示它在 **构建**（Building）阶段失败；**CLI 进度**（CLI progress）显示 **250 / 679 条命令**（250 / 679 commands），项目显示 **235 / 552 个提交**（235 / 552 commits）。项目库保留了已经构建的部分（主页列出 `bookshelf`，有 235 个提交），入门预设显示 **需要重新构建**（Needs a rebuild）。
+在这台服务器上，入门（Starter）构建一直跑完了：入门预设显示 **已构建**（Built），状态行显示 **已构建并验证 · *时间* · 仅文件命令**（Built and verified · *when* · File commands only），**上次构建**（Last build）显示 **构建完成**（Build complete），以及 **0 个运行中 · 1 / 1 已完成 · 已用 0:09**（0 running · 1 / 1 completed · 0:09 elapsed）。679 条构建命令全部执行，项目显示 **552 个提交 · 19 个侧分支**（552 commits · 19 side branches）；它的 **所选资源**（Selected resource）显示 **已验证历史**（Verified history）：**552 个提交 · 6 次合并 · 115 个 main Layer**（552 commits · 6 merges · 115 main Layers）。**日志**（Log）的末尾是最后几组 `file write` / `branch publish`，然后是验证用的读取。
 
 ![Studio：四台机器，八个项目](../img/presets-studio.png)
 
@@ -64,10 +63,11 @@ dense.001.integration.publish.1: publication replaced a newer main head*。阶�
 | 阶段 (4) | **重置环境**（Reset environment）、**构建预设**（Build preset）、**验证结果**（Verify result）：带注释的编号命令，**分支通道**（Branch lane）、**Shell 命令 / exec 输入**（Shell command / exec input）、**步骤与依赖**（Step and dependencies）、**文件内容 / 标准输入**（File content / standard input） | 展开一个折叠项 | — | **当前计划中没有此资源的命令。**（No commands for this resource in the current plan.） |
 | 筛选 | 从项目的 # 打开时：***类型*：*名称***（*kind*: *name*） | **显示全部命令**（Show all commands）/ **显示相关命令**（Show related commands） | — | |
 
-对入门（Starter）来说，脚本共 765 条命令：先是重置（`machine list`、`store list`、`sandbox
-list`，然后对主目录现有的内容执行 `sandbox remove` 和 `store remove`），接着是 `store
-create`、`project init`，每个提交一次 `file write`，侧分支上还有 `branch fork`、`branch merge` 和
-`branch publish`，最后是验证用的读取。
+在这台服务器上，入门（Starter）的脚本共 762 条命令。重置 10 条（`machine list`、`store list`、`sandbox
+list`，然后针对主目录现有的内容执行 `guide-box` 的 `sandbox get` 和 `sandbox remove`、`store remove
+demo-starter` 和 `machine stop docker`）。构建 684 条：`home get`、`machine start`、`store create`、`project
+init`、`store move`，然后是 546 条 `file write`，侧分支上的 13 条 `branch fork`、114 条 `branch publish` 和 6 条
+`branch merge`。验证 68 条读取（`branch list`、每个分支一条 `commit list`、`file read`、`file glob`）。
 
 ## 变体
 
@@ -96,7 +96,7 @@ create`、`project init`，每个提交一次 `file write`，侧分支上还有 
 
 ## 状态与信号
 
-- **需要重新构建**（Needs a rebuild）：已保存的项目库已过期，或上次构建没有通过验证（就像这里）。**重新构建…**（Rebuild…）会替换它。
+- **需要重新构建**（Needs a rebuild）：已保存的项目库已过期，或上次构建没有通过验证。**重新构建…**（Rebuild…）会替换它。
 - 项目上显示 **失败**（Failed），**上次构建**（Last build）下有红色错误：写明出错的步骤和 LayerFS 给出的原因；**日志**（Log）显示到这一步为止的调用，[日志](logs.md) 里能看到每一条。
 - **Wait for the preset operation to finish…**：有构建或停止正在运行，按钮在它结束前不可用。诊断检查和存储任务也必须结束后才能开始构建。
 - 失败提示下的 **打开会话 *id***（Open session *id*）：一个挡路的项目会话。
