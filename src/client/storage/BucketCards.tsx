@@ -48,10 +48,12 @@ function whereOf(b: BucketRow, t: StorageT): string {
   return providerWords(b.provider, t)
 }
 
-export function BucketCards({ view, t, now, jobs, listingBuckets, listingAll, onOpen, onAddBucket, onList, onReconnect, onRestore }: {
+export function BucketCards({ view, t, now, jobs, dismissed, listingBuckets, listingAll, onOpen, onAddBucket, onList, onReconnect, onRestore }: {
   view: StorageView, t: StorageT, now: number
   /** The home's jobs: running ones show on their bucket; an ended failed restore marks its file. */
   jobs: readonly StorageJob[]
+  /** Failed jobs the user dismissed: their file is no longer marked. */
+  dismissed?: ReadonlySet<string> | undefined
   listingBuckets?: ReadonlySet<string> | undefined
   listingAll?: boolean | undefined
   onOpen: (id: TabId) => void
@@ -97,14 +99,14 @@ export function BucketCards({ view, t, now, jobs, listingBuckets, listingAll, on
         </div>
       ) : null}
       <div className={css.grid}>
-        {shown.map((b) => <BucketCard key={b.name} b={b} view={view} t={t} now={now} jobs={jobs} listing={!!listingAll || !!listingBuckets?.has(b.name)} onOpen={onOpen} onList={onList} onReconnect={onReconnect} onRestore={onRestore} />)}
+        {shown.map((b) => <BucketCard key={b.name} b={b} view={view} t={t} now={now} jobs={jobs} dismissed={dismissed} listing={!!listingAll || !!listingBuckets?.has(b.name)} onOpen={onOpen} onList={onList} onReconnect={onReconnect} onRestore={onRestore} />)}
       </div>
     </div>
   )
 }
 
-function BucketCard({ b, view, t, now, jobs, listing, onOpen, onList, onReconnect, onRestore }: {
-  b: BucketRow, view: StorageView, t: StorageT, now: number, jobs: readonly StorageJob[], listing: boolean
+function BucketCard({ b, view, t, now, jobs, dismissed, listing, onOpen, onList, onReconnect, onRestore }: {
+  b: BucketRow, view: StorageView, t: StorageT, now: number, jobs: readonly StorageJob[], dismissed: ReadonlySet<string> | undefined, listing: boolean
   onOpen: (id: TabId) => void, onList: (bucket: string) => void, onReconnect: (again: Reconnect) => void, onRestore: (bucket: string, file: string) => void
 }): ReactNode {
   const tt = t as Translate
@@ -117,11 +119,11 @@ function BucketCard({ b, view, t, now, jobs, listing, onOpen, onList, onReconnec
   const fromHome = files.filter((f) => f.state !== 'unlinked').length
   const size = files.reduce((n, f) => n + (f.bytes ?? 0), 0)
   const running = jobs.filter((j) => !j.ended && (j.kind === 'backup' || j.kind === 'restore') && j.target === b.name)
-  // a file's last restore from this bucket, when it failed: the row says so, with LayerFS's reason on hover
+  // a file's last restore from this bucket, when it failed and was not dismissed: the row says so, with LayerFS's reason on hover
   const restoreFailed = (file: string): StorageJob | null => {
     const last = jobs.filter((j) => j.kind === 'restore' && j.target === b.name && j.file === file && j.ended)
       .reduce<StorageJob | null>((a, j) => (!a || (j.ended ?? 0) > (a.ended ?? 0) ? j : a), null)
-    return last?.outcome === 'failed' ? last : null
+    return last?.outcome === 'failed' && !dismissed?.has(last.id) ? last : null
   }
   const room = Math.max(1, ROWS - running.length)
   const rows = files.slice(0, room)

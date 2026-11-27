@@ -328,10 +328,10 @@ test('Bucket card: an unlinked file whose last restore failed is marked beside R
   const bucket = { name: 'minio', provider: 'minio', listed: 1, files: [file('shop'), file('blog')], error: null }
   const job = (id, f, ended, outcome, message) => ({ id, kind: 'restore', store: f, target: 'minio', file: f, started: ended - 10, ended, phase: null, done: null, total: null, outcome,
     error: outcome === 'failed' ? { code: 'Unsupported', message, phase: null } : null })
-  const render = (jobs) => {
+  const render = (jobs, dismissed) => {
     globalThis.__pb01Buttons = []
     return renderToStaticMarkup(createElement(M.BucketCards, {
-      view: { stores: [], machines: [], buckets: [bucket], jobs, at: 0 }, t, now: 61000, jobs,
+      view: { stores: [], machines: [], buckets: [bucket], jobs, at: 0 }, t, now: 61000, jobs, dismissed,
       onOpen: () => {}, onAddBucket: () => {}, onList: () => {}, onReconnect: () => {}, onRestore: () => {},
     }))
   }
@@ -350,4 +350,6 @@ test('Bucket card: an unlinked file whose last restore failed is marked beside R
   assert.doesNotMatch(retried, /data-restore-failed/, 'a later successful restore clears the mark')
   const running = render([job('a', 'shop', 1000, 'failed', 'x'), { ...job('c', 'shop', 3000, null), ended: null }])
   assert.match(running, /data-restore-failed="shop"/, 'a restore still running does not hide the last failure')
+  const gone = render([job('a', 'shop', 1000, 'failed', 'x')], new Set(['a']))
+  assert.doesNotMatch(gone, /data-restore-failed/, 'a dismissed failure is not marked')
 })
