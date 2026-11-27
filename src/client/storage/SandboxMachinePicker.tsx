@@ -21,7 +21,7 @@ export function SandboxMachinePicker({ t, machines, reason, onPick, onClose }: {
 }): ReactNode {
   const mc = useMachinesContext()
   return (
-    <Modal open title={t('newSandbox')} description={t('chooseMachine')} closeLabel={t('close')} onClose={onClose} className={css.modal}>
+    <Modal open title={t('newSandbox')} description={t('chooseMachine')} closeLabel={t('close')} onClose={onClose} className={css.modal} contentClassName={css.modalContent}>
       <div className={css.form}>
         {reason ? <p role="status">{reason}</p> : machines.map((m) => (
           <Button key={m.name} variant="outline" onClick={() => onPick(m)}>

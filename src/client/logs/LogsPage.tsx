@@ -376,7 +376,7 @@ function Row({ api, t, line, now, rowKey, detailOpen, onOpen, onKeyDown }: {
       </td>
       <td role="cell" className={clsx(css.muted, css.wClient)}>{line.client}</td>
       <td role="cell" className={css.commandCell}><CommandCell parts={parts} focusOpen={focused} popoverId={popoverId} disabled={detailOpen} /></td>
-      <td role="cell" title={ok ? undefined : line.outcome}>{ok ? <span className={css.ok}>{t('outcomeOk')}</span> : <Tag tone="danger" className={css.codeTag}>{line.outcome}</Tag>}</td>
+      <td role="cell" title={ok ? undefined : line.outcome}>{ok ? <span className={css.ok}>{t('outcomeOk')}</span> : <Tag tone="danger" className={clsx(css.tag, css.codeTag)}>{line.outcome}</Tag>}</td>
       <td role="cell" className={clsx(css.num, css.duration)}>{duration(line.ms, t)}</td>
       <td role="cell" className={clsx(css.saved, css.wSaved)}>
         {version ? <>{line.kind && <span className={css.kind} title={line.kind}>{kindWords(line.kind, t)}</span>}<code className={css.hex} title={version}>{shortHex(version)}</code></> : <span className={css.muted}>—</span>}

@@ -16,7 +16,7 @@ const block = (css, selector) => {
   assert.ok(i >= 0, `${selector} exists`)
   return css.slice(i, css.indexOf('}', i) + 1)
 }
-const coarse = '@media (max-width: 1180px), (pointer: coarse)'
+const coarse = '@media (pointer: coarse), (max-width: 834px)'
 
 test('scale: one control gap, 4 px fine and 8 px coarse', () => {
   const css = src('ui/responsive.css')
@@ -69,7 +69,7 @@ test('small row controls: the 44 px hit target is a pseudo box, the visual stays
   const css = src('storage/ProjectTable.module.css')
   assert.match(block(css, '.toggle {'), /position:\s*relative/)
   assert.match(block(css, '.store,\n.cellLink'), /position:\s*relative/)
-  const { bodies, rest } = media(css, '(max-width: 1180px), (pointer: coarse)')
+  const { bodies, rest } = media(css, '(pointer: coarse), (max-width: 834px)')
   // A count's box applies at every pointer.
   const link = block(rest, '.cellLink::after')
   assert.match(link, /width:\s*max\(44px, 100%\)/)

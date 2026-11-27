@@ -32,12 +32,6 @@
   min-height: 0;
 }
 
-@container files-frame (max-width: 820px) {
-  .frame {
-    grid-template-columns: 200px minmax(0, 1fr);
-  }
-}
-
 .side {
   display: flex;
   flex-direction: column;
@@ -46,7 +40,8 @@
   background: var(--dsw-alias-bg-base);
 }
 
-/* The tree is a drawer at tablet and phone widths: a compact bar over the file. */
+/* The tree is a drawer when the Files container is tablet-wide or narrower:
+   a compact bar over the file. */
 .sideTop {
   display: flex;
   align-items: center;
@@ -65,16 +60,10 @@
   display: none;
 }
 
-@container files-frame (max-width: 600px) {
-  .frame {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(120px, 34%) minmax(0, 1fr);
-  }
-
-  .side {
-    border-right: 0;
-    border-bottom: 0.5px solid var(--dsw-alias-border-l2);
-  }
+/* doubled: States.module.css's action row display must lose, whatever order
+   the two stylesheets load in */
+.treeShow.treeShow {
+  display: none;
 }
 
 
@@ -933,22 +922,24 @@
   overflow: hidden;
 }
 
-/* ---------- tablet and phone: the tree is a drawer ---------- */
+/* ---------- a narrow Files container: the tree is a drawer ----------
+   Keyed on the Files container (files-frame), not the viewport: a narrow pane
+   on a wide desktop (the per-session panel, the Export dialog's Files mode)
+   gets the drawer too, and the drawer covers only the Files frame, never the
+   page or a dialog's head around it. */
 
-@media (max-width: 834px) {
+@container files-frame (max-width: 834px) {
   .frame {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
   }
 
-  /* A full-screen drawer: the page around it scrolls, the tree does not. */
+  /* A drawer over the whole Files frame (position: relative; overflow: hidden). */
   .side {
-    position: fixed;
+    position: absolute;
     inset: 0;
-    z-index: 200;
+    z-index: 2;
     display: none;
-    padding-top: env(safe-area-inset-top, 0px);
-    padding-bottom: var(--lfs-safe-bottom, 0px);
     border-right: 0;
     border-bottom: 0;
   }
@@ -998,6 +989,14 @@
     color: var(--dsw-alias-label-primary);
   }
 
+  /* With no file open, the empty view offers the hidden tree (its action row,
+     which takes no room while the tree is beside the file). */
+  .treeShow.treeShow {
+    display: flex;
+  }
+}
+
+@media (max-width: 834px) {
   .tabs {
     height: var(--lfs-row-h, 44px);
     padding-right: 0;
@@ -1013,7 +1012,7 @@
 }
 
 /* A finger gets a full row and a full control, whatever the width. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .treeRow {
     padding-top: 10px;
     padding-bottom: 10px;
@@ -1095,15 +1094,23 @@
   max-width: min(360px, calc(100vw - 24px));
 }
 
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .branchMenu [role="menuitem"] {
     min-height: var(--lfs-tap, 44px);
   }
 }
 
-/* The menu's group words (Published / Branches) read at the same floor as the rows. */
-.branchMenu [class*="_label_"] {
-  font-size: 12px;
+/* A tree with wrapNames (a narrow side panel, e.g. a machine's Files tab):
+   on the touch layout its names and paths grow the row instead of being cut. */
+@media (pointer: coarse), (max-width: 834px) {
+  .treeWrap .treeName,
+  .treeWrap .treePath,
+  .treeWrap .treeSecondary {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }
 
 /* Long names and messages read whole instead of ending in an ellipsis: the row
@@ -1148,7 +1155,7 @@
 }
 
 /* The compare bar's actions are thumb targets too. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .compareBar button,
   .diffHead button {
     min-height: var(--lfs-tap, 44px);

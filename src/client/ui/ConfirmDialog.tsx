@@ -67,6 +67,7 @@ export function ConfirmDialog({
         description={body}
         closeLabel={labels.close}
         className={clsx(toneScope, css.confirmModal, busy && css.confirmModalBusy)}
+        contentClassName={css.confirmContent}
         footer={(
           <div className={css.confirmFooter}>
             <Button variant="outline" disabled={busy} data-modal-autofocus={!name ? '' : undefined} onClick={onClose}>

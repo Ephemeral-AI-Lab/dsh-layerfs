@@ -124,7 +124,7 @@
 }
 
 /* Touch: the finder is a thumb target. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .finderSearch,
   .finderSort,
   .clear {

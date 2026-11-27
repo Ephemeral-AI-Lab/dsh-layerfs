@@ -324,7 +324,7 @@
 
 /* ---------- touch and narrow screens (the same dialog's fields and actions) ---------- */
 
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   /* the Input component's shell (className lands on its wrapper): the text
      field stretches to the whole shell, so a tap anywhere in it focuses */
   .folderRow .input {

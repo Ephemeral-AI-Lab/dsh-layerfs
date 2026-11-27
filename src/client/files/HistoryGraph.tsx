@@ -139,7 +139,7 @@ const GAP_MIN = 16
 const GAP_TOUCH = 48
 
 /** The touch layout: the media condition the plugin's touch tokens use (src/client/ui/responsive.css). */
-export const TOUCH_QUERY = '(max-width: 1180px), (pointer: coarse)'
+export const TOUCH_QUERY = '(pointer: coarse), (max-width: 834px)'
 const touchNow = (): boolean => typeof matchMedia === 'function' && matchMedia(TOUCH_QUERY).matches
 const onTouchChange = (change: () => void) => {
   if (typeof matchMedia !== 'function') return () => {}

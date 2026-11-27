@@ -26,7 +26,8 @@
   max-height: 100%;
 }
 
-.inspectorModal [class*='close'] {
+/* the close: DSH labels it with our closeLabel (the body has no buttons) */
+.inspectorModal :global(button[aria-label]) {
   min-width: var(--lfs-tap, 44px);
   min-height: var(--lfs-tap, 44px);
 }

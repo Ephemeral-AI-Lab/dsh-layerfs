@@ -192,19 +192,13 @@ export function HeroProjectControl({ sessionId, api, t, imports, ownership, retr
       const options = [...row.children].find((child) => child.contains(root.current))
       row.setAttribute('data-layerfs-hero-row', sessionId)
       options?.setAttribute('data-layerfs-hero-options', '')
-      // The row's title sits above it, outside our slot: mark it through the
-      // hero's own brand-mark slot so the phone rules can scale it and let a
-      // long title (with its Preview badge) wrap instead of leaving the column.
-      const headline = row.parentElement?.querySelector('[data-slot="conversation.hero.brand.mark"]')?.parentElement?.parentElement
-      const title = headline && headline !== row.parentElement ? headline.lastElementChild : null
-      headline?.setAttribute('data-layerfs-hero-headline', '')
-      title?.setAttribute('data-layerfs-hero-title', '')
+      // The hero's title above the row is DSH's own, outside our slot, and has no
+      // public hook: it keeps DSH's look on a phone (no walking up from the
+      // brand-mark slot to restyle it).
       if (project) row.setAttribute('data-layerfs-scratch-picker', sessionId)
       return () => {
         if (row.getAttribute('data-layerfs-hero-row') === sessionId) { row.removeAttribute('data-layerfs-hero-row'); options?.removeAttribute('data-layerfs-hero-options') }
         if (row.getAttribute('data-layerfs-scratch-picker') === sessionId) row.removeAttribute('data-layerfs-scratch-picker')
-        headline?.removeAttribute('data-layerfs-hero-headline')
-        title?.removeAttribute('data-layerfs-hero-title')
       }
     }
   }, [project, sessionId])
@@ -265,7 +259,8 @@ export function HeroProjectControl({ sessionId, api, t, imports, ownership, retr
         label: <span className={css.option} title={`${name} · ${store}${note ? ` · ${note}` : ''}`}>
           <span className={css.optionName}>{name}</span><span className={css.optionNote}>{note}</span>
           {/* The selected mark sits with the name, before the settings action;
-              DSH's own trailing check is hidden for these rows in the CSS. */}
+              these rows are never the Menu's selectedId, so DSH draws no
+              trailing check after the gear. */}
           {isCurrent ? <span className={css.optionCheck} aria-hidden="true"><IconCheckOutlineRegular size={14} /></span> : null}
           <span role="button" className={css.optionGear} aria-label={configure} title={configure} data-layerfs-configure=""
             onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}
@@ -282,7 +277,7 @@ export function HeroProjectControl({ sessionId, api, t, imports, ownership, retr
   return (
     <span ref={root} className={css.root} data-layerfs-hero="">
       {place?.project ? <span className={css.scratchSlot} data-layerfs-scratch=""><ScratchPicker sessionId={sessionId} scratch={place.scratch} api={api} t={t} /></span> : null}
-      <Menu open={open && !switching} onClose={() => setOpen(false)} portal align="start" items={items} selectedId={current ?? NONE} dense listClassName={css.projectMenu}
+      <Menu open={open && !switching} onClose={() => setOpen(false)} portal align="start" items={items} selectedId={current === null ? NONE : undefined} dense listClassName={css.projectMenu}
         onSelect={(id) => {
           setOpen(false)
           if (id === NEW) projectDialog.open({ mode: 'new' })

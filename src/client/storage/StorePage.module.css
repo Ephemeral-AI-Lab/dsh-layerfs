@@ -821,7 +821,7 @@
   gap: 8px;
 }
 
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .headActions :global(button) {
     min-height: var(--lfs-tap, 44px);
   }
@@ -866,7 +866,8 @@
     min-height: var(--lfs-tap, 44px);
   }
 
-  .toolbar :global([class*='_wrap_']) {
+  /* the project search: our class on DSH's Input wrapper */
+  .toolbar .search {
     height: var(--lfs-tap, 44px);
   }
 

@@ -17,7 +17,7 @@ import {
   Button, IconChevronLeftOutlineRegular, IconChevronRightOutlineRegular, IconPlusOutlineRegular, Input, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc } from '../api.ts'
-import { Field, MenuSelect, Refusal } from '../ui/index.tsx'
+import { Field, MenuSelect, Refusal, touchField } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import { bytes, runningSummary, workspaceCapacity, workspaceName, type SandboxInfo } from './model.ts'
 import { DEFAULT_FIT, PANE_GAP, PANE_MIN_HEIGHT, mountedWorkspace, orderWorkspaces, pageLayout, pageOf, paneFit, type Fit } from './terminal.ts'
@@ -317,11 +317,11 @@ function NewWorkspace({ info, taken, onCancel, onMounted }: { info: SandboxInfo,
       </Field>
       {isNew && (
         <Field label={t('termBranchName')}>
-          <Input value={fresh} onChange={(e) => { setFresh(e.target.value); setProblem(null) }} aria-label={t('termBranchName')} spellCheck={false} autoFocus disabled={busy} />
+          <Input className={touchField} value={fresh} onChange={(e) => { setFresh(e.target.value); setProblem(null) }} aria-label={t('termBranchName')} spellCheck={false} autoFocus disabled={busy} />
         </Field>
       )}
       <Field label={t('termWsName')}>
-        <Input value={name} onChange={(e) => { setName(e.target.value); setProblem(null) }} aria-label={t('termWsName')} spellCheck={false} disabled={busy}
+        <Input className={touchField} value={name} onChange={(e) => { setName(e.target.value); setProblem(null) }} aria-label={t('termWsName')} spellCheck={false} disabled={busy}
           aria-invalid={!!name && taken.includes(name)} />
       </Field>
       {branches.error != null && <p className={css.formError}>{t('termBranchesFailed')}</p>}

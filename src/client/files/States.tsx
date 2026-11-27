@@ -74,13 +74,13 @@ export function blockedOf(detail: unknown): { machine: string | null, reason: st
 const compactLabels = (inTheWay: string): RefusalLabels => ({ category: () => '', inTheWay, kind: (k) => k, phase: (p) => p, operation: (o) => o })
 
 /** Nothing to show: a title, a sentence and an optional action. */
-export function EmptyState({ title, children, action, icon, className }: { title: string, children?: ReactNode, action?: ReactNode, icon?: ReactNode, className?: string }): ReactNode {
+export function EmptyState({ title, children, action, actionClassName, icon, className }: { title: string, children?: ReactNode, action?: ReactNode, actionClassName?: string, icon?: ReactNode, className?: string }): ReactNode {
   return (
     <div className={clsx(css.empty, className)}>
       {icon ? <span className={css.emptyIcon} aria-hidden="true">{icon}</span> : null}
       <p className={css.emptyTitle}>{title}</p>
       {children ? <p className={css.emptyBody}>{children}</p> : null}
-      {action ? <div className={css.emptyAction}>{action}</div> : null}
+      {action ? <div className={clsx(css.emptyAction, actionClassName)}>{action}</div> : null}
     </div>
   )
 }

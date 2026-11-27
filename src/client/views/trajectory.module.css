@@ -103,7 +103,7 @@
   outline-offset: 1px;
 }
 
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .action {
     min-width: var(--lfs-tap, 44px);
     padding: 0 12px;
@@ -862,7 +862,7 @@
 }
 
 /* The close action is a thumb target, not a 28px icon. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .inspectorHead > button {
     width: var(--lfs-tap, 44px);
     height: var(--lfs-tap, 44px);
@@ -1349,7 +1349,7 @@
   }
 }
 
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   /* The "Open in History" action and the version chips are thumb targets; the
      chips keep their inline look (a chip is not a 44px row) but get height. */
   .versionLine .openHistory {
@@ -1441,7 +1441,7 @@
 /* Coarse: our filter chips and the timeline's row targets reach the same
    8 px / 44 px floor as the rest of the plugin. The stock chips (host
    dsh-client-ui-trajectory .actions) remain 2 px; only our row widens. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .actions {
     gap: var(--lfs-gap-control, 8px);
   }

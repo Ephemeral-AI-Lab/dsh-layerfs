@@ -104,10 +104,10 @@ Pages: [Store](store.md) · [Bucket](bucket.md)
 | Job **Retry** | job card | the job's route again | the job's own calls |
 | Job **Dismiss** | job card | — | — (this browser) |
 | Needs-you **Start <machine>** | Store page notice, card status | `POST /api/machines/:id/start` | `machine start` |
-| **Add › Add bucket** → **Connect bucket** | nav bar Add, Back up dialog, Home › Stores › Buckets | `POST /api/buckets` | `backup connect` (the secret on stdin) ↻ |
+| **Add › Add bucket** → **Connect bucket** | nav bar Add, Back up dialog, Home › Buckets | `POST /api/buckets` | `backup connect` (the secret on stdin) ↻ |
 | **Connect again…** → **Connect again** | bucket page, bucket card | `POST /api/buckets`, `GET /api/buckets/:id/files` | `backup connect`, `backup list` |
 | Open a bucket page, **List** / **List again**, card **⋯ › List files** | `LayerFS › … › <bucket>` | `GET /api/buckets/:id/files` | `backup list` (read) |
-| **List bucket files** | `Home › Stores › SQLite › Buckets` | `POST /api/storage/check` | `backup list` per bucket, then the Storage view reads |
+| **List bucket files** | `Home › Buckets` | `POST /api/storage/check` | `backup list` per bucket, then the Storage view reads |
 | Bucket **Test connection** | `… › <bucket>` | `POST /api/doctor/runs` `{kind: bucket}` | `backup doctor` |
 | Bucket **⋯ › Disconnect** → **Disconnect** | `… › <bucket>` | `DELETE /api/buckets/:id` | `backup disconnect` ↻ |
 | Bucket or file row **Back up now** | `… › <bucket>`, `… › <bucket> › <file>` | `POST /api/stores/:s/backup` `{bucket, file}` | `backup create`, `backup list` |

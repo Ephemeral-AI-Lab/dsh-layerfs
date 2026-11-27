@@ -7,7 +7,7 @@
 import { useContext, useEffect, useMemo, useState, type ReactNode, type SyntheticEvent } from 'react'
 import { Button, IconCheckOutlineRegular, IconChevronRightOutlineRegular, IconSettingsOutlineRegular, IconTrashOutlineRegular, IconWarningOutlineRegular, Input, MenuItemButton, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { StatusDot } from '../ui/StatusDot.tsx'
-import { CopyLine, DangerButton, Field, FixAction, FixContext, MoreMenu, Refusal, StateChip, Contained, usePressGuard } from '../ui/index.tsx'
+import { CopyLine, DangerButton, Field, FixAction, FixContext, MoreMenu, Refusal, StateChip, Contained, usePressGuard, touchField } from '../ui/index.tsx'
 import { runnableFix } from '../../shared/doctor.ts'
 import { useMachinesContext } from './context.tsx'
 import type { MachineAction } from './controller.ts'
@@ -305,12 +305,12 @@ function SettingsDialog({ m, onClose, pending, run }: { m: MachineInfo, onClose:
           ? <SocketChoices setting={setting} value={chosen} onChange={setChoice} disabled={pending !== null} />
           : (
             <Field label={t('dockerSocket')}>
-              <Input value={socket} onChange={(e) => setSocket(e.target.value)} placeholder="/var/run/docker.sock" spellCheck={false} />
+              <Input className={touchField} value={socket} onChange={(e) => setSocket(e.target.value)} placeholder="/var/run/docker.sock" spellCheck={false} />
             </Field>
           )}
         {m.wsl !== undefined && (
           <Field label={t('wslDistribution')}>
-            <Input value={wsl} onChange={(e) => setWsl(e.target.value)} placeholder="Ubuntu-24.04" spellCheck={false} />
+            <Input className={touchField} value={wsl} onChange={(e) => setWsl(e.target.value)} placeholder="Ubuntu-24.04" spellCheck={false} />
           </Field>
         )}
         {error != null && <Refusal error={error} labels={refusal} className={css.errorText} />}
@@ -424,7 +424,7 @@ function RemoveDialog({ m, onClose, pending, run, onRemoved }: { m: MachineInfo,
             </section>
           ) : null}
           <Field label={t('removeTypeName', { name: m.name })}>
-            <Input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={m.name} autoComplete="off" spellCheck={false} disabled={busy} />
+            <Input className={touchField} value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={m.name} autoComplete="off" spellCheck={false} disabled={busy} />
           </Field>
         </div>
       ) : null}

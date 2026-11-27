@@ -15,17 +15,22 @@
   padding: 0;
 }
 
+/* The chevron and row-menu tracks: 20px and 40px with a mouse, at least the
+   tap size on touch (ui/responsive.css --lfs-tap-track), so the 44px toggle
+   and menu button stay inside their own column at every container width. */
 .table {
+  --pt-chevron: max(20px, var(--lfs-tap-track, 0px));
+  --pt-menu: max(40px, var(--lfs-tap-track, 0px));
   display: grid;
   grid-template-columns:
-    20px minmax(220px, 3fr) 64px 72px minmax(84px, auto) minmax(72px, auto)
-    minmax(60px, auto) minmax(60px, auto) minmax(80px, auto) 40px;
+    var(--pt-chevron) minmax(220px, 3fr) 64px 72px minmax(84px, auto) minmax(72px, auto)
+    minmax(60px, auto) minmax(60px, auto) minmax(80px, auto) var(--pt-menu);
   column-gap: 16px;
 }
 
 .table[data-store-column] {
   grid-template-columns:
-    20px minmax(168px, 1.5fr) minmax(116px, 1.15fr) repeat(7, minmax(72px, 0.65fr)) 40px;
+    var(--pt-chevron) minmax(168px, 1.5fr) minmax(116px, 1.15fr) repeat(7, minmax(72px, 0.65fr)) var(--pt-menu);
 }
 
 .group {
@@ -565,11 +570,11 @@
 /* Narrow: Commits, Branches and Last commit go first, then the Store and Size. */
 @container (max-width: 1080px) {
   .table {
-    grid-template-columns: 20px minmax(180px, 3fr) 64px 72px minmax(84px, auto) minmax(80px, auto) 40px;
+    grid-template-columns: var(--pt-chevron) minmax(180px, 3fr) 64px 72px minmax(84px, auto) minmax(80px, auto) var(--pt-menu);
   }
 
   .table[data-store-column] {
-    grid-template-columns: 20px minmax(150px, 1.5fr) minmax(110px, 1.15fr) repeat(4, minmax(72px, 0.65fr)) 40px;
+    grid-template-columns: var(--pt-chevron) minmax(150px, 1.5fr) minmax(110px, 1.15fr) repeat(4, minmax(72px, 0.65fr)) var(--pt-menu);
   }
 
   .colCommits,
@@ -579,10 +584,11 @@
   }
 }
 
+/* Small tablet: Store and Size leave the row; the rest keep six columns. */
 @container (max-width: 780px) {
   .table,
   .table[data-store-column] {
-    grid-template-columns: 20px minmax(0, 1fr) 64px 72px minmax(84px, auto) 28px;
+    grid-template-columns: var(--pt-chevron) minmax(0, 1fr) 64px 72px minmax(84px, auto) max(28px, var(--lfs-tap-track, 0px));
   }
 
   .colSize,
@@ -599,7 +605,7 @@
 }
 
 /* Touch: the chevron, the add verb and the row menu are thumb targets. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .toggle {
     width: var(--lfs-tap, 44px);
     height: var(--lfs-tap, 44px);
@@ -625,7 +631,7 @@
 }
 
 /* Touch: a name/store/cell link is a row target, not a 20px line. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .name,
   .store,
   .cellLink,
@@ -642,19 +648,6 @@
 
   .runningPill {
     font-size: 12px;
-  }
-}
-
-/* Small tablet: Store and Size leave the row; the rest keep six columns. */
-@container (max-width: 780px) {
-  .table,
-  .table[data-store-column] {
-    grid-template-columns: var(--lfs-tap, 44px) minmax(0, 1fr) 64px 72px minmax(84px, auto) var(--lfs-tap, 44px);
-  }
-
-  .colSize,
-  .colStore {
-    display: none;
   }
 }
 

@@ -489,7 +489,7 @@ button.crumb[aria-expanded='true'],
 }
 
 /* Touch: the bar's controls are thumb targets, and its 11px counts read at 12px. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .iconButton {
     width: var(--lfs-tap, 44px);
     min-width: var(--lfs-tap, 44px);
@@ -523,7 +523,7 @@ button.crumb[aria-expanded='true'],
   }
 }
 
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .jumpField {
     min-width: var(--lfs-tap, 44px);
   }
@@ -556,7 +556,7 @@ button.crumb[aria-expanded='true'],
   box-shadow: var(--lf-tone-danger-halo);
 }
 
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .moreList [role='menuitem'] {
     min-height: var(--lfs-tap, 44px);
   }
@@ -629,7 +629,7 @@ button.crumb[aria-expanded='true'],
 /* Touch: the page showing is never the crumb that gets cut. The current crumb
    keeps its natural width; the ancestors shrink or scroll away, and the list
    is scrolled to the current page when it changes (NavBar's effect). */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   /* A tablet-or-phone tool cluster: no cluster narrower than 8 px. */
   .tools {
     gap: var(--lfs-gap-control, 8px);

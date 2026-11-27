@@ -608,7 +608,7 @@
 
 /* LoadError's Retry is a size="sm" DSH Button (28px). It is the one action a
    failed read offers, so on a touch surface it is a thumb target. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .retry {
     min-height: var(--lfs-tap, 44px);
   }
@@ -849,7 +849,7 @@
 
 /* The short id stays a 12px inline label, but a finger gets a 44px-tall target.
    Only the button's box grows; the text and the full-id tip do not change. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .copyId {
     min-height: var(--lfs-tap, 44px);
     align-items: center;
@@ -884,7 +884,9 @@
   padding-bottom: calc(24px - var(--lfs-inset-control, 12px));
 }
 
-.confirmModalBusy > div:first-child > div:first-child > button {
+/* While busy the close (the dialog's one labelled button outside our body and
+   footer) reads as unavailable; onClose ignores it anyway. */
+.confirmModalBusy :global(button[aria-label]):not(.confirmForm *, .confirmFooter *) {
   opacity: 0.4;
   pointer-events: none;
   cursor: default;
@@ -942,7 +944,7 @@
 
 /* Touch: the menu rows, the selection anchors and the toolbar's icon buttons
    are thumb targets; a fine pointer keeps the desktop density. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .menuTouch [role='menuitem'] {
     min-height: var(--lfs-tap, 44px);
   }
@@ -969,10 +971,28 @@
   }
 }
 
+/* A text field in a touch surface (touchField in index.tsx: our class on DSH's
+   Input wrapper, which is a fixed 32px), and a text link in a surface marked
+   touchLinks: thumb targets on the touch layout. */
+@media (pointer: coarse), (max-width: 834px) {
+  .touchField {
+    height: var(--lfs-tap, 44px);
+  }
+
+  /* a text link is inline by default, where min-height would not apply */
+  .touchLinks .link {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--lfs-tap, 44px);
+  }
+}
+
 /* A phone sheet: edge to edge, anchored above the home indicator, with the
-   head and footer fixed and only the body scrolling. The footer clears
-   --lfs-safe-bottom, and each action takes half the width so it is reachable
-   with a thumb. Above 640px the dialog keeps its desktop card. */
+   footer fixed and the content region (DSH's Modal `contentClassName`, title
+   and body) scrolling above it. The footer clears --lfs-safe-bottom, and each
+   action takes half the width so it is reachable with a thumb. Above 640px the
+   dialog keeps its desktop card. Only our own classes are styled: the card
+   (`className`), the content region (`contentClassName`) and our footer row. */
 @media (max-width: 640px) {
   .confirmModal[role='dialog'] {
     position: fixed;
@@ -983,93 +1003,65 @@
     margin: 0;
     padding: 0;
     gap: 0;
+    overflow: hidden;
     border-radius: var(--dsw-radius-lg) var(--dsw-radius-lg) 0 0;
   }
 
-  .confirmModal :global([class*='_footer_']) {
-    padding: 0;
-  }
-
-  .confirmModal > :global([class*='_content_']) {
-    flex: 1 1 auto;
-    min-height: 0;
-  }
-
-  .confirmModal :global([class*='_header_']) {
-    flex: none;
-    padding-top: 18px;
-    padding-bottom: 10px;
-  }
-
-  .confirmModal :global([class*='_description_']) {
-    flex: none;
-    max-height: 30%;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-  }
-
-  .confirmModal :global([class*='_body_']) {
-    flex: 1 1 auto;
-    min-height: 0;
+  .confirmContent {
     padding-bottom: 12px;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    -webkit-overflow-scrolling: touch;
   }
 
+  /* The hairline spans the sheet: drawn past our row and clipped by the card. */
   .confirmFooter {
+    position: relative;
     flex: none;
-    padding: 12px max(20px, var(--lfs-safe-right, 0px)) calc(12px + var(--lfs-safe-bottom, 0px)) max(20px, var(--lfs-safe-left, 0px));
+    padding: 12px var(--lfs-safe-right, 0px) calc(12px + var(--lfs-safe-bottom, 0px)) var(--lfs-safe-left, 0px);
+  }
+
+  .confirmFooter::before {
+    content: '';
+    position: absolute;
+    inset: 0 -100vw auto;
     border-top: 0.5px solid var(--dsw-alias-border-l2);
-    background: var(--dsw-alias-bg-layer-2);
   }
 
   .confirmFooter > button {
     flex: 1 1 0;
     min-width: 0;
   }
-
-  .confirmModal :global(button[aria-label]) {
-    width: 44px;
-    min-width: 44px;
-    height: 44px;
-  }
 }
 
-/* Touch: the shared confirm dialog fits the viewport and its body scrolls; its
-   close, inputs and actions are thumb targets, and a typed name is 16px so iOS
-   does not zoom the page on focus. */
-@media (max-width: 1180px), (pointer: coarse) {
+/* Touch: the shared confirm dialog fits the viewport and its content region
+   scrolls; its close, inputs and actions are thumb targets, and a typed name
+   is 16px so iOS does not zoom the page on focus. */
+@media (pointer: coarse), (max-width: 834px) {
   .confirmModal {
     max-height: 100%;
     padding-bottom: calc(24px + var(--lfs-safe-bottom, 0px) - var(--lfs-inset-control, 16px));
   }
 
-  .confirmModal > :global([class*='_content_']) {
-    min-height: 0;
-  }
-
-  .confirmModal :global([class*='_body_']) {
+  .confirmContent {
+    flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
   }
 
   .confirmModal :global(button) {
     min-height: var(--lfs-tap, 44px);
   }
 
+  /* the close: DSH labels it with our closeLabel */
   .confirmModal :global(button[aria-label]) {
     min-width: var(--lfs-tap, 44px);
   }
 
-  .confirmModal :global([class*='_wrap_']) {
+  .confirmMono {
     height: var(--lfs-tap, 44px);
   }
 
-  .confirmModal :global([class*='_input_']),
-  .confirmModal .confirmMono input {
-    height: var(--lfs-tap, 44px);
+  .confirmMono input {
     font-size: 16px;
   }
 }

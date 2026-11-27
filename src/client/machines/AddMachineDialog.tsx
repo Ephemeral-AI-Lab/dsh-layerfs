@@ -20,7 +20,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, Checkbox, IconChevronDownOutlineRegular, IconChevronRightOutlineRegular, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { setupDialog, useSetupStatus } from '../setup/store.ts'
-import { CopyLine, Field, Refusal } from '../ui/index.tsx'
+import { CopyLine, Field, Refusal, touchField } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import { MachineGlyph } from './icons.tsx'
 import {
@@ -222,11 +222,11 @@ function VmForm({ kind, platform, view, os, onBusy, onCancel, onDone }: {
       <fieldset disabled={busy} className={css.fieldset}>
         <div className={css.vmGrid}>
           <Field label={t('name')} error={say(tw, shown, 'name')} className={css.vmName}>
-            <Input ref={first} value={f.name} onChange={set('name')} placeholder={suggested} autoComplete="off" spellCheck={false} />
+            <Input className={touchField} ref={first} value={f.name} onChange={set('name')} placeholder={suggested} autoComplete="off" spellCheck={false} />
           </Field>
-          {has('cpus') && <Field label={t('cpus')} error={say(tw, shown, 'cpus')}><Input value={f.cpus} onChange={set('cpus')} inputMode="numeric" /></Field>}
-          {has('memory') && <Field label={t('memory')} error={say(tw, shown, 'memory')}><Input value={f.memory} onChange={set('memory')} /></Field>}
-          {has('disk') && <Field label={t('disk')} error={say(tw, shown, 'disk')} hint={t('diskHint')}><Input value={f.disk} onChange={set('disk')} /></Field>}
+          {has('cpus') && <Field label={t('cpus')} error={say(tw, shown, 'cpus')}><Input className={touchField} value={f.cpus} onChange={set('cpus')} inputMode="numeric" /></Field>}
+          {has('memory') && <Field label={t('memory')} error={say(tw, shown, 'memory')}><Input className={touchField} value={f.memory} onChange={set('memory')} /></Field>}
+          {has('disk') && <Field label={t('disk')} error={say(tw, shown, 'disk')} hint={t('diskHint')}><Input className={touchField} value={f.disk} onChange={set('disk')} /></Field>}
         </div>
         <RoomLine view={view} os={os} form={f} />
         {has('os_image') && (

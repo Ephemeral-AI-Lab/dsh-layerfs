@@ -17,6 +17,14 @@ import css from './ui.module.css'
 
 export { css as uiCss, StatusDot, coreOf }
 export const toneScope = tones.lfTone
+/**
+ * Our class for DSH's Input wrapper in a touch surface (a dialog, a machine's tab
+ * panel): 44px tall on the touch layout. DSH's Input takes `className` on its
+ * wrapper, so the height is set there instead of on DSH's own class names.
+ */
+export const touchField = css.touchField
+/** A surface whose LinkButtons are thumb targets on the touch layout (a machine's tab panel). */
+export const touchLinks = css.touchLinks
 export { ConfirmDialog, type ConfirmDialogProps, type ConfirmForce, type ConfirmLabels } from './ConfirmDialog.tsx'
 
 // ---------- page shell ----------

@@ -406,7 +406,7 @@
 /* Touch (iPad/iPhone, and a narrow window): every row is a thumb target and
    the row's actions are visible without hover. Readiness stays words-only:
    no action is added to a session row here, only Archive's target is sized. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .projectRow {
     height: max(32px, var(--lfs-tap, 44px));
   }

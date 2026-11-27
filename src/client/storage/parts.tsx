@@ -1,5 +1,6 @@
 /** Small pieces Storage's views share: refusal words, the Store glyph, and a form in a DSH modal. */
 import { useState, type CSSProperties, type ReactNode } from 'react'
+import clsx from 'clsx'
 import { Button, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { StatusDot } from '../ui/StatusDot.tsx'
 import { StoreKindGlyph } from '../machines/icons.tsx'
@@ -106,7 +107,7 @@ export function FormModal({ open, onClose, title, description, action, valid, su
     }
   }
   return (
-    <Modal open={open} onClose={() => { if (!busy) onClose() }} title={title} description={description} closeLabel={t('close')} className={css.modal}
+    <Modal open={open} onClose={() => { if (!busy) onClose() }} title={title} description={description} closeLabel={t('close')} className={css.modal} contentClassName={css.modalContent}
       footer={(
         <div className={css.modalFooter}>
           {busy && busyHint ? <span className={css.modalHint} role="status">{busyHint}</span>
@@ -148,7 +149,7 @@ export function TextField({ label, value, onChange, hint, error, invalid, placeh
 }): ReactNode {
   return (
     <Field label={label} hint={hint} error={error} invalid={invalid}>
-      <Input className={mono ? css.monoInput : undefined} aria-invalid={error || invalid ? true : undefined} value={value} placeholder={placeholder} type={type} disabled={disabled} autoComplete="off" spellCheck={false} aria-label={label}
+      <Input className={clsx(css.fieldInput, mono && css.monoInput)} aria-invalid={error || invalid ? true : undefined} value={value} placeholder={placeholder} type={type} disabled={disabled} autoComplete="off" spellCheck={false} aria-label={label}
         data-modal-autofocus={autoFocus ? '' : undefined} onChange={(e) => onChange(e.target.value)} />
     </Field>
   )

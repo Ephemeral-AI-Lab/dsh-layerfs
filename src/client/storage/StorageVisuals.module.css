@@ -560,7 +560,7 @@
 }
 
 /* Touch: Recount, the store link and the recent-save bars are thumb targets. */
-@media (max-width: 1180px), (pointer: coarse) {
+@media (pointer: coarse), (max-width: 834px) {
   .dashboard :global(button) {
     min-height: var(--lfs-tap, 44px);
   }

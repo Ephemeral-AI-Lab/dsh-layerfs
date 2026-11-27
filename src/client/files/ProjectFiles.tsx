@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { FileTypeIcon, IconCloseOutlineRegular, IconFlatListOutlineRegular, IconSearchOutlineRegular, Input } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, FileTypeIcon, IconCloseOutlineRegular, IconFlatListOutlineRegular, IconSearchOutlineRegular, Input } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { removesMachine } from '../../shared/doctor.ts'
 import { filesApi } from './api.ts'
@@ -77,7 +77,21 @@ export function SavedProjectFiles(props: Pick<ProjectFilesProps, 'api' | 'projec
 /** The project view's row order: folders first, then by name. */
 const byKind = (a: FsEntry, b: FsEntry) => Number(b.kind === 'dir') - Number(a.kind === 'dir') || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
 
-function FilesFrame({ api, project, t, branches, initialBranch, initialPin, initialPath, tick = 0, onBranchChange, onVersionChange, className, more, savedOnly = false }: ProjectFilesProps & { branches: BranchInfo[], more: (() => void) | undefined, savedOnly?: boolean }) {
+/**
+ * Where focus goes when the reader opens or closes the tree drawer: into the
+ * drawer (the open file's row, else the first row, else the find field) when it
+ * opens, back to the toggle when it closes. Only a change the reader asked for
+ * moves focus; nothing moves when the drawer is not shown (a wide Files frame).
+ */
+export function drawerFocusTarget(open: boolean, side: HTMLElement | null, toggle: HTMLElement | null): HTMLElement | null {
+  if (!open) return toggle
+  return side?.querySelector<HTMLElement>('[data-active]')
+    ?? side?.querySelector<HTMLElement>('[data-tree-key], [role="tree"] button')
+    ?? side?.querySelector<HTMLElement>('input')
+    ?? null
+}
+
+export function FilesFrame({ api, project, t, branches, initialBranch, initialPin, initialPath, tick = 0, onBranchChange, onVersionChange, className, more, savedOnly = false }: ProjectFilesProps & { branches: BranchInfo[], more: (() => void) | undefined, savedOnly?: boolean }) {
   const [ref, setRef] = useState(() => (initialBranch && branches.some((b) => b.name === initialBranch) ? initialBranch : branches.find((b) => b.name === 'main')?.name ?? branches[0]!.name))
   const [pin, setPin] = useState<string | undefined>(initialPin)
   const head = branches.find((b) => b.name === ref)?.head ?? undefined
@@ -90,9 +104,18 @@ function FilesFrame({ api, project, t, branches, initialBranch, initialPin, init
   const [query, setQuery] = useState('')
   // At tablet and phone widths the folder tree is a drawer over the file, so the
   // open file keeps the width; it opens on the row of the file in view.
-  const [treeOpen, setTreeOpen] = useState(false)
+  const [treeOpen, setTreeOpenState] = useState(false)
   const treeId = useId()
   const treeScroll = useRef<HTMLDivElement>(null)
+  const side = useRef<HTMLElement>(null)
+  const treeToggle = useRef<HTMLButtonElement>(null)
+  // Set when the reader opens or closes the drawer; the effect below then moves focus.
+  const askedFocus = useRef(false)
+  const setTreeOpen = (next: boolean) => {
+    if (next === treeOpen) return
+    askedFocus.current = true
+    setTreeOpenState(next)
+  }
   // Code, Blame or History stays chosen across files.
   const [mode, setMode] = useState<FileMode>('code')
   const openRef = useRef(open)
@@ -141,6 +164,15 @@ function FilesFrame({ api, project, t, branches, initialBranch, initialPin, init
     if (active === path) setActive(next.at(-1))
   }
   const choose = (name: string) => { setRef(name); setPin(undefined); onBranchChange?.(name) }
+  // Focus follows the drawer: in when it opens, back to its toggle when it closes
+  // (Esc, its close button, a file opened from it). A wide frame shows no drawer
+  // and no toggle; a hidden element takes no focus, so nothing moves there.
+  useEffect(() => {
+    if (!askedFocus.current) return
+    askedFocus.current = false
+    const target = drawerFocusTarget(treeOpen, side.current, treeToggle.current)
+    if (target && target.offsetParent !== null) target.focus({ preventScroll: true })
+  }, [treeOpen])
   // A drawer opened elsewhere in the tree comes back to the file on screen:
   // the row is scrolled into the drawer, never the page.
   useEffect(() => {
@@ -155,7 +187,7 @@ function FilesFrame({ api, project, t, branches, initialBranch, initialPin, init
 
   return (
     <div className={clsx(css.frameWrap, className)}><div className={css.frame}>
-      <aside id={treeId} className={css.side} data-open={treeOpen || undefined} aria-label={t('files_tree')}
+      <aside ref={side} id={treeId} className={css.side} data-open={treeOpen || undefined} aria-label={t('files_tree')}
         onKeyDown={(e) => { if (e.key === 'Escape' && treeOpen) { e.stopPropagation(); setTreeOpen(false) } }}>
         <div className={css.sideHead}>
           <div className={css.sideTop}>
@@ -179,8 +211,8 @@ function FilesFrame({ api, project, t, branches, initialBranch, initialPin, init
       </aside>
       <section className={css.main}>
         <div className={css.tabsRow}>
-          <button type="button" className={css.treeToggle} aria-label={t('files_tree')} title={t('files_tree')}
-            aria-expanded={treeOpen} aria-controls={treeId} onClick={() => setTreeOpen((v) => !v)}>
+          <button ref={treeToggle} type="button" className={css.treeToggle} aria-label={t('files_tree')} title={t('files_tree')}
+            aria-expanded={treeOpen} aria-controls={treeId} onClick={() => setTreeOpen(!treeOpen)}>
             <IconFlatListOutlineRegular size={16} />
           </button>
           <div className={css.tabs} role="tablist" aria-label={t('files_openFiles')}>
@@ -205,7 +237,12 @@ function FilesFrame({ api, project, t, branches, initialBranch, initialPin, init
         <div className={css.viewer}>
           {active
             ? <FileViewer key={`${ref}:${active}:${at}`} api={api} project={project} branch={ref} path={active} pin={at} t={t} mode={mode} onModeChange={setMode} />
-            : <EmptyState title={t('files_openFromTree')} icon={<FileTypeIcon kind="other" size={20} />}>{t('files_openFromTreeBody')}</EmptyState>}
+            : <EmptyState title={t('files_openFromTree')} icon={<FileTypeIcon kind="other" size={20} />}
+              actionClassName={css.treeShow}
+              action={<Button variant="outline" size="sm" icon={<IconFlatListOutlineRegular size={14} />}
+                aria-controls={treeId} onClick={() => setTreeOpen(true)}>{t('files_showTree')}</Button>}>
+              {t('files_openFromTreeBody')}
+            </EmptyState>}
         </div>
       </section>
     </div></div>
