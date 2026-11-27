@@ -48,11 +48,14 @@ test('forkBaseOf: a Branch still at its fork point names the version it started 
   assert.deepEqual(forkBaseOf(nested, branchParents(nested, nestedPages), 'child'), { base: 'p2', source: 'parent' })
 })
 
-test('ProjectHistory: the fork-base row is read-only, selected by initialCommit, and absent once the Branch has Commits', () => {
+test('ProjectHistory: the fork-base row is read-only, selected by the current selection (a deep link starts it), and absent once the Branch has Commits', () => {
   const tsx = readFileSync(join(root, 'src/client/files/ProjectHistory.tsx'), 'utf8')
   assert.match(tsx, /const forkBase = forkBaseOf\(branches, parents, view\.branch\)/)
   assert.match(tsx, /\{forkBase \? \([\s\S]*?css\.forkBaseRow[\s\S]*?files_forkBase[\s\S]*?forkBaseNote/)
-  assert.match(tsx, /data-selected=\{view\.selected === forkBase\.base \|\| initialCommit === forkBase\.base/)
+  // The deep link seeds view.selected; the row then follows the selection alone
+  // (test/ui-regressions-pr48.test.mjs drives it).
+  assert.match(tsx, /data-selected=\{view\.selected === forkBase\.base \|\| undefined\}/)
+  assert.doesNotMatch(tsx, /initialCommit === forkBase\.base/)
   assert.match(tsx, /onClick=\{\(\) => writeView\(\{ selected: forkBase\.base, branch: view\.branch \}\)\}/, 'read-only selection, never a diff')
   assert.match(tsx, /forkBaseRead\(api, project, forkBaseSource, forkBaseId\)/, 'the base commit names its source branch, header only')
   const locale = readFileSync(join(root, 'src/client/files/locale.ts'), 'utf8')

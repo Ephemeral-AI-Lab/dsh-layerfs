@@ -50,15 +50,38 @@ test('tab strip: 4 px at fine is deliberate, 8 px at coarse only', () => {
   assert.match(touch, /\.tabs\s*\{\s*gap:\s*var\(--lfs-gap-control, 8px\)/)
 })
 
+/** The bodies of every `@media <condition> { … }` block, and the stylesheet without them. */
+const media = (css, condition) => {
+  const bodies = []
+  let rest = '', at = 0
+  for (let i = css.indexOf(`@media ${condition} {`); i >= 0; i = css.indexOf(`@media ${condition} {`, at)) {
+    rest += css.slice(at, i)
+    let depth = 0, j = css.indexOf('{', i)
+    const open = j
+    for (; j < css.length; j++) { if (css[j] === '{') depth++; else if (css[j] === '}' && --depth === 0) break }
+    bodies.push(css.slice(open + 1, j))
+    at = j + 1
+  }
+  return { bodies, rest: rest + css.slice(at) }
+}
+
 test('small row controls: the 44 px hit target is a pseudo box, the visual stays small', () => {
   const css = src('storage/ProjectTable.module.css')
   assert.match(block(css, '.toggle {'), /position:\s*relative/)
   assert.match(block(css, '.store,\n.cellLink'), /position:\s*relative/)
-  const hit = css.slice(css.indexOf('.toggle::after'))
+  const { bodies, rest } = media(css, '(max-width: 1180px), (pointer: coarse)')
+  // A count's box applies at every pointer.
+  const link = block(rest, '.cellLink::after')
+  assert.match(link, /width:\s*max\(44px, 100%\)/)
+  assert.match(link, /height:\s*max\(44px, 100%\)/)
+  // The chevron's box is touch only: on a desktop its 20px column and 16px gap are
+  // narrower than 44px, so the box would cover the project mark beside it.
+  assert.doesNotMatch(rest, /\.toggle::after/, 'no chevron hit box outside the touch layout')
+  const touch = bodies.join('\n')
+  const hit = block(touch, '.toggle::after')
   assert.match(hit, /width:\s*max\(44px, 100%\)/)
   assert.match(hit, /height:\s*max\(44px, 100%\)/)
   // the coarse rule still grows the chevron itself
-  const touch = css.slice(css.indexOf(coarse))
   assert.match(touch, /\.toggle\s*\{[^}]*width:\s*var\(--lfs-tap, 44px\)/)
 })
 

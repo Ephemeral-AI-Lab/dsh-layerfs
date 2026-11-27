@@ -1,4 +1,4 @@
-<!-- source: 9c8b5dfa6e70 -->
+<!-- source: 628382afe484 -->
 # 组件
 
 > 标有「隔离测试数据」的截图来自当前版本的实际组件，使用独立浏览器和示例数据。其余截图来自早期演示环境。
@@ -211,8 +211,7 @@ LayerFS 拒绝读取时，视图会显示拒绝的关键词，并把 LayerFS 的
 
 ## Store 卡片
 
-每个 Store 一张卡片。主页 › Store 显示所有 Store，机器的 Store 标签页显示
-这台机器上的 Store。两处用的是同一种卡片。
+机器的 Store 标签页里，每个 Store 一张卡片。主页 › Store 把同样的部分做成折叠行，底部操作放在这一行的 ⋯ 里。
 
 ![Store 卡片（带编号）](../img/store-card.png)
 
@@ -221,12 +220,12 @@ LayerFS 拒绝读取时，视图会显示拒绝的关键词，并把 LayerFS 的
 | 1 | 名称 | 图标和 Store 名 | 点击 → [Store 页](store.md) | `store list` (读取) | |
 | 2 | ⋯ | [Store 菜单](#store-menu) | 见 Store 菜单 | 每项各不相同 | |
 | | 数字 | SQLite：文件大小和 **最近写入**（last write）*时间*。PostgreSQL：打包后的字节数（或 **n 个项目**）和数据库名。悬停可看服务器和 **数据库 ID**（Database id） | — | `store list`；PostgreSQL 还有 `store get --with stats` (读取) | **大小未知**（Size unknown）。可能过时的大小显示为 **大小读取于**（size seen）*时间*，提示为 **……它的机器已停止**（…its machine is stopped）或 **……现在没有响应**（…does not answer now）。统计被拒绝时显示 `—` |
-| 3 | **存放于**（Stored on）标签（SQLite，仅在主页上） | 所在机器（`native` 也一样）及其图标 | 点击 → 机器页 | `home get` (读取) | 机器损坏时有红点，其余情况没有圆点（停机的状态写在标签的提示里，不用圆点） |
+| 3 | **存放于**（Stored on）标签（SQLite，主页的行上） | 所在机器（`native` 也一样）及其图标 | 点击 → 机器页 | `home get` (读取) | 机器损坏时有红点，其余情况没有圆点（停机的状态写在标签的提示里，不用圆点） |
 | 4 | 项目行 | 最多三个项目（有状态显示时只有一个），各带打包后的字节数和占比条 | 点击 → 项目页 | `project list`、`project stats`、`branch get` (读取；统计期间每 2 秒轮询一次) | **读取中…**（Reading…）、`—` 加 **此处未统计**（Not counted here）、**初始化后尚无提交**（No commits since Init）、**没有项目 · 添加项目**（No projects · Add project，`project init`） |
 | | 状态行 | 只在有事发生时出现：一张正在运行或刚结束的[任务卡片](#job-card)、**另一个客户端正在运行 …**（Another client runs …），或者一个说明需要你处理什么的词（**Waiting on docker**、**Broken · …**），加上它唯一的操作（**启动**（Start）*m*、一个[修复](#fix-buttons)，或 **修复**（Repair）*m*） | 那个操作 | `machine start`，或修复的调用 | |
 | 5 | 备份徽标（SQLite） | 服务商标志、**n 个备份**（n backup(s)），以及一个表示最糟状态的圆点。提示：**x 个需要处理，y 个已过期，z 个最新，w 个未列出**（x need attention, y out of date, z current, w not listed） | 点击 → *store* 的备份（Backups of *store*）对话框。没有备份时显示 **无备份**（No backup），点击打开备份对话框 | 打开对话框时，对每个关联的存储桶运行 `backup list` (读取) | |
 | | **另有 n 个项目**（+n projects） | 这个 Store 的项目比卡片上显示的多 | 点击 → Store 页 | — | |
-| 6 | 底部操作（SQLite） | native 上的 Store 显示 **推送到…**（Push to…），机器上的 Store 显示 **拉取**（Pull） | **推送到…** → 推送对话框。**拉取** → 一个拉取任务 | `store move <s> <m>`，或先 `store get` 再 `store move <s> native` | Store 不是就绪状态时不可用。任务运行时隐藏 |
+| 6 | 底部操作（SQLite；主页的行上在 ⋯ 里） | native 上的 Store 显示 **推送到…**（Push to…），机器上的 Store 显示 **拉取**（Pull） | **推送到…** → 推送对话框。**拉取** → 一个拉取任务 | `store move <s> <m>`，或先 `store get` 再 `store move <s> native` | Store 不是就绪状态时不可用。任务运行时隐藏 |
 
 PostgreSQL Store 没有卡片：机器页把挂接到它的 Store 列成行（地址、那台机器上次的检查和
 **解除挂接**，Detach），主页 › Store 列出全部（见 [Store › 主页 › Store 行](store.md)）。

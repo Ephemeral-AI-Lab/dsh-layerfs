@@ -1,4 +1,4 @@
-<!-- source: 16beeac960d5 -->
+<!-- source: fa4a6d181169 -->
 # 每个操作及其 LayerFS 调用
 
 每一行是你能做的一件事（或者一个视图为了绘制自己所做的一次读取），它调用的主机路由或操作，以及背后的
@@ -76,6 +76,9 @@ LayerFS CLI 调用。各页面指南的表格里也写着同样的调用；这�
 | **⋯ › 迁移到其他机器…**（⋯ › Move to another machine…）→ **迁移**（Move） | `… › <store> ⋯` | `POST /api/stores/:id/move` | `store get`，经 native 两次 `store move` |
 | **⋯ › 备份到…**（⋯ › Back up to…）→ **备份**（Back up）/ **立即备份**（Back up now） | `… › <store> ⋯`、备份标签页 | `POST /api/stores/:id/backup` | `backup create`，然后 `backup list` |
 | **⋯ › 压缩…**（⋯ › Compact…）→ **压缩**（Compact） | `… › <store> ⋯` | `POST /api/stores/:id/compact` | `store get`, `store compact` |
+| **⋯ › 升级…**（⋯ › Upgrade…）→ **升级**（Upgrade） | `… › <store> ⋯`、“格式过旧”提示 | `POST /api/stores/:id/upgrade` | `store get`, `store upgrade` |
+| 升级卡片的 **取消**（Cancel） | Store 页、它所在机器的 Store 标签页 | `POST /api/storage-jobs/:id/stop` | 无（向正在运行的 `store upgrade` 发送 SIGTERM） |
+| 升级卡片的 **检查**（Check） | 升级结果未知或中断之后 | `POST /api/storage-jobs/:id/inspect` | `store get --with format` |
 | **⋯ › 移除…**（⋯ › Remove…）→ **移除**（Remove） | `… › <store> ⋯`、Store 详情 | `DELETE /api/stores/:id?confirm=` | `store remove` ↻ |
 | **⋯ › 断开连接…**（⋯ › Disconnect…）（PostgreSQL） | `… › <store> ⋯` | `POST /api/stores/:id/disconnect` | `store disconnect` ↻ |
 | **解除挂接**（Detach）（运行于的行；机器的 Store） | `… › <store>`、机器 › Store | `POST /api/stores/:id/detach` `{machine}` | `store detach --machine` ↻ |

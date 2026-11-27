@@ -1,4 +1,4 @@
-<!-- source: 2f6f780a3bc3 -->
+<!-- source: b466ee26e5a8 -->
 # Store
 
 > **位置：** `LayerFS › 主页 › Store › <store>` · **打开方式：** 主页 › Store 或某台机器的 Store 标签页上 Store 卡片的名称、导航栏的层级切换器、跳转到、项目页上的 Store 链接、存储桶的关联 Store · **源码：** 见文末
@@ -141,6 +141,7 @@ Store 页面上同名的那一项）。机器 `native` 和其他机器一样显�
 | **备份到…**（Back up to…） | SQLite | [备份](#modals-opened-here)（没有存储桶时先添加存储桶） | `backup create`，然后 `backup list` | 未就绪 |
 | **立即备份 · *存储桶*/*文件***（Back up now · *bucket*/*file*） | SQLite，每个关联的存储桶一行 | 立即开始一个备份任务 | `backup create`，然后 `backup list` | 未就绪 |
 | **压缩…**（Compact…） | 两种都有，前提是 LayerFS 运行时支持 `store compact` | [确认](#modals-opened-here) → 任务卡片 | `store get`，然后 `store compact` | 未就绪（提示：**请先启动机器** *m*（Start machine *m* first）、**请先修复机器** *m*（Repair machine *m* first）、**Store 当前未就绪**（The Store is not ready））；Store 损坏且修复方式就是压缩时仍然提供 |
+| **升级…**（Upgrade…） | 两种都有，前提是 LayerFS 运行时支持 `store upgrade`，且 Store 的格式（`--with format`）已过旧 | [升级 *store*？](#modals-opened-here) → 升级卡片（步骤、已用时间，提交前可 **取消**（Cancel）） | `store get`，然后 `store upgrade`（取消：向 CLI 发送 SIGTERM，以它的回复为准） | Store 上有任务在运行（提示：**Wait for the running operation to finish**） |
 | **移除…**（Remove…） | SQLite | [输入名称确认](#modals-opened-here) | `store remove` ↻ | 从不 |
 | **检查**（Check） | PostgreSQL | 从这台电脑和每台挂接的机器检查 | `store doctor`，然后 `store get` | |
 | **编辑连接…**（Edit connection…） | PostgreSQL | [编辑连接](#modals-opened-here) | `store connect`，然后 `store doctor` | |
@@ -162,7 +163,7 @@ Store 页面上同名的那一项）。机器 `native` 和其他机器一样显�
 | 3 | Store 卡片 | [组件 › Store 卡片](components.md#store-card) | 名称 → Store 页；⋯ → Store 菜单；**拉回**（Pull）/ **推送到…**（Push to…） | `store move` | |
 | | 空状态行 | **docker 上没有 SQLite Store。推送一个到这里，即可在此运行其 Sandbox。**（No SQLite Store is on docker. Push one here to run its Sandboxes on it.；native 上为 **native 上没有 SQLite Store。可新建一个，或从其他机器拉回。**，No SQLite Store is on native. Create one or pull one back from a machine.）/ **docker 未挂接任何 PostgreSQL Store。**（No PostgreSQL Store is attached to docker.） | — | — | |
 
-主页 › Store 上的 Store 卡片（和机器标签页上的卡片相同，多了 **存放于**（Stored on））：
+主页 › Store 的行（和机器上的 Store 卡片部分相同，多了 **存放于**（Stored on）；**推送到…**（Push to…）在它的 ⋯ 里）：
 
 ![Store 卡片（带编号）](../img/store-card.png)
 
@@ -196,6 +197,12 @@ Store 页面上同名的那一项）。机器 `native` 和其他机器一样显�
 - **PostgreSQL。** 有自己的页面（[见上文](#postgresql-store-page)）；菜单是 检查 / 编辑连接… / 挂接机器… / 压缩… / 断开连接…。
   PostgreSQL Store 不属于任何机器：它的 Sandbox 只在挂接的机器上运行，每个会话从中选择一台。
 - **压缩…**（Compact…）只在所选的 LayerFS 运行时支持 `store compact` 时出现。
+- **格式（LayerFS #804）。** 运行时的 `store list`/`store get` 支持 `--with format` 时，行上显示 **格式过旧**（Outdated，提示“格式 2 · 最新为 3”）或
+  **格式较新**（Newer format），页面头部显示红点和 **格式过旧** 加 **升级…**（Upgrade…），Store 详情里有一行 **格式**（Format）（“3（最新）”、
+  “2 · 最新为 3”、“4 · 比此 LayerFS 更新”）。格式过旧的 Store 出现无法读取的提示时，如果修复指向 `store upgrade`，就提供 **升级…**，
+  否则提供 移除… / 断开连接…。升级进行时 Store 处于忙碌状态（不能挂载，也不能创建 Sandbox）；结束时显示 **已升级**（Upgraded，绿色）、
+  **已取消**（Cancelled，中性色，没有任何改变）、**失败**（Failed，红色，检查结果在提示里），或结果未知 / 已中断（琥珀色，**检查**（Check）
+  会读取格式：已升级或格式过旧）。运行时没有 `store upgrade` 时这些都不会出现。
 
 ## 此处打开的对话框
 
@@ -208,6 +215,7 @@ Store 页面上同名的那一项）。机器 `native` 和其他机器一样显�
 | [恢复 *bucket*/*file*](../img/store-restore.png)（Restore *bucket*/*file*） | 备份标签页、存储桶页或备份对话框里的 **恢复…**（Restore…） | **作为新 Store**（As a new Store，实时校验名称合法性）或 **替换** *store*（Replace *store*）（除非 Store 位于 native、已就绪且空闲、无运行中 Sandbox 占用、已关联该存储桶、该存储桶已成功列出且副本存在并确认自上次传输后本地未改，否则会被拒绝并写清具体原因；桶尚未列出时弹窗内提供一键 **列出存储桶** 按钮） | `backup restore <b> <file> <store>`，然后 `backup list` | 移除新 Store |
 | [向 *store* 添加项目](../img/store-add-project.png)（Add project to *store*） | 项目标签页的 **添加项目**（Add project） | 名称，可选的绝对路径 **源文件夹**（Source folder）；显示 **正在创建** *名称* · *步骤*（Creating *name* · *step*）及计数 | `project init`（主机任务，轮询 `GET /api/project-inits/:id`） | 删除这个项目 |
 | [压缩 *store*？](../img/store-compact.png)（Compact *store*?） | ⋯ › **压缩…**（Compact…） | 普通确认；**压缩**（Compact）开始一个任务 | `store compact` | — |
+| 升级 *store*？（Upgrade *store*?） | ⋯ › **升级…**（Upgrade…），以及“格式过旧”提示里的 **升级…** | 普通确认：“格式 2 → 3”，在原处以单个事务完成；**升级**（Upgrade）开始一个任务 | `store upgrade` | —（提交前取消不会改变任何东西） |
 | [移除 *store*？](../img/store-remove.png)（Remove *store*?） | ⋯ › **移除…**（Remove…）、Store 详情里的 **移除…**（Remove…） | [输入名称确认](components.md#confirm-dialog)：**输入** *名称* **以确认**（Type *name* to confirm） | `store remove` ↻ | 无（备份仍留在存储桶里） |
 | 断开 PostgreSQL Store *store*？（Disconnect the PostgreSQL Store *store*?） | ⋯ › **断开连接…**（Disconnect…）（PostgreSQL） | 确认；数据库及其数据保留 | `store disconnect` ↻ | 重新连接数据库 |
 | [新建 Store](../img/store-new.png)（New Store） | 导航栏 **添加 › 新建 Store**（Add › New Store）；主页 › Store 的 **新建 Store**（New Store）；native 的 **添加 Store › 新建 Store**（Add Store › New Store） | **SQLite** 或 **PostgreSQL**（后者转到连接数据库）；**空 Store**（Empty Store）或 [**从备份恢复**](../img/store-new-restore.png)（Restore from a backup）（对未列出桶自动列出一次、过滤已丢失文件、展示桶列出错误并支持 **重新连接…**、无存储桶时直接提供 **添加存储桶…**，以及 **重新列出**、文件列表与 **新 Store 的名称**（New Store's name））；**位置**（Location）磁贴，已停止的机器旁有 **启动** *m*（Start *m*）。先在 native 上创建，再迁移过去 | `store create` ↻（或 `backup restore`），然后用 `store move` 迁移到其他机器 | 移除 |

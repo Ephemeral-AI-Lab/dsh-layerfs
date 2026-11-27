@@ -1,5 +1,5 @@
 // B10: the Presets catalog is built once per input change (not per request) and
-// the open dialog reads only while it is visible and focused; the Export dialog
+// the open dialog reads only while it is visible (focus is not needed); the Export dialog
 // opens with one version read (the Branch's head and that Commit's header) and
 // neither page calls the writing build-plan route.
 //   node --test test/presets-export-reads.test.mjs
@@ -147,7 +147,7 @@ function pollHarness() {
   }
 }
 
-test('presets page: one catalog read on mount, none while hidden or unfocused, one at once on return; never build-plan', async () => {
+test('presets page: one catalog read on mount, none while hidden (an unfocused visible page still reads), one at once on return; never build-plan', async () => {
   const h = pollHarness()
   const calls = []
   const api = {
@@ -179,17 +179,18 @@ test('presets page: one catalog read on mount, none while hidden or unfocused, o
     await view.settle()
     assert.equal(calls.length, 3, 'coming back reads at once')
 
-    // Unfocused: same, and focus plus visibilitychange together read once.
+    // Visible but unfocused (a second monitor, a terminal or DevTools in front): the
+    // poll still reads, and focus coming and going reads nothing extra.
     h.state.focused = false
     h.fire('window:blur')
     h.intervals.at(-1).fn()
     await view.settle()
-    assert.equal(calls.length, 3, 'an unfocused page reads nothing')
+    assert.equal(calls.length, 4, 'a visible, unfocused page keeps polling')
     h.state.focused = true
     h.fire('window:focus')
     h.fire('visibilitychange')
     await view.settle()
-    assert.equal(calls.length, 4, 'the focus event and the visibility event do not double-read')
+    assert.equal(calls.length, 4, 'regaining focus while visible is not a return: no extra read')
   } finally {
     view.unmount()
     assert.equal(h.intervals.length, 0, 'closing the page clears its poll')
@@ -237,6 +238,13 @@ test('presets page: a running job polls every 2 s (from the catalog it already h
     // clears it): the latest timer is the one that governs the open page.
     assert.equal(h.intervals.at(-1).ms, M.PRESETS_RUNNING_POLL_MS)
     assert.equal(M.PRESETS_RUNNING_POLL_MS, 2000)
+    // The window loses focus but stays on screen: the job's progress keeps coming.
+    h.state.focused = false
+    h.fire('window:blur')
+    const before = calls.length
+    h.intervals.at(-1).fn()
+    await view.settle()
+    assert.equal(calls.length, before + 1, 'a visible, unfocused window still reads the running job every 2 s')
   } finally { view.unmount(); h.restore() }
 })
 
