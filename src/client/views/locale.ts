@@ -167,7 +167,8 @@ const en = {
   trajKind_tool: 'TOOL',
   trajKind_checkpoint: 'CHECKPOINT',
   trajKind_layerfs: 'LAYERFS',
-  trajKind_observation: 'OBSERVATION',
+  // fits the 84px kind column, as CHECKPOINT does (OBSERVATION was cut)
+  trajKind_observation: 'READS',
   trajContextShow: 'Context messages: {n}',
   trajContextHide: 'Hide context messages',
   trajToolCallOnly: 'Tool calls only',
