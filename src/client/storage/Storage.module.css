@@ -337,6 +337,11 @@
   white-space: nowrap;
 }
 
+/* "11 d ago" stays one line in a narrow Written column */
+.ago {
+  white-space: nowrap;
+}
+
 .table .bar {
   width: 100%;
   max-width: 220px;
