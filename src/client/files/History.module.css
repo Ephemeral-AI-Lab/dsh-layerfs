@@ -1081,19 +1081,13 @@
   overflow: hidden;
 }
 
-/* Our modals' close control and change tags read and press like the rest of the surface. */
-.compareModal [class*="_close_"],
-.diffModal [class*="_close_"] {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-@media (max-width: 1180px), (pointer: coarse) {
-  .compareModal [class*="_close_"],
-  .diffModal [class*="_close_"] {
-    width: var(--lfs-tap, 44px);
-    height: var(--lfs-tap, 44px);
+/* Our modals' close control presses like the rest of the surface on touch:
+   DSH labels it with our closeLabel, and DSH already centres its glyph. */
+@media (pointer: coarse), (max-width: 834px) {
+  .compareModal :global(button[aria-label]),
+  .diffModal :global(button[aria-label]) {
+    min-width: var(--lfs-tap, 44px);
+    min-height: var(--lfs-tap, 44px);
   }
 }
 

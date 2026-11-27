@@ -1101,9 +1101,17 @@
   }
 }
 
-/* The menu's group words (Published / Branches) read at the same floor as the rows. */
-.branchMenu [class*="_label_"] {
-  font-size: 12px;
+/* A tree with wrapNames (a narrow side panel, e.g. a machine's Files tab):
+   on the touch layout its names and paths grow the row instead of being cut. */
+@media (pointer: coarse), (max-width: 834px) {
+  .treeWrap .treeName,
+  .treeWrap .treePath,
+  .treeWrap .treeSecondary {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }
 
 /* Long names and messages read whole instead of ending in an ellipsis: the row

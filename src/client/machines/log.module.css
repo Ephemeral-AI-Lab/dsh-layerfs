@@ -240,16 +240,9 @@
     min-width: var(--lfs-tap, 44px);
   }
 
-  /* a text link is inline by default, where min-height would not apply */
-  .tabPanel button[class*='_link'] {
-    display: inline-flex;
-    align-items: center;
-  }
-
-  /* the DSH input wrapper has a fixed 32 px height */
-  .tabPanel :global(span[class*='_wrap_']) {
-    height: var(--lfs-tap, 44px);
-  }
+  /* A text link (ui's LinkButton) is a thumb target through ui's touchLinks
+     class on the panel, and a text field through ui's touchField class on
+     DSH's Input wrapper (ui.module.css). */
 
   .tabPanel :global(label:has(> input[type='checkbox'])) {
     display: inline-flex;

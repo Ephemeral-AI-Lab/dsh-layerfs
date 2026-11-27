@@ -10,10 +10,11 @@
  * Worker log (LogPane.tsx) only with machine.log and a machine LayerFS says
  * has a worker log (`supports.log`).
  */
+import clsx from 'clsx'
 import { useEffect, useId, useState, type ReactNode } from 'react'
 import { Button, IconSettingsOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DoctorAction } from '../doctor/Doctor.tsx'
-import { Empty, LinkButton, Notice, Page, PageHead, Refusal, refusalOf } from '../ui/index.tsx'
+import { Empty, LinkButton, Notice, Page, PageHead, Refusal, refusalOf, touchLinks } from '../ui/index.tsx'
 import { TabBar } from '../ui/TabBar.tsx'
 import { DiskLine, attentionOf, blockedOf, glyphOs } from './Board.tsx'
 import { useMachinesContext } from './context.tsx'
@@ -188,7 +189,7 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
         tabs={tabs.map((x) => ({ key: x.value, label: x.label, count: counts[x.value], id: `${ids}-${x.value}`, controls: `${ids}-${x.value}-panel` }))} />
 
       {tab === 'files' ? (
-        <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-files-panel`} aria-labelledby={`${ids}-files`}>
+        <div className={clsx(logCss.tabPanel, touchLinks)} role="tabpanel" id={`${ids}-files-panel`} aria-labelledby={`${ids}-files`}>
           {notices}
           <InspectFiles kind="machine" name={m.name} label={t('filesOf', { name })} onOpenLog={hasLog ? () => setTab('log') : undefined} logTab={hasLog ? t('tabWorkerLog') : undefined}
             onOpenSandboxLog={view.features?.inspect?.sandboxLog === true ? (folder) => {
@@ -199,20 +200,20 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
             stopped={state.state === 'stopped' || engine} />
         </div>
       ) : tab === 'log' ? (
-        <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-log-panel`} aria-labelledby={`${ids}-log`}>
+        <div className={clsx(logCss.tabPanel, touchLinks)} role="tabpanel" id={`${ids}-log-panel`} aria-labelledby={`${ids}-log`}>
           {notices}
           <LogPane kind="machine" name={m.name} label={t('workerLogOf', { name })}
             unavailable={state.state === 'stopped' ? { message: t('logMachineStopped') } : null} />
         </div>
       ) : tab !== 'overview' ? (
-        <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-${tab}-panel`} aria-labelledby={`${ids}-${tab}`}>
+        <div className={clsx(logCss.tabPanel, touchLinks)} role="tabpanel" id={`${ids}-${tab}-panel`} aria-labelledby={`${ids}-${tab}`}>
           {notices}
           {tab === 'sandboxes' ? <SandboxesTab m={m} view={view} canCreate={canSandbox} onCreate={() => setCreating(true)} onImages={hasImages ? () => setTab('images') : undefined} />
             : tab === 'stores' ? (storesTab ? storesTab(m.name) : <StoresTab m={m} view={view} onAddStore={onAddStore} />)
             : <ImagesTab m={m} taken={view.sandboxes.map((b) => b.name)} canCreate={canSandbox} />}
         </div>
       ) : (
-      <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-overview-panel`} aria-labelledby={`${ids}-overview`}>
+      <div className={clsx(logCss.tabPanel, touchLinks)} role="tabpanel" id={`${ids}-overview-panel`} aria-labelledby={`${ids}-overview`}>
         <MachineOverview m={m} view={view} live={live} pending={pending} onTab={setTab} onDisk={hasDisk ? () => setSpaceOpen(true) : null}
           troubled={!!(reason || block || error !== null || state.state === 'unresolved')}
           notices={notices}

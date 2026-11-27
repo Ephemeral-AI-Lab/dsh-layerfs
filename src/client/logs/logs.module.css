@@ -645,9 +645,10 @@ div.detailModal {
   }
 }
 
-/* A tag's word is text like any other on the page: no smaller than 12px. */
-.table span[class*='tag'],
-.detailModal span[class*='tag'] {
+/* A tag's word is text like any other on the page: no smaller than 12px.
+   `.tag` is our class on DSH's Tag (its `className` prop). */
+.table .tag,
+.detailModal .tag {
   font-size: 12px;
 }
 

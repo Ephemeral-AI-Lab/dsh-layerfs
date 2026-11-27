@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Button, IconChevronRightOutlineRegular, IconCloseOutlineRegular, IconRightUpOutlineRegular, Input, MenuItemButton, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
-import { Card, ConfirmDialog, Field, MenuSelect, MoreMenu, Notice, Refusal, StateChip, type Choice } from '../ui/index.tsx'
+import { Card, ConfirmDialog, Field, MenuSelect, MoreMenu, Notice, Refusal, StateChip, type Choice, touchField } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import { SandboxGlyph } from './icons.tsx'
 import { ImageMenu, defaultPick, findPick, imagePlan, useSandboxImages } from './ImageMenu.tsx'
@@ -218,7 +218,7 @@ export function NewSandboxDialog({ machine, taken: existing, image, onClose }: {
                       options={eligible.map((p) => ({ value: p.key, label: p.key }))} onChange={choose} />
                   </Field>
                   <Field label={t('name')} hint={t('sandboxNameHint')} error={name && !valid ? t('errSandboxName') : null}>
-                    <Input value={name} onChange={(e) => setName(e.target.value)} disabled={busy || uncertain} spellCheck={false} maxLength={63} />
+                    <Input className={touchField} value={name} onChange={(e) => setName(e.target.value)} disabled={busy || uncertain} spellCheck={false} maxLength={63} />
                   </Field>
                   {host
                     ? <p className={css.muted}>{t('nativeOwnSystem')}</p>

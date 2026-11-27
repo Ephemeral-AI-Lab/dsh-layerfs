@@ -464,10 +464,6 @@
   .toolbar button {
     min-width: var(--lfs-tap, 44px);
   }
-
-  .toolbar :global(span[class*='_wrap_']) {
-    height: var(--lfs-tap, 44px);
-  }
 }
 
 @media (max-width: 640px) {

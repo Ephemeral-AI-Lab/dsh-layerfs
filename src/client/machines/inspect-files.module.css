@@ -350,17 +350,3 @@
     row-gap: 6px;
   }
 }
-
-/* A tree row's name and its dim path read whole on the 1180 px iPad too: the
-   side panel is then narrow enough that one line cuts the path. Rows grow
-   instead; the file window below keeps its own horizontal scroll. */
-@media (max-width: 1180px), (pointer: coarse) {
-  .treeScroll :global([class*='treeName']),
-  .treeScroll :global([class*='treePath']),
-  .treeScroll :global([class*='treeSecondary']) {
-    overflow: visible;
-    text-overflow: clip;
-    white-space: normal;
-    overflow-wrap: anywhere;
-  }
-}

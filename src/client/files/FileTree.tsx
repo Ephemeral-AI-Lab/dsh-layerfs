@@ -194,6 +194,8 @@ export interface FileTreeProps<E extends TreeEntry, C> {
   more?: ((path: string) => TreeMore | undefined) | undefined
   /** What a folder shows after its rows (a note that what is shown is a kept answer). */
   after?: ((path: string) => ReactNode) | undefined
+  /** On the touch layout, a row's name and path wrap instead of ending in an ellipsis (a narrow side panel). */
+  wrapNames?: boolean | undefined
   labels: FileTreeLabels
 }
 
@@ -218,7 +220,7 @@ export function FileTree<E extends TreeEntry, C>(props: FileTreeProps<E, C>): Re
 }
 
 /** The entries read so far that match the filter, by path. */
-function Matches<E extends TreeEntry, C>({ dirs, selected, filter = '', row, onOpen, labels }: FileTreeProps<E, C>): ReactNode {
+function Matches<E extends TreeEntry, C>({ dirs, selected, filter = '', row, onOpen, labels, wrapNames }: FileTreeProps<E, C>): ReactNode {
   const q = filter.trim().toLowerCase()
   const folder = (entry: E) => row?.(entry, false).expandable ?? entry.kind === 'dir'
   const matches: E[] = []
@@ -230,7 +232,7 @@ function Matches<E extends TreeEntry, C>({ dirs, selected, filter = '', row, onO
   }
   if (matches.length === 0) return <p className={css.treeNote}>{labels.noMatch}</p>
   return (
-    <ul className={css.tree} aria-label={labels.tree}>
+    <ul className={clsx(css.tree, wrapNames && css.treeWrap)} aria-label={labels.tree}>
       {matches.map((n) => {
         const custom = row?.(n, false) ?? {}
         return (
@@ -366,7 +368,7 @@ function Folder<E extends TreeEntry, C>({ top, ...props }: FolderProps<E, C>): R
   const further = next != null ? more?.(path) : undefined
   const trailer = after?.(path)
   return (
-    <ul className={css.tree} role={depth === 0 ? 'tree' : 'group'} aria-label={depth === 0 ? labels.tree : undefined} {...top}>
+    <ul className={clsx(css.tree, depth === 0 && props.wrapNames && css.treeWrap)} role={depth === 0 ? 'tree' : 'group'} aria-label={depth === 0 ? labels.tree : undefined} {...top}>
       {(sorted.get(path) ?? dir).map((n) => {
         const expanded = open.has(n.path)
         const { expandable, icon, title, disabled, label, secondary, trailing, below } = rowOf(n, expanded, row)

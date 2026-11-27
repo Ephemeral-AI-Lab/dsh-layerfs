@@ -866,7 +866,8 @@
     min-height: var(--lfs-tap, 44px);
   }
 
-  .toolbar :global([class*='_wrap_']) {
+  /* the project search: our class on DSH's Input wrapper */
+  .toolbar .search {
     height: var(--lfs-tap, 44px);
   }
 

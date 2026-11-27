@@ -11,11 +11,12 @@
  * Delete is sandbox.remove, with an explicit Force delete action. A Sandbox
  * whose machine differs from the one it was opened from is refused here.
  */
+import clsx from 'clsx'
 import { usePageReading } from '../storage/PaneBar.tsx'
 import { useId, type ReactNode } from 'react'
 import { Button, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DoctorAction } from '../doctor/Doctor.tsx'
-import { LinkButton, LoadError, Loading, Notice, Page, PageHead, Refusal, StateChip } from '../ui/index.tsx'
+import { LinkButton, LoadError, Loading, Notice, Page, PageHead, Refusal, StateChip, touchLinks } from '../ui/index.tsx'
 import { TabBar } from '../ui/TabBar.tsx'
 import { useMachinesContext } from './context.tsx'
 import { useDetailTab } from './detail-tabs.ts'
@@ -105,7 +106,7 @@ export function SandboxDetail({ machine, name, go, refreshKey }: { refreshKey?: 
       )}
 
       {tab === 'overview' ? (
-        <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-overview-panel`} aria-labelledby={`${ids}-overview`}>
+        <div className={clsx(logCss.tabPanel, touchLinks)} role="tabpanel" id={`${ids}-overview-panel`} aria-labelledby={`${ids}-overview`}>
           <SandboxOverview name={name} machine={machine} machineTitle={machineWithKind} info={info} listed={listed}
             loading={detail.error == null} fallback={info ? <UsageLine info={info} /> : null}
             onMachine={() => go({ kind: 'machine', name: machine })} onWorkspaces={() => setTab('terminals')}
@@ -121,16 +122,16 @@ export function SandboxDetail({ machine, name, go, refreshKey }: { refreshKey?: 
         </div>
       ) : tab === 'files' ? (
         // reads on its own: the Workspace rows take their names and chips from sandbox.get when it has answered
-        <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-files-panel`} aria-labelledby={`${ids}-files`}>
+        <div className={clsx(logCss.tabPanel, touchLinks)} role="tabpanel" id={`${ids}-files-panel`} aria-labelledby={`${ids}-files`}>
           <InspectFiles kind="sandbox" name={name} label={t('filesOf', { name })} workspaces={info?.workspaces ?? null} project={project}
             onOpenLog={hasLog ? () => setTab('log') : undefined} logTab={hasLog ? t('tabDaemonLog') : undefined} />
         </div>
       ) : tab === 'log' ? (
-        <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-log-panel`} aria-labelledby={`${ids}-log`}>
+        <div className={clsx(logCss.tabPanel, touchLinks)} role="tabpanel" id={`${ids}-log-panel`} aria-labelledby={`${ids}-log`}>
           <LogPane kind="sandbox" name={name} label={t('daemonLogOf', { name })} final={ended} />
         </div>
       ) : (
-        <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-terminals-panel`} aria-labelledby={`${ids}-terminals`} data-sandbox-terminals>
+        <div className={clsx(logCss.tabPanel, touchLinks)} role="tabpanel" id={`${ids}-terminals-panel`} aria-labelledby={`${ids}-terminals`} data-sandbox-terminals>
           {!info
             // only this tab waits on sandbox.get
             ? detail.error != null

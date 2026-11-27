@@ -860,8 +860,9 @@
     min-height: var(--lfs-tap, 44px);
   }
 
-  .scriptModal [class*='header'] > button,
-  .confirmModal [class*='close'] {
+  /* the dialogs' close: DSH labels it with our closeLabel */
+  .scriptModal :global(button[aria-label]),
+  .confirmModal :global(button[aria-label]) {
     min-width: var(--lfs-tap, 44px);
     min-height: var(--lfs-tap, 44px);
   }

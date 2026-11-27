@@ -551,17 +551,14 @@
   padding-bottom: calc(24px + var(--lfs-safe-bottom, 0px));
 }
 
-.modal > :global([class*='_content_']) {
-  min-height: 0;
-}
-
-.modal :global([class*='_body_']) {
+/* The dialog's content region (DSH's Modal `contentClassName`: title, line and
+   body) scrolls between the fixed footer and the card's top; a long Store or
+   bucket name in the title wraps instead of widening the card. */
+.modalContent {
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-}
-
-.modal :global([class*='_title_']) {
   overflow-wrap: anywhere;
 }
 
@@ -1486,12 +1483,12 @@
     min-width: var(--lfs-tap, 44px);
   }
 
-  .modal :global([class*='_wrap_']) {
+  /* a text field (TextField's Input wrapper, our class) */
+  .fieldInput {
     height: var(--lfs-tap, 44px);
   }
 
-  .modal :global([class*='_input_']) {
-    height: var(--lfs-tap, 44px);
+  .fieldInput input {
     font-size: 16px;
   }
 
