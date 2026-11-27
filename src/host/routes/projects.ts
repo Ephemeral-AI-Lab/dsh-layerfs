@@ -194,7 +194,8 @@ export function sandboxInfo(s: any, workspaces: any[] | null = null, sessionOf?:
       return {
         ws: handle, name: handle.slice(handle.indexOf(':') + 1), branch: w.branch ?? '', path: w.path ?? null,
         state: typeof w.state === 'string' ? w.state : 'ready', op: opOf(w.op), ...companionsOf(w),
-        base: w.commit ?? null, baseLayer: w.base_layer ?? null, headMovedSinceMount: w.branch_moved ?? null, pendingMerge: w.pending_merge ?? null,
+        // `sandbox get` names no Commit for a fork that has none of its own; its Layer is the base, as `workspace status` names it
+        base: w.commit ?? w.base_layer ?? null, baseLayer: w.base_layer ?? null, headMovedSinceMount: w.branch_moved ?? null, pendingMerge: w.pending_merge ?? null,
         mountedAt: msAt(w.mounted_at),
         ...runningOf(w), ...overlayBytesOf(perWorkspace.get(handle), !!stats), ...workspaceUsageOf(perWorkspace.get(handle), !!stats),
       }
