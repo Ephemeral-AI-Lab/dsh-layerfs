@@ -37,7 +37,8 @@ const src = readFileSync(join(root, 'src/client/projects/ProjectList.tsx'), 'utf
 const fill = (text, vars = {}) => text.replace(/\{(\w+)\}/g, (_, k) => String(vars[k] ?? `{${k}}`))
 const t = (key, vars) => fill(M.listLocales.en[key] ?? key, vars)
 const session = { sessionId: 'stored-1', title: 'Chat', local: false, updatedAt: 1, state: 'stored' }
-const props = (onOpen, extra = {}) => ({ session, title: 'Chat', selected: false, t, onOpen, onArchive: async () => null, ...extra })
+const canRun = { state: 'available', machine: 'docker', canStart: false, canRun: true, storageBlocked: false }
+const props = (onOpen, extra = {}) => ({ session, title: 'Chat', selected: false, t, readiness: M.sessionReadiness(session, canRun, 'demo', t), onOpen, onArchive: async () => null, ...extra })
 const find = (tree, pred) => M.elements(tree).filter((e) => pred(e.props ?? {}, e))
 const openButton = (tree) => find(tree, (p) => p['data-open-session'] === 'stored-1')[0]
 const noticeOf = (tree) => find(tree, (p) => 'data-open-refused' in p)
@@ -73,17 +74,38 @@ test('Retry asks again; a resolved open clears the refusal', async () => {
   assert.equal(asked.length, 2, 'Retry asks again')
 })
 
-test('the open button is disabled while that row\'s open runs', async () => {
+test('the row waits while its open runs, and keeps keyboard focus (aria-disabled, not disabled)', async () => {
   let release
-  const view = M.mount(M.SessionLine, props(() => new Promise((resolve) => { release = resolve })))
+  let asked = 0
+  const view = M.mount(M.SessionLine, props(() => { asked++; return new Promise((resolve) => { release = resolve }) }))
   openButton(view.tree).props.onClick()
   await new Promise((resolve) => setTimeout(resolve, 0))
   const pending = view.render()
-  assert.equal(openButton(pending).props.disabled, true, 'only this row waits')
+  assert.equal(openButton(pending).props['aria-disabled'], true, 'only this row waits')
+  assert.ok(!openButton(pending).props.disabled, 'a disabled button would drop focus to the page')
+  openButton(pending).props.onClick()
+  assert.equal(asked, 1, 'a second press while it opens is ignored')
   release()
   const done = await view.settle()
-  assert.ok(!openButton(done).props.disabled)
+  assert.ok(!openButton(done).props['aria-disabled'])
   assert.equal(noticeOf(done).length, 0)
+})
+
+test('Try again keeps focus on the row it is about; the refusal\'s words match the button', async () => {
+  const view = M.mount(M.SessionLine, props(() => Promise.reject(Object.assign(new Error('not listed'), { code: 'session/not-listed' }))))
+  let tree = await pressOpen(view)
+  let focused = 0
+  openButton(tree).props.ref.current = { focus: () => { focused++ } }
+  const notice = noticeOf(tree)[0]
+  assert.equal(M.text(find(notice, (p) => p.role === 'alert')[0]), t('notListed'))
+  find(notice, (p) => typeof p.onClick === 'function')[0].props.onClick()
+  assert.equal(focused, 1, 'focus moves to the row before the notice goes')
+  tree = await view.settle()
+  // One action word: the button says Try again, the message states the fact only.
+  for (const lang of ['en', 'zh']) {
+    const words = M.listLocales[lang]
+    assert.ok(!words.notListed.includes(words.openAgain) && !/Retry|重试/.test(words.notListed), `${lang}: "${words.notListed}" names no second action`)
+  }
 })
 
 test('a reload that replaces the row clears the refusal', async () => {
@@ -146,7 +168,12 @@ test('an unavailable row says why, cannot open itself and has no Start action; A
   assert.equal(find(tree, (p) => p['data-session-state'] === 'unavailable').length, 1)
   const reason = find(tree, (p) => p['data-session-reason'] === 'unavailable')
   assert.equal(reason.length, 1, 'the reason is under the row')
-  assert.equal(rowButton(tree, 'local-1').props.disabled, true, 'the row itself cannot open')
+  const row = rowButton(tree, 'local-1')
+  assert.equal(row.props['aria-disabled'], true, 'the row itself cannot open')
+  assert.ok(!row.props.disabled, 'it stays focusable, so its reason can be reached')
+  assert.equal(row.props['aria-describedby'], reason[0].props.id, 'assistive tech reads the reason with the row')
+  row.props.onClick()
+  await view.settle()
   assert.equal(actionButtons(tree).length, 0, 'no readiness action button')
   assert.doesNotMatch(M.text(tree), /Start docker/, 'no Start action')
   const archive = find(tree, (p) => 'data-archive-session' in p)
@@ -172,6 +199,7 @@ test('a session being bound says Starting, with no reason, and its row can still
 })
 
 test('a blocked row whose Store failure names it states the reason in words, with no Open Store action', () => {
+  assert.ok(!('action' in M.sessionReadiness({ sessionId: 'x', state: 'local', local: true }, availability({ canRun: false, state: 'stopped', canStart: true }), 'demo', t)), 'readiness carries no action')
   const local = { sessionId: 'local-2', title: 'Chat', local: true, updatedAt: 1, state: 'local', executionState: 'inactive' }
   const store = { name: 'pg', kind: 'postgresql', state: 'broken', reason: 'missing', postgresql: { passwordSaved: false }, attached: [] }
   const readiness = M.sessionReadiness(local, availability({ state: 'available', canRun: false, storageBlocked: true }), 'pg', t, store)
@@ -182,7 +210,7 @@ test('a blocked row whose Store failure names it states the reason in words, wit
   assert.match(M.text(view.tree), /Unavailable/)
   assert.match(M.text(view.tree), /has no saved password/, 'the Store failure is the reason')
   assert.equal(find(view.tree, (p) => p['data-session-reason'] === 'unavailable').length, 1)
-  assert.equal(rowButton(view.tree, 'local-2').props.disabled, true, 'the row itself cannot open')
+  assert.equal(rowButton(view.tree, 'local-2').props['aria-disabled'], true, 'the row itself cannot open')
   assert.equal(actionButtons(view.tree).length, 0, 'no readiness action button')
   assert.doesNotMatch(M.text(view.tree), /Open Store/, 'no Open Store action')
 })

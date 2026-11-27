@@ -62,7 +62,8 @@ test('FAIL 1: the views\' session read (mount, events, the 10 s poll) asks for t
 // ---------------------------------------------------------------- FAIL 2
 
 const t = tOf(M.listLocales, 'en')
-const line = (session, onArchive = async () => null) => M.mount(M.SessionLine, { session, title: 'Chat', selected: false, t, onOpen: () => {}, onArchive })
+// Archive does not depend on readiness: these rows carry the wordless `unknown`.
+const line = (session, onArchive = async () => null) => M.mount(M.SessionLine, { session, title: 'Chat', selected: false, t, readiness: { key: 'unknown' }, onOpen: () => {}, onArchive })
 const archiveButtons = (tree) => find(tree, (p) => 'data-archive-session' in p)
 
 test('FAIL 2: Archive shows only on conversations DSH holds that are not running; a Store-only row has none', () => {
@@ -145,7 +146,6 @@ const START_SITES = {
   'src/client/machines/parts.tsx': 'the machine card\'s own Start / power button and its own fix',
   'src/client/machines/ImageMenu.tsx': 'that machine\'s own Restart worker (its images menu)',
   'src/client/projects/ProjectList.tsx': 'the project row\'s "Start <machine>"',
-  'src/client/projects/session-readiness.ts': 'the readiness action\'s kind (a type and a classification): sends nothing',
   'src/client/projects/setup/ProjectDialog.tsx': 'StartFirst (twice) and the project row\'s "Start <machine>"',
   'src/client/projects/setup/run.ts': 'startMachine itself (called only from StartFirst)',
   'src/client/storage/HomeOverview.tsx': 'a trouble row\'s "Restart <machine>\'s worker"',

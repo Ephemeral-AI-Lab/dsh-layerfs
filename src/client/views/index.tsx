@@ -38,7 +38,13 @@ export function registerViews(ctx: any, api: LayerfsApi): void {
   const storageT: StorageT = ctx.locale.bind(STORAGE_NS)
   // While a LayerFS view is open the composer steps aside: a
   // `conversation.composer` election that renders nothing (DSH keeps the stock
-  // composer mounted, so a draft survives). A chain elects in ASCENDING
+  // composer mounted, so a draft survives). Known limit: the election is keyed
+  // by session, because DSH's `conversation.composer` chain gives `select`
+  // only `{ sessionId, session, pendingInteraction }` (and `conversation.view`
+  // injects only the session id): no pane identity or selected view. A split
+  // view showing the same session as Chat in one pane and a LayerFS tab in the
+  // other hides both panes' composers. Fixing it needs that DSH seam (the
+  // pane's selected view, or a pane id, in ComposerChainProps). A chain elects in ASCENDING
   // priority and the first non-null `select` wins, so this entry sits above
   // every takeover it must yield to: approval priority 1, user questions
   // default 0, subagent read-only -10. It renders only when none matches.
@@ -112,6 +118,8 @@ export function registerViews(ctx: any, api: LayerfsApi): void {
   let wanted = false
   let applied = false
   let running = false
+  /** The plugin unloaded: no transition starts, and one in flight undoes its own suspension. */
+  let unloaded = false
   let timer: ReturnType<typeof setTimeout> | undefined
   const transition = async (on: boolean) => {
     if (on) {
@@ -125,16 +133,24 @@ export function registerViews(ctx: any, api: LayerfsApi): void {
       try {
         await stock.suspend()
       } catch (error: unknown) {
+        // Unloaded meanwhile: the unload already took every entry back.
+        if (unloaded) return
         ctx.logger?.warn?.('dsh-layerfs: stock Trajectory not suspended: %s', error)
         // DSH renders every `conversation.view` entry of an id, shadowed ones
         // included: the stock tab is still there, so take our own Trajectory
         // entry back (and nothing else) to keep exactly one. The other tabs
         // and LayerFS mode stay; a later transition off resumes nothing.
-        const own = registered.find((entry) => entry.id === TRAJECTORY_VIEW)
+        const own = registered?.find((entry) => entry.id === TRAJECTORY_VIEW)
         if (own) {
           own.dispose()
-          registered = registered.filter((entry) => entry !== own)
+          registered = registered?.filter((entry) => entry !== own) ?? null
         }
+      }
+      // Unloaded while the suspension ran: the unload's resume() found nothing
+      // suspended yet, so give DSH its Trajectory back now, not never.
+      if (unloaded) {
+        await stock.resume().catch((error: unknown) => ctx.logger?.warn?.('dsh-layerfs: stock Trajectory not resumed: %s', error))
+        return
       }
     } else {
       await stock.resume().catch((error: unknown) => ctx.logger?.warn?.('dsh-layerfs: stock Trajectory not resumed: %s', error))
@@ -145,7 +161,7 @@ export function registerViews(ctx: any, api: LayerfsApi): void {
   }
   const settle = () => {
     timer = undefined
-    if (running || applied === wanted) return
+    if (unloaded || running || applied === wanted) return
     running = true
     void transition(wanted).finally(() => { running = false; settle() })
   }
@@ -195,7 +211,9 @@ export function registerViews(ctx: any, api: LayerfsApi): void {
     const off = ownership.subscribe(sync)
     return () => {
       off()
-      // Unloading: give DSH its Trajectory back, and drop ours, at once.
+      // Unloading: give DSH its Trajectory back, and drop ours, at once. A
+      // transition still waiting on its suspension resumes it when it lands.
+      unloaded = true
       if (timer !== undefined) clearTimeout(timer)
       timer = undefined
       wanted = false

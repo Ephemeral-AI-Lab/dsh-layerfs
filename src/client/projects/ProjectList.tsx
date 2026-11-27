@@ -6,7 +6,7 @@
  * Start while its machine is stopped). Also the project data the dialog's
  * picker reads (`useProjectData`, `useRecent`).
  */
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { Button, IconArchiveOutlineRegular, IconPlusOutlineRegular, IconSettingsOutlineRegular, IconTriangleRightFillRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
@@ -139,20 +139,26 @@ export function archiveConversation(api: Pick<LayerfsApi, 'op'>, sessionId: stri
 /**
  * One conversation under a project: its title (a press opens it), the
  * readiness word beside it, its reason under the row, then Archive where DSH
- * can archive it ({@link archivable}). A refused Archive reads "Not archived"
- * with DSH's message as the tip and one action, Try again (RV4 FAIL 2: no
- * refusal is dropped).
+ * can archive it ({@link archivable}). Readiness is words only: there is no
+ * Open, Start or Open Store button on the row (docs/guide/entry-points.md).
+ * A refused Archive reads "Not archived" with DSH's message as the tip and
+ * one action, Try again (RV4 FAIL 2: no refusal is dropped).
+ *
+ * The row stays focusable while it cannot open (opening, or the project
+ * cannot run): it is `aria-disabled` and ignores presses instead of
+ * `disabled`, so keyboard focus is not dropped mid-open, and it is described
+ * by the reason line under it.
  */
-export function SessionLine({ session, title, selected, t, failure, readiness, onOpen, onArchive, onOpenStore }: {
+export function SessionLine({ session, title, selected, t, failure, readiness, onOpen, onArchive }: {
   session: ProjectSession, title: string, selected: boolean, t: ListT
+  /** The interrupted session's failure in words (its tip and failure code). */
   failure?: LocalizedFailure | null
   /** The row's readiness word and reason ({@link sessionReadiness}). */
-  readiness?: SessionReadiness | undefined
+  readiness: SessionReadiness
   /** Opens it; a refusal comes back as a rejected promise and is shown under this row. */
   onOpen: () => void | Promise<unknown>
   /** Archives it: null when done, else the refusal's message. */
   onArchive: () => Promise<string | null>
-  onOpenStore?: (() => void) | undefined
 }): ReactNode {
   const [busy, setBusy] = useState(false)
   const [refusal, setRefusal] = useState<string | null>(null)
@@ -161,9 +167,12 @@ export function SessionLine({ session, title, selected, t, failure, readiness, o
   // asks again. Keeping it per row leaves the other sessions pressable.
   const [opening, setOpening] = useState(false)
   const [openFailure, setOpenFailure] = useState<{ sessionId: string, code?: string, message: string } | null>(null)
+  const row = useRef<HTMLButtonElement>(null)
+  const reasonId = useId()
+  const unavailable = readiness.key === 'unavailable'
   const archive = () => { setBusy(true); setRefusal(null); void onArchive().then(setRefusal).finally(() => setBusy(false)) }
   const open = () => {
-    if (opening) return
+    if (opening || unavailable) return
     setOpening(true)
     setOpenFailure(null)
     void Promise.resolve().then(onOpen).then(
@@ -177,32 +186,27 @@ export function SessionLine({ session, title, selected, t, failure, readiness, o
   // the object (which would drop a fresh refusal on the next render).
   const listed = JSON.stringify([session.local, session.state, session.executionState, session.updatedAt, session.title, session.error])
   useEffect(() => { setOpenFailure(null) }, [listed])
-  const interruptedTip = failure?.message ?? session.error ?? t('interruptedHint')
-  // The readiness word and its reason (session-readiness.ts). Without
-  // `readiness` (older callers) the row keeps the Interrupted word and failure
-  // line it had.
-  const interruptedRow = !readiness && session.executionState === 'interrupted'
-  const word = readiness?.word ?? (session.executionState === 'interrupted' ? t('interrupted') : undefined)
-  const wordTip = readiness?.key === 'interrupted' || interruptedRow ? interruptedTip : readiness?.reason
-  const reason = readiness?.reason ?? (interruptedRow ? failure?.message : undefined)
-  const reasonFailure = readiness?.key === 'interrupted' || interruptedRow ? failure : undefined
+  // The readiness word and its reason (session-readiness.ts).
+  const interrupted = readiness.key === 'interrupted'
+  const wordTip = interrupted ? failure?.message ?? session.error ?? t('interruptedHint') : readiness.reason
+  const reason = readiness.reason
   return <>
     <li className={css.sessionItem}>
-      <button type="button" className={css.session} data-selected={selected || undefined} data-open-session={session.sessionId}
-        disabled={opening || readiness?.key === 'unavailable'} aria-busy={opening || undefined}
-        title={readiness?.key === 'unavailable' ? readiness.reason : undefined} onClick={open}>
+      <button ref={row} type="button" className={css.session} data-selected={selected || undefined} data-open-session={session.sessionId}
+        aria-disabled={opening || unavailable || undefined} aria-busy={opening || undefined}
+        aria-describedby={reason ? reasonId : undefined}
+        title={unavailable ? reason : undefined} onClick={open}>
         <span className={css.slot} aria-hidden="true" />
         <span className={css.title}>{title}</span>
-        {word ? <span className={readiness && readiness.key !== 'interrupted' ? css.word : css.interrupted} data-session-state={readiness?.key} title={wordTip}>{word}</span> : null}
+        {readiness.word ? <span className={interrupted ? css.interrupted : css.word} data-session-state={readiness.key} title={wordTip}>{readiness.word}</span> : null}
       </button>
       {/* B2 #7: the row's second action, Archive (DSH's archive set; DSH's archived list unarchives it), only where DSH can */}
       {archivable(session) ? <Button className={clsx(css.iconButton, css.sessionAction)} variant="ghost" size="sm" icon={<IconArchiveOutlineRegular size={14} />} disabled={busy}
         aria-label={t('archiveSession', { session: title })} title={t('archiveSession', { session: title })} data-archive-session={session.sessionId}
         onClick={archive} /> : null}
     </li>
-    {reason ? <li className={css.sessionReason} data-session-reason={readiness?.key} data-session-failure={reasonFailure?.code}>
+    {reason ? <li className={css.sessionReason} id={reasonId} data-session-reason={readiness.key} data-session-failure={interrupted ? failure?.code : undefined}>
       <span>{reason}</span>
-      {interruptedRow && failure?.openStore && onOpenStore ? <button type="button" className={css.inlineLink} onClick={onOpenStore}>{t('sfOpenStore')}</button> : null}
     </li> : null}
     {refusal !== null ? <li className={clsx(css.notice, css.error)} data-archive-refused={session.sessionId}>
       <span role="alert" title={refusal}>{t('archiveRefused')}</span>
@@ -210,7 +214,8 @@ export function SessionLine({ session, title, selected, t, failure, readiness, o
     </li> : null}
     {openFailure !== null ? <li className={clsx(css.notice, css.error)} data-open-refused={openFailure.sessionId}>
       <span role="alert">{openFailure.code === 'session/not-listed' ? t('notListed') : openFailure.message}</span>
-      <Button variant="ghost" size="sm" disabled={opening} onClick={open}>{t('openAgain')}</Button>
+      {/* The notice goes when the open starts again: keep focus on the row it is about. */}
+      <Button variant="ghost" size="sm" disabled={opening} onClick={() => { row.current?.focus(); open() }}>{t('openAgain')}</Button>
     </li> : null}
   </>
 }
@@ -257,9 +262,10 @@ function SidebarRow({ item, showStore, api, titles, t, onChanged }: { item: Proj
       <span className={css.rowActions}>
         <Button className={css.iconButton} variant="ghost" size="sm" icon={<IconSettingsOutlineRegular size={14} />} aria-label={t('configure', { project: label })} title={t('configure', { project: label })}
           onClick={() => projectDialog.open({ mode: 'configure', project: { key: project.key, projectId: project.projectId, name: nameOf(project), store: storeName } })} />
-        {availability.canStart ? null : <Button className={css.iconButton} variant="ghost" size="sm" disabled={actions.busy || !availability.canRun} icon={<IconPlusOutlineRegular size={14} />}
+        {/* While the new session opens the button stays focusable (aria-disabled, presses ignored): disabling it dropped focus to the page. */}
+        {availability.canStart ? null : <Button className={css.iconButton} variant="ghost" size="sm" disabled={!availability.canRun} aria-disabled={actions.busy || undefined} icon={<IconPlusOutlineRegular size={14} />}
           aria-label={t('newSession', { project: label })} aria-description={sessionReason} title={sessionReason ?? t('newSession', { project: label })}
-          onClick={() => { setOpen(true); void actions.create(project) }} />}
+          onClick={() => { if (actions.busy) return; setOpen(true); void actions.create(project) }} />}
         {availability.canStart
           ? <Button className={css.start} variant="ghost" size="sm" disabled={actions.busy || startGuard.settling} aria-disabled={startGuard.settling || undefined} title={startReason} aria-description={startReason} aria-label={t('startMachineFor', { machine: availability.machine ?? '', project: label })} onClick={startGuard(() => void actions.start(availability.machine!))}>{t('startNamed', { machine: availability.machine ?? '' })}</Button>
           : null}
@@ -278,11 +284,9 @@ function SidebarRow({ item, showStore, api, titles, t, onChanged }: { item: Proj
         const title = titles[session.sessionId]?.title || session.title || t('untitled')
         const readiness = sessionReadiness(session, availability, storeName, t, item.store)
         const sessionFail = readiness.key === 'interrupted' ? formatSessionFailure(session.failure, session.error, t, storeName, item.store) : null
-        const openStore = sessionFail?.openStore
         return <SessionLine key={session.sessionId} session={session} title={title} selected={selected === session.sessionId} t={t}
           readiness={readiness}
           failure={sessionFail}
-          onOpenStore={openStore ? () => openStorage(api, `store:${storeFail?.store ?? sessionFail?.store ?? storeName}`) : undefined}
           onOpen={() => resume(session.sessionId)}
           onArchive={() => archiveConversation(api, session.sessionId).then((refusal) => { if (refusal === null) read.reload(); return refusal })} />
       }) : !read.error && !read.loading ? <li className={css.notice}>{t('noSessions')}</li> : null}

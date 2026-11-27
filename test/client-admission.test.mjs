@@ -1,6 +1,7 @@
 // The client's one host seam (src/client/api.ts) admits a bounded number of
-// sends, runs interactive reads before decoration, never starves decoration,
-// releases a slot on a refusal, and shares an identical read already in flight.
+// reads, runs interactive reads before decoration, caps decoration below the
+// read limit, never starves it, gives writes their own lane, releases a slot on
+// a refusal, and shares an identical read already in flight.
 //   node --test test/client-admission.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -67,6 +68,9 @@ async function newApi(t) {
   return { api, state: host.state }
 }
 
+/** A named read operation: reads share the read slots (an unknown op counts as a write). */
+const READ = 'session.state'
+
 /** Settle held answers, letting queued calls start, until `done` and nothing is left in flight. */
 async function drain(state, done = () => false) {
   for (let guard = 0; guard < 200; guard++) {
@@ -79,7 +83,7 @@ async function drain(state, done = () => false) {
 test('at most HOST_IN_FLIGHT_LIMIT sends are in flight, and every call is admitted', async (t) => {
   assert.ok(A.HOST_IN_FLIGHT_LIMIT >= 4 && A.HOST_IN_FLIGHT_LIMIT <= 6, 'the live A/B tunes the one constant inside 4–6')
   const { api, state } = await newApi(t)
-  const calls = Array.from({ length: 12 }, (_, i) => api.op('probe', { i }))
+  const calls = Array.from({ length: 12 }, (_, i) => api.op(READ, { i }))
   await flush()
   assert.equal(state.calls.length, A.HOST_IN_FLIGHT_LIMIT, 'the queue is bounded')
   assert.equal(state.peak, A.HOST_IN_FLIGHT_LIMIT)
@@ -93,23 +97,77 @@ test('at most HOST_IN_FLIGHT_LIMIT sends are in flight, and every call is admitt
 
 test('interactive reads are admitted before queued background reads', async (t) => {
   const { api, state } = await newApi(t)
-  const held = Array.from({ length: A.HOST_IN_FLIGHT_LIMIT }, () => api.op('probe', { tag: 'bg-first' }, { priority: 'background' }))
+  // Every read slot is held, the last ones by decoration (so the background turn is not due).
+  const ui = A.HOST_IN_FLIGHT_LIMIT - A.BACKGROUND_IN_FLIGHT_LIMIT
+  const held = [
+    ...Array.from({ length: ui }, () => api.op(READ, { tag: 'ui-first' })),
+    ...Array.from({ length: A.BACKGROUND_IN_FLIGHT_LIMIT }, () => api.op(READ, { tag: 'bg-first' }, { priority: 'background' })),
+  ]
   await flush()
-  const waiting = [api.op('probe', { tag: 'bg-wait' }, { priority: 'background' }), api.op('probe', { tag: 'bg-wait2' }, { priority: 'background' })]
-  const ui = api.op('probe', { tag: 'ui' })
-  const all = [...held, ...waiting, ui]
+  assert.equal(state.calls.length, A.HOST_IN_FLIGHT_LIMIT)
+  const waiting = [api.op(READ, { tag: 'bg-wait' }, { priority: 'background' }), api.op(READ, { tag: 'bg-wait2' }, { priority: 'background' })]
+  const next = api.op(READ, { tag: 'ui' })
+  const all = [...held, ...waiting, next]
+  // A decoration read finishes: its slot goes to the waiting interactive read.
+  state.held.splice(state.held.findIndex((h) => h.request.args.tag === 'bg-first'), 1)[0].settle(true, { status: 200, body: {} })
+  await flush()
+  assert.equal(state.calls.at(-1).args.tag, 'ui', 'the interactive read jumped the background queue')
   await drain(state, () => state.calls.length === A.HOST_IN_FLIGHT_LIMIT + 3)
-  const order = state.calls.map((call) => call.args.tag)
-  assert.deepEqual(order.slice(A.HOST_IN_FLIGHT_LIMIT), ['ui', 'bg-wait', 'bg-wait2'], 'the interactive read jumped the background queue')
+  assert.deepEqual(state.calls.slice(A.HOST_IN_FLIGHT_LIMIT).map((c) => c.args.tag), ['ui', 'bg-wait', 'bg-wait2'])
+  await Promise.all(all)
+})
+
+test('background reads never hold more than BACKGROUND_IN_FLIGHT_LIMIT slots; an interactive read starts at once', async (t) => {
+  assert.ok(A.BACKGROUND_IN_FLIGHT_LIMIT < A.HOST_IN_FLIGHT_LIMIT, 'decoration always leaves slots for the open view')
+  const { api, state } = await newApi(t)
+  // Home's prefetch: catalog reads and Store walks, as decoration (both send routes).
+  const prefetch = [
+    ...Array.from({ length: 7 }, (_, i) => api.op(READ, { tag: 'bg', i }, { priority: 'background' })),
+    ...Array.from({ length: 6 }, (_, i) => api.call('GET', `/api/bg/${i}`, undefined, { priority: 'background' })),
+  ]
+  await flush()
+  assert.equal(state.calls.length, A.BACKGROUND_IN_FLIGHT_LIMIT, 'decoration is capped below the read limit')
+  const ui = Array.from({ length: A.HOST_IN_FLIGHT_LIMIT - A.BACKGROUND_IN_FLIGHT_LIMIT }, (_, i) => api.op(READ, { tag: 'ui', i }))
+  await flush()
+  assert.equal(state.calls.filter((c) => c.args.tag === 'ui').length, ui.length, 'every interactive read started without waiting for decoration')
+  assert.equal(state.peak, A.HOST_IN_FLIGHT_LIMIT)
+  let settled = 0
+  const all = [...prefetch, ...ui]
+  for (const call of all) call.then(() => { settled++ })
+  await drain(state, () => settled === all.length)
+  await Promise.all(all)
+})
+
+test('a long write does not take a read slot', async (t) => {
+  const { api, state } = await newApi(t)
+  // Machine starts and a PostgreSQL attach: writes, held for tens of seconds.
+  const writes = Array.from({ length: A.WRITE_IN_FLIGHT_LIMIT }, (_, i) => api.call('POST', `/api/machines/m${i}/start`))
+  await flush()
+  assert.equal(state.calls.length, A.WRITE_IN_FLIGHT_LIMIT)
+  const reads = Array.from({ length: A.HOST_IN_FLIGHT_LIMIT }, (_, i) => api.op(READ, { tag: 'ui', i }))
+  await flush()
+  assert.equal(state.calls.filter((c) => c.args?.tag === 'ui').length, A.HOST_IN_FLIGHT_LIMIT, 'every read slot is free for the open view')
+  // The write lane is bounded too: one more write waits for a write, not for the reads.
+  const more = api.op('sessions.archive', { sessionId: 's' })
+  await flush()
+  assert.ok(!state.calls.some((c) => c.op === 'sessions.archive'), 'the extra write queues behind the writes')
+  const firstWrite = state.held.findIndex((h) => h.request.args?.method === 'POST')
+  state.held.splice(firstWrite, 1)[0].settle(true, { status: 200, body: {} })
+  await flush()
+  assert.ok(state.calls.some((c) => c.op === 'sessions.archive'), 'a finished write lets the next one start')
+  let settled = 0
+  const all = [...writes, ...reads, more]
+  for (const call of all) call.then(() => { settled++ })
+  await drain(state, () => settled === all.length)
   await Promise.all(all)
 })
 
 test('background work is not starved by a stream of interactive reads', async (t) => {
   const { api, state } = await newApi(t)
-  const first = Array.from({ length: A.HOST_IN_FLIGHT_LIMIT }, () => api.op('probe', { tag: 'ui-first' }))
+  const first = Array.from({ length: A.HOST_IN_FLIGHT_LIMIT }, () => api.op(READ, { tag: 'ui-first' }))
   await flush()
-  const background = api.op('probe', { tag: 'bg' }, { priority: 'background' })
-  const rest = Array.from({ length: 24 }, () => api.op('probe', { tag: 'ui' }))
+  const background = api.op(READ, { tag: 'bg' }, { priority: 'background' })
+  const rest = Array.from({ length: 24 }, () => api.op(READ, { tag: 'ui' }))
   const all = [...first, background, ...rest]
   let settled = 0
   for (const call of all) call.then(() => { settled++ })
@@ -123,9 +181,9 @@ test('background work is not starved by a stream of interactive reads', async (t
 
 test('a rejected send releases its slot', async (t) => {
   const { api, state } = await newApi(t)
-  const refused = Array.from({ length: A.HOST_IN_FLIGHT_LIMIT }, (_, i) => api.op('probe', { i }))
+  const refused = Array.from({ length: A.HOST_IN_FLIGHT_LIMIT }, (_, i) => api.op(READ, { i }))
   const refusedCheck = assert.rejects(refused[0], /refused/)
-  const after = api.op('probe', { tag: 'after' })
+  const after = api.op(READ, { tag: 'after' })
   await flush()
   assert.equal(state.calls.length, A.HOST_IN_FLIGHT_LIMIT)
   // Refuse one answer: its slot must free for the queued call.

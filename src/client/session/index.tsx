@@ -46,10 +46,12 @@ function RowMark({ sessionId, api, t }: { sessionId: string, api: LayerfsApi, t:
     marked.current = null
   }, [])
 
-  // The mark itself renders only for a known project; an unknown read leaves the
-  // row as it is (mark included) until the next answer.
-  if (ownership.state !== 'project' || !ownership.project) return null
-  return <span ref={mark} className={css.rowMark} title={t('inProject', { project: ownership.project })}><LayerfsGlyph size={11} /></span>
+  // The mark renders for a known project; an unknown read keeps the last
+  // project answer (the store keeps it), so the row keeps its mark until the
+  // next answer. An unknown read with no project answer yet shows none.
+  const project = ownership.state === 'project' || ownership.state === 'unknown' ? ownership.project : undefined
+  if (!project) return null
+  return <span ref={mark} className={css.rowMark} title={t('inProject', { project })}><LayerfsGlyph size={11} /></span>
 }
 
 export function registerSession(ctx: any, api: LayerfsApi): void {
