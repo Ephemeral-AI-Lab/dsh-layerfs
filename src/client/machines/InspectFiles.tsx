@@ -589,7 +589,7 @@ export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog
     const path = file!
     const kept = offset === undefined && probed.current?.path === path ? probed.current.view : null
     probed.current = null
-    const answer = kept ? Promise.resolve(kept) : reader.current(route, { path, offset }, fileSignal(fileKey))
+    const answer = kept ? Promise.resolve(kept) : reader.current(route, { path, offset, file: true }, fileSignal(fileKey))
     return answer.then((got) => {
       if (got.kind === 'file') return { text: got.content, binary: got.binary, size: got.size, next: got.next }
       if (got.kind === 'refused') throw refusalError(got.stale)
