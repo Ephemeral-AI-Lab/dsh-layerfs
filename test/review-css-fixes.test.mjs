@@ -154,13 +154,19 @@ test.after(() => rmSync(out, { recursive: true, force: true }))
 
 test('Files: the drawer is keyed on the Files container and stays inside it', () => {
   const css = read('src/client/files/Files.module.css')
-  const drawer = blocks(css, '@container files-frame (max-width: 834px) {')
+  const drawer = blocks(css, '@container files-frame (max-width: 600px) {')
   assert.equal(drawer.length, 1, 'one container-keyed drawer block')
   assert.match(drawer[0], /\.side \{[^}]*position: absolute;[^}]*inset: 0;/)
   assert.doesNotMatch(drawer[0], /position: fixed/)
   for (const body of blocks(css, '@media (max-width: 834px) {')) assert.doesNotMatch(body, /\.side\b/, 'no viewport-keyed drawer')
   assert.match(css, /\.frame \{[^}]*position: relative;[^}]*overflow: hidden;/)
   assert.match(drawer[0], /\.treeShow\.treeShow \{\s*display: flex;/)
+  // a desktop pane (the per-session panel, about 700px) keeps a narrower tree, not the drawer
+  const narrow = blocks(css, '@container files-frame (max-width: 820px) {')
+  assert.equal(narrow.length, 1)
+  assert.match(narrow[0], /grid-template-columns: 200px minmax\(0, 1fr\);/)
+  assert.doesNotMatch(narrow[0], /\.side\b/)
+  assert.equal(blocks(css, '@container files-frame (max-width: 834px) {').length, 0, 'no drawer at desktop pane widths')
 })
 
 /** A fake element: focus() records itself; querySelector answers from `found`. */

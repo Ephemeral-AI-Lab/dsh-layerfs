@@ -27,6 +27,12 @@
   background: var(--dsw-alias-bg-base);
 }
 
+@container files-frame (max-width: 820px) {
+  .frame {
+    grid-template-columns: 200px minmax(0, 1fr);
+  }
+}
+
 
 .frame > * {
   min-height: 0;
@@ -923,12 +929,12 @@
 }
 
 /* ---------- a narrow Files container: the tree is a drawer ----------
-   Keyed on the Files container (files-frame), not the viewport: a narrow pane
-   on a wide desktop (the per-session panel, the Export dialog's Files mode)
-   gets the drawer too, and the drawer covers only the Files frame, never the
-   page or a dialog's head around it. */
+   Keyed on the Files container (files-frame), not the viewport, and covering
+   only the Files frame, never the page or a dialog's head around it. 600px is
+   the container a phone or an 834px tablet leaves beside DSH's sidebar; a
+   desktop pane wider than that (the per-session panel) keeps its tree. */
 
-@container files-frame (max-width: 834px) {
+@container files-frame (max-width: 600px) {
   .frame {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
