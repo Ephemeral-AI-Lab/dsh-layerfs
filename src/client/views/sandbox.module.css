@@ -23,14 +23,24 @@
   flex-direction: column;
   gap: var(--lfs-section-gap);
   box-sizing: border-box;
+  /* The map is a data surface: keep the built inline layout room on a desktop
+     while the column itself is centred under DSH's full-width tab row. */
+  --lfs-read-column: max(var(--dsh-chat-content-width, 680px), 880px);
   width: 100%;
   min-width: 0;
-  padding: var(--lfs-section-gap) 24px;
+  padding: var(--lfs-section-gap) max(24px, var(--lfs-safe-right, 0px)) calc(var(--lfs-section-gap) + var(--lfs-safe-bottom, 0px)) max(24px, var(--lfs-safe-left, 0px));
   color: var(--dsw-alias-label-primary);
   font-size: 12px;
 }
 
 .page * { min-width: 0; }
+
+@media (min-width: 1024px) {
+  .page {
+    width: min(100%, var(--lfs-read-column));
+    margin-inline: auto;
+  }
+}
 
 /* Toolbar */
 
@@ -39,6 +49,9 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 10px;
+  /* The transport row starts at the map's column edge; give its first and last
+     controls the same air from the page's content box as the rows below. */
+  padding: var(--lfs-inset-control, 12px) var(--lfs-inset-control, 12px) 0;
   color: var(--dsw-alias-label-secondary);
 }
 
@@ -94,7 +107,7 @@
   align-items: center;
   gap: 6px;
   color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
 }
 .zone b { color: var(--dsw-alias-label-secondary); font-weight: 500; }
@@ -109,7 +122,7 @@
 .rowHead { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .rowName { overflow: hidden; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .right { flex-shrink: 0; margin-left: auto; color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
-.mono { overflow: hidden; font-family: var(--ds-font-family-code); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.mono { overflow: hidden; font-family: var(--ds-font-family-code); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 
 .tag {
   flex-shrink: 0;
@@ -118,13 +131,13 @@
   border-radius: 999px;
   corner-shape: round;
   color: var(--dsw-alias-label-tertiary);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 400;
   line-height: 16px;
   white-space: nowrap;
 }
 
-.status { display: inline-flex; flex-shrink: 0; align-items: center; gap: 5px; margin-left: auto; color: var(--dsw-alias-label-tertiary); font-size: 11px; white-space: nowrap; }
+.status { display: inline-flex; flex-shrink: 0; align-items: center; gap: 5px; margin-left: auto; color: var(--dsw-alias-label-tertiary); font-size: 12px; white-space: nowrap; }
 
 .dot { display: inline-block; flex-shrink: 0; width: 6px; height: 6px; border-radius: 50%; corner-shape: round; background: color-mix(in srgb, var(--dsw-alias-label-tertiary) 70%, transparent); }
 .dotLive { background: var(--lf-tone-success-dot); box-shadow: var(--lf-tone-success-halo); }
@@ -143,7 +156,7 @@
   box-shadow: var(--dsw-elevation-soft);
 }
 
-.podHead { display: flex; align-items: center; gap: 6px; padding: 7px 8px 6px; color: var(--dsw-alias-label-secondary); font-size: 11px; }
+.podHead { display: flex; align-items: center; gap: 6px; padding: 7px 8px 6px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .podTitle { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .agent {
@@ -167,7 +180,7 @@
 }
 .agent .rowName { font-size: 12.5px; }
 .avatar { display: grid; grid-row: span 2; place-items: center; width: 30px; height: 28px; }
-.callLine { display: flex; align-items: center; gap: 5px; height: 16px; overflow: hidden; color: var(--dsw-alias-label-secondary); font-size: 11px; white-space: nowrap; }
+.callLine { display: flex; align-items: center; gap: 5px; height: 16px; overflow: hidden; color: var(--dsw-alias-label-secondary); font-size: 12px; white-space: nowrap; }
 .callLine > svg { flex-shrink: 0; color: var(--dsw-alias-label-tertiary); }
 .working { background: color-mix(in srgb, var(--lane) 6%, transparent); }
 .working .status { color: var(--dsw-alias-label-secondary); }
@@ -196,7 +209,7 @@
   background: transparent;
   color: var(--dsw-alias-label-tertiary);
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   text-align: left;
   cursor: pointer;
 }
@@ -261,8 +274,8 @@
   transition: background 200ms;
 }
 .knob i { width: 4px; height: 4px; border-radius: 50%; corner-shape: round; background: var(--dsw-alias-label-tertiary); }
-.pillName { overflow: hidden; font-size: 11.5px; text-overflow: ellipsis; }
-.saves { display: inline-flex; flex-shrink: 0; align-items: center; gap: 3px; color: var(--dsw-alias-label-tertiary); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.pillName { overflow: hidden; font-size: 12px; text-overflow: ellipsis; }
+.saves { display: inline-flex; flex-shrink: 0; align-items: center; gap: 3px; color: var(--dsw-alias-label-tertiary); font-size: 12px; font-variant-numeric: tabular-nums; }
 .bump { animation: bump 600ms ease-out; }
 
 .ghost { border-style: dashed !important; box-shadow: none !important; opacity: 0.55; }
@@ -332,8 +345,8 @@
 .boxHead.use { box-shadow: inset 2px 0 0 var(--lane); border-color: transparent; }
 
 .boxActions { display: flex; justify-content: flex-end; padding: 0 8px 4px; }
-.boxEmpty { margin: 0 11px 10px 35px; color: var(--dsw-alias-label-tertiary); font-size: 11px; }
-.boxOwn { display: flex; gap: 6px; align-items: baseline; min-width: 0; margin: 0 11px 6px 35px; font-size: 11px; }
+.boxEmpty { margin: 0 11px 10px 35px; color: var(--dsw-alias-label-tertiary); font-size: 12px; }
+.boxOwn { display: flex; gap: 6px; align-items: baseline; min-width: 0; margin: 0 11px 6px 35px; font-size: 12px; }
 
 .boxNone {
   display: flex;
@@ -343,7 +356,7 @@
   border: 0.5px dashed var(--dsw-alias-border-l3);
   border-radius: 12px;
   color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
+  font-size: 12px;
 }
 .boxNone > svg { flex-shrink: 0; margin-top: 1px; }
 .boxNone p { margin: 0; }
@@ -386,7 +399,7 @@
   border-radius: 12px;
   color: var(--dsw-alias-label-secondary);
 }
-.retired .muted { margin-left: auto; font-size: 11px; }
+.retired .muted { margin-left: auto; font-size: 12px; }
 
 .legend {
   position: absolute;
@@ -394,7 +407,7 @@
   display: flex;
   gap: 14px;
   color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
   transform: translateX(-50%);
 }
@@ -406,7 +419,7 @@
 
 /* Playback */
 
-.playback { display: flex; align-items: center; gap: 14px; color: var(--dsw-alias-label-tertiary); font-size: 11px; }
+.playback { display: flex; align-items: center; gap: 14px; color: var(--dsw-alias-label-tertiary); font-size: 12px; }
 .playState { display: inline-flex; flex-shrink: 0; align-items: center; gap: 6px; min-width: 72px; color: var(--dsw-alias-label-secondary); }
 .time { flex-shrink: 0; color: var(--dsw-alias-label-secondary); font-family: var(--ds-font-family-code); font-variant-numeric: tabular-nums; }
 .track { position: relative; flex: 1; height: 30px; }
@@ -477,7 +490,7 @@
 }
 .activityToggle > svg { flex-shrink: 0; color: var(--dsw-alias-label-tertiary); }
 .activityToggle:focus-visible { outline: 2px solid var(--dsw-alias-link); outline-offset: 1px; }
-.inspectorHead > span { font-size: 11px; }
+.inspectorHead > span { font-size: 12px; }
 
 .events { max-height: 240px; margin: 0; padding: 4px; overflow: auto; border-top: 0.5px solid var(--dsw-alias-border-l2); list-style: none; }
 
@@ -493,7 +506,7 @@
   background: transparent;
   color: inherit;
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   text-align: left;
   cursor: pointer;
 }
@@ -504,7 +517,7 @@
 .eventTarget { overflow: hidden; color: var(--dsw-alias-label-secondary); text-overflow: ellipsis; white-space: nowrap; }
 .eventOwner { display: inline-flex; flex-shrink: 0; align-items: center; gap: 6px; margin-left: auto; color: var(--dsw-alias-label-tertiary); }
 
-.detail { padding: 12px 13px 14px; border-top: 0.5px solid var(--dsw-alias-border-l2); font-size: 11px; }
+.detail { padding: 12px 13px 14px; border-top: 0.5px solid var(--dsw-alias-border-l2); font-size: 12px; }
 .detailFacts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-bottom: 10px; color: var(--dsw-alias-label-tertiary); }
 .detailOwner { display: inline-flex; align-items: center; gap: 6px; }
 .detailCommand { display: block; margin-bottom: 10px; color: var(--dsw-alias-label-primary); font-family: var(--ds-font-family-code); overflow-wrap: anywhere; }
@@ -534,6 +547,11 @@
 @container sandbox-map (max-width: 860px) {
   .eventOwner { display: none; }
   .legend { display: none; }
+  /* A tablet: the map fits the column (two content columns around the hub)
+     instead of scrolling sideways inside it. The Sandboxes column keeps a
+     gutter from the branch pills on the arc. */
+  .map { min-width: 0; }
+  .col[data-col='boxes'] { margin-left: 10px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -547,3 +565,189 @@
   .toolbar { gap: 8px 4px; }
   .playState { min-width: auto; }
 }
+
+/* The branch pills are absolutely placed on the hub's arc; the wrapper lets a
+   phone flow them as a wrapping row without changing the desktop map. */
+.pillRow { display: contents; }
+
+/* Thumb targets for the map's rows and its controls at a coarse pointer (and
+   at the tablet widths where a finger is the input): the measured layout reads
+   the real heights, so the diagram re-spaces itself around the taller rows.
+   The branch pills are placed on the arc by formula, so they grow only in the
+   stacked phone layout below. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .agent,
+  .boxHead,
+  .ws,
+  .fold,
+  .event,
+  .activityToggle,
+  .toolbar button {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .toolbar .speed [role='tab'] {
+    height: var(--lfs-tap, 44px);
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .toolbar .live { min-height: var(--lfs-tap, 44px); }
+
+  /* A tablet reads at 12px too: the map's dense 10.5/11px captions step up. */
+  .podHead,
+  .status,
+  .callLine,
+  .mono,
+  .boxEmpty,
+  .boxOwn,
+  .retired,
+  .legend,
+  .playback,
+  .tag,
+  .saves,
+  .pillName,
+  .fold,
+  .zone,
+  .muted {
+    font-size: 12px;
+  }
+}
+
+/* A phone: the map's three measured columns become one column in reading
+   order — Agents, the LayerFS hub with its branch pills, then Sandboxes — with
+   the wires off (nothing is positioned anymore) and the legend below. The
+   sandbox cards, their Workspaces and every control stay full width. */
+@container sandbox-map (max-width: 620px) {
+  .scroller { overflow: visible; }
+
+  .map {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    box-sizing: border-box;
+    min-width: 0;
+    height: auto !important;
+    padding: 10px 0 4px;
+    overflow: visible;
+  }
+
+  .under { display: none; }
+
+  .zone {
+    position: static;
+    order: 0;
+    max-width: 100% !important;
+    padding: 0 2px;
+    font-size: 12px;
+  }
+
+  .zone[data-zone='hub'] { order: 2; }
+  .zone[data-zone='sandboxes'] { order: 5; }
+
+  .col {
+    position: static;
+    order: 1;
+    width: auto !important;
+  }
+
+  .col[data-col='boxes'] { order: 6; }
+
+  .hub {
+    position: static !important;
+    order: 3;
+    flex: none;
+    align-self: center;
+    margin: 2px auto;
+  }
+
+  .pillRow {
+    display: flex;
+    flex-wrap: wrap;
+    order: 4;
+    gap: 8px;
+    padding: 0 2px;
+  }
+
+  .pill {
+    position: static !important;
+    height: var(--lfs-tap, 44px);
+    max-width: 100% !important;
+  }
+
+  .pillName {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .legend {
+    position: static;
+    order: 7;
+    justify-content: center;
+    padding: 0 2px;
+    transform: none;
+  }
+
+  /* Activity: the call's target takes its own line instead of being squeezed
+     into a 140px slot; the owner already drops out at 860. */
+  .events { max-height: 320px; }
+
+  .event {
+    flex-wrap: wrap;
+    row-gap: 2px;
+    gap: 6px;
+    padding: 8px 9px;
+    font-size: 12px;
+  }
+
+  .eventTarget {
+    flex: 1 1 100%;
+    order: 5;
+    overflow: visible;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .eventMethod { width: auto; max-width: 46%; }
+
+  .detail { padding: 12px 12px 14px; }
+  .detailOutput { font-size: 12px; }
+  .emptyCalls { padding: 14px 12px 16px; }
+
+  /* The toolbar stacks its facts over its controls. */
+  .toolbar { gap: 8px; }
+  .playState { min-width: auto; }
+
+  /* A phone reads at 12px: the map's dense 10.5/11px captions step up. */
+  .podHead,
+  .status,
+  .callLine,
+  .mono,
+  .boxEmpty,
+  .boxOwn,
+  .retired,
+  .legend,
+  .playback,
+  .tag,
+  .saves,
+  .pillName,
+  .fold,
+  .zone,
+  .muted {
+    font-size: 12px;
+  }
+}
+
+/* Coarse: the scrub bar keeps its 14 px look but a finger gets a 44 px tall
+   transparent hit band (it is absolutely placed, so the map does not move). */
+@media (max-width: 1180px), (pointer: coarse) {
+  .scrub {
+    height: var(--lfs-tap, 44px);
+  }
+
+  .replay {
+    min-width: var(--lfs-tap, 44px);
+  }
+}
+

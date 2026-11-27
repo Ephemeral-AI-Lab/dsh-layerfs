@@ -25,6 +25,8 @@ Sandbox 和调用、属于它的 DSH 会话，以及它在 Store 里占了多少
 （见[组件 › 文件视图](components.md#file-views)和[历史视图](components.md#history-views)）；
 这一页会把它们讲完整。
 
+![手机上的项目页：标签可以横向滑动，操作挪到下一行](../img/project-phone.png)
+
 页面不记住上次的标签：再次打开总是从文件开始。只要 DSH 还开着，历史标签页会按项目记住缩放、
 选中项和上次读取的结果，所以回到这里时会立刻画出上次的树，再在后台重新读取。
 
@@ -138,7 +140,8 @@ Sandbox 和调用、属于它的 DSH 会话，以及它在 Store 里占了多少
 此刻谁在操作这个项目，在哪里操作。这是把对话的 Sandbox 图扩展到整个项目：每个对这个项目或其
 Sandbox 调用过 LayerFS 的对话（及其子智能体），以及在对话之外发起的调用（**本插件**（This plugin）
 指本主机自己的调用，**其他客户端**（Other clients）），都经由 LayerFS 中枢连到它们碰过的分支和右侧
-的 Sandbox。播放条可以回放这些调用（**暂停**（Pause）/**播放**（Play）、**1×**…**100×**、
+的 Sandbox。属于一个对话的 Sandbox 会带一个安静的小 **会话**（Session）标签（悬停：*这个 Sandbox
+属于一个对话，对话关闭时会被移除。*）。播放条可以回放这些调用（**暂停**（Pause）/**播放**（Play）、**1×**…**100×**、
 **实时**（Live）），**活动**（Activity）把它们列出来。它和机器页共用的部分见
 [组件 › Sandbox 卡片](components.md#sandbox-card)和[终端
 面板](components.md#terminal-pane)。
@@ -163,11 +166,18 @@ Sandbox 绑定。
 | # | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|---|
 | 1 | **新建会话**（New session） | | 在这个项目里启动一个 DSH 会话（放在选中的本地文件夹里，否则放在托管的 Scratch 文件夹里）并打开；它的 Workspace 在第一步时挂载 | 按下时 `project get` (读取)；会话存储在后台同步 | 另一次按下还在进行时禁用；Store 损坏时不显示 |
-| 2 | 会话表 | **会话**（Session，标题或 **未命名会话**（Untitled session））、**状态**（State：**未开始**（Not started）、**活动中**（Active），或 LayerFS 给出的词，例如 `stored`）、**检查点**（Checkpoints，每个改动了文件的轮次一个）、**更新时间**（Updated） | — | 已存储会话分支的 `branch list`，以及对分支头有变化的归档执行 `project export` (读取) | **此项目还没有会话**（No sessions on this project yet），附 **新建会话**（New session）；**无法读取会话**（Could not read the sessions），附 **重试**（Retry） |
+| 2 | 会话表 | **会话**（Session，标题或 **未命名会话**（Untitled session））、**状态**（State：**未开始**（Not started）、**活动中**（Active），或宿主给出的词，例如 `stored`；侧栏的会话行还会用 **正在启动**（Starting）、**已中断**（Interrupted）、**存储在其他位置**（Stored elsewhere）和 **不可用**（Unavailable））、**检查点**（Checkpoints，每个改动了文件的轮次一个）、**更新时间**（Updated） | — | 已存储会话分支的 `branch list`，以及对分支头有变化的归档执行 `project export` (读取) | **此项目还没有会话**（No sessions on this project yet），附 **新建会话**（New session）；**无法读取会话**（Could not read the sessions），附 **重试**（Retry） |
 | 3 | **打开**（Open） | | 打开对话；只存在于 LayerFS 里的会话（另一台机器的，或重置之后的）会先导入 | 本地会话无调用；导入时对其归档执行 `project export` (读取) | 打开过程中显示转圈 |
 
 这张表以本地为先：它列出这个 DSH 里的会话，再加上在项目会话存储里找到的会话。在 DSH 里归档的
 会话会从列表里消失，取消归档后才会回来。
+
+会话行的状态词表示它现在能不能运行。**存储在其他位置**（Stored elsewhere）表示对话只在项目的
+Store 里：**打开**（Open）会先把它导入。**不可用**（Unavailable）表示项目不能运行：下方的原因说明
+为什么，**打开** 会被拒绝（机器要从侧边栏上方的项目行启动，那里有 **启动 {machine}**）。
+**正在启动**（Starting）、**活动中**（Active）和 **未开始**（Not started）是宿主自己的状态；
+没有对应词的状态不显示。打开过、但从未收到消息的对话不会列出；怎么清理见
+[侧边栏](entry-points.md#workspaces-switch)。
 
 ## 统计
 
@@ -207,6 +217,10 @@ Init 导入的内容属于 Store，不属于某次保存。
 
 ## 此处打开的对话框
 
+这些对话框的宽度和外边距由 DSH 的外壳决定，里面只有我们的内容。在粗指针上，每个控件都是
+44 px 的点击目标，底部避开主屏幕指示条，内容很长时中间的主体在固定的头和底部之间滚动
+（见[组件 › 对话框](components.md#dialogs)）。
+
 | 对话框 | 打开方式 | 作用 | LayerFS 调用 | 撤销 |
 |---|---|---|---|---|
 | [确认对话框](components.md#confirm-dialog) **删除 `<project>`？**（Delete `<project>`?） | **⋯ › 删除项目…**（Delete project…） | *项目及其全部历史将从其 Store 中删除，且无法撤销。* 输入项目名，再点 **删除**（Delete）；页面关闭，打开它所在的 Store | `project delete` | 无 |
@@ -232,6 +246,8 @@ Init 导入的内容属于 Store，不属于某次保存。
 - 历史顶部带 **重试**（Retry）的红色行：有一个分支读不出来；树的其余部分保留。
 - **无法读取 `<what>`**（Could not read `<what>`）带 **重试**（Retry）（或一个修复）：某次读取被拒绝；
   提示里有 LayerFS 的原话和代码。
+- 弱化计数和链接在两种主题下都通过 WCAG AA；分支标签的文字会按泳道颜色选浅色或深色墨色
+  （见[组件 › 文字对比度](components.md#text-contrast)）。
 
 ## 下一步
 

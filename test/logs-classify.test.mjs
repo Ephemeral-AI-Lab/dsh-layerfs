@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { isWrite } from '../src/shared/logs.ts'
-import { pinned } from './routes-helper.mjs'
+import { pinned, liveSkipReason } from './routes-helper.mjs'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -19,6 +19,7 @@ const WRITES = new Set([
   'machine.start', 'machine.stop', 'machine.create', 'machine.remove', 'machine.update', 'machine.load_image', 'machine.prune',
   'home.init', 'home.clear_log',
   'store.create', 'store.connect', 'store.attach', 'store.detach', 'store.move', 'store.remove', 'store.compact', 'store.disconnect', 'store.repair_mount_holders',
+  'store.save_auth', 'store.remove_auth', 'store.update',
   'backup.connect', 'backup.disconnect', 'backup.create', 'backup.restore',
   'doctor.fix',
 ])
@@ -30,7 +31,7 @@ test('family-only reads are not writes', () => {
   assert.equal(isWrite(['doctor', 'fix', 'native:run-folder:x']), true, 'doctor fix removes a leftover')
 })
 
-test('every pinned CLI call is classified as its kind', { skip: !pinned() && 'no pinned CLI' }, () => {
+test('every pinned CLI call is classified as its kind', { skip: !pinned() && liveSkipReason() }, () => {
   const home = mkdtempSync(join(tmpdir(), 'lfs-classify-'))
   const help = JSON.parse(execFileSync(pinned().cli, ['help', '--json'], { env: { ...process.env, LAYERFS_HOME: home }, encoding: 'utf8', timeout: 15000 }))
   rmSync(home, { recursive: true, force: true })

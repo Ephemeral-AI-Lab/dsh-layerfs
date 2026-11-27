@@ -13,45 +13,75 @@ import { Button, IconChevronDownOutlineRegular, IconChevronRightOutlineRegular, 
 import { StatusDot } from '../ui/StatusDot.tsx'
 import type { LayerfsApi } from '../api.ts'
 import { EmptyState, ErrorState, Loading } from '../files/States.tsx'
-import { useQuery } from '../files/use-query.ts'
-import type { ToolRecord, TraceVersion, TrajectoryAnswer, TrajectoryRecord, TrajectoryTurn } from '../../shared/trajectory.ts'
-import { HISTORY_VIEW, useNoComposer, type ViewProps } from './FileViews.tsx'
+import { cachedAnswer, useQuery } from '../files/use-query.ts'
+import { isUnchanged, type RequestRecord, type ToolRecord, type TraceCheckpointRow, type TraceVersion, type TrajectoryAnswer, type TrajectoryRecord, type TrajectoryReply, type TrajectoryTurn } from '../../shared/trajectory.ts'
+import { HISTORY_VIEW, useNoComposer, ViewCrumb, type ViewProps } from './FileViews.tsx'
 import { useSessionRows } from './hooks.ts'
+import { isStreamingAssistant, mergeLiveSteps, useLiveSteps } from './live-step.ts'
 import type { Translate } from './locale.ts'
-import { TrajectoryInspector, type DetailCache, type Inspected, type InspectorTab } from './TrajectoryInspector.tsx'
-import { clock, durationText, KindCell, OpLine, Versions, type OpenVersion } from './TrajectoryParts.tsx'
+import { TrajectoryInspector, type DetailCache, type Inspected, type InspectorTab, type PromptDiffCache } from './TrajectoryInspector.tsx'
+import { openLogs } from '../logs/request.ts'
+import { clock, durationText, KindCell, OlderFooter, OpLine, toolsDelta, usageText, Versions, type OpenVersion } from './TrajectoryParts.tsx'
 import { TrajectoryTimeline } from './TrajectoryTimeline.tsx'
 import {
-  checkpointVersion, filterTurns, flattenRows, focusTarget, opWrites, recentTurns, recordMatches, ROW_PAGE, SAVES, selectionTurn, timeSpan,
-  type Row, type Selection,
+  checkpointVersion, filterTurns, flattenRows, focusTarget, mergeOlder, opWrites, recentTurns, recordMatches, ROW_PAGE, SAVES, totalRecords,
+  selectionTurn, timeSpan, type Row, type Selection,
 } from './trajectory-model.ts'
 import views from './views.module.css'
 import css from './trajectory.module.css'
 
 /** DSH's Trajectory view id; this view shadows it while a project session is on screen. */
 export const TRAJECTORY_VIEW = 'trajectory'
+/** A phone's timeline starts folded; a toggle's state survives a tab switch for the page's lifetime. */
+const phoneTimeline = new Map<string, boolean>()
 /** While the session runs, how often the trajectory is read again (shell receipts land when the turn settles). */
 const RUNNING_POLL_MS = 3000
 /** Events wait this long so a burst reads once. */
 const REFRESH_MS = 1000
+/**
+ * Older pages a focus request (Chat's inspect) reads to find a call, then it
+ * gives up. A first page is a few hundred records, so reaching a session's
+ * first turns takes several reads; the bound still covers a long session.
+ */
+const FOCUS_PAGES = 40
 /** Host events after which the trajectory may have changed (`{sessionId}` or none). */
 const EVENTS = ['layerfs-operation', 'layerfs-checkpoint', 'layerfs-session'] as const
+/** A stable empty set for an older answer/test fixture that predates top-level checkpoints. */
+const NO_CHECKPOINTS: readonly TraceCheckpointRow[] = []
 
 /**
  * `session.trajectory` of `sessionId`, read again on its LayerFS events, on reconnect and
  * while it runs. One read at a time: events during a read queue one more (a run fires them
  * many a second), at most one per second; the last answer draws at once on a remount.
+ *
+ * Every read passes the revision of the answer on screen (`since`), so a read where
+ * nothing moved answers `unchanged` and the rows stay as they are. A reconnect
+ * forgets the revision: the feed may have missed events while it was down.
+ * Idle sessions are not polled — their events cover every change — and while a
+ * session runs the 3 s poll stays as a fallback for receipts that land without
+ * one, now that an unchanged poll costs bytes rather than a rebuild.
  */
 function useTrajectory(api: LayerfsApi, sessionId: string, running: boolean) {
   const [tick, setTick] = useState(0)
-  const query = useQuery(() => api.op<TrajectoryAnswer>('session.trajectory', { sessionId }).then((answer) => ({ sessionId, answer })), [api, sessionId], { refresh: [tick], cache: `session.trajectory:${sessionId}` })
+  const cacheKey = `session.trajectory:${sessionId}`
+  const full = useRef(false)
+  const query = useQuery(() => {
+    const kept = cachedAnswer<{ sessionId: string, answer: TrajectoryAnswer }>(cacheKey)
+    const since = !full.current && kept?.sessionId === sessionId ? kept.answer.revision : undefined
+    full.current = false
+    return api.op<TrajectoryReply>('session.trajectory', { sessionId, ...(since ? { since } : {}) }).then((reply) => {
+      if (!isUnchanged(reply)) return { sessionId, answer: reply }
+      if (kept) return kept
+      throw new Error('session.trajectory answered unchanged without a kept answer')
+    })
+  }, [api, sessionId], { refresh: [tick], cache: cacheKey })
   const reload = useCallback(() => setTick((n) => n + 1), [])
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined
     const later = () => { if (!timer) timer = setTimeout(() => { timer = undefined; reload() }, REFRESH_MS) }
     const mine = (e: { data?: any }) => { if (!e.data?.sessionId || e.data.sessionId === sessionId) later() }
     const offs = EVENTS.map((name) => api.onEvent(name, mine))
-    offs.push(api.onEvent('connection', later))
+    offs.push(api.onEvent('connection', () => { full.current = true; later() }))
     return () => { offs.forEach((off) => off()); if (timer) clearTimeout(timer) }
   }, [api, sessionId, reload])
   useEffect(() => {
@@ -72,7 +102,7 @@ function inspectedOf(answer: TrajectoryAnswer, key: Selection, t: Translate): In
       if (record) return { kind: 'record', turn: turn.turn, record }
     } else if (kind === 'c' && turn.turn === Number(a)) {
       const checkpoint = turn.checkpoints[Number(b)]
-      return checkpoint ? { kind: 'checkpoint', turn: turn.turn, checkpoint } : null
+      if (checkpoint) return { kind: 'checkpoint', turn: turn.turn, checkpoint }
     } else if (kind === 'h' && turn.turn === Number(a)) {
       return turn.hostOps.length ? { kind: 'ops', turn: turn.turn, title: t('trajHost'), ops: turn.hostOps } : null
     } else if (kind === 'o') {
@@ -83,8 +113,14 @@ function inspectedOf(answer: TrajectoryAnswer, key: Selection, t: Translate): In
   return null
 }
 
+/** A request's compact line, in the reader's words: the model route and tool count. */
+export function requestLine(record: Extract<RequestRecord, { kind: 'request' }>, t: Translate): string {
+  const route = record.provider && record.model ? `${record.provider}/${record.model}` : record.model ?? record.provider ?? ''
+  return [route, t('trajRequestToolsCount', { n: record.tools })].filter(Boolean).join(' · ')
+}
+
 /** One record's line: its words, and for a tool call `name summary → result`. */
-function RecordText({ record, t }: { record: TrajectoryRecord, t: Translate }): ReactNode {
+export function RecordText({ record, t }: { record: TrajectoryRecord, t: Translate }): ReactNode {
   if (record.kind === 'tool') {
     const running = record.result === undefined && record.endedAt === undefined
     return (
@@ -98,11 +134,47 @@ function RecordText({ record, t }: { record: TrajectoryRecord, t: Translate }): 
     )
   }
   if (record.kind === 'assistant') {
+    const usage = record.usage ? usageText(t, record.usage) : ''
+    const live = isStreamingAssistant(record)
     return (
       <span className={css.text}>
-        {record.text ? <span className={css.plain}>{record.text}</span> : <span className={css.muted}>{t('trajToolCallOnly')}</span>}
+        {record.text
+          ? <span className={css.plain}>{record.text}{live && record.streaming ? <span className={css.streamCaret} aria-hidden="true" /> : null}</span>
+          : <span className={css.muted}>{live && record.streaming ? t('trajWaitingText') : t('trajToolCallOnly')}</span>}
+        {live && record.streaming ? <span className={css.running}><StatusDot state="ongoing" size={10} />{t('trajStreaming')}</span> : null}
+        {live && record.truncated ? <span className={css.warnText}>{t('trajLiveTruncated')}</span> : null}
         {record.thinking ? <span className={css.badge}>{t('trajThought')}</span> : null}
         {record.interrupted ? <span className={clsx(css.badge, css.warnText)}>{t('trajInterrupted')}</span> : null}
+        {usage ? <span className={css.usage}>{usage}</span> : null}
+      </span>
+    )
+  }
+  if (record.kind === 'system') {
+    return (
+      <span className={css.text}>
+        {record.source ? <span className={css.badge}>{record.source}</span> : null}
+        {record.promptChanged ? <span className={css.promptHint}>{t(`trajPromptChanged_${record.promptChanged}`)}</span> : null}
+        {record.text ? <span className={css.plain}>{record.text}</span> : <span className={css.muted}>{t('trajNoText')}</span>}
+      </span>
+    )
+  }
+  if (record.kind === 'request') {
+    return (
+      <span className={css.text}>
+        <span className={css.plain}>{requestLine(record, t)}</span>
+        {toolsDelta(record.toolsChanged, t)}
+        {record.promptChanged ? <span className={css.promptHint}>{t(`trajPromptChanged_${record.promptChanged}`)}</span> : null}
+        {record.reason ? <span className={css.badge}>{record.reason}</span> : null}
+      </span>
+    )
+  }
+  if (record.kind === 'observation') {
+    // One session-level line for the read-only calls folded into a counter: the
+    // sentence and its top operations, never a per-poll row.
+    return (
+      <span className={css.text}>
+        <span className={css.plain}>{record.text}</span>
+        {record.top?.length ? <span className={css.muted} title={record.top.join(' · ')}>{record.top.slice(0, 3).join(' · ')}{record.top.length > 3 ? ' …' : ''}</span> : null}
       </span>
     )
   }
@@ -125,10 +197,12 @@ function recordMeta(record: TrajectoryRecord, t: Translate, now: number): string
 
 function TurnHead({ turn, t }: { turn: TrajectoryTurn, t: Translate }): ReactNode {
   const meta = [turn.at ? clock(turn.at) : '', turn.at && turn.endAt ? durationText(t, turn.endAt - turn.at) : ''].filter(Boolean).join(' · ')
+  const older = turn.totalRecords !== undefined ? turn.totalRecords - turn.records.length : 0
   return (
     <>
       <span className={css.turnTitle}>{turn.turn > 0 ? t('trajTurn', { n: turn.turn }) : t('trajBeforeTurns')}</span>
       {meta ? <span className={css.turnMeta}>{meta}</span> : null}
+      {older > 0 ? <span className={css.turnMeta}>{t('trajOlderRecords', { n: older })}</span> : null}
     </>
   )
 }
@@ -191,10 +265,17 @@ function TableRow({ row, h }: { row: Row, h: RowHandlers }): ReactNode {
             <button type="button" className={css.expander} aria-expanded={row.open} aria-label={row.open ? t('trajCollapseCalls') : t('trajExpandCalls')}
               onClick={() => h.onToggleCall(tool, !row.open)}><Chevron open={row.open} /></button>
           ) : <span />}
-          <button type="button" className={css.rowMain} aria-pressed={row.key === h.selected} onClick={() => h.onSelect(row.key)}>
-            <KindCell kind={record.kind} t={t} />
-            <RecordText record={record} t={t} />
-          </button>
+          {isStreamingAssistant(record) ? (
+            <div className={clsx(css.rowMain, css.streamRowMain)} aria-busy={record.streaming}>
+              <KindCell kind={record.kind} t={t} />
+              <RecordText record={record} t={t} />
+            </div>
+          ) : (
+            <button type="button" className={css.rowMain} aria-pressed={row.key === h.selected} onClick={() => h.onSelect(row.key)}>
+              <KindCell kind={record.kind} t={t} />
+              <RecordText record={record} t={t} />
+            </button>
+          )}
           {tool && tool.ops.length ? (
             <span className={clsx(css.opCount, writes && css.opCountWrites)} title={t('trajLayerfsCalls')}>{tool.ops.length}</span>
           ) : <span />}
@@ -265,7 +346,16 @@ export function TrajectoryView(props: ViewProps): ReactNode {
   const { api, t, sessionId, sessions, openView, viewRequest, completeViewRequest } = props
   const { byId } = useSessionRows(sessions)
   const running = !!byId[sessionId]?.running
-  const { answer, error, reload } = useTrajectory(api, sessionId, running)
+  const { answer: first, error, reload } = useTrajectory(api, sessionId, running)
+  // Older pages loaded on request, merged under the first page they belong to.
+  // A new first page (a change, or a reconnect) drops them.
+  const [older, setOlder] = useState<{ base: TrajectoryAnswer, answer: TrajectoryAnswer } | null>(null)
+  const [olderBusy, setOlderBusy] = useState(false)
+  const answer = first && older?.base === first ? older.answer : first
+  // The running step's text arrives on the session's live feed; the host answer
+  // gains its record only after the step's message is logged.
+  const live = useLiveSteps(props.liveStep)
+  const turns = useMemo(() => answer ? mergeLiveSteps(answer.turns, live) : [], [answer, live])
   // A project session's LayerFS tabs have no composer; a normal session shown
   // beside one (split view) keeps it here, as DSH's stock Trajectory does.
   const layerfs = !!answer?.project
@@ -280,20 +370,37 @@ export function TrajectoryView(props: ViewProps): ReactNode {
   const [contextOpen, setContextOpen] = useState<ReadonlySet<number>>(new Set())
   const [selected, setSelected] = useState<Selection | null>(null)
   const [tab, setTab] = useState<InspectorTab>('summary')
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [timelineOpen, setTimelineOpen] = useState(() => phoneTimeline.get(sessionId) ?? false)
   const [limit, setLimit] = useState(ROW_PAGE)
   const [scrollTo, setScrollTo] = useState<Selection | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const cache = useRef<DetailCache>(new Map()).current
+  const diffs = useRef<PromptDiffCache>(new Map()).current
 
   // A new conversation starts over.
   useEffect(() => {
     setSelected(null); setTurnOverride(new Map()); setCallOverride(new Map()); setContextOpen(new Set()); setLimit(ROW_PAGE)
-    cache.clear()
-  }, [sessionId, cache])
+    setOlder(null); setOlderBusy(false)
+    setFiltersOpen(false)
+    setTimelineOpen(phoneTimeline.get(sessionId) ?? false)
+    cache.clear(); diffs.clear()
+  }, [sessionId, cache, diffs])
+
+  /** Ask for the next older page; one request at a time, and only while this first page says there is one. */
+  const loadOlder = useCallback(() => {
+    if (!first || !answer || olderBusy || !answer.hasMore || answer.olderBefore === undefined) return
+    const base = first
+    const before = answer.olderBefore
+    setOlderBusy(true)
+    api.op<TrajectoryAnswer>('session.trajectory', { sessionId, before }).then((page) => {
+      setOlder((prev) => ({ base, answer: mergeOlder(prev && prev.base === base ? prev.answer : base, page) }))
+    }).catch(() => { /* the button stays; the next press retries */ }).finally(() => setOlderBusy(false))
+  }, [api, sessionId, first, answer, olderBusy])
 
   const now = useMemo(() => Date.now(), [answer]) // eslint-disable-line react-hooks/exhaustive-deps
-  const filtered = useMemo(() => answer ? filterTurns(answer.turns, { onlyWrites, query }) : [], [answer, onlyWrites, query])
-  const recent = useMemo(() => recentTurns(answer?.turns ?? []), [answer])
+  const filtered = useMemo(() => filterTurns(turns, { onlyWrites, query }), [turns, onlyWrites, query])
+  const recent = useMemo(() => recentTurns(turns), [turns])
   const searching = query.trim().length > 0
   const turnOpen = useCallback((turn: number) => turnOverride.get(turn)
     ?? (searching || turnsDefault === 'all' ? true : turnsDefault === 'none' ? false : recent.has(turn)), [turnOverride, turnsDefault, recent, searching])
@@ -324,8 +431,11 @@ export function TrajectoryView(props: ViewProps): ReactNode {
 
   // Chat's "inspect" and `openView('trajectory', callId)`: take the request once, apply it when the call is loaded.
   const [pending, setPending] = useState<{ focus: string, missedOn: TrajectoryAnswer | null } | null>(null)
+  /** Older pages read so far for the pending focus, which bounds a focus that names nothing. */
+  const focusPages = useRef(0)
   useEffect(() => {
     if (!viewRequest || viewRequest.view !== TRAJECTORY_VIEW) return
+    focusPages.current = 0
     setPending({ focus: viewRequest.focus, missedOn: null })
     completeViewRequest?.()
     reload()
@@ -334,7 +444,17 @@ export function TrajectoryView(props: ViewProps): ReactNode {
     if (!pending || !answer) return
     const target = focusTarget(answer, pending.focus)
     if (!target) {
-      // The call may be newer than this answer: wait for the reread asked above, then give up.
+      // The call may be newer than this answer (wait for the reread asked above)
+      // or older than the page: read the next older page, at most FOCUS_PAGES,
+      // then give up.
+      if (answer.hasMore && answer.olderBefore !== undefined) {
+        if (!olderBusy && focusPages.current < FOCUS_PAGES) {
+          focusPages.current++
+          if (pending.missedOn !== answer) setPending({ ...pending, missedOn: answer })
+          loadOlder()
+        }
+        return
+      }
       if (!pending.missedOn) setPending({ ...pending, missedOn: answer })
       else if (pending.missedOn !== answer) setPending(null)
       return
@@ -343,7 +463,7 @@ export function TrajectoryView(props: ViewProps): ReactNode {
     const key = `r:${target.record.seq}` as const
     select(key, 'summary')
     reveal(key, target.record)
-  }, [pending, answer, select, reveal])
+  }, [pending, answer, select, reveal, olderBusy, loadOlder])
 
   // Scroll a revealed row into view once it is rendered (raising the row cap when needed).
   useEffect(() => {
@@ -355,14 +475,41 @@ export function TrajectoryView(props: ViewProps): ReactNode {
     if (el) { el.scrollIntoView({ block: 'center' }); setScrollTo(null) }
   }, [scrollTo, rows, limit])
 
-  const onTimeline = useCallback((key: Selection) => { select(key); reveal(key) }, [select, reveal])
-
-  const span = useMemo(() => timeSpan(filtered, now), [filtered, now])
+  const checkpoints = answer?.checkpoints ?? NO_CHECKPOINTS
+  const onTimeline = useCallback((key: Selection) => {
+    // A checkpoint outside the loaded turns has no row to select: its tick is
+    // the navigation affordance, so open History at its commit exactly as a
+    // record's version chip does. A loaded turn keeps the row selection.
+    if (key.startsWith('c:') && onOpen) {
+      const [, turnText, indexText] = key.split(':')
+      const turn = Number(turnText)
+      if (!answer?.turns.some((row) => row.turn === turn)) {
+        let seen = 0
+        for (const checkpoint of checkpoints) {
+          if (checkpoint.turn !== turn) continue
+          if (seen++ !== Number(indexText)) continue
+          const version = checkpointVersion(checkpoint)
+          if (version?.branch) { onOpen(version); return }
+          break
+        }
+      }
+    }
+    select(key); reveal(key)
+  }, [answer, checkpoints, onOpen, select, reveal])
+  const span = useMemo(() => timeSpan(filtered, now, checkpoints), [filtered, now, checkpoints])
   const allTurnsFolded = filtered.length > 0 && filtered.every((turn) => !turnOpen(turn.turn))
   const allCallsFolded = filtered.some((turn) => turn.records.some((r) => r.kind === 'tool' && r.ops.length))
     && filtered.every((turn) => turn.records.every((r) => r.kind !== 'tool' || !r.ops.length || !callOpen(r)))
 
   const inspected = answer && selected ? inspectedOf(answer, selected, t) : null
+  // The phone's one folded line: how long, how many versions, how many checkpoints.
+  const timelineSummary = answer
+    ? [
+      span ? durationText(t, span.end - span.start) : null,
+      t(answer.windowed ? 'trajSummaryVersionsWindow' : 'trajSummaryVersions', { n: answer.counts.versionsCreated }),
+      checkpoints.length ? t('trajSummaryCheckpoints', { n: checkpoints.length }) : null,
+    ].filter(Boolean).join(' · ')
+    : ''
   const handlers: RowHandlers = {
     t, now, selected, onSelect: select, onOpen,
     onToggleTurn: (turn, open) => setTurnOverride((m) => new Map(m).set(turn, open)),
@@ -370,13 +517,19 @@ export function TrajectoryView(props: ViewProps): ReactNode {
     onToggleContext: (turn, open) => setContextOpen((s) => { const n = new Set(s); if (open) n.add(turn); else n.delete(turn); return n }),
   }
 
-  if (!answer && error) return <div className={views.frame}><ErrorState title={t('readFailed')} error={error} retryLabel={t('retry')} onRetry={reload} /></div>
-  if (!answer) return <div className={views.frame}><Loading label={t('loading')} /></div>
-  const empty = !answer.turns.some((turn) => turn.records.length || turn.orphanCalls.length || turn.hostOps.length || turn.checkpoints.length)
+  if (!answer && error) return <div className={clsx(views.frame, views.dataFrame)}><ErrorState title={t('readFailed')} error={error} retryLabel={t('retry')} onRetry={reload} /></div>
+  if (!answer) return <div className={clsx(views.frame, views.dataFrame)}><Loading label={t('loading')} /></div>
+  const empty = !turns.some((turn) => turn.records.length || turn.orphanCalls.length || turn.hostOps.length || turn.checkpoints.length)
   return (
-    <div className={clsx(views.frame, css.frame)}>
+    <div className={clsx(views.frame, views.dataFrame, css.frame)}>
+      <ViewCrumb label={t('tabTrajectory')} t={t} />
       <div className={css.controlsCard}>
-        <div className={css.toolbar} role="toolbar" aria-label={t('trajToolbar')}>
+        <div className={css.toolbar} role="toolbar" aria-label={t('trajToolbar')} data-filters={filtersOpen || undefined}>
+          <button type="button" className={clsx(css.action, css.filtersToggle)} aria-expanded={filtersOpen}
+            onClick={() => setFiltersOpen((open) => !open)}>
+            <IconChevronRightOutlineRegular size={12} className={clsx(css.chevron, filtersOpen && css.chevronOpen)} />
+            <span>{t('trajFilters')}</span>
+          </button>
           <div className={css.actions}>
             <FoldToggle folded={allTurnsFolded} label={t('trajTurns')} expand={t('trajExpandTurns')} collapse={t('trajCollapseTurns')}
               onClick={() => { setTurnsDefault(allTurnsFolded ? 'all' : 'none'); setTurnOverride(new Map()) }} />
@@ -398,16 +551,30 @@ export function TrajectoryView(props: ViewProps): ReactNode {
           </label>
         </div>
         {!answer.logLoaded ? <p className={clsx(css.note, css.frameNote)}>{t('trajNoLog')}</p> : null}
+        {answer.windowed ? <p className={clsx(css.note, css.frameNote)}>{t('trajWindowNote', { n: totalRecords(answer) })}</p> : null}
+        <button type="button" className={css.timelineToggle} aria-expanded={timelineOpen}
+          onClick={() => setTimelineOpen((open) => {
+            const next = !open
+            phoneTimeline.set(sessionId, next)
+            return next
+          })}>
+          <IconChevronRightOutlineRegular size={12} className={clsx(css.chevron, timelineOpen && css.chevronOpen)} />
+          <span className={css.timelineSummary}>{timelineSummary}</span>
+          <span className={css.timelineName}>{t('trajTimeline')}</span>
+        </button>
+        <div className={css.timelineBlock} data-open={timelineOpen || undefined}>
         <div className={css.timelineHead}>
           <h2>{t('trajTimeline')}</h2>
           <span className={css.counts}>
             {[
-              layerfs ? t('trajCounts', { n: answer.counts.versionsCreated, m: answer.counts.callsWithVersions }) : null,
+              layerfs ? t(answer.windowed ? 'trajCountsWindow' : 'trajCounts', { n: answer.counts.versionsCreated, m: answer.counts.callsWithVersions }) : null,
               span ? t('trajTotal', { duration: durationText(t, span.end - span.start) }) : null,
             ].filter(Boolean).join(' · ')}
           </span>
         </div>
-        <TrajectoryTimeline turns={filtered} now={now} span={span} selected={selected} onSelect={onTimeline} t={t} layerfs={layerfs} />
+        <TrajectoryTimeline turns={filtered} now={now} span={span} selected={selected} onSelect={onTimeline} t={t} layerfs={layerfs}
+          checkpoints={checkpoints} />
+        </div>
       </div>
       <div className={css.body}>
         <div className={css.table} ref={scroller}>
@@ -423,10 +590,16 @@ export function TrajectoryView(props: ViewProps): ReactNode {
                 ) : null}
               </>
             )}
+          {/* Outside the rows' branch: a filter can empty the table, and a
+              windowed answer must still offer its older records. */}
+          {rows.length <= limit && answer.hasMore && answer.olderBefore !== undefined
+            ? OlderFooter({ answer, busy: olderBusy, t, onLoadOlder: loadOlder })
+            : null}
         </div>
         {inspected ? (
           <TrajectoryInspector api={api} sessionId={sessionId} inspected={inspected} tab={tab} onTab={setTab} layerfs={layerfs}
-            onClose={() => setSelected(null)} onOpen={onOpen} cache={cache} t={t} />
+            onClose={() => setSelected(null)} onOpen={onOpen} cache={cache} diffs={diffs} t={t}
+            onOpenLogs={(tag) => openLogs(api, { tag })} />
         ) : null}
       </div>
     </div>

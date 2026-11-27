@@ -1,0 +1,6 @@
+/* The LayerFS brand inks, defined once: the mark's light A and its rail,
+   shifted toward the theme's text colour so it holds on dark surfaces. */
+:global(body) {
+  --lfs-light: #93B1E0;
+  --lfs-dark: color-mix(in oklab, #2F5BB5 82%, var(--dsw-alias-label-primary, #000));
+}

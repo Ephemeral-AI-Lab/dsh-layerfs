@@ -124,20 +124,20 @@ export function StorePage({ refreshKey = 0, name, view, t, api, doctorT, now, jo
             onRemove={s.format?.status === 'unsupported' && !runningJob ? (pg ? on.disconnect : on.remove) : undefined} />
             : outdated ? <StateChip tone="danger" label={t('spOutdated')} /> : undefined}
         intro={(
-          <span className={css.cardSub}>
+          <span className={`${css.cardSub} ${tabCss.storeMeta}`}>
             <span>{pg ? t('postgresql') : t('sqlite')}</span>
             <span className={css.dotSep} aria-hidden="true">·</span>
             <Location store={s} t={t} onMachine={on.openMachine} />
           </span>
         )}
         actions={(
-          <>
+          <span className={tabCss.headActions}>
             {pg ? (
               <Button variant="outline" size="sm" disabled={checking} onClick={check} icon={checking ? <StatusDot state="ongoing" size={13} /> : undefined}>{checking ? t('stChecking') : t('pgCheck')}</Button>
             ) : null}
             <DoctorAction api={api} t={doctorT} target="store.integrity" name={s.name} label={doctorT('checkIntegrity')} />
             <StoreMenu store={s} on={on} t={t} runningJob={runningJob} />
-          </>
+          </span>
         )} />
 
       {notice ? (

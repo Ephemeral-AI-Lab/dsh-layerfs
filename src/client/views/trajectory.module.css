@@ -10,7 +10,9 @@
 
   isolation: isolate;
   gap: var(--lfs-section-gap, clamp(22px, 2.5vw, 32px));
-  padding: clamp(12px, 2vw, 24px);
+  /* Keep the comfortable trajectory gutters and add the phone's safe area. */
+  --lfs-frame-inset: clamp(12px, 2vw, 24px);
+  padding: var(--lfs-frame-inset) max(var(--lfs-frame-inset), var(--lfs-safe-right, 0px)) calc(var(--lfs-frame-inset) + var(--lfs-safe-bottom, 0px)) max(var(--lfs-frame-inset), var(--lfs-safe-left, 0px));
   background: var(--dsw-alias-bg-layer-1);
   font: var(--dsw-font-xxs-12);
 }
@@ -62,7 +64,7 @@
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  height: 30px;
+  height: max(30px, var(--lfs-control-h, 30px));
   padding: 0 10px;
   gap: 6px;
   border: 0.5px solid transparent;
@@ -101,6 +103,13 @@
   outline-offset: 1px;
 }
 
+@media (max-width: 1180px), (pointer: coarse) {
+  .action {
+    min-width: var(--lfs-tap, 44px);
+    padding: 0 12px;
+  }
+}
+
 .actionIcon {
   display: block;
   flex: none;
@@ -132,7 +141,7 @@
   align-items: center;
   box-sizing: border-box;
   min-width: 120px;
-  height: 30px;
+  height: max(30px, var(--lfs-control-h, 30px));
   margin-left: auto;
   padding: 0 10px;
   gap: 6px;
@@ -340,7 +349,9 @@
 
 .more {
   display: flex;
+  gap: 8px;
   justify-content: center;
+  align-items: baseline;
   padding: 10px 0;
 }
 
@@ -359,7 +370,7 @@
   align-items: center;
   box-sizing: border-box;
   width: 100%;
-  min-height: 36px;
+  min-height: max(36px, var(--lfs-row-h, 36px));
   padding: 4px 12px;
   gap: 6px;
   border: 0;
@@ -384,10 +395,10 @@
 
 .row {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) auto minmax(52px, auto);
+  grid-template-columns: max(20px, var(--lfs-tap, 20px)) minmax(0, 1fr) auto minmax(52px, auto);
   align-items: center;
   box-sizing: border-box;
-  min-height: 30px;
+  min-height: max(30px, var(--lfs-row-h, 30px));
   padding: 0 8px 0 0;
   gap: 0 8px;
   border-bottom: 0.5px solid var(--dsw-alias-border-l1);
@@ -432,8 +443,8 @@
   align-items: center;
   justify-content: center;
   justify-self: end;
-  width: 18px;
-  height: 18px;
+  width: max(18px, var(--lfs-tap, 18px));
+  height: max(18px, var(--lfs-tap, 18px));
   padding: 0;
   border: 0;
   border-radius: var(--dsw-radius-xs);
@@ -481,13 +492,13 @@
   align-items: center;
   box-sizing: border-box;
   max-width: 100%;
-  height: 19px;
+  height: 20px;
   padding: 0 5px;
   border-radius: var(--dsw-radius-xs);
   overflow: hidden;
   color: var(--dsw-alias-label-secondary);
   background: var(--dsw-alias-bg-module-platform);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 650;
   line-height: 16px;
   letter-spacing: 0.035em;
@@ -517,6 +528,35 @@
 .kind_tool {
   color: var(--lf-tone-warning-fg);
   background: var(--lf-tone-warning-bg);
+}
+
+.kind_system {
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-module-platform);
+}
+
+.kind_request {
+  color: var(--traj-model);
+  background: color-mix(in srgb, var(--traj-model) 10%, var(--dsw-alias-bg-layer-1));
+}
+
+/* A folded read counter is a session-level note, not a call: muted, ruled, no
+   accent of its own. Its sentence and top operations wrap instead of clipping. */
+.kind_observation {
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  color: var(--dsw-alias-label-secondary);
+  background: transparent;
+  letter-spacing: 0.02em;
+}
+
+.row:has(.kind_observation) .text {
+  flex-wrap: wrap;
+  white-space: normal;
+}
+
+.row:has(.kind_observation) .text > * {
+  overflow: visible;
+  text-overflow: clip;
 }
 
 /* checkpoint and layerfs keep the neutral platform tint */
@@ -573,18 +613,51 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+/* A running assistant step's row is not selectable (the log has no record yet). */
+.streamRowMain {
+  cursor: default;
+}
+
+/* A running assistant step's caret; the text itself streams in place. */
+.streamCaret {
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: currentColor;
+  opacity: 0.6;
+  animation: streamCaret 1s steps(2, start) infinite;
+}
+
+@keyframes streamCaret {
+  50% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .streamCaret { animation: none; }
+}
+
 .badge {
   flex: none;
   padding: 0 5px;
   border: 0.5px solid var(--dsw-alias-border-l3);
   border-radius: var(--dsw-radius-xs);
   color: var(--dsw-alias-label-tertiary);
-  font-size: 10.5px;
-  line-height: 15px;
+  font-size: 12px;
+  line-height: 16px;
 }
 
 .muted {
   color: var(--dsw-alias-label-tertiary);
+}
+
+.usage {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .contextRecord .rowMain {
@@ -599,6 +672,7 @@
   display: inline-flex;
   align-items: center;
   justify-self: start;
+  min-height: var(--lfs-tap, 24px);
   padding: 2px 0 2px calc(var(--traj-kind) + 8px);
   gap: 4px;
   border: 0;
@@ -622,7 +696,7 @@
   border-radius: var(--dsw-radius-xs);
   color: var(--dsw-alias-label-tertiary);
   background: var(--dsw-alias-bg-module-platform);
-  font-size: 10.5px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   line-height: 16px;
   text-align: center;
@@ -677,7 +751,7 @@
   min-width: 0;
   color: var(--dsw-alias-label-secondary);
   font-family: var(--ds-font-family-code);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 20px;
   overflow-wrap: anywhere;
 }
@@ -710,7 +784,7 @@
   color: var(--dsw-alias-label-secondary);
   background: var(--dsw-alias-bg-module-platform);
   font-family: var(--ds-font-family-code);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 17px;
   white-space: nowrap;
   cursor: pointer;
@@ -760,14 +834,16 @@
   background: var(--dsw-alias-bg-layer-1);
 }
 
-@container trajectory-body (max-width: 640px) {
+/* Tablet portrait and narrower: the inspector leaves the column and becomes a
+   full-height drawer over the table, so neither side is squeezed. */
+@container trajectory-body (max-width: 820px) {
   .inspector {
     position: absolute;
     top: 0;
     right: 0;
     bottom: 0;
     z-index: 3;
-    width: min(420px, 92%);
+    width: min(440px, 92%);
     max-width: none;
     border-left: 0;
     box-shadow: var(--dsw-elevation-panel);
@@ -779,10 +855,18 @@
   flex: none;
   align-items: center;
   box-sizing: border-box;
-  height: 42px;
-  padding: 0 8px 0 12px;
+  height: max(42px, calc(var(--lfs-tap, 30px) + 8px));
+  padding: 0 12px;
   gap: 8px;
   border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+/* The close action is a thumb target, not a 28px icon. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .inspectorHead > button {
+    width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+  }
 }
 
 .inspectorHead .kind {
@@ -803,7 +887,7 @@
   display: flex;
   flex: none;
   box-sizing: border-box;
-  height: 34px;
+  height: max(34px, var(--lfs-control-h, 34px));
   padding: 0 8px;
   gap: 1px;
   overflow-x: auto;
@@ -820,6 +904,7 @@
 .tab {
   position: relative;
   flex: none;
+  min-height: max(34px, var(--lfs-control-h, 34px));
   padding: 0 9px;
   border: 0;
   color: var(--dsw-alias-label-tertiary);
@@ -860,13 +945,14 @@
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 10px 14px 16px;
+  overscroll-behavior: contain;
+  padding: 10px 14px calc(16px + var(--lfs-safe-bottom, 0px));
   scrollbar-gutter: stable;
 }
 
 .fields {
   display: grid;
-  grid-template-columns: 94px minmax(0, 1fr);
+  grid-template-columns: minmax(72px, 94px) minmax(0, 1fr);
   align-items: baseline;
   margin: 0 0 10px;
   gap: 4px 0;
@@ -980,3 +1066,389 @@
 .track { background-image: linear-gradient(to right, var(--dsw-alias-border-l2) 0.5px, transparent 0.5px); background-size: 50% 100%; background-position: 0 0; border-right: 0.5px solid var(--dsw-alias-border-l1); }
 .track + .track { box-shadow: inset 0 0.5px var(--dsw-alias-border-l1); }
 @container trajectory-controls (max-width: 720px) { .search { grid-column: 1 / -1; } }
+
+/* A request's tool catalog: the changed counts on its row and summary, and the Tools tab */
+
+.toolsDelta {
+  display: inline-flex;
+  flex: none;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.delta_added,
+.delta_removed,
+.delta_changed {
+  padding: 0 5px;
+  border-radius: 999px;
+  corner-shape: round;
+  font-weight: 550;
+  line-height: 15px;
+}
+
+.delta_added {
+  color: var(--lf-tone-success-fg);
+  background: var(--lf-tone-success-bg);
+}
+
+.delta_removed {
+  color: var(--lf-tone-danger-fg);
+  background: var(--lf-tone-danger-bg);
+}
+
+.delta_changed {
+  color: var(--lf-tone-warning-fg);
+  background: var(--lf-tone-warning-bg);
+}
+
+.toolsList {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.toolItem {
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+}
+
+.toolItem:last-child {
+  border-bottom: 0;
+}
+
+.toolDetails {
+  padding: 5px 0;
+}
+
+.toolDetails > summary {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  gap: 6px;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+  font: var(--dsw-font-xs-13);
+  list-style: none;
+}
+
+.toolDetails > summary::-webkit-details-marker {
+  display: none;
+}
+
+.toolDetails > summary::before {
+  flex: none;
+  width: 10px;
+  color: var(--dsw-alias-label-caption);
+  content: '▸';
+  font-size: 9px;
+}
+
+.toolDetails[open] > summary::before {
+  content: '▾';
+}
+
+.toolDetails > summary:focus-visible {
+  outline: 1px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 1px;
+}
+
+.toolMark,
+.toolMarkNone {
+  flex: none;
+  width: 14px;
+}
+
+.toolMark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 14px;
+  border-radius: 999px;
+  corner-shape: round;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.markAdded {
+  color: var(--lf-tone-success-fg);
+  background: var(--lf-tone-success-bg);
+}
+
+.markRemoved {
+  color: var(--lf-tone-danger-fg);
+  background: var(--lf-tone-danger-bg);
+}
+
+.markChanged {
+  color: var(--lf-tone-warning-fg);
+  background: var(--lf-tone-warning-bg);
+}
+
+.toolMeta {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.toolDescription {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolDetails > .pre {
+  margin-top: 8px;
+}
+
+.toolPrevious {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 0.5px solid var(--dsw-alias-border-l1);
+}
+
+.toolPrevious > summary {
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  font: var(--dsw-font-xs-13);
+}
+
+.toolPreviousDescription {
+  margin: 6px 0;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xs-13);
+}
+
+/* The recorded prompt change: a row hint, and the Diff tab's unified system/tools hunks */
+
+.promptHint {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  padding: 0 5px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-xs);
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-module-platform);
+  font-size: 10.5px;
+  line-height: 15px;
+  white-space: nowrap;
+}
+
+.promptDiffSections {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0 0 8px;
+}
+
+.promptDiffSection {
+  min-width: 0;
+}
+
+.promptDiffTitle {
+  margin: 0 0 6px;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xs-strong-13);
+  user-select: none;
+}
+
+.promptDiff {
+  margin: 0;
+  padding: 6px 0;
+  overflow-x: auto;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-layer-1);
+  font: 11px/17px var(--ds-font-family-code);
+  white-space: pre;
+}
+
+.promptDiffLine {
+  display: block;
+  min-width: max-content;
+  padding: 0 8px;
+}
+
+.diff_meta {
+  color: var(--dsw-alias-label-caption);
+  background: var(--dsw-alias-bg-module-platform);
+  user-select: none;
+}
+
+.diff_context {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.diff_added {
+  color: var(--lf-tone-success-fg);
+  background: var(--lf-tone-success-bg);
+}
+
+.diff_removed {
+  color: var(--lf-tone-danger-fg);
+  background: var(--lf-tone-danger-bg);
+}
+
+/* The old-page button and the inspector's inline actions are thumb targets. */
+.more button,
+.inlineOps button {
+  min-height: max(28px, var(--lfs-tap, 28px));
+}
+
+/* A phone: each record stacks its kind over its words, so the text gets the
+   row's whole width instead of a 150px slot beside an 84px pill. */
+@container trajectory-body (max-width: 520px) {
+  .row:not(.opRow) {
+    grid-template-columns: max(20px, var(--lfs-tap, 20px)) minmax(0, 1fr) auto;
+    grid-template-areas:
+      "exp main meta"
+      "exp count count";
+    row-gap: 2px;
+    padding: 4px 8px 4px 0;
+  }
+
+  .row:not(.opRow) > :nth-child(1) { grid-area: exp; align-self: start; }
+  .row:not(.opRow) > :nth-child(2) { grid-area: main; }
+  .row:not(.opRow) > :nth-child(3) { grid-area: count; justify-self: start; }
+  .row:not(.opRow) > :nth-child(4) { grid-area: meta; align-self: start; }
+  .row:not(.opRow) > :nth-child(n + 5) { grid-area: count; }
+
+  .row:not(.opRow) > .rowMain,
+  .row:not(.opRow) > .streamRowMain {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 3px;
+    padding: 0;
+  }
+
+  .row:not(.opRow) .kind { justify-self: start; }
+  .row:not(.opRow) .meta { font-size: 12px; }
+}
+
+/* A phone: the drawer takes the whole body width, its footer keeps clear of the
+   home indicator, and the header's close target stays a thumb target. */
+@container trajectory-body (max-width: 480px) {
+  .inspector {
+    right: 0;
+    left: 0;
+    width: 100%;
+    max-width: none;
+    border-radius: 0;
+    box-shadow: none;
+  }
+}
+
+@media (max-width: 1180px), (pointer: coarse) {
+  /* The "Open in History" action and the version chips are thumb targets; the
+     chips keep their inline look (a chip is not a 44px row) but get height. */
+  .versionLine .openHistory {
+    min-height: var(--lfs-tap, 44px);
+  }
+}
+
+/* A phone folds the filters behind one 44px button and the timeline behind its
+   one-line summary, so the turn list owns the pane. A wider pane keeps the
+   filters and the timeline open, exactly as before. */
+.filtersToggle { display: none; }
+
+.chevron { flex: none; transition: transform 150ms; }
+.chevronOpen { transform: rotate(90deg); }
+
+.timelineToggle { display: none; }
+.timelineSummary { min-width: 0; }
+.timelineName { flex: none; }
+
+@media (max-width: 640px) {
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    min-height: 0;
+    padding: 8px 12px;
+    gap: 6px 8px;
+  }
+
+  .filtersToggle {
+    display: inline-flex;
+    flex: 1 1 100%;
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .toolbar > .actions,
+  .toolbar > .search { display: none; }
+
+  .toolbar[data-filters] > .actions { display: flex; }
+  .toolbar[data-filters] > .search {
+    display: flex;
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  .timelineToggle {
+    display: inline-flex;
+    align-items: center;
+    box-sizing: border-box;
+    width: 100%;
+    min-height: var(--lfs-tap, 44px);
+    padding: 0 12px;
+    gap: 8px;
+    border: 0;
+    border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+    background: transparent;
+    color: var(--dsw-alias-label-secondary);
+    font: var(--dsw-font-xs-13);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .timelineToggle:focus-visible {
+    outline: 1px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+    outline-offset: -1px;
+  }
+
+  .timelineSummary {
+    overflow: hidden;
+    color: var(--dsw-alias-label-secondary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .timelineName {
+    margin-left: auto;
+    color: var(--dsw-alias-label-tertiary);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .timelineBlock { display: none; }
+  .timelineBlock[data-open] { display: block; }
+  .timelineBlock[data-open] .timelineHead { display: none; }
+}
+
+/* Coarse: our filter chips and the timeline's row targets reach the same
+   8 px / 44 px floor as the rest of the plugin. The stock chips (host
+   dsh-client-ui-trajectory .actions) remain 2 px; only our row widens. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .actions {
+    gap: var(--lfs-gap-control, 8px);
+  }
+
+  .rowMain,
+  .opMain {
+    min-height: var(--lfs-tap, 44px);
+  }
+}
+

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { afterFirstPaint } from './first-paint.ts'
+import { registerPaintHints } from './paint-hints.ts'
 
 /** One host read: its last answer (kept while a reload runs), its refusal, and whether it runs now. */
 export interface Query<T> {
@@ -24,12 +26,45 @@ export interface QueryOptions {
   persist?: boolean
 }
 
-const answers = new Map<string, unknown>()
+interface Kept { value: unknown, at: number }
+const answers = new Map<string, Kept>()
 const CACHE_SIZE = 64
-function remember(key: string, value: unknown): void {
+function remember(key: string, value: unknown, at = Date.now()): void {
   answers.delete(key)
   if (answers.size >= CACHE_SIZE) answers.delete(answers.keys().next().value!)
-  answers.set(key, value)
+  answers.set(key, { value, at })
+}
+
+/**
+ * Answers a prefetch already holds, for the first render after the click. They
+ * are not a cache: an entry is used by one consumer, only while it is younger
+ * than {@link PREFETCH_PAINT_MAX_AGE_MS}, and never in place of a newer cached
+ * answer. The read on mount still starts (and joins a prefetch in flight).
+ *
+ * The key is the read's identity (the `cache` option: `GET /api/storage`,
+ * `projects.catalog`, a size key, …), never its arguments, so an answer can
+ * only paint the read that asked for it. A host event that may have changed
+ * any answer clears the whole map (`ui/paint-hints.ts`); a mounted surface
+ * then paints its own read, not a hint from before the change.
+ */
+const prefetched = new Map<string, Kept>()
+export const PREFETCH_PAINT_MAX_AGE_MS = 30_000
+const PREFETCHED_SIZE = 16
+registerPaintHints(() => prefetched.clear())
+
+/** Keep an answer for the next mount's first render (the prefetch's job); `at` is when its read started. */
+export function keepPrefetched(key: string, value: unknown, at = Date.now()): void {
+  prefetched.delete(key)
+  if (prefetched.size >= PREFETCHED_SIZE) prefetched.delete(prefetched.keys().next().value!)
+  prefetched.set(key, { value, at })
+}
+
+/** Take the prefetched answer for `key`, if it is fresh enough; always consumes it. */
+function takePrefetched(key: string): Kept | undefined {
+  const held = prefetched.get(key)
+  if (!held) return undefined
+  prefetched.delete(key)
+  return Date.now() - held.at <= PREFETCH_PAINT_MAX_AGE_MS ? held : undefined
 }
 
 const STORED = 'dsh-layerfs:answer:'
@@ -43,10 +78,13 @@ function stored(key: string): unknown {
 /** The answer a `cache` key holds, if any (for state that starts from it); `persist` also looks in `sessionStorage`. */
 export function cachedAnswer<T>(key: string | undefined, persist = false): T | undefined {
   if (key === undefined) return undefined
-  if (answers.has(key)) return answers.get(key) as T
+  const early = takePrefetched(key)
+  const kept = answers.get(key)
+  if (early && (!kept || early.at > kept.at)) { remember(key, early.value, early.at); return early.value as T }
+  if (kept) return kept.value as T
   if (!persist) return undefined
   const value = stored(key)
-  if (value !== undefined) answers.set(key, value)
+  if (value !== undefined) remember(key, value)
   return value as T | undefined
 }
 
@@ -119,6 +157,21 @@ export function useQuery<T>(load: () => Promise<T>, deps: readonly unknown[], op
   }, [...refresh, bump])
   const reload = useCallback(() => setBump((n) => n + 1), [])
   return { data, error, loading, reload }
+}
+
+/**
+ * `useQuery` whose first read starts after {@link afterFirstPaint}: for the
+ * reads that only decorate the first card or row (sizes, exports, the second
+ * setup check). Freshness is exactly `useQuery`'s: the read still starts on
+ * mount and reads the host once; only its start waits for the frame. Later
+ * reloads are immediate, and no answer is reused or kept by time.
+ * @param load - the read.
+ * @param deps - what the read depends on.
+ * @param options - refresh values, cache key and persistence, as `useQuery`.
+ * @returns the read's state.
+ */
+export function useDeferredQuery<T>(load: () => Promise<T>, deps: readonly unknown[], options: QueryOptions = {}): Query<T> {
+  return useQuery<T>(() => afterFirstPaint().then(load), deps, options)
 }
 
 /** A refusal's words: a HostError's message, else the thrown value. */

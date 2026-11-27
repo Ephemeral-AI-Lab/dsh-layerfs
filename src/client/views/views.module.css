@@ -1,20 +1,40 @@
 /* Conversation views (Files, History): fill the conversation scrollport above the composer. */
 
 .frame {
+  /* One conversation column under DSH's full-width tab row. It matches the
+     shell's own Chat measure (`--dsh-chat-content-width`, the user-resizable
+     clamp) so switching tabs keeps the same centred reading column; a phone
+     narrows it to the pane with `min(100%, …)`, no side gutters beyond the
+     frame's own safe-area padding. */
+  --lfs-read-column: var(--dsh-chat-content-width, clamp(680px, 64%, 920px));
+  --lfs-frame-inline: 20px;
+
   display: flex;
   flex-direction: column;
   gap: 10px;
   box-sizing: border-box;
-  width: 100%;
+  width: min(100%, var(--lfs-read-column));
   min-width: 0;
   height: max(360px, calc(var(--dsh-conversation-viewport-height, 100vh) - var(--dsh-composer-height, 120px) - 16px));
-  padding: 12px 20px 8px;
+  margin-inline: auto;
+  padding: 12px max(var(--lfs-frame-inline), var(--lfs-safe-right, 0px)) calc(8px + var(--lfs-safe-bottom, 0px)) max(var(--lfs-frame-inline), var(--lfs-safe-left, 0px));
   color: var(--dsw-alias-label-primary);
   /* Above DSH's conversation width handles (z-index 0, documented to yield to
-     concrete content at z-index 1): this frame is full width, so the strips
-     would otherwise sit over its controls and swallow clicks. */
+     concrete content at z-index 1): this frame is centred inside them, so the
+     strips would otherwise sit over its controls and swallow clicks. */
   position: relative;
   z-index: 1;
+}
+
+/* The data surfaces keep the same centred column but a wider one on desktop:
+   DSH's conversation measure would put the Trajectory body under its built
+   820px inspector breakpoint there. 880px leaves 832px inside the frame's
+   24px padding, so the built inline inspector stays inline at 1180/1440. A
+   tablet keeps the shared 680px column and its built drawer. */
+@media (min-width: 1024px) {
+  .dataFrame {
+    --lfs-read-column: max(var(--dsh-chat-content-width, 680px), 880px);
+  }
 }
 
 .fill {
@@ -80,4 +100,44 @@
   font-size: 13px;
   line-height: 1.5;
   color: var(--dsw-alias-label-secondary);
+}
+
+/* A phone: the frame keeps its width for the data, not for gutters. */
+@media (max-width: 640px) {
+  .frame {
+    --lfs-frame-inline: 12px;
+
+    padding-top: 10px;
+    gap: 8px;
+  }
+}
+
+/* A phone: DSH's conversation strip collapses our tab into its More menu, so
+   the view body carries one compact marker instead — the tab's name and this
+   session, in the same line as the frame's branch chip when there is one. It
+   only appears where the strip stops showing the tab (≤640). */
+.viewCrumb {
+  display: none;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.viewCrumbName {
+  color: var(--dsw-alias-label-secondary);
+  font-weight: 500;
+}
+
+.crumbSep {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+@media (max-width: 640px) {
+  .viewCrumb { display: inline-flex; }
+
+  .empty { max-width: 100%; }
 }

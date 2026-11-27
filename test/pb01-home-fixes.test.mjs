@@ -57,7 +57,7 @@ const testPlugin = {
       'machines/context.tsx': `export const useMachinesContext = () => ({ api: { call: async () => ({}), op: async () => ({}) }, act: async () => ({}), useMachines: (s) => s({ data: null, loading: false, error: null }), useStartups: (s) => s([]), t: (k) => k, tw: (k) => k, doctorT: (k) => k, stateWord: (l) => String(l ?? ''), go: () => {} }); export const useMachinesMaybe = () => null`,
       'setup/store.ts': `export const setupDialog = { open: () => {} }; export const useSetupStatus = () => ({ data: globalThis.__pb01Setup, loading: false, error: null }); export const useInstalled = () => null; export const lately = () => null`,
       'doctor/Doctor.tsx': `export const useStartDoctor = () => async () => {}; export const DoctorAction = () => null`,
-      'ui/use-query.ts': `export const useQuery = () => ({ data: null, loading: false, error: null }); export const cachedAnswer = () => undefined; export const errorCode = () => undefined; export const errorText = (e) => String(e ?? '')`,
+      'ui/use-query.ts': `export const useQuery = () => ({ data: null, loading: false, error: null }); export const useDeferredQuery = useQuery; export const cachedAnswer = () => undefined; export const errorCode = () => undefined; export const errorText = (e) => String(e ?? '')`,
     }
     b.onResolve({ filter: /^\.\.?\/.*$/ }, (a) => {
       const resolved = join(a.resolveDir, a.path).replace(/\\/g, '/')

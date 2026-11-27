@@ -468,7 +468,7 @@ export function LoadError({ title, error, labels, retryLabel, onRetry }: { title
     <Card tone="danger" className={css.error}>
       <p className={css.errorTitle}><IconWarningOutlineRegular size={16} />{title}</p>
       <Refusal error={error} labels={labels} />
-      {onRetry && <Button variant="outline" size="sm" icon={<IconRefreshOutlineRegular size={13} />} onClick={onRetry}>{retryLabel}</Button>}
+      {onRetry && <Button variant="outline" size="sm" className={css.retry} icon={<IconRefreshOutlineRegular size={13} />} onClick={onRetry}>{retryLabel}</Button>}
     </Card>
   )
 }
@@ -552,6 +552,7 @@ export function MenuSelect<V extends string>({ value, options, onChange, label, 
   const chosen = options.find((o) => o.value === value)
   return (
     <Menu open={open} onClose={() => setOpen(false)} portal autoFocus minWidthFromAnchor selection="check" selectedId={value || undefined}
+      listClassName={clsx(tones.lfTone, css.menuTouch)}
       items={options.map((o) => ({ id: o.value, label: o.label }))}
       onSelect={(id) => { setOpen(false); onChange(id as V) }}
       anchor={<SelectAnchor label={label} value={chosen?.label} placeholder={placeholder} open={open} disabled={disabled} onToggle={setOpen} className={className} />} />
@@ -563,7 +564,7 @@ export function MoreMenu({ label, disabled, children, className }: { label: stri
   const [open, setOpen] = useState(false)
   const close = () => setOpen(false)
   return (
-    <Menu open={open} onClose={close} align="end" portal autoFocus listClassName={tones.lfTone}
+    <Menu open={open} onClose={close} align="end" portal autoFocus listClassName={clsx(tones.lfTone, css.menuTouch)}
       anchor={(
         <Button variant="ghost" size="sm" className={clsx(css.iconButton, className)} disabled={disabled} aria-label={label} title={label}
           aria-haspopup="menu" aria-expanded={open} icon={<IconEllipsisOutlineRegular size={16} />}

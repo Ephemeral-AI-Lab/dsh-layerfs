@@ -335,6 +335,8 @@ export interface SandboxCommand {
 export interface SandboxInfo {
   id: string
   name: string
+  /** The conversation that owns this Sandbox today (a project session's own Sandbox); absent for any other. */
+  sessionId?: string
   state: string
   op?: SdkOperation | null
   /** 2.0 state companions: `blocked_by` when blocked, `reason` and `fix` when broken, `observedAt` when unknown. */

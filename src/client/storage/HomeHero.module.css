@@ -31,7 +31,8 @@
 
 @media (max-width: 480px) {
   .hero {
-    padding: 14px 16px;
+    /* the card's phone inset: 16 px on both sides (never a flush status row) */
+    padding: 14px var(--lfs-space-4, 16px);
   }
 }
 
@@ -77,8 +78,8 @@
 
 /* The LayerFS × DSH lockup that heads Home (the h1's visible face). */
 .lockup {
-  /* Brand inks: LayerFS's rail blue (as its mark draws it) and DeepSeek's blue. */
-  --lfs-ink: color-mix(in oklab, #2F5BB5 82%, var(--dsw-alias-label-primary));
+  /* Brand inks: LayerFS's rail from the mark's one definition, and DeepSeek's blue. */
+  --lfs-ink: var(--lfs-dark);
   --dsh-ink: #4D6BFE;
   display: inline-flex;
   align-items: center;
@@ -214,7 +215,7 @@
   line-height: 20px;
   font-weight: 500;
   letter-spacing: -0.01em;
-  color: var(--ov-ink-tertiary, var(--dsw-alias-label-tertiary));
+  color: var(--ov-ink-secondary, var(--dsw-alias-label-secondary));
   cursor: pointer;
   white-space: nowrap;
   transition: color 140ms var(--ov-ease, cubic-bezier(0.16, 1, 0.3, 1)),
@@ -249,7 +250,7 @@
   line-height: 18px;
   font-weight: 400;
   font-variant-numeric: tabular-nums;
-  color: var(--ov-ink-tertiary, var(--dsw-alias-label-tertiary));
+  color: var(--ov-ink-secondary, var(--dsw-alias-label-secondary));
 }
 
 .tab[data-active] .count:not([data-tone]) {
@@ -284,7 +285,7 @@
   font-size: 12px;
   line-height: 18px;
   font-variant-numeric: tabular-nums;
-  color: var(--ov-ink-tertiary, var(--dsw-alias-label-tertiary));
+  color: var(--ov-ink-secondary, var(--dsw-alias-label-secondary));
   white-space: nowrap;
   cursor: pointer;
   transition: background-color 140ms var(--ov-ease, cubic-bezier(0.16, 1, 0.3, 1)),
@@ -386,8 +387,37 @@
     gap: 14px;
   }
 
+  /* The host-status callout is its own band under the hero's tools: the word
+     takes the width it needs (wrapping), and its one action takes the next
+     line at thumb size, so neither sits over the row above. */
+  /* The lockup is wider than the column the two tools would leave: let the
+     heading have the full width and the tools take their own row. */
+  .heroTop {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .tools {
+    justify-self: end;
+  }
+
+  .status {
+    gap: 8px;
+    margin-top: 4px;
+    padding-top: 10px;
+    border-top: 0.5px solid var(--ov-border, var(--dsw-alias-border-l2));
+  }
+
+  .headline {
+    flex: 1 1 0;
+    max-width: 100%;
+    line-height: 18px;
+  }
+
   .statusActions {
+    flex: 1 1 100%;
     margin-left: 0;
+    justify-content: flex-end;
   }
 }
 
@@ -455,3 +485,65 @@
 .dockerMachines { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; }
 
 .storeActions { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+
+/* Touch: the hero's tabs and tools are thumb targets; on a phone the tab strip
+   scrolls sideways instead of squeezing or stacking into two rows. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .toolButton {
+    width: var(--lfs-tap, 44px);
+    min-width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+  }
+
+  .actionButton,
+  .storeActions > button,
+  .statusActions button {
+    height: var(--lfs-tap, 44px);
+  }
+
+  .actionIconButton {
+    width: var(--lfs-tap, 44px);
+    min-width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+  }
+
+  .tab,
+  .runtime {
+    height: var(--lfs-tap, 44px);
+  }
+}
+
+@media (max-width: 640px) {
+  .toolbar {
+    align-items: stretch;
+    /* The tabs' -0.5 px margin (their underline meets the bar's rule) eats half
+       a pixel of the row gap: the actions keep the coarse control gap, 8 px. */
+    row-gap: calc(var(--lfs-gap-control, 8px) + 0.5px);
+  }
+
+  .tabList {
+    flex: 1 1 100%;
+    gap: 16px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tabList::-webkit-scrollbar {
+    display: none;
+  }
+
+  .toolbar > .actions {
+    padding-bottom: 0;
+  }
+}
+
+/* Coarse: the hero's two icon tools and the status actions get the coarse
+   control gap; fine keeps its deliberate 6 px cluster. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .tools,
+  .actions {
+    gap: var(--lfs-gap-control, 8px);
+  }
+}
+

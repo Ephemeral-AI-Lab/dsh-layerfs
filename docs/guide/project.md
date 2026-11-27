@@ -27,6 +27,8 @@ project session shows as its conversation tabs (see [Components › File
 views](components.md#file-views) and [History views](components.md#history-views)); this
 page explains them in full.
 
+![Project on a phone: the tab strip scrolls and the actions take the next line](img/project-phone.png)
+
 The tab is not remembered: opening the page again starts on Files. The History tab keeps
 its zoom, selection and last read per project while DSH stays open, so coming back draws
 the last tree at once and rereads behind it.
@@ -150,7 +152,9 @@ drawn for the whole project: every conversation (and its subagents) that called 
 on this project or its Sandboxes, plus the calls made outside conversations (**This
 plugin** for this host's own calls, **Other clients**), wired through the LayerFS hub to
 the Branches they touched and the Sandboxes on the right. The play bar replays the calls
-(**Pause**/**Play**, **1×**…**100×**, **Live**) and **Activity** lists them. See
+(**Pause**/**Play**, **1×**…**100×**, **Live**) and **Activity** lists them. A Sandbox
+that belongs to one conversation carries a small quiet **Session** tag (hover: *This
+Sandbox belongs to one conversation and is removed when it closes.*). See
 [Components › Sandbox card](components.md#sandbox-card) and [Terminal
 pane](components.md#terminal-pane) for the parts it shares with machine pages.
 
@@ -176,12 +180,20 @@ a Sandbox.
 | # | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|---|
 | 1 | **New session** | | starts a DSH session placed in this project (in the selected local folder, else the managed Scratch folder) and opens it; its Workspace is mounted on its first step | `project get` (read) at press; the session store is synced in the background | disabled while another press runs; absent while the Store is broken |
-| 2 | Sessions table | **Session** (title or **Untitled session**), **State** (**Not started**, **Active**, or LayerFS's word such as `stored`), **Checkpoints** (one per turn that changed files), **Updated** | — | `branch list` of the stored-session Branches, and `project export` of an archive whose head moved (read) | **No sessions on this project yet** with **New session**; **Could not read the sessions** with **Retry** |
+| 2 | Sessions table | **Session** (title or **Untitled session**), **State** (**Not started**, **Active**, or the host's word such as `stored`; the sidebar's session rows also use **Starting**, **Interrupted**, **Stored elsewhere** and **Unavailable**), **Checkpoints** (one per turn that changed files), **Updated** | — | `branch list` of the stored-session Branches, and `project export` of an archive whose head moved (read) | **No sessions on this project yet** with **New session**; **Could not read the sessions** with **Retry** |
 | 3 | **Open** | | opens the conversation; a session stored only in LayerFS (another machine's, or after a reset) is imported first | none for a local session; `project export` of its archive (read) to import one | spinner while it opens |
 
 The table is local first: it lists this DSH's sessions and adds the ones found in the
 project's session store. A session archived in DSH leaves the list until it is
 unarchived.
+
+A session row's state word says whether it can run right now. **Stored elsewhere** means
+the conversation is only in the project's Store: **Open** imports it. **Unavailable** means
+the project cannot run: the reason under the row says why, and **Open** is refused (start
+the machine from the sidebar's project row, which carries **Start {machine}**).
+**Starting**, **Active** and **Not started** are the host's own states; a state with no word
+stays hidden. Conversations that never started — opened but never given a message — are not
+listed; the [sidebar](entry-points.md#workspaces-switch) explains how the host prunes them.
 
 ## Stats
 
@@ -224,6 +236,11 @@ imported belongs to the Store, not to a save.
 
 ## Modals opened here
 
+The shell sets these dialogs' width and margin; only the content inside is ours. On a
+coarse pointer every control is a 44 px target, a footer clears the home indicator, and a
+long body scrolls between a fixed head and footer (see [Components ›
+Dialogs](components.md#dialogs)).
+
 | Modal | Opened by | What it does | LayerFS call | Undo |
 |---|---|---|---|---|
 | [Confirm dialog](components.md#confirm-dialog) **Delete `<project>`?** | **⋯ › Delete project…** | *The project and all its history are deleted from its Store. This cannot be undone.* Type the name, then **Delete**; the page closes and its Store opens | `project delete` | none |
@@ -250,6 +267,9 @@ imported belongs to the Store, not to a save.
   of the tree stays.
 - **Could not read `<what>`** with **Retry** (or a fix): a read was refused; its tip has
   LayerFS's words and code.
+- Muted counts and links pass WCAG AA in both themes, and a Branch tag's label picks the
+  light or dark ink that reads on its lane colour (see [Components › Text
+  contrast](components.md#text-contrast)).
 
 ## Where next
 

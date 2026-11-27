@@ -21,7 +21,7 @@
  *   after 1 s, with Cancel. Refresh reads the open folders again; nothing polls.
  * - Entries LayerFS lists but never opens (restricted, unreadable, system,
  *   mounts, links, other kinds) are rows that cannot be activated.
- * - Below 600 px the tree drills in: one folder a screen.
+ * - Below 640 px the tree drills in: one folder a screen.
  *
  * Reads: at most two of this tab at a time (inspect-files.ts), each dropped
  * when its folder collapses or the view is left. A refusal stays inside the
@@ -51,8 +51,9 @@ import { workspaceChanges, workspaceName, type WorkspaceInfo } from './model.ts'
 import css from './inspect-files.module.css'
 import { clockTime } from '../ui/locale-sync.ts'
 
-/** The width under which the tree drills in instead of expanding in place. */
-const NARROW_PX = 600
+/** The width under which the tree drills in instead of expanding in place
+ * (the responsive scale's compact edge, ../ui/responsive.css). */
+const NARROW_PX = 640
 
 /**
  * A label per role LayerFS answers (machine.files: `data` … `image`; sandbox.files: `home`).
@@ -161,6 +162,10 @@ function useInspectFolders(kind: DetailKind, name: string, reader: MutableRefObj
    */
   const load = useCallback((asked: string, view: FilesViewId, cursor: string | null = null, quiet = false) => {
     const key = readKey(asked)
+    // A tab reads each folder once: a second mount effect (or a refresh while
+    // its first page is already on the wire) joins that read instead of
+    // issuing the identical roots request again with another `rid`.
+    if (cursor === null && controllers.current.has(key)) return
     controllers.current.get(key)?.abort()
     const controller = new AbortController()
     controllers.current.set(key, controller)

@@ -46,6 +46,7 @@ import { label } from '../logs/index.ts'
 import { PresetManager } from '../presets/manager.ts'
 import { presetStateFor } from '../presets/state-dir.ts'
 import { createGroups, handle } from './router.ts'
+import { sessionOfSandbox } from './projects.ts'
 import type { RouteHost } from './util.ts'
 
 export const name = 'dsh-layerfs-routes'
@@ -76,6 +77,7 @@ export function apply(ctx: Context): void {
     projectRemoved: async (project) => { await (ctx.get('layerfsSessions' as never) as any)?.forgetProject(project) },
     machinesStopped: async (machines) => { (ctx.get('layerfsSessions' as never) as any)?.machinesStopped(machines) },
     sandboxClosed: async (name) => { (ctx.get('layerfsSessions' as never) as any)?.sandboxClosed(name) },
+    sessionOf: (name) => sessionOfSandbox(name, (ctx.get('layerfsSessions' as never) as any)?.state?.read?.()?.sessions),
     closeSessionSandbox: async (name) => {
       const sessions = ctx.get('layerfsSessions' as never) as any
       const owner = sessions && Object.values(sessions.state.read().sessions as Record<string, any>).find((b) => b.sandbox === name && b.state === 'bound')

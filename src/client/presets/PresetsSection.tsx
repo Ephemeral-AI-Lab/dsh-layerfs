@@ -4,10 +4,11 @@
  * (whether some commits go through sandbox workspaces) and then the impact,
  * confirmed against a fresh inventory plan. Stop machines (in the … menu)
  * confirms against the machine-stop plan. `usePresets` polls every 2 s while a
- * job runs and every 5 s otherwise, and again on `demo-preset` events. A lost
- * answer is reconciled by request ID, never resubmitted.
+ * job runs and every 30 s otherwise, and again on `demo-preset` events and when
+ * the page comes back to the front. A lost answer is reconciled by request ID,
+ * never resubmitted.
  */
-import { useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { Button, Checkbox, IconCodeOutlineRegular, IconPlayOutlineRegular, MenuItemButton, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { StatusDot } from '../ui/StatusDot.tsx'
@@ -39,25 +40,54 @@ const sessionsOf = (error: unknown): BusySession[] => {
 /** The words for how a library's history is written. */
 export const modeKey = (mode: PresetExecutionMode): PresetsKey => mode === 'mixed' ? 'modeMixed' : 'modeFilesystem'
 
+/** How long the open dialog waits between catalog reads: a job's movement arrives as an event. */
+export const PRESETS_POLL_MS = 30_000
+/** While a build or reset runs its progress is read (and pushed) more often. */
+export const PRESETS_RUNNING_POLL_MS = 2_000
+
+/** Whether a poll may read now: the dialog is up, so the page is visible and focused. */
+const awake = (): boolean => typeof document === 'undefined'
+  || (document.visibilityState === 'visible' && (typeof document.hasFocus !== 'function' || document.hasFocus()))
+
 /**
  * The presets listing, kept fresh while a view shows it: every 2 s while a job
- * runs, every 5 s otherwise, and again on `demo-preset` and reconnect events.
+ * runs, every 30 s otherwise, and again on `demo-preset` and reconnect events.
+ * A hidden or unfocused page reads nothing; coming back reads at once.
  */
 export function usePresets(api: LayerfsApi): { data: DemoPresets | undefined, error: unknown, loading: boolean, reload: () => void } {
   const [tick, setTick] = useState(0)
-  const reload = () => setTick((n) => n + 1)
+  const reload = useCallback(() => setTick((n) => n + 1), [])
   const live = useQuery(() => api.call<DemoPresets>('GET', '/api/demo-presets'), [api], { refresh: [tick], cache: 'layerfs-presets' })
   const active = !!live.data && (live.data.busy || live.data.items.some((item) => running(item.job)))
   useEffect(() => {
-    const id = setInterval(() => { if (document.visibilityState === 'visible') reload() }, active ? 2000 : 5000)
-    return () => clearInterval(id)
-  }, [active])
+    if (typeof document === 'undefined') return
+    const id = setInterval(() => { if (awake()) reload() }, active ? PRESETS_RUNNING_POLL_MS : PRESETS_POLL_MS)
+    // A page that comes back to the front reads at once; a background one reads nothing.
+    // Returning fires visibilitychange and focus together: only the first reads.
+    let was = awake()
+    const wake = () => {
+      const now = awake()
+      const returned = now && !was
+      was = now
+      if (returned) reload()
+    }
+    const win = typeof window === 'undefined' ? undefined : window
+    document.addEventListener('visibilitychange', wake)
+    win?.addEventListener('focus', wake)
+    win?.addEventListener('blur', wake)
+    return () => {
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', wake)
+      win?.removeEventListener('focus', wake)
+      win?.removeEventListener('blur', wake)
+    }
+  }, [active, reload])
   useEffect(() => {
     const offs = ['demo-preset', 'connection'].map((type) => api.onEvent(type, (e) => {
       if (e.type !== 'connection' || (e.data as { connected?: boolean } | undefined)?.connected) reload()
     }))
     return () => { for (const off of offs) off() }
-  }, [api])
+  }, [api, reload])
   return { data: live.data, error: live.error, loading: live.loading, reload }
 }
 

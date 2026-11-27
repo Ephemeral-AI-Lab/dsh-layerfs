@@ -35,6 +35,65 @@ export const branchColor = (name: string): string => {
   return BOUGHS[Math.abs(hash) % BOUGHS.length]
 }
 
+/**
+ * A tag's label ink: the palette's pure light and dark, whichever reads on the
+ * pill. The lane colours are theme tokens (and two are color-mix), so the fill
+ * is resolved through the live stylesheet and its WCAG luminance picks the ink;
+ * a theme flip changes the fill, and the observer below re-picks.
+ */
+const TAG_INKS = ['var(--dsw-static-neutral-00)', 'var(--dsw-static-neutral-1000)'] as const
+
+type Rgb = { r: number, g: number, b: number }
+const channel = (n: number): number => {
+  const s = n / 255
+  return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
+}
+const luminance = (c: Rgb): number => 0.2126 * channel(c.r) + 0.7152 * channel(c.g) + 0.0722 * channel(c.b)
+
+/** Chromium serialises a resolved colour as `rgb(...)` or `color(srgb r g b)`. */
+const parseColor = (value: string): Rgb | null => {
+  const rgb = /^rgba?\(\s*([\d.]+)[ ,]+([\d.]+)[ ,]+([\d.]+)/.exec(value)
+  if (rgb) return { r: Number(rgb[1]), g: Number(rgb[2]), b: Number(rgb[3]) }
+  const srgb = /^color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/.exec(value)
+  if (srgb) return { r: Number(srgb[1]) * 255, g: Number(srgb[2]) * 255, b: Number(srgb[3]) * 255 }
+  return null
+}
+
+let probe: HTMLSpanElement | null = null
+const resolved = (expr: string): Rgb | null => {
+  if (!probe) {
+    probe = document.createElement('span')
+    probe.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none'
+    document.body.append(probe)
+  }
+  probe.style.color = expr
+  return parseColor(getComputedStyle(probe).color)
+}
+
+const inkCache = new Map<string, string>()
+/** The candidate ink with the higher WCAG contrast against the tag's own fill. */
+const tagInk = (fill: string, dark: boolean): string => {
+  const key = `${dark ? 'dark' : 'light'}|${fill}`
+  const cached = inkCache.get(key)
+  if (cached) return cached
+  const body = resolved(fill)
+  let best: string = TAG_INKS[0]
+  let bestRatio = -1
+  for (const candidate of TAG_INKS) {
+    const ink = resolved(candidate)
+    if (!body || !ink) continue
+    const a = luminance(body)
+    const b = luminance(ink)
+    const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+    if (ratio > bestRatio) {
+      bestRatio = ratio
+      best = candidate
+    }
+  }
+  inkCache.set(key, best)
+  return best
+}
+
 export interface HistoryGraphProps {
   layout: TreeLayout
   selected: string | null
@@ -75,6 +134,8 @@ const MAIN_ROOM = 0.5
 /** The most of the gap between two lines a leaf may fill. */
 const LEAF_REACH = 0.4
 const GAP_MIN = 16
+/** Lanes sit 48px apart, so a Branch tag's thumb target is 44px tall and clears its neighbours. */
+const GAP_TOUCH = 48
 
 interface Hover { row?: TreeRow, branch: string, names?: string[], x: number, y: number }
 
@@ -96,6 +157,13 @@ export function HistoryGraph({ layout: latest, selected, branch, focus, onSelect
   // While the tree grows in it is drawn from the layout it started with: checkpoints landing meanwhile would move every lane.
   const [held, setHeld] = useState<TreeLayout | null>(null)
   const layout = held ?? latest
+  // The tag ink depends on the theme's fill colours: re-pick it when the theme flips.
+  const [dark, setDark] = useState(() => document.body.hasAttribute('data-ds-dark-theme'))
+  useEffect(() => {
+    const observer = new MutationObserver(() => setDark(document.body.hasAttribute('data-ds-dark-theme')))
+    observer.observe(document.body, { attributes: true, attributeFilter: ['data-ds-dark-theme'] })
+    return () => observer.disconnect()
+  }, [])
   const latestRef = useRef(latest)
   latestRef.current = latest
   const [size, setSize] = useState({ width: 0, height: 0 })
@@ -123,7 +191,7 @@ export function HistoryGraph({ layout: latest, selected, branch, focus, onSelect
 
   const lanes = 2 * layout.reach + 1
   // Lines sit as far apart as the height allows, and spread further as the steps widen.
-  const gap = Math.max(clamp((size.height - AXIS - 28) / (lanes + 2 * MAIN_ROOM), GAP_MIN, GAP_MAX), clamp(GAP_MIN + (cam.k - 4) * 1.2, GAP_MIN, GAP_ZOOMED))
+  const gap = Math.max(clamp((size.height - AXIS - 28) / (lanes + 2 * MAIN_ROOM), GAP_MIN, GAP_TOUCH), clamp(GAP_MIN + (cam.k - 4) * 1.2, GAP_MIN, GAP_TOUCH))
   const laneY = useCallback((lane: number) => (lane + Math.sign(lane) * MAIN_ROOM) * gap, [gap])
   const overflowY = Math.max(0, ((lanes + 2 * MAIN_ROOM) * gap + 28 - (size.height - AXIS)) / 2)
   const overflowRef = useRef(overflowY)
@@ -297,6 +365,9 @@ export function HistoryGraph({ layout: latest, selected, branch, focus, onSelect
     })
   }, [layout, k, laneY, screen, size.width, laneOf])
   // Name tags: the biggest Branches first, only where a tag covers no line and no other tag.
+  // The visible pill stays 16px tall; its hit band is as tall as the lane gap allows,
+  // up to 44px, so it never reaches a neighbouring lane or steals its checkpoints.
+  const tagHit = clamp(gap - 4, 16, 44)
   const tags = useMemo(() => {
     if (!k) return []
     const spans = layout.branches.map((b) => ({ b, xs: LEFT + Math.max(b.fork, b.first - 3) * k, xe: Math.max(LEFT + b.last * k, LEFT + b.first * k + 3) }))
@@ -306,7 +377,8 @@ export function HistoryGraph({ layout: latest, selected, branch, focus, onSelect
     const result: { b: TreeBranch, x: number, w: number, text: string }[] = []
     for (const s of [...spans].sort((p, q) => q.b.rows.length - p.b.rows.length)) {
       const text = branchLabel(s.b.name, t)
-      const w = text.length * 6.4 + 12
+      // 12px code lettering: a little over 7px a character, plus the side inset
+      const w = text.length * 7.3 + 14
       const x = s.xe + 8
       const blocked = byLane.get(s.b.lane)!.some((o) => o !== s && o.xs < x + w + 4 && x < o.xe) || taken.get(s.b.lane)?.some((o) => o.x < x + w + 6 && x < o.x + o.w + 6)
       if (blocked && s.b.name !== branch) continue
@@ -315,7 +387,7 @@ export function HistoryGraph({ layout: latest, selected, branch, focus, onSelect
       result.push({ b: s.b, x, w, text })
     }
     return result
-  }, [layout, k, t, branch])
+  }, [layout, k, t, branch, gap])
   const sideOf = useMemo(() => {
     const map = new Map<string, number>()
     for (const b of layout.branches) b.rows.forEach((r, i) => map.set(r.id, i % 2 ? 1 : -1))
@@ -476,13 +548,15 @@ export function HistoryGraph({ layout: latest, selected, branch, focus, onSelect
             })}
             {tags.map(({ b, x, w, text }) => {
               if (x - left > size.width || x + w - left < 0) return null
+              const bough = branchColor(b.name)
               return (
-                <g key={b.name} data-branch-tag={b.name} role="button" tabIndex={0} aria-label={t('files_openBranch', { name: text })}
-                  className={clsx(css.branchTag, !b.live && css.dead, dim(b.name) && css.dimmed)} style={{ '--bough': branchColor(b.name) } as CSSProperties}
+                <g key={b.name} data-branch-tag={b.name} data-hit-height={tagHit} role="button" tabIndex={0} aria-label={t('files_openBranch', { name: text })}
+                  className={clsx(css.branchTag, !b.live && css.dead, dim(b.name) && css.dimmed)} style={{ '--bough': bough, '--bough-ink': tagInk(bough, dark) } as CSSProperties}
                   transform={`translate(${x},${laneY(b.lane)})`} onClick={() => onBranch(b.name)}
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onBranch(b.name) } }}>
                   <title>{text === b.name ? t('files_openBranch', { name: text }) : `${t('files_openBranch', { name: text })}\n${b.name}`}</title>
-                  <rect x={0} y={-8} width={w} height={16} rx={3} />
+                  <rect className={css.tagHit} x={-4} y={-tagHit / 2} width={w + 8} height={tagHit} />
+                  <rect className={css.tagBody} x={0} y={-8} width={w} height={16} rx={3} />
                   <text x={6} y={3.5}>{text}</text>
                 </g>
               )

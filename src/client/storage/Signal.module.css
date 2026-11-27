@@ -97,3 +97,16 @@
   gap: 4px;
   margin-top: 4px;
 }
+
+/* Touch: a status dot that opens details is a 44px target. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .signal {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .signal[data-dot] {
+    width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+    margin: 0;
+  }
+}

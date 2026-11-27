@@ -6,12 +6,14 @@
  */
 import { useEffect, type ComponentType } from 'react'
 import type { LayerfsApi } from '../api.ts'
+import { ownershipStore } from '../session/ownership.ts'
 import { NS as STORAGE_NS, type StorageT } from '../storage/locale.ts'
 import { FILES_VIEW, FilesView, HISTORY_VIEW, HistoryView, SANDBOX_VIEW, STATS_VIEW, type ViewInjected, type ViewProps } from './FileViews.tsx'
 import type { SessionsSource } from './hooks.ts'
 import { NS, locales, type Translate } from './locale.ts'
 import { SandboxView } from './SandboxView.tsx'
 import { StatsView } from './StatsView.tsx'
+import { createLiveStepSource, type LiveStepsSource } from './live-step.ts'
 import { stockTrajectory } from './stock-trajectory.ts'
 import { TRAJECTORY_VIEW, TrajectoryView } from './TrajectoryView.tsx'
 
@@ -34,17 +36,19 @@ export function registerViews(ctx: any, api: LayerfsApi): void {
   const t: Translate = ctx.locale.bind(NS)
   // Stats mounts the Storage page's project panel, with that page's copy.
   const storageT: StorageT = ctx.locale.bind(STORAGE_NS)
-  // While a LayerFS view is open the composer steps aside: a lowest-priority
+  // While a LayerFS view is open the composer steps aside: a
   // `conversation.composer` election that renders nothing (DSH keeps the stock
-  // composer mounted, so a draft survives). Approvals, questions and the
-  // subagent read-only composer outrank it and still show.
+  // composer mounted, so a draft survives). A chain elects in ASCENDING
+  // priority and the first non-null `select` wins, so this entry sits above
+  // every takeover it must yield to: approval priority 1, user questions
+  // default 0, subagent read-only -10. It renders only when none matches.
   const hidden = new Map<string, { count: number, dispose: () => void }>()
   const hideComposer = (sessionId: string) => {
     const held = hidden.get(sessionId)
     if (held) held.count++
     else {
       const dispose = ctx.slots.register({
-        name: 'conversation.composer', priority: -100,
+        name: 'conversation.composer', priority: 100,
         select: (owner: { sessionId?: string }) => (owner?.sessionId === sessionId ? true : null),
       }, HiddenComposer)
       hidden.set(sessionId, { count: 1, dispose })
@@ -64,8 +68,23 @@ export function registerViews(ctx: any, api: LayerfsApi): void {
     if (!hider) { hider = () => hideComposer(sessionId); hiders.set(sessionId, hider) }
     return hider
   }
+  // The running assistant step streams on the session's client event feed (the
+  // window behind `SessionBinding.eventSource`); one source per retained binding,
+  // so a tab switch or re-render keeps its place and the source goes with the binding.
+  const liveSources = new WeakMap<object, LiveStepsSource>()
+  const liveStepOf = (sessionId: string): LiveStepsSource | undefined => {
+    const binding = ctx.get?.('sessions')?.binding?.(String(sessionId))
+    if (!binding?.eventSource) return undefined
+    let source = liveSources.get(binding)
+    if (!source) {
+      source = createLiveStepSource(binding.eventSource)
+      liveSources.set(binding, source)
+    }
+    return source
+  }
   const inject = (sessionId: string): ViewInjected => ({
     sessionId: String(sessionId), api, t, storageT, sessions: sessionsSource(ctx),
+    liveStep: liveStepOf(String(sessionId)),
     hideComposer: hiderOf(String(sessionId)),
   })
   const views: { id: string, order: number, priority?: number, label: string, component: ComponentType<ViewProps> }[] = [
@@ -89,21 +108,37 @@ export function registerViews(ctx: any, api: LayerfsApi): void {
   // off, the stock resumes first, then ours goes. Transitions run one at a time
   // and settle on the latest wanted mode.
   const stock = stockTrajectory(ctx)
-  let registered: (() => void)[] | null = null
+  let registered: { id: string, dispose: () => void }[] | null = null
   let wanted = false
   let applied = false
   let running = false
   let timer: ReturnType<typeof setTimeout> | undefined
   const transition = async (on: boolean) => {
     if (on) {
-      registered = views.map((view) => ctx.slots.inject('conversation.view', () => ctx.slots.register({
-        name: 'conversation.view', id: view.id, order: view.order, locale: NS, label: () => t(view.label), inject,
-        ...(view.priority === undefined ? {} : { priority: view.priority }),
-      }, view.component)))
-      await stock.suspend().catch((error: unknown) => ctx.logger?.warn?.('dsh-layerfs: stock Trajectory not suspended: %s', error))
+      registered = views.map((view) => ({
+        id: view.id,
+        dispose: ctx.slots.inject('conversation.view', () => ctx.slots.register({
+          name: 'conversation.view', id: view.id, order: view.order, locale: NS, label: () => t(view.label), inject,
+          ...(view.priority === undefined ? {} : { priority: view.priority }),
+        }, view.component)),
+      }))
+      try {
+        await stock.suspend()
+      } catch (error: unknown) {
+        ctx.logger?.warn?.('dsh-layerfs: stock Trajectory not suspended: %s', error)
+        // DSH renders every `conversation.view` entry of an id, shadowed ones
+        // included: the stock tab is still there, so take our own Trajectory
+        // entry back (and nothing else) to keep exactly one. The other tabs
+        // and LayerFS mode stay; a later transition off resumes nothing.
+        const own = registered.find((entry) => entry.id === TRAJECTORY_VIEW)
+        if (own) {
+          own.dispose()
+          registered = registered.filter((entry) => entry !== own)
+        }
+      }
     } else {
       await stock.resume().catch((error: unknown) => ctx.logger?.warn?.('dsh-layerfs: stock Trajectory not resumed: %s', error))
-      for (const dispose of registered ?? []) dispose()
+      for (const entry of registered ?? []) entry.dispose()
       registered = null
     }
     applied = on
@@ -114,34 +149,32 @@ export function registerViews(ctx: any, api: LayerfsApi): void {
     running = true
     void transition(wanted).finally(() => { running = false; settle() })
   }
-  // Switching conversations unmounts one header before the next mounts, and a
-  // session's place is re-read on LayerFS events: wait a moment so those
-  // passing states do not stop and restart DSH's Trajectory.
+  // Switching conversations unmounts one header before the next mounts, and the
+  // ownership store reads a session's place again on LayerFS events: wait a
+  // moment so those passing states do not stop and restart DSH's Trajectory.
   const setEnabled = (on: boolean) => {
     wanted = on
     if (timer === undefined) timer = setTimeout(settle, MODE_SETTLE_MS)
   }
-  const projectOf = new Map<string, boolean | Promise<void>>()
-  /** The last answer per session, kept while it is read again (a LayerFS event clears `projectOf`). */
-  const lastKnown = new Map<string, boolean>()
+  // Ownership comes from the one store (`session/ownership.ts`): `project`
+  // enables LayerFS mode, `notProject` disables it, and `unknown` keeps the last
+  // answer (the store keeps it), so a failed read does not flip the tabs.
+  const ownership = ownershipStore(api)
   const isProject = (id: string) => {
-    const v = projectOf.get(id)
-    return typeof v === 'boolean' ? v : lastKnown.get(id) === true
+    const entry = ownership.entry(id)
+    return entry.state === 'project' || (entry.state === 'unknown' && entry.project !== undefined)
   }
   // Conversations on screen: each mounted session header reports itself
   // (an invisible header entry), since DSH's session list does not notify on
   // selection changes.
   const visible = new Map<string, number>()
+  /** Recompute the mode from the store's answers, without asking for another read. */
+  const sync = () => setEnabled([...visible.keys()].some(isProject))
+  /** A header appeared or went: ask the store to read the conversations on screen. */
   const refresh = () => {
     const ids = [...visible.keys()]
-    for (const id of ids) {
-      if (projectOf.has(id)) continue
-      const known = (value: boolean) => { projectOf.set(id, value); lastKnown.set(id, value) }
-      projectOf.set(id, api.op<{ place: { project: string | null } | null }>('session.place', { sessionId: id })
-        .then((r) => known(!!r.place?.project), () => known(false))
-        .finally(refresh))
-    }
-    setEnabled(ids.some(isProject))
+    if (ids.length) ownership.refresh(ids)
+    sync()
   }
   const report = (sessionId: string) => {
     visible.set(sessionId, (visible.get(sessionId) ?? 0) + 1)
@@ -157,19 +190,17 @@ export function registerViews(ctx: any, api: LayerfsApi): void {
     inject: (sessionId: string) => ({ sessionId: String(sessionId), report }),
   }, Presence)), 'dsh-layerfs: conversation views presence')
   ctx.effect(() => {
-    const forget = (e: { data?: any }) => {
-      if (e.data?.sessionId) projectOf.delete(String(e.data.sessionId)); else projectOf.clear()
-      refresh()
-    }
-    const offs = [api.onEvent('layerfs-session', forget), api.onEvent('connection', forget)]
+    // The store already follows `layerfs-session` and `connection`; the views
+    // only follow its answers (a project answer can arrive after the settle).
+    const off = ownership.subscribe(sync)
     return () => {
-      offs.forEach((off) => off())
+      off()
       // Unloading: give DSH its Trajectory back, and drop ours, at once.
       if (timer !== undefined) clearTimeout(timer)
       timer = undefined
       wanted = false
       void stock.resume()
-      for (const dispose of registered ?? []) dispose()
+      for (const entry of registered ?? []) entry.dispose()
       registered = null
       applied = false
     }

@@ -21,6 +21,16 @@ export function refusalLabels(t: StorageT): RefusalLabels {
   }
 }
 
+/**
+ * The quiet **Session** tag on a Sandbox card: this Sandbox belongs to one
+ * conversation today and is removed when that conversation closes. Nothing
+ * else about the Sandbox changes; a Sandbox with no owner draws no tag.
+ */
+export function SessionTag({ sessionId, t }: { sessionId?: string | null, t: StorageT }): ReactNode {
+  if (!sessionId) return null
+  return <span className={css.sessionTag} title={t('sessionOwnedTitle')} data-session-owned={sessionId}>{t('sessionOwned')}</span>
+}
+
 /** A Store's glyph: its kind's mark, the SQLite feather or the PostgreSQL elephant (`mono` draws it in the text color). */
 export function StoreGlyph({ kind, size = 18, mono }: { kind: 'sqlite' | 'postgresql' | string, size?: number, mono?: boolean }): ReactNode {
   return <StoreKindGlyph kind={kind} size={size} mono={mono} />

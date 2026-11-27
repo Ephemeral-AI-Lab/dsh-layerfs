@@ -37,10 +37,17 @@
   border-radius: 3px;
   background: none;
   font: inherit;
-  color: var(--dsw-alias-link, var(--ov-accent));
+  /* The shared link (deepseek-500 #4176e6) is 4.23:1 on the white layer at
+     13px; the palette's next step, deepseek-600 (#4868b2), is 5.39:1. The dark
+     theme's link already passes and keeps the shared token (see below). */
+  color: var(--dsw-static-deepseek-600);
   text-align: left;
   cursor: pointer;
   transition: color 140ms var(--ov-ease);
+}
+
+:global(body[data-ds-dark-theme]) .link {
+  color: var(--dsw-alias-link);
 }
 
 @media (hover: hover) {
@@ -58,7 +65,9 @@
 .section {
   display: flex;
   flex-direction: column;
-  gap: var(--lfs-content-gap);
+  /* the same section rhythm the page uses between hero/toolbar/content, so
+     the finder-to-card run matches the toolbar-to-content run */
+  gap: var(--lfs-section-gap);
   min-width: 0;
 }
 
@@ -68,4 +77,20 @@
   }
 }
 
+/* A phone's home indicator sits over the last card: keep the page's foot clear. */
+@media (max-width: 480px) {
+  .page {
+    padding-bottom: calc(12px + var(--lfs-safe-bottom, 0px));
+  }
+}
+
 :where(.page) :where(button, input, select, textarea, summary) { font-family: inherit; }
+
+/* Touch: the status link and its signal are thumb targets. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .link {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--lfs-tap, 44px);
+  }
+}

@@ -1,11 +1,11 @@
 // Bundle src/host/routes (and the CLI SDK it uses) with esbuild for tests, and
 // build a RouteHost over either a fake lfs or the real pinned CLI.
 import { build } from 'esbuild'
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { runtimePin } from '../scripts/runtime-pin.mjs'
+import { liveCli, liveSkipReason } from './support/env.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 
@@ -15,7 +15,7 @@ export async function loadRoutes() {
   await build({
     absWorkingDir: root,
     stdin: {
-      contents: "export * from './src/host/routes/router.ts'\nexport * as cli from './src/host/layerfs/cli.ts'\nexport { wire } from './src/host/routes/util.ts'\nexport { recordUrl } from './src/host/routes/storage.ts'\nexport * as util from './src/host/routes/util.ts'\nexport * as machinesModule from './src/host/routes/machines.ts'\nexport * as creates from './src/host/routes/sandbox-creates.ts'\nexport * as exportsModule from './src/host/routes/project-exports.ts'\nexport * as inspect from './src/host/routes/inspect.ts'\n",
+      contents: "export * from './src/host/routes/router.ts'\nexport * as cli from './src/host/layerfs/cli.ts'\nexport { wire } from './src/host/routes/util.ts'\nexport { recordUrl } from './src/host/routes/storage.ts'\nexport * as util from './src/host/routes/util.ts'\nexport * as machinesModule from './src/host/routes/machines.ts'\nexport * as creates from './src/host/routes/sandbox-creates.ts'\nexport * as exportsModule from './src/host/routes/project-exports.ts'\nexport * as inspect from './src/host/routes/inspect.ts'\nexport { sessionOfSandbox } from './src/host/routes/projects.ts'\n",
       resolveDir: root,
       loader: 'ts',
     },
@@ -30,7 +30,7 @@ export async function loadRoutes() {
 }
 
 /** A RouteHost for tests. */
-export function testHost({ lfs, root, home, secrets = join(root, 'secrets'), jobs = join(home, 'job'), stats = join(home, 'stat'), discovery, cli = null, daemon = null, ensureNative = async () => {} }) {
+export function testHost({ lfs, root, home, secrets = join(root, 'secrets'), jobs = join(home, 'job'), stats = join(home, 'stat'), discovery, cli = null, daemon = null, ensureNative = async () => {}, sessionOf = undefined }) {
   const events = []
   const logs = []
   return {
@@ -49,12 +49,14 @@ export function testHost({ lfs, root, home, secrets = join(root, 'secrets'), job
       ensureNative,
       emit: (type, data) => events.push({ type, data }),
       log: (line) => logs.push(line),
+      ...(sessionOf ? { sessionOf } : {}),
     },
   }
 }
 
-/** The pinned CLI/daemon (DSH_LAYERFS_*, else the newest runtime in ~/.layerfs), or null. */
+/** The pinned CLI/daemon (DSH_LAYERFS_*, else the newest runtime in ~/.layerfs), unpinned from a wrapper that fixes LAYERFS_HOME, or null. */
 export function pinned() {
-  const pin = runtimePin()
-  return pin && existsSync(pin.cli) ? pin : null
+  return liveCli()
 }
+
+export { liveSkipReason }

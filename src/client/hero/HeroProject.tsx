@@ -3,15 +3,19 @@
  * shows the project the new session will work in, or "No project" for a plain
  * workspace session, and switches it — another project, a new empty project,
  * or a project imported from a host folder. Project ownership and the selected
- * local scratch folder are independent. While an import runs, the control shows its
+ * local scratch folder are independent, and ownership comes from the one store
+ * (`../session/ownership.ts`): a failed read is its own visible state with a
+ * Retry, never a false "No project". While an import runs, the control shows its
  * progress.
  */
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Button, IconChevronDownOutlineRegular, IconFolderOpenOutlineRegular, IconPlusOutlineRegular, IconSettingsOutlineRegular, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChevronDownOutlineRegular, IconFolderOpenOutlineRegular, IconCheckOutlineRegular, IconPlusOutlineRegular, IconSettingsOutlineRegular, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
+import { ownershipStore, useOwnership, type OwnershipEntry } from '../session/ownership.ts'
 import { listProjects, messageOf, type ProjectInitJob, type ProjectRow } from '../picker/NewProjectForm.tsx'
+import { keepPrefetched } from '../ui/use-query.ts'
 import { ProjectDialogMount, projectDialog } from '../projects/dialog.ts'
 import { runsOn } from '../projects/setup/model.ts'
 import type { StorageView } from '../storage/types.ts'
@@ -81,10 +85,22 @@ export interface HeroProjectProps {
   imports: Imports
 }
 
-export function HeroProject({ sessionId, api, t, imports }: HeroProjectProps): ReactNode {
+export function HeroProject(props: HeroProjectProps): ReactNode {
+  const ownership = useOwnership(props.api, props.sessionId)
+  return <HeroProjectControl {...props} ownership={ownership} retry={() => ownershipStore(props.api).retry(props.sessionId)} />
+}
+
+export interface HeroProjectControlProps extends HeroProjectProps {
+  /** The store's entry for this session (a test renders a fake one). */
+  ownership: OwnershipEntry
+  /** Read this session's place again (the Retry action). */
+  retry: () => void
+}
+
+/** The control itself; exported so tests can render a fake ownership state. */
+export function HeroProjectControl({ sessionId, api, t, imports, ownership, retry }: HeroProjectControlProps): ReactNode {
   const root = useRef<HTMLSpanElement>(null)
   const anchor = useRef<HTMLButtonElement>(null)
-  const [place, setPlace] = useState<Place | null>(null)
   const [rows, setRows] = useState<ProjectRow[] | null>(null)
   const [scratchKey, setScratchKey] = useState<string | null>(null)
   const [storage, setStorage] = useState<StorageView | null>(null)
@@ -95,19 +111,21 @@ export function HeroProject({ sessionId, api, t, imports }: HeroProjectProps): R
   const running = useSyncExternalStore(imports.subscribe, imports.get)
   const [, tick] = useState(0)
 
-  useEffect(() => {
-    let live = true
-    const load = () => api.op<{ place: Place | null }>('session.place', { sessionId }).then((v) => { if (live) setPlace(v.place) }, () => {})
-    void load()
-    const off = api.onEvent('layerfs-session', (e) => { if (!e.data?.sessionId || e.data.sessionId === sessionId) void load() })
-    return () => { live = false; off() }
-  }, [api, sessionId])
-
   const loadProjects = () => {
     setLoadError(false)
-    listProjects(api).then(({ rows: list, scratchKey: key }) => { setRows(list); setScratchKey(key) }, () => setLoadError(true))
+    // The New Session surface is often mounted before Center is opened: hand its
+    // two answers to Home's first render (a paint hint; Center reads on mount).
+    const started = Date.now()
+    listProjects(api, { share: true }).then((catalog) => {
+      const { rows: list, scratchKey: key } = catalog
+      setRows(list); setScratchKey(key)
+      keepPrefetched('projects.catalog', catalog, started)
+    }, () => setLoadError(true))
     // Where each project runs (its SQLite Store's machine, or the machine its PostgreSQL Store's sessions run on).
-    api.call<StorageView>('GET', '/api/storage').then(setStorage, () => {})
+    api.call<StorageView>('GET', '/api/storage', undefined, { share: true }).then((view) => {
+      setStorage(view)
+      keepPrefetched('GET /api/storage', view, started)
+    }, () => {})
   }
   useEffect(loadProjects, [api])
   // Store health and project changes reach an open picker too (it never polls).
@@ -125,6 +143,18 @@ export function HeroProject({ sessionId, api, t, imports }: HeroProjectProps): R
     return () => clearInterval(timer)
   }, [running])
 
+  // The three states, mapped onto the control: a known project (or none), and
+  // an unknown read that keeps the menu but never reads as "No project".
+  const failed = ownership.state === 'unknown' && ownership.error !== undefined
+  const place: Place | null = ownership.state === 'notProject' ? { project: null }
+    : ownership.state === 'project' && ownership.project
+      ? {
+          project: ownership.project,
+          ...(ownership.projectId ? { projectId: ownership.projectId } : {}),
+          ...(ownership.scratch ? { scratch: ownership.scratch } : {}),
+        }
+      : null
+
   /** Place this session in a LayerFS project (or back in a plain folder). */
   const switchTo = async (key: string | null) => {
     setError(null)
@@ -132,6 +162,8 @@ export function HeroProject({ sessionId, api, t, imports }: HeroProjectProps): R
     try {
       const row = rows?.find((p) => (p.projectId ?? p.key) === key)
       await api.op('sessions.choose', { sessionId, project: row?.key ?? key, projectId: row?.projectId })
+      // The host event is coalesced; the person's own choice updates at once.
+      retry()
     } catch (e) {
       setError(t('switchFailed', { message: messageOf(e) }))
     } finally {
@@ -160,10 +192,19 @@ export function HeroProject({ sessionId, api, t, imports }: HeroProjectProps): R
       const options = [...row.children].find((child) => child.contains(root.current))
       row.setAttribute('data-layerfs-hero-row', sessionId)
       options?.setAttribute('data-layerfs-hero-options', '')
+      // The row's title sits above it, outside our slot: mark it through the
+      // hero's own brand-mark slot so the phone rules can scale it and let a
+      // long title (with its Preview badge) wrap instead of leaving the column.
+      const headline = row.parentElement?.querySelector('[data-slot="conversation.hero.brand.mark"]')?.parentElement?.parentElement
+      const title = headline && headline !== row.parentElement ? headline.lastElementChild : null
+      headline?.setAttribute('data-layerfs-hero-headline', '')
+      title?.setAttribute('data-layerfs-hero-title', '')
       if (project) row.setAttribute('data-layerfs-scratch-picker', sessionId)
       return () => {
         if (row.getAttribute('data-layerfs-hero-row') === sessionId) { row.removeAttribute('data-layerfs-hero-row'); options?.removeAttribute('data-layerfs-hero-options') }
         if (row.getAttribute('data-layerfs-scratch-picker') === sessionId) row.removeAttribute('data-layerfs-scratch-picker')
+        headline?.removeAttribute('data-layerfs-hero-headline')
+        title?.removeAttribute('data-layerfs-hero-title')
       }
     }
   }, [project, sessionId])
@@ -199,8 +240,10 @@ export function HeroProject({ sessionId, api, t, imports }: HeroProjectProps): R
     )
   }
 
-  const current = place?.projectId ?? place?.project ?? null
-  const label = place === null ? '' : place.project ? nameOf(place.project) : t('noProject')
+  // A failed read keeps the last known project as the menu's selection, while the
+  // chip says the read failed (never "No project").
+  const current = place?.projectId ?? place?.project ?? (ownership.state === 'unknown' ? ownership.projectId ?? ownership.project ?? null : null)
+  const label = failed ? t('placeUnknown') : place === null ? '' : place.project ? nameOf(place.project) : t('noProject')
   const projects = (rows ?? []).filter((r) => r.key !== scratchKey && (!r.catalogState || r.catalogState === 'available'))
   const items: MenuEntry[] = [
     { id: NONE, label: t('noProject'), icon: <IconFolderOpenOutlineRegular size={14} /> },
@@ -214,11 +257,16 @@ export function HeroProject({ sessionId, api, t, imports }: HeroProjectProps): R
       const where = runsOn(storage?.stores.find((s) => s.name === store))
       const note = (where.length ? where : [p.machine ?? '']).filter(Boolean).join(', ')
       const configure = t('configure', { project: name })
+      const id = p.projectId ?? p.key
+      const isCurrent = id === current
       return {
-        id: p.projectId ?? p.key,
+        id,
         icon: <LayerfsGlyph size={14} />,
         label: <span className={css.option} title={`${name} · ${store}${note ? ` · ${note}` : ''}`}>
           <span className={css.optionName}>{name}</span><span className={css.optionNote}>{note}</span>
+          {/* The selected mark sits with the name, before the settings action;
+              DSH's own trailing check is hidden for these rows in the CSS. */}
+          {isCurrent ? <span className={css.optionCheck} aria-hidden="true"><IconCheckOutlineRegular size={14} /></span> : null}
           <span role="button" className={css.optionGear} aria-label={configure} title={configure} data-layerfs-configure=""
             onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(false); projectDialog.open({ mode: 'configure', project: { key: p.key, projectId: p.projectId, name, store } }) }}>
@@ -234,7 +282,7 @@ export function HeroProject({ sessionId, api, t, imports }: HeroProjectProps): R
   return (
     <span ref={root} className={css.root} data-layerfs-hero="">
       {place?.project ? <span className={css.scratchSlot} data-layerfs-scratch=""><ScratchPicker sessionId={sessionId} scratch={place.scratch} api={api} t={t} /></span> : null}
-      <Menu open={open && !switching} onClose={() => setOpen(false)} portal align="start" items={items} selectedId={current ?? NONE} dense
+      <Menu open={open && !switching} onClose={() => setOpen(false)} portal align="start" items={items} selectedId={current ?? NONE} dense listClassName={css.projectMenu}
         onSelect={(id) => {
           setOpen(false)
           if (id === NEW) projectDialog.open({ mode: 'new' })
@@ -242,7 +290,8 @@ export function HeroProject({ sessionId, api, t, imports }: HeroProjectProps): R
           else if (id !== (current ?? NONE)) void switchTo(id === NONE ? null : id)
         }}
         anchor={(
-          <button ref={anchor} type="button" className={css.chip} aria-label={t('chipAria', { project: label })} aria-haspopup="menu" aria-expanded={open}
+          <button ref={anchor} type="button" className={css.chip} data-state={failed ? 'unknown' : undefined}
+            aria-label={failed ? t('placeUnknown') : t('chipAria', { project: label })} aria-haspopup="menu" aria-expanded={open}
             disabled={switching} aria-busy={switching || undefined}
             onClick={() => { if (!open) loadProjects(); setOpen((v) => !v) }}>
             <LayerfsGlyph size={14} />
@@ -250,6 +299,7 @@ export function HeroProject({ sessionId, api, t, imports }: HeroProjectProps): R
             <IconChevronDownOutlineRegular size={12} aria-hidden="true" />
           </button>
         )} />
+      {failed ? <button type="button" className={css.retry} onClick={retry}>{t('retry')}</button> : null}
       {error ? <span className={css.error} role="alert">{error}</span> : null}
       <ProjectDialogMount />
     </span>

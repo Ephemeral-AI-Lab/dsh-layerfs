@@ -321,3 +321,50 @@
     opacity: 0.4;
   }
 }
+
+/* ---------- touch and narrow screens (the same dialog's fields and actions) ---------- */
+
+@media (max-width: 1180px), (pointer: coarse) {
+  /* the Input component's shell (className lands on its wrapper): the text
+     field stretches to the whole shell, so a tap anywhere in it focuses */
+  .folderRow .input {
+    height: var(--lfs-tap, 44px);
+    align-items: stretch;
+  }
+
+  .folderRow button,
+  .actions button,
+  .footer button {
+    min-height: var(--lfs-tap, 44px);
+  }
+}
+
+@media (max-width: 480px) {
+  /* a path is worth the full width; its action sits under it */
+  .folderRow {
+    flex-wrap: wrap;
+  }
+
+  .folderRow > :first-child {
+    flex: 1 0 100%;
+    box-sizing: border-box;
+  }
+
+  .folderRow > button {
+    flex: 1 0 100%;
+  }
+
+  .actions button {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .footer button {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .hint {
+    overflow-wrap: anywhere;
+  }
+}

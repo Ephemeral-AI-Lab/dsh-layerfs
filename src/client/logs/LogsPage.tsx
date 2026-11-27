@@ -15,10 +15,11 @@ import {
 import type { LayerfsApi } from '../api.ts'
 import {
   LOGS_EVENT, operationOf, parseTag,
-  type CallClient, type CallLabel, type LabeledLine, type LogsListAnswer, type LogsListArgs, type LogsResetAnswer,
+  type CallLabel, type LabeledLine, type LogsListAnswer, type LogsResetAnswer,
 } from '../../shared/logs.ts'
 import { Card, ConfirmDialog, Empty, LinkButton, LoadError, Loading, MenuSelect, Page, PageHead, Refusal, type RefusalLabels } from '../ui/index.tsx'
 import { CallDetail } from './CallDetail.tsx'
+import { argsOf, DEFAULT_FILTERS, emptyAction, type ClientChoice, type Filters, type OutcomeChoice } from './filters.ts'
 import { CommandCell } from './Command.tsx'
 import { shortId } from '../files/format.ts'
 import { clockTime, dateTime } from '../ui/locale-sync.ts'
@@ -28,50 +29,25 @@ import { openLogs, onLogsRequest, peekLogsRequest, takeLogsRequest, type LogsReq
 import { sessionParts } from './session-words.ts'
 import css from './logs.module.css'
 
-type ClientChoice = 'all' | CallClient
-type OutcomeChoice = 'all' | 'ok' | 'refused'
-
-interface Filters {
-  project: string
-  op: string
-  client: ClientChoice
-  outcome: OutcomeChoice
-  writes: boolean
-  tag?: string | undefined
-}
-
-const DEFAULTS: Filters = { project: '', op: 'all', client: 'all', outcome: 'all', writes: true }
 /** A pre-filtered open shows exactly the tagged calls: every other filter is cleared. */
-const fromRequest = (request: LogsRequest): Filters => ({ ...DEFAULTS, writes: false, tag: request.tag })
+const fromRequest = (request: LogsRequest): Filters => ({ ...DEFAULT_FILTERS, writes: false, tag: request.tag })
 
 interface Loaded {
   lines: LabeledLine[]
   next?: string | undefined
   hasMore: boolean
+  /** The filtered scan stopped at its page budget; `hasMore` is "not proven empty", not a match. */
+  partial: boolean
   skipped: number
   source: LogsListAnswer['source']
   /** Pages appended through More; a background reload keeps them. */
   pages: number
 }
 
-const PAGE = 100
 const lineKey = (line: LabeledLine) => `${line.at}|${line.tag ?? ''}|${line.argv.join('\u0000')}`
 const merge = (a: readonly LabeledLine[], b: readonly LabeledLine[]) => [...new Map([...a, ...b].map((line) => [lineKey(line), line])).values()]
 /** A saved id as LayerFS labels it short (its tag kept: a prefix `commit get` accepts); the full id is the tip. */
 const shortHex = (id: string | undefined) => id ? shortId(id) : ''
-
-function argsOf(f: Filters): LogsListArgs {
-  return {
-    limit: PAGE,
-    ...(f.project.trim() ? { project: f.project.trim() } : {}),
-    ...(f.op !== 'all' ? { op: f.op } : {}),
-    ...(f.client !== 'all' ? { client: f.client } : {}),
-    // `refused` is every outcome but `ok`; the contract filters one code, so it is narrowed here.
-    ...(f.outcome === 'ok' ? { outcome: 'ok' } : {}),
-    ...(f.tag ? { tag: f.tag } : {}),
-    ...(f.writes ? { writes: true } : {}),
-  }
-}
 
 function refusalLabels(t: LogsT): RefusalLabels {
   return {
@@ -84,7 +60,7 @@ function refusalLabels(t: LogsT): RefusalLabels {
 }
 
 export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api: LayerfsApi, t: LogsT }): ReactNode {
-  const [filters, setFilters] = useState<Filters>(() => { const r = peekLogsRequest(); return r ? fromRequest(r) : DEFAULTS })
+  const [filters, setFilters] = useState<Filters>(() => { const r = peekLogsRequest(); return r ? fromRequest(r) : DEFAULT_FILTERS })
   const [search, setSearch] = useState(filters.project)
   const [data, setData] = useState<Loaded>()
   const [error, setError] = useState<unknown>()
@@ -122,6 +98,7 @@ export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api:
         lines: keep ? merge(answer.lines, before.lines) : answer.lines,
         next: keep ? before.next : answer.next,
         hasMore: keep ? before.hasMore : answer.has_more,
+        partial: keep ? before.partial : answer.partial === true,
         skipped: answer.skipped,
         source: answer.source,
         pages: keep ? before.pages : 1,
@@ -148,7 +125,7 @@ export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api:
       const answer = await api.op<LogsListAnswer>('logs.list', { ...argsOf(current.current.filters), cursor: before.next })
       // A reload or filter change since makes this page stale.
       if (mine !== generation.current) return
-      setData({ lines: merge(before.lines, answer.lines), next: answer.next, hasMore: answer.has_more, skipped: before.skipped + answer.skipped, source: answer.source, pages: before.pages + 1 })
+      setData({ lines: merge(before.lines, answer.lines), next: answer.next, hasMore: answer.has_more, partial: answer.partial === true, skipped: before.skipped + answer.skipped, source: answer.source, pages: before.pages + 1 })
     } catch (e) {
       if (mine === generation.current) setError(e)
     } finally { setMore(false) }
@@ -224,15 +201,16 @@ export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api:
     if (!data) return
     const args = argsOf(filters)
     const unfiltered = Object.keys(args).every((k) => k === 'limit') && filters.outcome === 'all'
-    if (data.lines.length > 0) { setLogEmpty(false); return }
-    if (data.hasMore) return
-    if (unfiltered) { setLogEmpty(true); return }
+    const action = emptyAction({ lines: data.lines.length, hasMore: data.hasMore, unfiltered, tag: !!filters.tag, known: logEmpty })
+    if (action === 'nonempty') { setLogEmpty(false); return }
+    if (action === 'empty') { setLogEmpty(true); return }
+    if (action !== 'probe') return
     let live = true
     api.op<LogsListAnswer>('logs.list', { limit: 1 })
       .then((answer) => { if (live) setLogEmpty(answer.lines.length === 0 && !answer.has_more) })
       .catch(() => { if (live) setLogEmpty(undefined) })
     return () => { live = false }
-  }, [api, data, filters])
+  }, [api, data, filters, logEmpty])
 
   const reset = async () => {
     const answer = await api.op<LogsResetAnswer>('logs.reset', {})
@@ -250,8 +228,8 @@ export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api:
       <PageHead title={t('title')}
         actions={(
           <>
-            <Button variant="ghost" size="sm" icon={<IconRefreshOutlineRegular size={14} />} disabled={loading} onClick={() => { void load('replace') }}>{t('refresh')}</Button>
-            <Button variant="outline" size="sm" disabled={!data || logEmpty === true} onClick={() => setConfirming(true)}>{t('reset')}</Button>
+            <Button variant="ghost" size="sm" className={css.headerAction} icon={<IconRefreshOutlineRegular size={14} />} disabled={loading} onClick={() => { void load('replace') }}>{t('refresh')}</Button>
+            <Button variant="outline" size="sm" className={css.headerAction} disabled={!data || logEmpty === true} onClick={() => setConfirming(true)}>{t('reset')}</Button>
           </>
         )} />
       {removed !== undefined && <p className={css.note} role="status">{t('resetDone', { n: removed })}</p>}
@@ -281,19 +259,19 @@ export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api:
             ) : <Empty title={t('empty')}>{t('emptyBody')}</Empty>
       ) : (
         <Card className={css.tableCard}>
-          <table className={css.table} aria-busy={loading || more} aria-label={t('tableLabel')}>
-            <thead>
-              <tr>
-                <th className={css.wTime}>{t('colTime')}</th>
-                <th className={css.wClient}>{t('colClient')}</th>
-                <th>{t('colCommand')}</th>
-                <th className={css.wOutcome}>{t('colOutcome')}</th>
-                <th className={clsx(css.wMs, css.num)}>{t('colMs')}</th>
-                <th className={css.wSaved}>{t('colSaved')}</th>
-                <th className={css.wSession}>{t('colSession')}</th>
+          <table role="table" className={css.table} aria-busy={loading || more} aria-label={t('tableLabel')}>
+            <thead role="rowgroup">
+              <tr role="row">
+                <th role="columnheader" className={css.wTime}>{t('colTime')}</th>
+                <th role="columnheader" className={css.wClient}>{t('colClient')}</th>
+                <th role="columnheader">{t('colCommand')}</th>
+                <th role="columnheader" className={css.wOutcome}>{t('colOutcome')}</th>
+                <th role="columnheader" className={clsx(css.wMs, css.num)}>{t('colMs')}</th>
+                <th role="columnheader" className={css.wSaved}>{t('colSaved')}</th>
+                <th role="columnheader" className={css.wSession}>{t('colSession')}</th>
               </tr>
             </thead>
-            <tbody ref={tbody}>
+            <tbody role="rowgroup" ref={tbody}>
               {shown.map((line) => {
                 const key = lineKey(line)
                 return <Row key={key} rowKey={key} api={api} t={t} line={line} now={now} detailOpen={detail !== undefined}
@@ -302,6 +280,7 @@ export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api:
             </tbody>
           </table>
           <div className={css.moreRow}>
+            {data.partial && <p className={css.note} role="status">{t('partialScan')}</p>}
             {data.next && data.hasMore
               ? <Button variant="outline" size="sm" disabled={more} aria-busy={more} onClick={() => { void loadMore() }}>{more ? t('loadingMore') : t('more')}</Button>
               : <p className={css.note}>{t('allLoaded')}</p>}
@@ -386,23 +365,23 @@ function Row({ api, t, line, now, rowKey, detailOpen, onOpen, onKeyDown }: {
   const [focused, setFocused] = useState(false)
   const popoverId = useId()
   return (
-    <tr className={css.row} tabIndex={0} data-key={rowKey} aria-describedby={focused ? popoverId : undefined}
+    <tr role="row" className={css.row} tabIndex={0} data-key={rowKey} aria-describedby={focused ? popoverId : undefined}
       onClick={(e) => { if (opensDetail(e)) onOpen() }} onKeyDown={onKeyDown}
       onFocus={(e) => { if (e.target === e.currentTarget && e.currentTarget.matches(':focus-visible')) setFocused(true) }}
       onBlur={(e) => { if (e.target === e.currentTarget) setFocused(false) }}>
-      <td>
+      <td role="cell">
         <Tooltip label={absoluteTime(line.at)} side="top" portal delayMs={400}>
           <span className={css.time}>{when(line.at, now, t)}</span>
         </Tooltip>
       </td>
-      <td className={clsx(css.muted, css.wClient)}>{line.client}</td>
-      <td className={css.commandCell}><CommandCell parts={parts} focusOpen={focused} popoverId={popoverId} disabled={detailOpen} /></td>
-      <td title={ok ? undefined : line.outcome}>{ok ? <span className={css.ok}>{t('outcomeOk')}</span> : <Tag tone="danger" className={css.codeTag}>{line.outcome}</Tag>}</td>
-      <td className={clsx(css.num, css.duration)}>{duration(line.ms, t)}</td>
-      <td className={clsx(css.saved, css.wSaved)}>
+      <td role="cell" className={clsx(css.muted, css.wClient)}>{line.client}</td>
+      <td role="cell" className={css.commandCell}><CommandCell parts={parts} focusOpen={focused} popoverId={popoverId} disabled={detailOpen} /></td>
+      <td role="cell" title={ok ? undefined : line.outcome}>{ok ? <span className={css.ok}>{t('outcomeOk')}</span> : <Tag tone="danger" className={css.codeTag}>{line.outcome}</Tag>}</td>
+      <td role="cell" className={clsx(css.num, css.duration)}>{duration(line.ms, t)}</td>
+      <td role="cell" className={clsx(css.saved, css.wSaved)}>
         {version ? <>{line.kind && <span className={css.kind} title={line.kind}>{kindWords(line.kind, t)}</span>}<code className={css.hex} title={version}>{shortHex(version)}</code></> : <span className={css.muted}>—</span>}
       </td>
-      <td>{line.dsh ? <SessionLabel api={api} t={t} label={line.dsh} /> : <span className={css.muted}>—</span>}</td>
+      <td role="cell">{line.dsh ? <SessionLabel api={api} t={t} label={line.dsh} /> : <span className={css.muted}>—</span>}</td>
     </tr>
   )
 }

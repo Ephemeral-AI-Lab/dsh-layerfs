@@ -24,6 +24,9 @@ import { registerViews } from './views/index.tsx'
 import { registerSetup } from './setup/index.tsx'
 import { syncLocale } from './ui/locale-sync.ts'
 import './ui/tones.module.css'
+// Responsive scale: the one place the plugin's touch sizes and safe-area
+// tokens live (ui/responsive.css). Loaded once for every plugin surface.
+import './ui/responsive.css'
 
 export const inject = ['slots', 'locale', 'remote', 'layout']
 
@@ -51,6 +54,17 @@ export function apply(ctx: any): void {
     openPanel: (id) => ctx.layout.selectPanel(id),
     openWorkspace: async (id) => { await workspace()?.openWorkspace(id) },
     openSession: (id) => { workspace()?.openSession(id) },
+    // DSH's client catalog: an id it has not announced cannot be opened
+    // (`sessions.retain: unknown session`), so a host navigation waits for it.
+    knowsSession: (id) => !!ctx.get?.('sessions')?.list?.getSnapshot?.()?.byId?.[id],
+    // The host's open answer carries the same summary `api-session/added` does:
+    // seeding the catalog with it keeps the open working when that event is lost.
+    admitSession: (summary) => {
+      try { ctx.get?.('sessions')?.handleSessionAdded?.(summary) } catch (error) { console.warn('[dsh-layerfs] could not admit the opened session', error) }
+    },
+    // The page's catalog read may have failed or timed out; one explicit read
+    // makes the opened id appear before the row gives up and shows a refusal.
+    refreshSessions: async () => { await ctx.get?.('sessions')?.refresh?.() },
   }, workspace)
   ctx.effect(() => () => api.dispose(), 'dsh-layerfs: api')
   // Browser automation handle (tools/, test/): opt-in per browser profile.

@@ -15,6 +15,7 @@
 }
 
 .frame {
+  position: relative;
   display: grid;
   flex: 1;
   grid-template-columns: 240px minmax(0, 1fr);
@@ -42,6 +43,26 @@
   flex-direction: column;
   min-width: 0;
   border-right: 0.5px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-base);
+}
+
+/* The tree is a drawer at tablet and phone widths: a compact bar over the file. */
+.sideTop {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.sideTop .branchButton {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+
+.drawerClose,
+.treeToggle {
+  display: none;
 }
 
 @container files-frame (max-width: 600px) {
@@ -69,7 +90,7 @@
   margin: 0;
   font-size: 12px;
   line-height: 16px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
   font-variant-numeric: tabular-nums;
 }
 
@@ -97,6 +118,7 @@
 
 .branchButton {
   width: 100%;
+  min-height: var(--lfs-control-h, 30px);
   justify-content: flex-start;
 }
 
@@ -132,7 +154,7 @@
 .branchItemHead {
   flex: none;
   font-family: var(--ds-font-family-code);
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--dsw-alias-label-tertiary);
 }
 
@@ -153,7 +175,7 @@
   align-items: center;
   gap: 6px;
   width: 100%;
-  min-height: 28px;
+  min-height: var(--lfs-row-h, 30px);
   padding: 4px 8px 4px calc(6px + var(--files-depth) * 14px);
   border: 0;
   border-radius: var(--dsw-radius-sm);
@@ -248,7 +270,7 @@
   margin-left: 8px;
   color: var(--dsw-alias-label-tertiary);
   font-family: var(--ds-font-family-code);
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 400;
 }
 
@@ -315,7 +337,11 @@
   padding: 4px 8px 4px calc(26px + var(--files-depth) * 14px);
   border: 0;
   background: none;
-  color: var(--dsw-alias-link);
+  /* Light theme: the shared link (deepseek-500 #4176e6) is 4.23:1 on the
+     sidebar at 12.5px; deepseek-600 (#4868b2) is 5.39:1. Dark keeps the
+     shared token. A disabled control is exempt (WCAG 1.4.3), so it stays
+     tertiary. */
+  color: var(--dsw-static-deepseek-600);
   font: inherit;
   font-size: 12.5px;
   line-height: 18px;
@@ -333,17 +359,29 @@
   cursor: default;
 }
 
+:global(body[data-ds-dark-theme]) .linkButton:not(:disabled) {
+  color: var(--dsw-alias-link);
+}
+
 /* ---------- open files and the viewer ---------- */
+
+.tabsRow {
+  display: flex;
+  flex: none;
+  align-items: stretch;
+  min-width: 0;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+}
 
 .tabs {
   display: flex;
-  flex: none;
+  flex: 1;
   align-items: center;
   gap: 2px;
+  min-width: 0;
   height: 40px;
   padding: 0 6px;
   overflow-x: auto;
-  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
 }
 
 .tab {
@@ -407,9 +445,11 @@
 }
 
 .viewer {
+  display: flex;
   flex: 1;
+  flex-direction: column;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   padding: 12px;
 }
 
@@ -421,7 +461,15 @@
 
 .readBlock,
 .diffBlock {
+  /* The primitive reads code at 11px; the floor is 12px at every size. Its
+     font shorthand resolves this custom property, and the toolbar inherits. */
+  --dsw-font-markdown-code-block: 12px/20px var(--ds-font-family-code);
   margin: 0;
+}
+
+.readBlock > div:first-child,
+.diffBlock > div:first-child {
+  font-size: 12px;
 }
 
 .fileFoot {
@@ -516,12 +564,13 @@
 
 .diffPath {
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
   font-family: var(--ds-font-family-code);
   font-size: 12.5px;
   line-height: 18px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+  white-space: normal;
   color: var(--dsw-alias-label-secondary);
 }
 
@@ -539,15 +588,20 @@
 
 .fileView {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 10px;
-  min-height: 100%;
+  min-height: 0;
 }
 
 .modeBar {
   display: flex;
   flex: none;
   justify-content: flex-end;
+}
+
+.modeBar [role="tab"] {
+  min-height: var(--lfs-control-h, 30px);
 }
 
 .modeBar [role="tablist"] { width: min(100%, 246px); }
@@ -558,6 +612,7 @@
   flex: 1;
   flex-direction: column;
   min-height: 0;
+  overflow: auto;
 }
 
 .blame {
@@ -630,7 +685,7 @@
   flex-wrap: wrap;
   gap: 0 8px;
   min-width: 0;
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 16px;
   color: var(--dsw-alias-label-tertiary);
 }
@@ -720,7 +775,8 @@
   gap: 1px;
   width: 100%;
   min-width: 0;
-  padding: 5px 8px;
+  min-height: var(--lfs-row-h, 30px);
+  padding: 6px 8px;
   border: 0;
   border-radius: var(--dsw-radius-sm);
   background: none;
@@ -875,4 +931,234 @@
 .compare .diffFrame {
   min-height: 0;
   overflow: hidden;
+}
+
+/* ---------- tablet and phone: the tree is a drawer ---------- */
+
+@media (max-width: 834px) {
+  .frame {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  /* A full-screen drawer: the page around it scrolls, the tree does not. */
+  .side {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: none;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: var(--lfs-safe-bottom, 0px);
+    border-right: 0;
+    border-bottom: 0;
+  }
+
+  .side[data-open] {
+    display: flex;
+  }
+
+  .sideHead {
+    padding: 10px max(10px, var(--lfs-safe-right, 0px)) 8px max(10px, var(--lfs-safe-left, 0px));
+  }
+
+  .drawerClose {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+    padding: 0;
+    border: 0;
+    border-radius: var(--dsw-radius-sm);
+    background: none;
+    color: var(--dsw-alias-label-secondary);
+    cursor: pointer;
+  }
+
+  .treeToggle {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    align-self: center;
+    width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+    margin-left: 6px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--dsw-radius-sm);
+    background: none;
+    color: var(--dsw-alias-label-secondary);
+    cursor: pointer;
+  }
+
+  .treeToggle[aria-expanded='true'] {
+    background: var(--dsw-alias-interactive-bg-active);
+    color: var(--dsw-alias-label-primary);
+  }
+
+  .tabs {
+    height: var(--lfs-row-h, 44px);
+    padding-right: 0;
+  }
+
+  .modeBar [role="tablist"] {
+    width: 100%;
+  }
+
+  .viewer {
+    padding: 10px;
+  }
+}
+
+/* A finger gets a full row and a full control, whatever the width. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .treeRow {
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+
+  .linkButton {
+    display: flex;
+    align-items: center;
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .find,
+  .find input {
+    height: var(--lfs-control-h, 44px);
+    min-height: var(--lfs-control-h, 44px);
+  }
+
+  .tab {
+    height: var(--lfs-row-h, 44px);
+  }
+
+  .tabOpen {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .tabClose {
+    width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+  }
+
+  .modeBar [role="tab"] {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .readBlock button,
+  .diffBlock button {
+    min-width: var(--lfs-tap, 44px);
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .readBlock > div:first-child,
+  .diffBlock > div:first-child {
+    min-height: var(--lfs-tap, 44px);
+  }
+}
+
+/* A comparison at phone width: one side per line, the change list bounded. */
+@container files-main (max-width: 640px) {
+  .compareEnd {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+  }
+
+  .compareEnd .branchButton {
+    flex: 1;
+    width: auto;
+  }
+
+  .compareArrow {
+    display: none;
+  }
+
+  .compareSwap {
+    margin-left: auto;
+  }
+
+  .revisionList {
+    max-height: 46vh;
+    overflow: auto;
+  }
+
+  .revisionDiff {
+    padding: 10px;
+  }
+}
+
+/* The Branch menu is a phone sheet: it fits the width and each row is a thumb target. */
+.branchMenu {
+  max-width: min(360px, calc(100vw - 24px));
+}
+
+@media (max-width: 1180px), (pointer: coarse) {
+  .branchMenu [role="menuitem"] {
+    min-height: var(--lfs-tap, 44px);
+  }
+}
+
+/* The menu's group words (Published / Branches) read at the same floor as the rows. */
+.branchMenu [class*="_label_"] {
+  font-size: 12px;
+}
+
+/* Long names and messages read whole instead of ending in an ellipsis: the row
+   grows rather than clipping what the reader came for. */
+@media (max-width: 834px) {
+  .treeName,
+  .treePath,
+  .treeSecondary {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+@container files-main (max-width: 640px) {
+  .revisionTitle,
+  .blameMessage,
+  .diffPath {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .treePath {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .diffHead {
+    flex-wrap: wrap;
+  }
+}
+
+/* A change's kind rides at the same floor as its path. */
+.changeTag {
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* The compare bar's actions are thumb targets too. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .compareBar button,
+  .diffHead button {
+    min-height: var(--lfs-tap, 44px);
+  }
+}
+
+/* A changed path wraps in the change list rather than ending in an ellipsis. */
+.changeList .treePath {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }

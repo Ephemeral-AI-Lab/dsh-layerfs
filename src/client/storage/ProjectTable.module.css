@@ -5,10 +5,14 @@
    Hover affordances sit under @media (hover: hover). */
 
 /* On the shared Card (ui.module.css), like the Machines table. */
+.frame {
+  min-width: 0;
+  container-type: inline-size;
+}
+
 .card {
   overflow: hidden;
   padding: 0;
-  container-type: inline-size;
 }
 
 .table {
@@ -56,10 +60,10 @@
   min-height: 0;
   padding-block: 9px;
   background: transparent;
-  font-size: 11.5px;
-  line-height: 16px;
+  font-size: 12px;
+  line-height: 17px;
   font-weight: 500;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
   cursor: default;
 }
 
@@ -76,6 +80,7 @@
 }
 
 .toggle {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -130,7 +135,7 @@
 .nameLine {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
 }
 
@@ -141,7 +146,13 @@
   min-width: 0;
   font-size: 12px;
   line-height: 16px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* The phone card's second line (when a session last changed): the desktop
+   column carries the same figure, so only one of the two shows. */
+.phoneWhen {
+  display: none;
 }
 
 /* A history LayerFS could not read: its dot (the tip and the fix) and the word. */
@@ -160,7 +171,7 @@
   border-radius: 4px;
   background: var(--dsw-alias-settings-card-fill);
   font-family: var(--ds-font-family-code);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--dsw-alias-label-secondary);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -171,13 +182,13 @@
   flex: none;
   align-items: center;
   gap: 5px;
-  padding: 0 7px;
+  padding: 0 5px;
   border: 0.5px solid var(--lf-tone-success-border);
   border-radius: 999px;
   corner-shape: round;
   background: var(--lf-tone-success-bg);
-  font-size: 11px;
-  line-height: 16px;
+  font-size: 12px;
+  line-height: 17px;
   font-variant-numeric: tabular-nums;
   color: var(--lf-tone-success-fg);
   white-space: nowrap;
@@ -273,6 +284,7 @@
 /* A cell that opens something (the Store, a list): quiet text, no chrome. */
 .store,
 .cellLink {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -300,6 +312,20 @@
   }
 }
 
+/* The chevron stays 12x20 and a count stays 8x20, but the button around
+   them offers a 44x44 target at every pointer: the box is drawn by a pseudo
+   element, so the table's columns do not move. */
+.toggle::after,
+.cellLink::after {
+  content: '';
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 0;
+  width: max(44px, 100%);
+  height: max(44px, 100%);
+  transform: translateY(-50%);
+}
+
 .ellipsis {
   min-width: 0;
   overflow: hidden;
@@ -319,7 +345,7 @@
 }
 
 .muted {
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .dim {
@@ -410,7 +436,7 @@
   padding: 4px 0;
   font-size: 12.5px;
   line-height: 18px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .error {
@@ -463,7 +489,7 @@
   margin-left: 8px;
   font-family: var(--ds-font-family-code);
   font-size: 11.5px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
 }
 
 /* A hairline between the list switch and the add verb. */
@@ -564,29 +590,232 @@
   }
 }
 
-/* A phone: the name keeps the room. Sessions and Sandboxes leave the row (the
-   chevron still opens either list, and "N running" stays by the name); the
-   row keeps its name, when a session last changed and its menu. */
-@container (max-width: 480px) {
-  .table,
-  .table[data-store-column] {
-    grid-template-columns: 20px minmax(0, 1fr) minmax(56px, auto) 28px;
-    column-gap: 10px;
-  }
-
-  .colSessions,
-  .colSandboxes {
-    display: none;
-  }
-
-  .row {
-    padding-inline: 8px;
-  }
-}
-
 /* A heading never spills into the next column. */
 .head > [role='columnheader'] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Touch: the chevron, the add verb and the row menu are thumb targets. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .toggle {
+    width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+  }
+
+  .add {
+    height: var(--lfs-tap, 44px);
+  }
+
+  .head {
+    font-size: 12px;
+  }
+}
+
+/* Touch: a name/store/cell link is a row target, not a 20px line. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .name,
+  .store,
+  .cellLink,
+  .line {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .row button {
+    min-width: var(--lfs-tap, 44px);
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .runningPill {
+    font-size: 12px;
+  }
+}
+
+/* Small tablet: Store and Size leave the row; the rest keep six columns. */
+@container (max-width: 780px) {
+  .table,
+  .table[data-store-column] {
+    grid-template-columns: var(--lfs-tap, 44px) minmax(0, 1fr) 64px 72px minmax(84px, auto) var(--lfs-tap, 44px);
+  }
+
+  .colSize,
+  .colStore {
+    display: none;
+  }
+}
+
+/* A phone: the table is a stack of cards. One line carries the name and its
+   running pill, the next when a session last changed, and the row's menu sits
+   at the right. The desktop column headings and the figure cells leave the
+   card; the chevron still opens either list, and the menu keeps every action. */
+@container (max-width: 480px) {
+  /* doubled: the shared Card's own chrome must lose to the phone's stack of
+     cards, whatever order the two stylesheets load in. */
+  .card.card {
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  /* One card per row: a single-track table whose group draws the card, and a
+     row that owns its three columns (a nested subgrid would size its tracks
+     from the table while the row's own padding shrank them). */
+  .table,
+  .table[data-store-column] {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 10px;
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: var(--lfs-tap, 44px) minmax(0, 1fr) var(--lfs-tap, 44px);
+    column-gap: 8px;
+  }
+
+  .group {
+    display: block;
+  }
+
+  .head {
+    display: none;
+  }
+
+  .colSession,
+  .colWhen,
+  .colCommits,
+  .colBranches,
+  .colSize,
+  .colStore,
+  .colSessions,
+  .colSandboxes {
+    display: none;
+  }
+
+  .group {
+    overflow: hidden;
+    border: 0.5px solid var(--dsw-alias-border-l2);
+    border-radius: 12px;
+    background: var(--dsw-alias-bg-layer-1);
+  }
+
+  .group + .group,
+  .head + .group {
+    border-top: 0.5px solid var(--dsw-alias-border-l2);
+  }
+
+  .table > .group + .group {
+    margin-top: 0;
+  }
+
+  .table[data-store-column] .group > .row,
+  .table:not([data-store-column]) .group > .row {
+    min-height: 0;
+    padding: 8px 10px 8px 6px;
+  }
+
+  .identity,
+  .table[data-store-column] .identity {
+    gap: 8px;
+  }
+
+  .nameLine {
+    gap: 6px;
+  }
+
+  .name,
+  .table[data-store-column] .name {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .phoneWhen {
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    min-width: 0;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--dsw-alias-label-secondary);
+    white-space: nowrap;
+  }
+
+  .phoneWhenLabel {
+    color: var(--dsw-alias-label-secondary);
+  }
+
+  .phoneWhenValue {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .commitLine {
+    font-size: 12px;
+  }
+
+  /* a phone card is not a column: the save's line wraps instead of ending in
+     an ellipsis that hides the rest of the message */
+  .commitLine .ellipsis,
+  .commitLine .branch {
+    overflow: visible;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+  }
+
+  .actions {
+    align-self: center;
+    justify-content: flex-end;
+  }
+
+  .job {
+    padding: 0 10px 10px 6px;
+  }
+
+  .detail {
+    padding: 0 8px 8px;
+  }
+}
+
+
+/* The first card's first paint (before the table's grid): one line with the
+   fields already known, in the card's frame. The full table replaces it on the
+   next frame. */
+.earlyCard {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  min-height: 60px;
+  padding: 18px 16px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-lg, 12px);
+  background: var(--dsw-alias-bg-module-platform);
+}
+
+.earlySep {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.earlyFacts {
+  margin-left: auto;
+  overflow: hidden;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 640px) {
+  .earlyFacts {
+    width: 100%;
+    margin-left: 0;
+  }
 }

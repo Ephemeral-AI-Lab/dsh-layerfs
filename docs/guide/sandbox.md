@@ -139,8 +139,12 @@ gone, a refused read stops polling (**Stopped reading**).
 - **A project conversation's Sandbox** (named `dsh-…`, on native for `handbook`): its
   Workspace is the conversation's. **Delete Sandbox…** closes it the way the conversation
   does: a checkpoint is saved first (`workspace status`, `workspace commit`), then
-  `sandbox remove --force`.
-- **native** Sandboxes run as host processes: the Image fact reads **None · host
+  `sandbox remove --force`. It is session-owned today: its card on the project's
+  Sandboxes tab carries a quiet **Session** tag (hover: *This Sandbox belongs to one
+  conversation and is removed when it closes.*), and it is removed when the conversation
+  closes. A project-owned Sandbox (one per project) was considered and is not planned.
+- **native** Sandboxes run as host processes (native is a machine like any other): the
+  Image fact reads **None · host
   processes**, and the Usage card shows the whole machine, muted, with why.
 - **A gone Sandbox** (its daemon ended with the machine): no **New workspace**, the Daemon
   card says **Daemon not running**, and its card on the machine page offers **Close**.

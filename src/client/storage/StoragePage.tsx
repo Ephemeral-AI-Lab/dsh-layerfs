@@ -183,12 +183,12 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
   const storage = useQuery(() => {
     const path = freshInventory.current ? '/api/storage?fresh=1' : '/api/storage'
     freshInventory.current = false
-    return api.call<StorageView>('GET', path)
+    return api.call<StorageView>('GET', path, undefined, { share: true })
   }, [api], { cache: 'GET /api/storage' })
   const catalogRead = useQuery(() => {
     const path = freshCatalog.current ? '/api/projects?fresh=1' : '/api/projects'
     freshCatalog.current = false
-    return api.call<ProjectSummary[]>('GET', path)
+    return api.call<ProjectSummary[]>('GET', path, undefined, { share: true })
   }, [api], { cache: 'GET /api/projects' })
   const doctor = useDoctorCount(api, checks)
   const { jobs, dismissed, dismiss, take } = useStorageJobs(api, storage.data?.jobs)
@@ -243,7 +243,8 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
       freshCatalog.current = true
       reloadCatalog()
     }
-    if (fleetPage) mc.reload()
+    // A refresh must not reuse a shared answer: recheck reads the host past its view cache too.
+    if (fleetPage) void mc.recheck()
   }
 
   // The machines board is the Overview's Machines tab: `machines` opens that tab.

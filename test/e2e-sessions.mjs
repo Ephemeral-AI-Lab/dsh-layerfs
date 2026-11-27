@@ -15,8 +15,8 @@ import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { openDev, runTurn } from '../tools/e2e-lib.mjs'
-import { dismiss, openPanel } from '../tools/ui.mjs'
+import { createStore, E2E_MACHINE, openDev, runTurn } from '../tools/e2e-lib.mjs'
+import { dismiss } from '../tools/ui.mjs'
 
 const step = (m) => console.log(`\n== ${m}`)
 const { browser, page, logs } = await openDev()
@@ -25,6 +25,16 @@ const op = (name, args = {}) => page.evaluate(async ([n, a]) => {
   try { return { ok: true, value: await window.__dshLayerfs.op(n, a) } } catch (e) { return { ok: false, code: e.code, message: e.message } }
 }, [name, args])
 const must = async (name, args) => { const r = await op(name, args); if (!r.ok) throw new Error(`${name}: ${r.code} ${r.message}`); return r.value }
+/** Every retained receipt, one bounded page at a time: annotations answers metadata only. */
+const receiptsOf = async (sessionId) => {
+  const rows = []
+  for (let from = 0; ;) {
+    const page = await must('session.receipts', { sessionId, from, limit: 1000 })
+    rows.push(...page.invocations)
+    from = page.from + page.invocations.length
+    if (!page.invocations.length || from >= page.total) return rows
+  }
+}
 // A session in the currently selected workspace, placed in the project.
 const openProject = (key) => page.evaluate(async (k) => window.__dshLayerfs.openProjectSession(k), key)
 const http = async (method, path, body) => {
@@ -38,9 +48,48 @@ const until = async (what, fn, ms = 30000) => {
   for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) throw new Error(`timed out: ${what}`); await sleep(500) }
 }
 
+// A binding's `mount` is a host path only on `native`; on docker the Workspace
+// lives inside the Sandbox. Read the session Branch at its head through the
+// host API there (`file stat` + `file read`, the same call the Files tab makes).
+const savedFile = async (binding, path) => {
+  const branch = binding.branch
+  if (!branch) throw new Error(`no Branch on the binding for ${path}`)
+  const r = await op('http', { method: 'GET', path: `/api/projects/${encodeURIComponent(binding.project ?? project)}/file?branch=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}` })
+  if (!r.ok) throw new Error(`file ${path}: ${r.code} ${r.message}`)
+  return r.value
+}
+const hasSavedFile = async (binding, path) => {
+  const r = await savedFile(binding, path)
+  return r.status >= 200 && r.status < 300
+}
+const savedText = async (binding, path) => {
+  const r = await savedFile(binding, path)
+  if (r.status < 200 || r.status >= 300) throw new Error(`file ${path}: ${r.status} ${JSON.stringify(r.body)}`)
+  if (r.body?.binary) throw new Error(`file ${path} is binary`)
+  return r.body?.text ?? ''
+}
+
+// Home's head card: the current UI keeps Doctor/Logs/Settings as buttons in
+// the `Home navigation` header (the old `Health, Logs and Settings` nav it had
+// when tools/ui.openPanel was written is gone).
+const openLogs = async () => {
+  await dismiss(page)
+  const bar = page.locator('header[aria-label="Home navigation"]')
+  if (!(await bar.isVisible().catch(() => false))) {
+    await page.getByRole('navigation', { name: 'Global panels' }).getByRole('button', { name: 'LayerFS', exact: true }).first().click()
+    await bar.waitFor({ timeout: 15000 })
+  }
+  const logs = bar.getByRole('button', { name: /^Logs\b/ }).first()
+  await logs.waitFor({ timeout: 15000 })
+  await logs.click()
+  await page.waitForTimeout(1500)
+}
+
 const projectCommand = (command) => `bash: "$DSH_LAYERFS_CLI" workspace exec "$DSH_LAYERFS_WS" ${JSON.stringify(command)} --stream`
 
 const tag = Date.now().toString(36)
+// The Store (and so the project) runs on this machine; native when unset.
+const machine = E2E_MACHINE ?? 'native'
 const store = `e2e${tag}`, name = 'demo', project = `${store}/${name}`
 let failed = false
 try {
@@ -50,7 +99,7 @@ try {
   const src = mkdtempSync(join(fixtureRoot, 'sessions-'))
   writeFileSync(join(src, 'README.md'), '# demo\n')
   mkdirSync(join(src, 'src')); writeFileSync(join(src, 'src', 'main.js'), 'console.log(1)\n')
-  await http('POST', '/api/stores', { name: store })
+  await createStore(http, store)
   const init = await http('POST', '/api/projects', { store, name, source: src })
   await until('project init', async () => (await http('GET', `/api/project-inits/${init.id}`)).step === 'done', 60000)
 
@@ -88,16 +137,24 @@ try {
   const b = state.binding
   console.log({ branch: b.branch, sandbox: b.sandbox, mount: b.mount, scratch: b.scratch })
   assert.equal(b.project, project)
-  assert.ok(existsSync(join(b.mount, 'one.txt')), 'one.txt in the mount')
-  assert.ok(existsSync(join(b.mount, 'README.md')), 'project files in the mount')
+  if (machine === 'native') {
+    assert.ok(existsSync(join(b.mount, 'one.txt')), 'one.txt in the mount')
+    assert.ok(existsSync(join(b.mount, 'README.md')), 'project files in the mount')
+    assert.ok(!existsSync(join(b.mount, 'scratch-note.txt')), 'scratch writes stay outside project')
+  } else {
+    assert.match(await savedText(b, '/one.txt'), /one/, 'one.txt on the session Branch')
+    assert.ok(await hasSavedFile(b, '/README.md'), 'project files on the session Branch')
+    assert.equal(await hasSavedFile(b, '/scratch-note.txt'), false, 'scratch writes stay outside the project Branch')
+  }
   assert.equal(b.scratch, scratch, 'chosen local folder retained at materialization')
   assert.ok(existsSync(b.scratch), 'scratch folder')
   assert.ok(existsSync(join(b.scratch, 'scratch-note.txt')), 'local shell writes selected scratch')
-  assert.ok(!existsSync(join(b.mount, 'scratch-note.txt')), 'scratch writes stay outside project')
   const annotations = await must('session.annotations', { sessionId: sid })
-  const execs = annotations.invocations.filter((item) => item.operation === 'workspace.exec')
+  assert.equal('invocations' in annotations, false, 'annotations answers metadata, not the receipts')
+  const receipts = await receiptsOf(sid)
+  const execs = receipts.filter((item) => item.operation === 'workspace.exec')
   assert.ok(execs.length > 0 && execs.every((item) => item.origin === 'tool' && item.toolCallId && item.versions.length === 0), 'exec calls retain exact tool identities with no checkpoint links')
-  assert.ok(annotations.invocations.some((item) => item.operation === 'workspace.commit' && item.origin === 'host' && item.versions.some((version) => version.effect === 'created')), 'host save owns its confirmed checkpoint')
+  assert.ok(receipts.some((item) => item.operation === 'workspace.commit' && item.origin === 'host' && item.versions.some((version) => version.effect === 'created')), 'host save owns its confirmed checkpoint')
   const cp1 = state.checkpoints.find((c) => c.kind === 'turn')
   assert.ok(cp1.commit, 'turn 1 committed')
 
@@ -108,7 +165,8 @@ try {
     const s = await must('session.state', { sessionId: sid })
     return s.checkpoints.filter((c) => c.kind === 'turn' && c.commit).length >= 2 ? s : null
   })
-  assert.ok(existsSync(join(state.binding.mount, 'two.txt')))
+  if (machine === 'native') assert.ok(existsSync(join(state.binding.mount, 'two.txt')))
+  else assert.match(await savedText(state.binding, '/two.txt'), /two/, 'two.txt on the session Branch')
 
   step('unchanged turn records no commit')
   const t3 = await runTurn(page, { message: 'bash: ls', newSession: false })
@@ -119,10 +177,14 @@ try {
 
   step('restore files to turn 1')
   const restored = await must('checkpoints.restore', { sessionId: sid, commit: cp1.commit })
-  const mount = restored.binding.mount
-  assert.ok(existsSync(join(mount, 'one.txt')), 'one.txt after restore')
-  assert.ok(!existsSync(join(mount, 'two.txt')), 'two.txt gone after restore')
-  console.log({ restoredBranch: restored.binding.branch, mount })
+  if (machine === 'native') {
+    assert.ok(existsSync(join(restored.binding.mount, 'one.txt')), 'one.txt after restore')
+    assert.ok(!existsSync(join(restored.binding.mount, 'two.txt')), 'two.txt gone after restore')
+  } else {
+    assert.match(await savedText(restored.binding, '/one.txt'), /one/, 'one.txt after restore')
+    assert.equal(await hasSavedFile(restored.binding, '/two.txt'), false, 'two.txt gone after restore')
+  }
+  console.log({ restoredBranch: restored.binding.branch, mount: restored.binding.mount })
 
   step('branch the session at turn 1')
   await sleep(1500)
@@ -140,10 +202,14 @@ try {
     return s.binding?.state === 'bound' ? s : null
   })
   assert.equal(cstate.binding.from?.session, sid)
-  assert.ok(existsSync(join(cstate.binding.mount, 'one.txt')), 'child has turn 1 files')
-  assert.ok(!existsSync(join(cstate.binding.mount, 'two.txt')), 'child lacks turn 2 files')
-  const listing = readFileSync(join(cstate.binding.mount, 'listing.txt'), 'utf8')
-  assert.match(listing, /one\.txt/)
+  if (machine === 'native') {
+    assert.ok(existsSync(join(cstate.binding.mount, 'one.txt')), 'child has turn 1 files')
+    assert.ok(!existsSync(join(cstate.binding.mount, 'two.txt')), 'child lacks turn 2 files')
+  } else {
+    assert.match(await savedText(cstate.binding, '/one.txt'), /one/, 'child has turn 1 files')
+    assert.equal(await hasSavedFile(cstate.binding, '/two.txt'), false, 'child lacks turn 2 files')
+  }
+  assert.match(machine === 'native' ? readFileSync(join(cstate.binding.mount, 'listing.txt'), 'utf8') : await savedText(cstate.binding, '/listing.txt'), /one\.txt/)
 
   step('LayerFS session store')
   await must('session.mirror', { sessionId: sid })
@@ -205,7 +271,7 @@ try {
   // ⚙ opens the project dialog in configure mode (docs/specs/layerfs-workspaces.md §3).
   const setup = page.getByRole('dialog', { name, exact: true })
   await setup.getByText('Machine', { exact: true }).waitFor({ timeout: 15000 })
-  await setup.locator(`[data-machine="native"][aria-checked="true"]`).waitFor()
+  await setup.locator(`[data-machine="${machine}"][aria-checked="true"]`).waitFor()
   await setup.getByRole('button', { name: 'Done', exact: true }).click()
   await setup.waitFor({ state: 'detached' })
   // The header's + → Other project… opens the picker; there is no Projects page.
@@ -225,8 +291,13 @@ try {
     return s.binding?.state === 'bound' ? s : null
   })
   assert.equal(pstate.binding.project, project, 'the picked project')
-  assert.ok(existsSync(join(pstate.binding.mount, 'picked.txt')))
-  assert.ok(existsSync(join(pstate.binding.mount, 'README.md')), 'project files')
+  if (machine === 'native') {
+    assert.ok(existsSync(join(pstate.binding.mount, 'picked.txt')))
+    assert.ok(existsSync(join(pstate.binding.mount, 'README.md')), 'project files')
+  } else {
+    assert.match(await savedText(pstate.binding, '/picked.txt'), /picked/, 'picked.txt on the session Branch')
+    assert.ok(await hasSavedFile(pstate.binding, '/README.md'), 'project files on the session Branch')
+  }
   await view.locator('[data-layerfs-view-switch]').click()
   await page.locator('[data-slot="sidebar.workspaces"] [data-row-key^="workspace:"]').first().waitFor({ timeout: 15000 })
   assert.equal(await view.count(), 0, 'switching back restores the stock browser')
@@ -248,7 +319,7 @@ try {
   // One page: Name and the Save to list (docs/specs/layerfs-workspaces.md §3); the chosen row opens in place.
   await draft.getByLabel('Name', { exact: true }).fill('blank')
   await draft.getByRole('radio', { name: new RegExp(`^\\s*${store.replace(/[.]/g, '\\.')}\\b`) }).click()
-  // The fixture Store is on native: it stays there (no Move).
+  // The fixture Store keeps its own machine (native or DSH_E2E_MACHINE): no Move.
   await draft.getByRole('button', { name: 'Create and open' }).click()
   await draft.waitFor({ state: 'detached', timeout: 60000 })
   await until('hero on the new project', async () => (await page.locator('[data-layerfs-hero] button[aria-label^="LayerFS project:"]').first().innerText().catch(() => '')).trim() === 'blank', 60000)
@@ -289,7 +360,7 @@ try {
   assert.equal(commitLine.dsh?.match, 'tag')
   assert.equal(commitLine.dsh?.turn, bound[0].turn, 'the line is labelled with its turn')
   assert.equal(commitLine.dsh?.checkpoint?.kind, 'turn')
-  await openPanel(page, 'Logs')
+  await openLogs()
   await page.getByRole('heading', { name: 'Logs', level: 1 }).waitFor({ timeout: 15000 })
   const logRows = page.getByRole('table', { name: 'Calls' }).locator('tbody tr')
   const commitRow = logRows.filter({ hasText: 'layerfs workspace commit' }).filter({ hasText: `turn ${bound[0].turn}` }).first()
@@ -308,11 +379,11 @@ try {
   await detail.getByRole('button', { name: 'Calls of this checkpoint', exact: true }).waitFor({ timeout: 10000 })
   const stdout = detail.getByTestId('logs-detail-output').locator('pre[data-stream=stdout]')
   await stdout.waitFor({ timeout: 15000 })
-  assert.match(await stdout.innerText(), /Committed/, 'the output section shows the stored stdout')
+  assert.match(await stdout.innerText(), /committed/, 'the output section shows the stored stdout (the CLI word is lower-case)')
   await page.screenshot({ path: '/tmp/e2e-sessions-logs-detail.png' })
   await detail.getByRole('button', { name: 'Close', exact: true }).click()
   await detail.waitFor({ state: 'detached', timeout: 10000 })
-  await page.getByRole('button', { name: 'Reset…', exact: true }).click()
+  await page.getByRole('button', { name: 'Reset', exact: true }).click()
   const resetDialog = page.getByRole('dialog')
   await resetDialog.getByText('Reset the call log?').waitFor({ timeout: 10000 })
   await resetDialog.getByRole('button', { name: 'Reset', exact: true }).click()

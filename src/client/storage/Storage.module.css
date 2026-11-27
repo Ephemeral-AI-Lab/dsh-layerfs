@@ -11,6 +11,21 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+/* The quiet Session tag on a Sandbox card (parts.tsx SessionTag): the card's one owner, not a control. */
+.sessionTag {
+  flex-shrink: 0;
+  margin-right: 6px;
+  padding: 0 6px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  corner-shape: round;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
 .srOnly {
   position: absolute;
   width: 1px;
@@ -511,16 +526,43 @@
 /* the project page's tab bar (ui/TabBar.tsx) sits where the pane bar was */
 .projectTabs {
   margin-top: var(--lfs-page-top-inset);
+  /* the page column already gives the bar its gutter: no -4px bleed that
+     would add 4px to the page's scrollWidth at every width */
+  margin-inline: 0;
+}
+
+/* doubled: TabBar's own bar rule carries the -4px gutter bleed */
+.projectTabs.projectTabs {
+  margin-inline: 0;
 }
 
 .fillPanel {
-  height: max(360px, calc(100vh - 156px));
+  height: var(--lfs-fill-height, max(360px, calc(100vh - 156px)));
 }
 
 /* ---------- dialogs ---------- */
 
 .modal {
   width: min(560px, calc(100vw - 32px));
+  /* DSH's modal root pads 24px; the card never grows past that box. Its body
+     scrolls, so a long form (Connect a database, Add bucket) stays reachable
+     on a phone and its footer sits above the home indicator. */
+  max-height: 100%;
+  padding-bottom: calc(24px + var(--lfs-safe-bottom, 0px));
+}
+
+.modal > :global([class*='_content_']) {
+  min-height: 0;
+}
+
+.modal :global([class*='_body_']) {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.modal :global([class*='_title_']) {
+  overflow-wrap: anywhere;
 }
 
 .form {
@@ -531,9 +573,10 @@
 
 .modalFooter {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px 12px;
   width: 100%;
 }
 
@@ -1391,12 +1434,12 @@
   font-weight: 500;
 }
 .rotateSideTag {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--dsw-alias-label-secondary);
 }
 .rotateSideHost {
   font-family: var(--dsw-font-mono, ui-monospace, monospace);
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--dsw-alias-label-secondary);
 }
 .rotateSideStatus {
@@ -1414,4 +1457,243 @@
   line-height: 17px;
   color: var(--dsw-alias-label-secondary);
   overflow-wrap: anywhere;
+}
+
+/* Touch: 12px floor on the small state words, and thumb-sized dialog actions. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .sessionTag,
+  .rotateSideTag,
+  .rotateSideHost,
+  .rotateSidePlace {
+    font-size: 12px;
+  }
+
+  .modalActions > button,
+  .modalFooter > button {
+    min-height: var(--lfs-tap, 44px);
+  }
+}
+
+
+/* Touch: a dialog's close, its fields and its actions are thumb targets, and
+   an input's text stays at 16px so iOS does not zoom the page on focus. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .modal :global(button) {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .modal :global(button[aria-label]) {
+    min-width: var(--lfs-tap, 44px);
+  }
+
+  .modal :global([class*='_wrap_']) {
+    height: var(--lfs-tap, 44px);
+  }
+
+  .modal :global([class*='_input_']) {
+    height: var(--lfs-tap, 44px);
+    font-size: 16px;
+  }
+
+  .storeDetailsSummary {
+    min-height: var(--lfs-tap, 44px);
+    padding-block: 8px;
+  }
+
+  .paneIconButton {
+    width: var(--lfs-tap, 44px);
+    min-width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+  }
+
+  .paneBarActions > button,
+  .paneBarActions > a {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .paneBarActions :global(button) {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .job :global(button) {
+    min-height: var(--lfs-tap, 44px);
+  }
+}
+
+/* A phone: a table becomes a stack of cards. Each body is a card, each row a
+   block of label/value lines (the cell's data-label carries the desktop
+   heading), and the row's actions keep a full-width line of their own. */
+@media (max-width: 640px) {
+  .tableCard {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+
+  .table {
+    display: block;
+    width: 100%;
+    font-size: 13px;
+  }
+
+  .table thead {
+    display: none;
+  }
+
+  .table tbody {
+    display: block;
+    margin-bottom: 10px;
+    overflow: hidden;
+    border: 0.5px solid var(--dsw-alias-settings-card-stroke);
+    border-radius: 12px;
+    background: var(--dsw-alias-bg-base);
+  }
+
+  .table tbody:last-child {
+    margin-bottom: 0;
+  }
+
+  .table tbody tr {
+    display: block;
+    padding: 10px 14px;
+  }
+
+  .table tbody tr + tr {
+    border-top: 0.5px solid var(--dsw-alias-border-l2);
+  }
+
+  .table tbody tr + tr td,
+  .table tbody tr td {
+    border-top: 0;
+  }
+
+  .table td {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 28px;
+    padding: 4px 0;
+    text-align: start;
+  }
+
+  .table td[data-label]::before {
+    content: attr(data-label);
+    flex: none;
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--dsw-alias-label-tertiary);
+  }
+
+  .table td > * {
+    min-width: 0;
+  }
+
+  .table td[data-card-title] {
+    display: block;
+    padding-bottom: 6px;
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  .table td[data-card-title]::before {
+    display: none;
+  }
+
+  .table td[data-card-title] .mono,
+  .table td.mono {
+    overflow-wrap: anywhere;
+  }
+
+  .table .groupRow,
+  .table .groupRow th {
+    display: block;
+    padding: 0;
+    border: 0;
+  }
+
+  .table .groupRow th {
+    padding: 9px 14px;
+    border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+    background: var(--dsw-alias-settings-card-fill);
+    font-size: 12px;
+  }
+
+  .table .wide {
+    display: flex;
+  }
+
+  .table .num {
+    text-align: start !important;
+  }
+
+  .table .actionsCell {
+    justify-content: flex-end;
+    gap: 8px;
+    padding-top: 8px;
+  }
+
+  .table .actionsCell:empty {
+    display: none;
+  }
+
+  .table .linkList {
+    justify-content: flex-end;
+    text-align: end;
+  }
+
+  .backupFactList {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 3px;
+  }
+
+  .backupFactList dt {
+    margin-top: 8px;
+  }
+
+  .backupFactList dt:first-child {
+    margin-top: 0;
+  }
+}
+
+/* Touch: a bucket or backup file's rows are entered through their names, so
+   each name link is a row-sized target, not a 20px line. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .table :global(button) {
+    min-width: var(--lfs-tap, 44px);
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .table .linkList {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .backupProjects :global(button),
+  .backupFactList :global(button) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: var(--lfs-tap, 44px);
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .dangerRow {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .dangerRow :global(button) {
+    min-height: var(--lfs-tap, 44px);
+  }
+}
+
+/* A phone: a long database target, id or path in a Store's family line wraps
+   instead of running out of the card. */
+@media (max-width: 640px) {
+  .cardSub .mono {
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
 }

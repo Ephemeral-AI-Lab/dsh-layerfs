@@ -133,29 +133,81 @@ export interface FilesAsk { path?: string | null, cursor?: string | null, depth?
 /** The files route of a machine or a Sandbox. */
 export const filesRoute = (kind: DetailKind, name: string): string => `/api/${kind === 'machine' ? 'machines' : 'sandboxes'}/${enc(name)}/files`
 
+/** One host read another caller with the same route and ask can join. */
+interface SharedRead {
+  readonly rid: string
+  readonly waiters: Set<ReadWaiter>
+}
+interface ReadWaiter {
+  readonly resolve: (view: FilesView) => void
+  readonly reject: (error: unknown) => void
+  readonly signal: AbortSignal | undefined
+  readonly onAbort: () => void
+}
+/** Identical first-page reads in flight: a tab's remount (or a second view of the same roots) joins one request. */
+const sharedReads = new Map<string, SharedRead>()
+/** A read's query, without the request's own `rid` when the key is built. */
+const askQuery = (ask: FilesAsk, rid?: string): string => q({ path: ask.path ?? undefined, cursor: ask.cursor ?? undefined, depth: ask.depth, limit: ask.limit, offset: ask.offset, length: ask.length, rid })
+
 /**
  * One files read through `queue`. It resolves with the host's answer, a
  * refusal included (`refused`, or a kept folder marked `stale`); it rejects
  * {@link Dropped} when `signal` aborts first, and with the failure when the
  * request never reached the route.
+ *
+ * Identical reads are shared: the same route and ask asked twice while the
+ * first is on the wire is one request with its own `rid`, and the first
+ * caller's abort does not drop the answer the second is waiting for. Only
+ * when the last waiter has gone is the host told `inspect.cancel`; the check
+ * waits one microtask so a remount that immediately asks again joins instead
+ * of issuing the identical roots request a second time.
  */
 export function readFiles(api: Pick<LayerfsApi, 'call' | 'op'>, queue: ReadQueue, route: string, ask: FilesAsk, signal?: AbortSignal): Promise<FilesView> {
+  if (signal?.aborted) return Promise.reject(new Dropped())
+  const key = `${route}${askQuery(ask)}`
   return queue.run(() => new Promise<FilesView>((resolve, reject) => {
-    const rid = `files-${Date.now().toString(36)}-${++requests}`
-    let settled = false
-    const gone = () => {
-      if (settled) return
-      settled = true
-      // the host stops waiting too: queued, the read never becomes a process
-      void api.op('inspect.cancel', { rid }).catch(() => {})
-      reject(new Dropped())
+    if (signal?.aborted) { reject(new Dropped()); return }
+    let flight = sharedReads.get(key)
+    if (!flight) {
+      const rid = `files-${Date.now().toString(36)}-${++requests}`
+      const started: SharedRead = { rid, waiters: new Set() }
+      flight = started
+      sharedReads.set(key, started)
+      const settle = (view: FilesView | null, error?: unknown): void => {
+        if (sharedReads.get(key) !== started) return
+        sharedReads.delete(key)
+        for (const waiter of [...started.waiters]) {
+          waiter.signal?.removeEventListener('abort', waiter.onAbort)
+          started.waiters.delete(waiter)
+          if (view) waiter.resolve(view)
+          else waiter.reject(error)
+        }
+      }
+      api.call<FilesView>('GET', `${route}${askQuery(ask, rid)}`).then(
+        (view) => settle(view),
+        (error) => settle(null, isDropped(error) ? new Dropped() : error),
+      )
     }
-    if (signal?.aborted) { settled = true; reject(new Dropped()); return }
-    signal?.addEventListener('abort', gone, { once: true })
-    api.call<FilesView>('GET', `${route}${q({ path: ask.path ?? undefined, cursor: ask.cursor ?? undefined, depth: ask.depth, limit: ask.limit, offset: ask.offset, length: ask.length, rid })}`).then(
-      (view) => { if (settled) return; settled = true; signal?.removeEventListener('abort', gone); resolve(view) },
-      (error) => { if (settled) return; settled = true; signal?.removeEventListener('abort', gone); reject(isDropped(error) ? new Dropped() : error) },
-    )
+    const running = flight
+    const waiter: ReadWaiter = {
+      resolve, reject, signal,
+      onAbort: () => {
+        if (!running.waiters.delete(waiter)) return
+        signal?.removeEventListener('abort', waiter.onAbort)
+        reject(new Dropped())
+        if (running.waiters.size) return
+        // One microtask of grace: a remount's read joins this request instead
+        // of sending the identical one again.
+        queueMicrotask(() => {
+          if (running.waiters.size || sharedReads.get(key) !== running) return
+          sharedReads.delete(key)
+          // the host stops waiting too: queued, the read never becomes a process
+          void api.op('inspect.cancel', { rid: running.rid }).catch(() => {})
+        })
+      },
+    }
+    running.waiters.add(waiter)
+    signal?.addEventListener('abort', waiter.onAbort, { once: true })
   }), signal)
 }
 

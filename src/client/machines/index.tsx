@@ -34,7 +34,8 @@ export function registerMachines(ctx: any, api: LayerfsApi, readers: readonly st
     let was = shown()
     return ctx.layout?.panelInfo?.subscribe?.(() => {
       const now = shown()
-      if (now && !was) controller.reload()
+      if (now && !was) controller.refocus()
+      else if (!now && was) controller.hide()
       was = now
     }) ?? (() => {})
   }, 'dsh-layerfs: machines panel focus')

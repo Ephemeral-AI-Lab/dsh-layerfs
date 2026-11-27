@@ -7,6 +7,7 @@
 import type { LayerfsApi } from '../api.ts'
 import { locales as listLocales, NS as LIST_NS, type ListT } from './list-locale.ts'
 import { ProjectDialogMount, setProjectDialogRenderer } from './dialog.ts'
+import { OpeningConversation } from './opening.tsx'
 import { registerWorkspacesView } from './WorkspacesView.tsx'
 import { locales as setupLocales, NS as SETUP_NS, type SetupT } from './setup/locale.ts'
 import { ProjectDialog } from './setup/ProjectDialog.tsx'
@@ -26,6 +27,13 @@ export function registerProjects(ctx: any, api: LayerfsApi): void {
   ctx.effect(() => ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
     name: 'sidebar.footer.action', id: 'dsh-layerfs.project-dialog', locale: SETUP_NS,
   }, ProjectDialogMount)), 'dsh-layerfs: project dialog host')
+  // B2: a closed project conversation takes about a second to resolve, and DSH
+  // has nothing to select before then. The frame overlay says so honestly; it
+  // never touches the Chat, the composer or the tab row.
+  ctx.effect(() => ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+    name: 'shell.overlay', id: 'dsh-layerfs.opening-conversation', locale: LIST_NS,
+    inject: () => ({ api, t: tl }),
+  }, OpeningConversation)), 'dsh-layerfs: opening conversation')
   ctx.inject(['sessions'], (scope: any) => {
     registerWorkspacesView(scope, api)
   })

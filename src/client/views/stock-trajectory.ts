@@ -26,7 +26,12 @@ interface LoaderEntry {
 }
 
 export interface StockTrajectory {
-  /** Suspend the stock entry and seat the inspection target; false when there was no live stock entry. */
+  /**
+   * Suspend the stock entry and seat the inspection target. Resolves true when
+   * the stock tab is not rendering (suspended now, no entry, or already
+   * disabled); an `update` failure rejects so the caller can take its own
+   * shadowed Trajectory entry back.
+   */
   suspend(): Promise<boolean>
   /** Re-enable the entry this suspended, after removing the inspection target. */
   resume(): Promise<void>
@@ -64,8 +69,10 @@ export function stockTrajectory(ctx: any): StockTrajectory {
     async suspend() {
       if (suspended) return true
       const entry = find()
-      // Disabled by the bundle or by someone else: not ours to toggle.
-      if (!entry || entry.disabled) return false
+      // Nothing to suspend (no stock entry, or the bundle/another plugin already
+      // disabled it): the stock tab is not rendering either way. Its `update`
+      // failure is not swallowed here; the caller has to keep one Trajectory tab.
+      if (!entry || entry.disabled) return true
       await entry.update({ disabled: true })
       suspended = entry
       seatTarget()

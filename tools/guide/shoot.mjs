@@ -39,7 +39,13 @@ function helpers(page) {
     async center() {
       await dismiss(page)
       if (!(await bar().isVisible().catch(() => false))) {
-        await page.getByRole('navigation', { name: 'Global panels' }).getByRole('button', { name: 'LayerFS', exact: true }).first().click()
+        const panels = page.getByRole('navigation', { name: 'Global panels' })
+        // At phone widths the sidebar is off-canvas until its opener is pressed.
+        if (!(await panels.isVisible().catch(() => false))) {
+          const open = page.getByRole('button', { name: 'Open sidebar' })
+          if (await open.count()) { await open.first().click(); await page.waitForTimeout(600) }
+        }
+        await panels.getByRole('button', { name: 'LayerFS', exact: true }).first().click()
         await bar().waitFor({ timeout: 20000 })
       }
       await page.waitForTimeout(600)

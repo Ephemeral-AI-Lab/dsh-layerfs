@@ -36,6 +36,31 @@
   color: var(--lf-tone-danger-fg);
 }
 
+/* A read that failed is neutral, not an error of the project control itself. */
+.chip[data-state='unknown'] {
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* The failed read's one action, beside the chip (the menu stays available). */
+.retry {
+  flex: none;
+  padding: 0 2px;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 20px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .retry:hover {
+    color: var(--dsw-alias-label-primary);
+  }
+}
+
 .chip:disabled {
   cursor: default;
   opacity: 0.6;
@@ -59,6 +84,12 @@
 .label {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* The project picker's card: its rows keep a real inset from the card's edge,
+   so the first/last row is never a target flush with the menu's content box. */
+.projectMenu > [role='presentation'] {
+  padding: var(--lfs-inset-control, 12px);
 }
 
 .option {
@@ -212,6 +243,22 @@
 }
 
 /* A project row's ⚙: opens its Setup card (docs/specs/layerfs-workspaces.md §5); shown on hover. */
+/* Our rows draw the selected check beside the name (before the gear), so hide the
+   menu's trailing check for exactly those rows — scoped by the gear they carry. */
+:global([role="menuitem"]:has([data-layerfs-configure]) > svg:last-child),
+:global([role="menuitemradio"]:has([data-layerfs-configure]) > svg:last-child) {
+  display: none;
+}
+
+.optionCheck {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  margin-left: auto;
+  color: var(--dsw-alias-label-primary);
+}
+
 .optionGear {
   display: inline-flex;
   align-items: center;
@@ -241,5 +288,74 @@
 @media (hover: none) {
   .optionGear {
     opacity: 1;
+  }
+}
+
+/* Touch: the project chip and its gear are sized like the other row controls. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .chip {
+    height: max(28px, var(--lfs-control-h, 44px));
+  }
+
+  .optionGear {
+    width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+  }
+
+  .folderChip {
+    min-height: var(--lfs-tap, 44px);
+  }
+}
+
+/* A phone's New Session hero. The title is scaled so the mark, the title and
+   its Preview badge share one line (a longer title wraps, the badge under it
+   when it must), and the chip row wraps instead of running past the column. */
+@media (max-width: 480px) {
+  :global([data-layerfs-hero-headline]) {
+    gap: 6px;
+    font-size: clamp(20px, 6.1vw, 24px);
+    line-height: 30px;
+  }
+
+  :global([data-layerfs-hero-title]) {
+    max-width: 100%;
+    min-width: 0;
+    gap: 2px 5px;
+  }
+
+  :global([data-layerfs-hero-title] > :first-child) {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  :global([data-layerfs-hero-row]) {
+    flex-wrap: wrap;
+    row-gap: 4px;
+    align-items: center;
+  }
+
+  .root,
+  .folderChip {
+    max-width: 100%;
+  }
+}
+
+/* Touch: every control in the row — including the workspace and preset chips
+   we do not draw — is a thumb target. */
+@media (max-width: 1180px), (pointer: coarse) {
+  :global([data-layerfs-hero-row]) button {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  /* The project dropdown's rows (No project, New project…, Import a folder…)
+     are thumb targets too; a project row is already taller by its gear. */
+  .projectMenu [role='menuitem'],
+  .projectMenu [role='menuitemradio'] {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .retry {
+    min-height: var(--lfs-tap, 44px);
+    padding: 0 8px;
   }
 }

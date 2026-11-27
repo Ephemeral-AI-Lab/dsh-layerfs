@@ -58,6 +58,19 @@ export interface TreeLayout {
 /** A 0x32-tagged saved id names a Layer on main. */
 const isLayerId = (id: string): boolean => id.startsWith('32')
 
+/**
+ * A Branch whose head is still its fork point has nothing saved of its own:
+ * the one row its History shows is the version it started from. Null for main,
+ * for an unknown Branch, and for every Branch with a Commit of its own.
+ */
+export function forkBaseOf(branches: readonly HistoryBranch[], parents: ReadonlyMap<string, string | null>, branch: string): { base: string, source: string } | null {
+  const b = branches.find((x) => x.name === branch)
+  if (!b || b.name === 'main') return null
+  const base = b.forkedFrom ?? b.base
+  if (!base || !b.head || b.head !== base) return null
+  return { base, source: parents.get(b.name) || 'main' }
+}
+
 /** Each Branch's parent Branch: the owner of its fork point, else main for a Layer, else null. */
 export function branchParents(branches: readonly HistoryBranch[], pages: Readonly<Record<string, HistoryPage | undefined>>): Map<string, string | null> {
   const owners = new Map<string, string>()

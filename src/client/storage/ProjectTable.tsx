@@ -34,7 +34,7 @@ import { sandboxRuns } from '../machines/stats.ts'
 import { useProjectSessions, type ProjectSession } from '../projects/hooks.ts'
 import { formatSessionFailure } from '../projects/session-failure.ts'
 import { Card, FixAction, FixContext, MoreMenu, resolveFix } from '../ui/index.tsx'
-import { useQuery } from '../ui/use-query.ts'
+import { useDeferredQuery, useQuery } from '../ui/use-query.ts'
 import { enc, type LayerfsApi } from '../api.ts'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import type { TabId } from './tabs.ts'
@@ -44,6 +44,7 @@ import { StoreGlyph, refusalLabels } from './parts.tsx'
 import { Signal } from './Signal.tsx'
 import { JobLine, SIZE_POLL_MS, sandboxesOfProject, storeTrouble, troubleAction, type Place, type Trouble } from './HomeCards.tsx'
 import { doingWords, sessionsUnavailable } from './model.ts'
+import { keepSessionList, knownSessionList } from './session-cache.ts'
 import { orderProjects, sessionOrder, sizeCacheKey, type ProjectSize, type ProjectSort } from './project-list.ts'
 import { commitLine, stillCounting, type ProjectOrder, type StoreProject, type StoreProjectsView } from './store-page.ts'
 import type { StorageJob, StorageView, StoreRow } from './types.ts'
@@ -126,29 +127,31 @@ export function ProjectGrid({ api, t, now, rows, label, showStore, order, onOrde
     )
   }
   return (
-    <Card className={css.card}>
-      <div className={css.table} role="table" aria-label={label} data-store-column={showStore || undefined}>
-        <div className={clsx(css.row, css.head)} role="row">
-          <span role="columnheader" aria-hidden="true" />
-          <span role="columnheader">
-            {onOrder
-              ? <button type="button" className={css.sort} data-active={order === 'name' || undefined} aria-pressed={order === 'name'}
-                  title={t('spSortBy', { column: t('ptProject') })} onClick={() => onOrder('name')}>{t('ptProject')}</button>
-              : t('ptProject')}
-          </span>
-          {showStore ? <span role="columnheader" className={css.colStore}>{t('ptStore')}</span> : null}
-          <span role="columnheader" className={css.colSessions}>{t('ptSessions')}</span>
-          <span role="columnheader" className={css.colSandboxes}>{t('ptSandboxes')}</span>
-          {COLUMNS.map(heading)}
-          <span role="columnheader" aria-hidden="true" />
+    <div className={css.frame}>
+      <Card className={css.card}>
+        <div className={css.table} role="table" aria-label={label} data-store-column={showStore || undefined}>
+          <div className={clsx(css.row, css.head)} role="row">
+            <span role="columnheader" aria-hidden="true" />
+            <span role="columnheader">
+              {onOrder
+                ? <button type="button" className={css.sort} data-active={order === 'name' || undefined} aria-pressed={order === 'name'}
+                    title={t('spSortBy', { column: t('ptProject') })} onClick={() => onOrder('name')}>{t('ptProject')}</button>
+                : t('ptProject')}
+            </span>
+            {showStore ? <span role="columnheader" className={css.colStore}>{t('ptStore')}</span> : null}
+            <span role="columnheader" className={css.colSessions}>{t('ptSessions')}</span>
+            <span role="columnheader" className={css.colSandboxes}>{t('ptSandboxes')}</span>
+            {COLUMNS.map(heading)}
+            <span role="columnheader" aria-hidden="true" />
+          </div>
+          {rows.map((r) => (
+            <ProjectRow key={r.key} api={api} r={r} t={t} now={now} tick={tick} showStore={showStore}
+              fleet={fleet} place={place} open={opened[r.key] ?? false} lastList={lastList} onSetOpen={(list) => setOpen(r.key, list)}
+              onOpen={onOpen} onRemove={onRemove} onRestart={onRestart} />
+            ))}
         </div>
-        {rows.map((r) => (
-          <ProjectRow key={r.key} api={api} r={r} t={t} now={now} tick={tick} showStore={showStore}
-            fleet={fleet} place={place} open={opened[r.key] ?? false} lastList={lastList} onSetOpen={(list) => setOpen(r.key, list)}
-            onOpen={onOpen} onRemove={onRemove} onRestart={onRestart} />
-        ))}
-      </div>
-    </Card>
+      </Card>
+    </div>
   )
 }
 
@@ -191,17 +194,17 @@ function useStoresProjects(api: LayerfsApi, names: readonly string[], tick: numb
 export const lastSessionOf = (sessions: readonly ProjectSession[] | null | undefined): number | null =>
   sessions?.length ? Math.max(...sessions.map((x) => x.updatedAt || 0)) || null : null
 
-/** The session lists, kept across remounts (a tab switch draws the last answer at once). */
-const sessionAnswers = new Map<string, ProjectSession[]>()
-
 /**
  * Each project's sessions in this DSH (`sessions.list`, local only: no Store
  * walk), read once per key and again after each burst of session events
  * (coalesced). `ready` once every key has answered (or failed) once.
  */
 export function useSessionLists(api: LayerfsApi, keys: readonly string[]): { lists: ReadonlyMap<string, readonly ProjectSession[]>, ready: boolean } {
-  const [lists, setLists] = useState<ReadonlyMap<string, readonly ProjectSession[]>>(() => new Map(keys.flatMap((k) => (sessionAnswers.has(k) ? [[k, sessionAnswers.get(k)!] as const] : []))))
-  const [answered, setAnswered] = useState<ReadonlySet<string>>(() => new Set(keys.filter((k) => sessionAnswers.has(k))))
+  const [lists, setLists] = useState<ReadonlyMap<string, readonly ProjectSession[]>>(() => new Map(keys.flatMap((k) => {
+    const known = knownSessionList(k)
+    return known ? [[k, known] as const] : []
+  })))
+  const [answered, setAnswered] = useState<ReadonlySet<string>>(() => new Set(keys.filter((k) => knownSessionList(k) !== undefined)))
   const [tick, setTick] = useState(0)
   useHostEvents(api, ['layerfs-session', 'layerfs-workspaces-changed', 'connection'], () => setTick((n) => n + 1), { coalesceMs: 2_000 })
   const sig = keys.join('\n')
@@ -215,9 +218,9 @@ export function useSessionLists(api: LayerfsApi, keys: readonly string[]): { lis
     const read = (key: string) => {
       if (running.current.has(key)) { again.current.add(key); return }
       running.current.add(key)
-      void api.op<{ sessions: ProjectSession[] }>('sessions.list', { project: key, localOnly: true }).then((value) => {
+      void api.op<{ sessions: ProjectSession[] }>('sessions.list', { project: key, localOnly: true }, { share: true }).then((value) => {
         const rows = value?.sessions ?? []
-        sessionAnswers.set(key, rows)
+        keepSessionList(key, rows)
         if (live.current) setLists((all) => new Map(all).set(key, rows))
       }, () => {}).finally(() => {
         running.current.delete(key)
@@ -274,6 +277,19 @@ export function ProjectTable({ api, tick, query, sort, frozen, stores, view, fle
   /** Start a machine's worker again (a Store whose machine does not answer). */
   onRestart?: (m: MachineInfo) => Promise<unknown>
 }): ReactNode {
+  // The wide subgrid table is what the click otherwise waits for. Paint the
+  // first card from the rows already computed (the Store view and any primed
+  // sessions), then mount the table on the next frame; no blank skeleton.
+  const [full, setFull] = useState(false)
+  useEffect(() => {
+    if (full) return
+    // Two frames: the card paints in this one, the full table in the next.
+    const frame = (fn: () => void): number => (typeof requestAnimationFrame === 'function' ? requestAnimationFrame(fn) : setTimeout(fn, 0) as unknown as number)
+    const cancelFrame = (id: number): void => { if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(id); else clearTimeout(id as unknown as ReturnType<typeof setTimeout>) }
+    let inner: number | undefined
+    const outer = frame(() => { inner = frame(() => setFull(true)) })
+    return () => { cancelFrame(outer); if (inner !== undefined) cancelFrame(inner) }
+  }, [full])
   const sandboxes = fleet?.sandboxes ?? []
   const answers = useStoresProjects(api, stores.map((s) => s.name), tick)
   const keys = stores.flatMap((s) => s.projects.map((p) => `${s.name}/${p}`))
@@ -301,8 +317,32 @@ export function ProjectTable({ api, tick, query, sort, frozen, stores, view, fle
     sizeRoute: { alone: s.projects.length === 1 },
     sessions: sessions.lists.get(`${s.name}/${p}`) ?? null,
   }))
+  const first = rows[0]
+  if (!full && first) return <EarlyCard r={first} t={t} now={now} onOpen={onOpen} />
   return <ProjectGrid api={api} t={t} now={now} rows={rows} label={t('ovProjects')} showStore fleet={fleet} place={place} tick={tick}
     onOpen={onOpen} onRemove={onRemove} onRestart={onRestart} />
+}
+
+/** The first card's first paint: the fields this page already knows, in one line before the table's wide subgrid and its rows compile. The full table replaces it on the next frame. */
+export function EarlyCard({ r, t, now, onOpen }: { r: GridRow, t: StorageT, now: number, onOpen: (id: TabId) => void }): ReactNode {
+  const { key, p, store, boxes, trouble } = r
+  const local = r.sessions
+  const last = lastSessionOf(local)
+  const line = p.last ? commitLine(p.last) : null
+  return (
+    <div className={css.earlyCard} data-project-card={p.name} data-project={key} data-early="" role="group" aria-label={p.name}>
+      <button type="button" className={css.name} onClick={() => onOpen(`project:${key}`)} title={t('ptOpenProject', { name: p.name })}>{p.name}</button>
+      <span className={css.earlySep} aria-hidden="true">·</span>
+      <button type="button" className={css.store} title={store.name} onClick={() => onOpen(`store:${store.name}`)}>{store.name}</button>
+      <span className={css.earlyFacts}>
+        {local ? `${local.length} ${t('ptSessions')}` : '…'}
+        {boxes.length ? ` · ${boxes.length} ${t('ptSandboxes')}` : ''}
+        {last !== null ? ` · ${ago(last, now, t as Translate)}` : ''}
+        {line?.message ? ` · ${line.message}` : p.totals ? '' : ` · ${t('spReading')}`}
+        {trouble ? ` · ${trouble.reason}` : ''}
+      </span>
+    </div>
+  )
 }
 
 /** Whether a click on the row came from one of its own controls (or a menu portalled out of it). */
@@ -360,6 +400,10 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
                     action={troubleAction(trouble, t, onRestart)} />
                 </span>
               ) : null}
+            </span>
+            <span className={css.phoneWhen} title={lastSession !== null ? when(lastSession) : undefined}>
+              <span className={css.phoneWhenLabel}>{t('ptLastSession')}</span>
+              <span className={css.phoneWhenValue}>{lastSession !== null ? ago(lastSession, now, tt) : local == null ? '…' : '—'}</span>
             </span>
             <span className={css.commitLine} title={line?.message || undefined}>
               {line ? (
@@ -447,7 +491,7 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
         <div className={css.detail} id={detailId}>
           <div className={css.panel}>
             {open === 'sessions'
-              ? <SessionList api={api} project={key} kind={store.kind} t={t} other={boxes.length} onSwitch={() => onSetOpen('sandboxes')} down={sessionsUnavailable(store)} />
+              ? <SessionList api={api} project={key} kind={store.kind} t={t} other={boxes.length} onSwitch={() => onSetOpen('sandboxes')} down={sessionsUnavailable(store)} seed={local ?? undefined} />
               : <SandboxList boxes={boxes} fleet={fleet} place={place} t={t} other={local?.length ?? null} onSwitch={() => onSetOpen('sessions')} onOpen={onOpen} />}
           </div>
         </div>
@@ -479,8 +523,10 @@ function HistoryUnread({ error, t }: { error: { code: string, message: string, f
 }
 
 /** A project's size, from the route the finder sorts by: the last answer at once, polled while its first count runs. Nothing is read unless `enabled`. */
-function useProjectSize(api: LayerfsApi, key: string, alone: boolean, tick: number, enabled: boolean): { stored: number | undefined, files: number | null, counting: boolean } {
-  const q = useQuery<ProjectSize | null>(() => (enabled ? api.call<ProjectSize>('GET', `/api/projects/${enc(key)}/size${alone ? '?alone=1' : ''}`) : Promise.resolve(null)), [api, key, alone, enabled],
+function useProjectSize(api: LayerfsApi, key: string, alone: boolean, tick: number, enabled: boolean): { stored: number | undefined, counting: boolean } {
+  // A size decorates the row: it reads after the first card paints, and only
+  // when the host queue has no interactive read waiting.
+  const q = useDeferredQuery<ProjectSize | null>(() => (enabled ? api.call<ProjectSize>('GET', `/api/projects/${enc(key)}/size${alone ? '?alone=1' : ''}`, undefined, { priority: 'background' }) : Promise.resolve(null)), [api, key, alone, enabled],
     { refresh: [tick], cache: enabled ? sizeCacheKey(key) : `pt-size-off:${key}`, persist: enabled })
   const z = q.data
   const waiting = !!z && z.stored === null && z.counting
@@ -489,7 +535,7 @@ function useProjectSize(api: LayerfsApi, key: string, alone: boolean, tick: numb
     const timer = setTimeout(q.reload, SIZE_POLL_MS)
     return () => clearTimeout(timer)
   }, [z, waiting, q.reload])
-  return { stored: z?.stored ?? undefined, files: z?.files ?? null, counting: !z ? !q.error : z.counting }
+  return { stored: z?.stored ?? undefined, counting: !z ? !q.error : z.counting }
 }
 
 /** The open row's head: the list it shows and its count; at its end, a quiet switch naming the other list, then the add verb. */
@@ -518,8 +564,9 @@ function SwapGlyph(): ReactNode {
 
 /** A project's sessions, newest first: this DSH's own and those only in the Store. */
 /** `down`: its Store is broken or blocked, so its sessions are listed but neither open nor start (owner Q-R3). */
-function SessionList({ api, project, kind, t, other, onSwitch, down }: { api: LayerfsApi, project: string, kind: string, t: StorageT, other: number, onSwitch: () => void, down: boolean }): ReactNode {
-  const { sessions, loading, error } = useProjectSessions(api, project)
+function SessionList({ api, project, kind, t, other, onSwitch, down, seed }: { api: LayerfsApi, project: string, kind: string, t: StorageT, other: number, onSwitch: () => void, down: boolean, seed?: readonly ProjectSession[] }): ReactNode {
+  // `seed` is the row's list the table already read: the local read is no longer repeated.
+  const { sessions, loading, error } = useProjectSessions(api, project, true, undefined, seed)
   const [failed, setFailed] = useState<string | null>(null)
   const now = Date.now()
   const state = (x: ProjectSession): { words: string, live: boolean, quiet?: boolean } =>

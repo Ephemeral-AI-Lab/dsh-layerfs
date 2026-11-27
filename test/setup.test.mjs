@@ -260,7 +260,7 @@ test('a service built in a test writes no pin lease until the plugin starts it',
   }
 })
 
-test('Use this daemon is offered only when the recorded daemon is gone or from another build, not for a same-build copy elsewhere', { skip: process.platform !== 'darwin' }, async () => {
+test('Use this daemon is offered only when the recorded daemon is gone or from another build, not for a same-build copy elsewhere', { skip: process.platform !== 'darwin' && 'macOS only: a hosted native daemon is only recordable on macOS' }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-setup-daemon-'))
   try {
     const ours = join(dir, 'layerfs-daemon')

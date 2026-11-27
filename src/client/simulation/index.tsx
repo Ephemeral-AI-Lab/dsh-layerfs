@@ -61,7 +61,7 @@ export function registerSimulation(ctx: any, api: LayerfsApi): void {
       return () => { current = false; clearTimeout(timer); off() }
     }, [sessionId])
     if (!script || locked) return null
-    return <><Button variant="toolbar" size="sm" onClick={() => {
+    return <><Button variant="toolbar" size="sm" className={css.action} onClick={() => {
       // Re-read on inspection so source integrity failures stay visible.
       void api.op<ScriptState>('simulation.script', { sessionId }).then((value) => {
         if (!value.script) { setError(t('unavailable')); return }
@@ -74,7 +74,7 @@ export function registerSimulation(ctx: any, api: LayerfsApi): void {
     const value = useSyncExternalStore(subscribe, snapshot)
     const selected = value?.sessionId === sessionId ? value.script : null
     if (!selected) return null
-    return createPortal(<Modal open onClose={() => show(null)} title={selected.name} description={t('description')} closeLabel={t('close')}>
+    return createPortal(<Modal open onClose={() => show(null)} title={selected.name} description={t('description')} closeLabel={t('close')} className={css.inspectorModal}>
       <p className={css.identity}>{t('hash')}: <code>{selected.hash}</code></p>
       {selected.source == null ? <p>{t('unavailable')}</p> : <pre className={css.source}><code>{selected.source}</code></pre>}
     </Modal>, document.body)

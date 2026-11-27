@@ -16,19 +16,29 @@
  *   agent/disposed       mirror now; close the Sandbox after `idleMinutes`
  *
  * Operations (the `layerfs` Remote):
+ *   sessions.checkPlacement {project, projectId?, machine?}  read-only: would placing a new session there pass?
  *   sessions.choose {sessionId, project|null, machine?}  place the session in a LayerFS project (or clear it);
  *                    `machine`: where a PostgreSQL project's Sandbox runs (else placement.ts's default);
  *                                              it stays in whichever workspace it was selected in
+ *   sessions.places {sessionIds}        the project of each of up to 200 sessions, in one read-only batch (ownership store)
  *   sessions.prepareScratch             the Scratch workspace (a plain folder workspace)
  *   sessions.list {project}             local bindings + sessions stored in the project (imports missing ones)
+ *   sessions.pruneNeverStarted {dryRun?, project?, current?, exclude?}  delete conversations that never started (dry run unless dryRun:false);
+ *                                              refuses dryRun:false when the host cannot name DSH's archive set (`archiveKnown:false`)
  *   sessions.open {sessionId, project?, workspaceId?} open a session, importing it from the project if missing locally
  *   sessions.close {sessionId}          save and close its Sandbox
  *   sessions.forget {sessionId}         close and forget the binding; preserve scratch and history
- *   session.state {sessionId, observe?} binding, checkpoints, Workspace status, store progress (observe: no interrupt or save)
+ *   session.state {sessionId, observe?, debug?} binding, checkpoints, Workspace status, store progress (observe: no interrupt or save)
  *   sessions.availability               poll Store health now (deactivating as needed); last health per Store
  *   session.place {sessionId}           the project a live session works in (New Session control)
- *   session.trajectory {sessionId}      the Trajectory tab's records, LayerFS calls and checkpoints by turn
+ *   session.trajectory {sessionId, since?, before?}  the Trajectory tab's records, LayerFS calls and checkpoints by turn;
+ *                    `since` answers `unchanged` when nothing moved, `before` reads the older page
+ *   session.annotations {sessionId}     a session's sidecar metadata (title, checkpoints, receipt counter,
+ *                    archive) without its receipts array
+ *   session.receipts {sessionId, from?, limit?}  a page of the session's receipts (`from` is a retained
+ *                    index, negative counts back from the newest; `limit` defaults to and is capped at 1000)
  *   session.trajectory.record {sessionId, seq} one trajectory record in full (NotFound when not in the loaded log)
+ *   session.trajectory.prompt-diff {sessionId, seq} a record's system/tools line diff (NotFound when it has none)
  *   checkpoints.create {sessionId, message?}
  *   checkpoints.diff {sessionId, from, to}
  *   checkpoints.restore {sessionId, commit}
@@ -37,17 +47,23 @@
 import { projectContext } from './prompt.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import { existsSync, statSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { CliError, pages } from '../layerfs/cli.ts'
 import { notifyCallLog } from '../layerfs/call-log.ts'
 import { outputsDir, readOutput } from '../layerfs/call-output.ts'
-import { exitOfOutput, fastForwardOfOutput, receiptFromLine, toolScope, traceEnvironment, withTraceContext, type Invocation, type TraceIdentity } from '../layerfs/tracing.ts'
+import { exitOfOutput, fastForwardOfOutput, RECEIPT_META, receiptFromLine, receiptMetaOf, toolScope, traceEnvironment, withReceiptMeta, withTraceContext, type Invocation, type TraceIdentity } from '../layerfs/tracing.ts'
 import { callsSince } from '../logs/source.ts'
 import { parseTag, TAG_PREFIX } from '../../shared/logs.ts'
+import { branchFields } from '../../shared/session-branch.ts'
 import { UNCLAIMED } from './catalog.ts'
-import { LayerfsSessions } from './service.ts'
+import { LayerfsSessions, realSessionTitle } from './service.ts'
 import { localPersistence, SessionStore } from './store.ts'
-import { buildTrajectory, trajectoryDetail, type TrajectoryInput } from './trace.ts'
+import { sidecarMetadata } from './annotations.ts'
+import { promptDiff } from './prompt-diff.ts'
+import { normalizeKind } from '../../shared/trajectory.ts'
+import { trajectoryDetail, trajectoryReader, type TrajectoryInput, type TrajectoryWindowInput } from './trace.ts'
+import { mayReadTail, tailFile, tailPageReader } from './trajectory-tail.ts'
 
 /** Stored session logs kept parsed for the Trajectory (finished subagents' logs, which DSH has unloaded). */
 const STORED_LOGS = 16
@@ -74,6 +90,46 @@ function agentCli(ctx: Context): string | null {
 /** How often Store health is polled while a project conversation is active. */
 const AVAILABILITY_POLL_MS = 10_000
 
+/** The most session ids one `sessions.places` batch accepts. */
+const PLACES_MAX = 200
+
+/** The most receipts one `session.receipts` page returns; the default too. */
+const RECEIPTS_PAGE_MAX = 1000
+
+/**
+ * One recent-project row's per-session facts, kept while every value they were
+ * read from holds: the log's stat identity, its sidecar's identity and the
+ * binding activity. Any save, receipt, create, delete, import or migrate moves
+ * one of those, so the next `projects.recent` recomputes that session instead
+ * of answering a stale `lastActivity`.
+ */
+interface RecentFact {
+  /** The values read for this row; a changed one is a miss. */
+  key: string
+  project: string
+  projectId?: string
+  lastActivity: number
+  created: number
+  /** When the facts were read: the memo is short-lived, never authoritative. */
+  at: number
+}
+
+/** How long a recent-project fact may answer without re-reading its sidecar. */
+const RECENT_FACT_MS = 10_000
+/** The memo's bound: a long-lived host can see many project sessions. */
+const RECENT_FACTS_MAX = 4096
+
+/**
+ * A session sidecar's file identity, as the persistence row computes it: the
+ * same file, replaced by an atomic write, changes inode, size or times.
+ */
+function sidecarIdentity(path: string): string | undefined {
+  try {
+    const s = statSync(join(dirname(path), 'layerfs.json'), { bigint: true })
+    return `${s.dev}:${s.ino}:${s.size}:${s.mtimeNs}:${s.ctimeNs}`
+  } catch { return undefined }
+}
+
 const turnOf = (session: any): number | undefined => {
   const events = session?.snapshotEvents(0) ?? []
   for (let i = events.length - 1; i >= 0; i--) if (events[i].type === 'turn/start') return Number(events[i].data?.turn)
@@ -84,11 +140,37 @@ export function apply(ctx: Context): void {
   ctx.plugin(LayerfsSessions)
   ctx.inject(['layerfsSessions', 'layerfs', 'layerfsRemote', 'workspaceRegistry'], (ctx) => {
     const sessions = ctx.layerfsSessions
+    /*
+     * Persistence seam (DIP-2, accepted before release). DSH's persistence is a
+     * registry service, so the operations below reach it through
+     * `ctx.get('sessionPersistence' as never) as any` instead of a declared
+     * port. A `SessionPersistencePort` interface would type every call site,
+     * but it would also have to describe DSH's reader, catalog and
+     * session methods, which are pre-release and still moving; the benefit does
+     * not yet pay for that new seam. Constraints while this is accepted:
+     *
+     * - no concrete import of `session-persistence.ts` in this file; use the
+     *   registry (the `session.annotations` projection lives in
+     *   `./annotations.ts`, DIP-1) and type-only imports only;
+     * - every method stays optional and guarded (`?.`, or `typeof … ===
+     *   'function'` where a refusal is meaningful), so a DSH build without it
+     *   degrades instead of failing at import time;
+     * - a new method is named in this comment and in
+     *   docs/specs/project-sessions.md §10, "Persistence seam".
+     */
     const record = async (invocation: Invocation): Promise<void> => {
       const persistence = ctx.get('sessionPersistence' as never) as any
       if (!persistence?.recordInvocation) throw new Error('Project session persistence is not available to record the invocation')
       await persistence.recordInvocation(invocation)
       ctx.layerfs.emit('layerfs-operation', { sessionId: invocation.sessionId })
+    }
+    // A successful host read inside a tool call folds into the session's counter.
+    // Resolve the persistence service through this context: it is a separate
+    // bundle with its own tracing module, so its `setReceiptAggregate` cannot
+    // reach the calls traced here.
+    const aggregate = async (invocation: Invocation): Promise<void> => {
+      const persistence = ctx.get('sessionPersistence' as never) as any
+      if (persistence?.aggregateInvocation) await persistence.aggregateInvocation(invocation)
     }
     /**
      * Receipts of calls the host did not see itself (agent shells' managed CLI):
@@ -114,7 +196,7 @@ export function apply(ctx: Context): void {
         // The line has no exit code; a `workspace exec` call's stored output holds it in its final frame.
         const exit = line.argv[0] === 'workspace' && line.argv[1] === 'exec' && line.tag ? exitOfOutput(readOutput(outputsDir(ctx.layerfs.callLog), line.tag), line.argv.includes('--stream')) : undefined
         // Nor `fast_forward`: a merge's stored answer tells a new merge Commit from a moved pointer.
-        const fastForward = line.argv[0] === 'branch' && line.argv[1] === 'merge' && line.kind === 'Merged' && line.tag ? fastForwardOfOutput(readOutput(outputsDir(ctx.layerfs.callLog), line.tag)) : undefined
+        const fastForward = line.argv[0] === 'branch' && line.argv[1] === 'merge' && normalizeKind(line.kind ?? '') === 'merged' && line.tag ? fastForwardOfOutput(readOutput(outputsDir(ctx.layerfs.callLog), line.tag)) : undefined
         await record(receiptFromLine(line, call.identity, tag.receiptId, exit, fastForward))
       }
     }
@@ -143,7 +225,7 @@ export function apply(ctx: Context): void {
       calls.push(call)
       turnCalls.set(id, calls)
       try {
-        return await withTraceContext({ ...identity, record, onError: (e) => ctx.logger('layerfs').warn('record invocation: %s', String(e)) }, next)
+        return await withTraceContext({ ...identity, record, aggregate, onError: (e) => ctx.logger('layerfs').warn('record invocation: %s', String(e)) }, next)
       } finally {
         await collect(id, [call]).catch((e) => ctx.logger('layerfs').warn('collect invocations: %s', String(e)))
         // Agent shells' wrappers append stand-in lines in their own processes.
@@ -287,15 +369,45 @@ export function apply(ctx: Context): void {
 
     /** Stored logs read for sessions DSH has not loaded, by id, kept while the file's size and mtime hold. */
     const storedLogs = new Map<string, { key: string, events: any[] }>()
+    /** A loaded session's title, keyed by its log length: the scan is only redone when the log grows. */
+    const titles = new Map<string, { seq: number, title: string | null }>()
+    /** A loaded session's events; undefined when DSH has not loaded it (a cold read). */
+    const loadedSessionEvents = (id: string): any[] | undefined => {
+      try {
+        const events = (ctx.get('sessions' as never) as any)?.get?.(id)?.snapshotEvents?.(0)
+        if (Array.isArray(events)) return events
+      } catch { /* not loaded */ }
+      return undefined
+    }
+    /** The log on disk, for a tail read: its path, size and the identity a cached parse uses. */
+    const logFile = async (id: string) => {
+      const persistence = localPersistence(ctx)
+      const snapshot = await Promise.resolve(persistence?.stat?.(id)).catch(() => undefined)
+      const path = snapshot?.location?.path
+      return path ? tailFile(path) : undefined
+    }
+    /**
+     * The trajectory memo: one built answer per session keyed by its revision,
+     * so a tab opening without `since` builds at most once between changes, and
+     * an unchanged `since` costs bytes. Bounded by `trajectoryReader`.
+     */
+    const readTrajectory = trajectoryReader()
+    /** The last cold first page's log and receipts windows, keyed by each file's identity (a `since` poll then costs two stats). */
+    const tailPages = tailPageReader()
+    /**
+     * Recent-project facts, one per session, keyed by the log and sidecar
+     * identities and the binding activity the row reads. A hit skips the
+     * sidecar read; a miss (or a fact older than {@link RECENT_FACT_MS}) reads
+     * it again, so a changed session shows its new row on the very next call.
+     */
+    const recentFacts = new Map<string, RecentFact>()
     /**
      * A session's DSH log: the loaded session's, else its stored log (a finished
      * subagent is unloaded, but its log stays on disk). Undefined when neither exists.
      */
     const sessionEvents = async (id: string): Promise<any[] | undefined> => {
-      try {
-        const events = (ctx.get('sessions' as never) as any)?.get?.(id)?.snapshotEvents?.(0)
-        if (Array.isArray(events)) return events
-      } catch { /* not loaded */ }
+      const loaded = loadedSessionEvents(id)
+      if (loaded) return loaded
       try {
         const persistence = localPersistence(ctx)
         const snapshot = await persistence?.stat(id)
@@ -317,22 +429,99 @@ export function apply(ctx: Context): void {
         return read
       } catch { return undefined }
     }
-    /** What `buildTrajectory` reads: the log, receipts and checkpoints (shared subagents follow their parent's binding). */
-    const trajectoryInput = async (id: string): Promise<TrajectoryInput> => {
+    /**
+     * What `buildTrajectory` reads: the log, receipts and checkpoints (shared
+     * subagents follow their parent's binding). A cold first page of a long
+     * session may read only the log's newest window (B9-C), with the window's
+     * receipts; an older page (`whole`) always reads the log whole.
+     */
+    const trajectoryInput = async (id: string, options: { whole?: boolean } = {}): Promise<TrajectoryInput> => {
       const persistence = ctx.get('sessionPersistence' as never) as any
-      const sidecar = await Promise.resolve(persistence?.readSidecar?.(id)).catch(() => undefined)
+      // Cached by the sidecar's file identity: this read runs on every event and
+      // poll, and a long session's receipts are large (the unchanged check must
+      // not re-parse them). Only the trajectory path shares the parsed value.
+      const sidecar = await Promise.resolve(persistence?.readSidecar?.(id, { cached: true })).catch(() => undefined)
       let binding = sessions.binding(id)
       if (binding?.kind === 'shared' && binding.parent) binding = sessions.binding(binding.parent) ?? binding
       const local = sessions.checkpoints(id)
-      const events = await sessionEvents(id)
+      let events: any[] | undefined
+      let window: TrajectoryWindowInput | undefined
+      let invocations: any[] | undefined
+      if (!options.whole && !loadedSessionEvents(id)) {
+        const file = await logFile(id)
+        // A legacy combined sidecar keeps its receipts in one JSON object that
+        // cannot be bounded to the window, so only a split layout (`receipts.jsonl`
+        // beside the log) takes this path; everything else keeps the whole parse.
+        // If both exist (a half-migrated session), `receiptsFor` reads the split
+        // file for the whole path too, so the window and the whole parse agree.
+        const receiptsFile = file ? tailFile(join(dirname(file.path), 'receipts.jsonl')) : undefined
+        if (file && mayReadTail(file.size, { loaded: false, splitReceipts: receiptsFile !== undefined })) {
+          const page = tailPages(id, {
+            logPath: file.path, logKey: file.key, logSize: file.size,
+            ...(receiptsFile ? { receiptsPath: receiptsFile.path, receiptsKey: receiptsFile.key, receiptsSize: receiptsFile.size } : {}),
+          })
+          if (page) {
+            window = page.window
+            events = page.events
+            // The window's receipts only: the first page builds call lines for the
+            // records it keeps, and its counts are window values too. The receipt
+            // counter rides on the array (the observation row reads it), so it is
+            // re-attached from the sidecar metadata rather than by reading them all.
+            invocations = withReceiptMeta(page.invocations, (sidecar as any)?.[RECEIPT_META])
+          }
+        }
+      }
+      if (!events) {
+        events = await sessionEvents(id)
+        invocations = Array.isArray(sidecar?.invocations) ? sidecar.invocations : []
+      }
       return {
         sessionId: id,
         project: binding?.project ?? persistence?.ownerOf?.(id)?.project ?? null,
         branch: binding?.branch ?? (typeof sidecar?.codeBranch === 'string' ? sidecar.codeBranch : null),
         ...(events ? { events } : {}),
-        invocations: Array.isArray(sidecar?.invocations) ? sidecar.invocations : [],
+        ...(window ? { window } : {}),
+        invocations: invocations ?? [],
         checkpoints: local.length ? local : Array.isArray(sidecar?.checkpoints) ? sidecar.checkpoints : [],
       }
+    }
+
+    /**
+     * Publish one opened Session to clients exactly as DSH's own list does.
+     *
+     * `api-session/added` is only emitted by DSH's Session controller from
+     * `session/created` (a cold resume) and `agent/created`/`agent/disposed`
+     * (only while the Agent's Session is the published one). An open that
+     * resolves an Agent which is *already live* therefore announces nothing,
+     * and an announcement the client's event stream lost leaves its catalog
+     * without the id — navigating to it is then refused (`sessions.retain:
+     * unknown session`) and the pane stays on New Session. Rebuild the summary
+     * from the same list state the controller publishes and emit it (an
+     * idempotent upsert by session id), and hand it back in the open's answer
+     * so the client can seed its catalog even when the event was lost.
+     * @param sessionId - Session just opened.
+     * @param agent - its resolved live Agent, when the open resolved one.
+     * @returns the current list summary, when one can be built.
+     */
+    const publishSession = (sessionId: string, agent?: any): any => {
+      const sessionsService = ctx.get('sessions' as never) as any
+      const session = agent?.session ?? sessionsService?.get?.(sessionId)
+      const controller = ctx.get('sessionController' as never) as any
+      let summary: any
+      try { summary = session && controller?.listState?.summaryFor?.(session) } catch (error: any) {
+        ctx.logger('layerfs').warn('session %s: could not build its catalog summary: %s', sessionId, String(error?.message ?? error))
+      }
+      summary ??= {
+        sessionId,
+        updatedAt: Number(session?.header?.createdAt ?? Date.now()),
+        agentAvailable: !!agent,
+        running: String(agent?.status ?? '') === 'running',
+        blank: false,
+      }
+      try { ctx.emit('api-session/added' as never, summary as never) } catch (error: any) {
+        ctx.logger('layerfs').warn('session %s: could not announce it to clients: %s', sessionId, String(error?.message ?? error))
+      }
+      return summary
     }
 
     ctx.layerfsRemote.operate(ctx, {
@@ -348,9 +537,8 @@ export function apply(ctx: Context): void {
         const state = sessions.state.read()
         const scratch = ctx.layerfs.scratchProject
         const rows = new Map<string, { project: string, projectId?: string, lastActivity: number, newestSession: number, sessionIds: string[] }>()
-        const add = (id: string, project: string | undefined, at: number, created = at) => {
+        const add = (id: string, project: string | undefined, at: number, created = at, projectId = provider?.projectIdOf?.(id) as string | undefined) => {
           if (!project || project === scratch) return
-          const projectId = provider?.projectIdOf?.(id) as string | undefined
           const key = projectId ?? project
           const row = rows.get(key) ?? { project, ...(projectId ? { projectId } : {}), lastActivity: 0, newestSession: 0, sessionIds: [] }
           if (!row.sessionIds.includes(id)) row.sessionIds.push(id)
@@ -358,31 +546,63 @@ export function apply(ctx: Context): void {
           row.newestSession = Math.max(row.newestSession, created || 0)
           rows.set(key, row)
         }
+        /**
+         * What one session's row reads, from its log, its sidecar and the owner
+         * index. The sidecar is read only on a memo miss: its identity is part of
+         * the key, so a rewrite (a save, a receipt, a migrate) is a miss and an
+         * unchanged one costs one stat, not a parse of a long session's sidecar.
+         */
+        const factsOf = async (id: string, hinted: string | undefined): Promise<RecentFact | undefined> => {
+          const snap = await persistence?.stat(id).catch(() => undefined)
+          if (!snap || snap.header?.origin === 'subagent') { recentFacts.delete(id); return undefined }
+          const project = hinted ?? provider?.ownerOf?.(id)?.project as string | undefined
+          if (!project) { recentFacts.delete(id); return undefined }
+          const projectId = provider?.projectIdOf?.(id) as string | undefined
+          const path = snap.location?.path as string | undefined
+          const sidecar = path ? sidecarIdentity(path) : undefined
+          const createdAt = Number(snap.header?.createdAt ?? 0)
+          const stat = typeof snap.revision === 'string' && snap.revision ? snap.revision : `${snap.sizeBytes ?? ''}:${createdAt}`
+          const key = `${stat}|${sidecar ?? ''}|${projectId ?? ''}|${project}|${createdAt}`
+          const kept = recentFacts.get(id)
+          if (kept && kept.key === key && Date.now() - kept.at < RECENT_FACT_MS) return kept
+          const value = await provider?.readSidecar?.(id, { cached: true, snapshot: snap }).catch(() => undefined)
+          if (value?.bindingKind === 'shared') { recentFacts.delete(id); return undefined }
+          const fact: RecentFact = { key, project, ...(projectId ? { projectId } : {}), lastActivity: createdAt, created: createdAt, at: Date.now() }
+          // Without a sidecar file there is no identity to trust: no memo, so a
+          // sidecar written later is read on the very next call.
+          if (path && sidecar) {
+            recentFacts.delete(id)
+            recentFacts.set(id, fact)
+            while (recentFacts.size > RECENT_FACTS_MAX) recentFacts.delete(recentFacts.keys().next().value!)
+          } else recentFacts.delete(id)
+          return fact
+        }
         const seen = new Set<string>()
         for (const b of Object.values(state.sessions)) {
           if (b.kind === 'shared' || !b.project) continue
           seen.add(b.sessionId)
+          // A binding's activity is in memory: read it fresh every call, so a
+          // save's new `updatedAt` orders the rows on the very next read.
           add(b.sessionId, b.project, b.updatedAt ?? b.createdAt, b.createdAt)
-        }
-        const local = async (id: string) => {
-          const snap = await persistence?.stat(id).catch(() => undefined)
-          return snap && snap.header?.origin !== 'subagent' ? snap : undefined
         }
         for (const [id, pending] of Object.entries(state.pending)) {
           if (seen.has(id)) continue
           seen.add(id)
-          const snap = await local(id)
-          if (snap) add(id, pending.project, snap.header.createdAt)
+          const fact = await factsOf(id, pending.project)
+          if (fact) add(id, fact.project, fact.lastActivity, fact.created, fact.projectId)
         }
         for (const id of provider?.ownedSessionIds?.() ?? []) {
           if (seen.has(id)) continue
-          const snap = await local(id)
-          if (!snap) continue
-          const sidecar = await provider.readSidecar?.(id).catch(() => undefined)
-          if (sidecar?.bindingKind === 'shared') continue
-          add(id, provider.ownerOf?.(id)?.project, snap.header.createdAt)
+          const fact = await factsOf(id, provider.ownerOf?.(id)?.project)
+          if (fact) add(id, fact.project, fact.lastActivity, fact.created, fact.projectId)
         }
         return { projects: [...rows.values()].sort((a, b) => b.lastActivity - a.lastActivity) }
+      },
+      // A new conversation's placement, checked before the client creates its blank session.
+      'sessions.checkPlacement': async (args: any) => {
+        const projectId = typeof args?.projectId === 'string' && args.projectId ? args.projectId : undefined
+        const machine = typeof args?.machine === 'string' && args.machine ? args.machine : undefined
+        return await sessions.checkPlacement(need(args, 'project'), projectId, machine)
       },
       'sessions.choose': async (args: any) => {
         const sessionId = need(args, 'sessionId')
@@ -416,16 +636,83 @@ export function apply(ctx: Context): void {
         const state = sessions.state.read()
         const persistence = localPersistence(ctx)
         const rows = new Map<string, any>()
-        const localTitle = async (id: string) => {
-          const live = (ctx.get('sessions' as never) as any)?.get(id as never) as any
-          const titles = live?.snapshotEvents(0).filter((event: any) => event.type === 'session/title' && typeof event.data?.title === 'string') ?? []
-          return titles.at(-1)?.data.title ?? (await provider?.readSidecar?.(id).catch(() => undefined))?.title ?? null
+        const debug = args?.debug === true ? { t0: performance.now(), phases: {} as Record<string, number> } : undefined
+        const mark = (name: string) => { if (debug) debug.phases[name] = +(performance.now() - debug.t0).toFixed(1) }
+        /** Accumulate one step across sessions (stat vs sidecar vs title). */
+        const add = (name: string, ms: number) => { if (debug) debug.phases[name] = +((debug.phases[name] ?? 0) + ms).toFixed(1) }
+        // One list call reads each session's log once and its sidecar once: the
+        // three loops overlap (an owned session may be pending), and a sidecar
+        // read used to stat the same log again to find its folder.
+        const snapshots = new Map<string, Promise<any>>()
+        const statted = new Set<string>()
+        const localIds = new Set<string>()
+        const snapshotOf = (id: string) => {
+          let snapshot = snapshots.get(id)
+          if (!snapshot) {
+            // Listing never imports: a pending session has no log yet, and a Store
+            // import per session on every read made the expand slow.
+            snapshot = Promise.resolve(persistence?.stat(id, { restore: false }))
+            snapshots.set(id, snapshot)
+            statted.add(id)
+            void snapshot.then((snap) => { if (snap) localIds.add(id) }, () => {})
+          }
+          return snapshot
+        }
+        /** A stored row the list already stat'ed answers locally; an id it never saw is left to discovery. */
+        const knownLocal = (id: string): boolean | undefined => statted.has(id) ? localIds.has(id) : undefined
+        const sidecars = new Map<string, Promise<any>>()
+        const sidecarOf = (id: string) => {
+          let sidecar = sidecars.get(id)
+          if (!sidecar) {
+            // `cached`: the list only reads title/checkpoints/archive from the
+            // sidecar, and a non-cached read structuredClones it — 52 MB of
+            // receipts for a long session, ~500 ms per list.
+            sidecar = snapshotOf(id).then((snap) => provider?.readSidecar?.(id, { snapshot: snap, cached: true }))
+            sidecars.set(id, sidecar)
+          }
+          return sidecar
+        }
+        // A loaded session's title is its newest `session/title` event; scanning a
+        // long log's events for it on every list made a 32-session project cost
+        // ~5 ms a session. `seq` is the log length: while it holds, the title holds.
+        const liveTitle = (id: string): string | null => {
+          const live = (ctx.get('sessions' as never) as any)?.get?.(id as never) as any
+          if (!live) return null
+          const seq = typeof live.seq === 'number' ? live.seq : -1
+          const kept = titles.get(id)
+          if (kept && kept.seq === seq) return kept.title
+          const tSnap = performance.now()
+          const events: readonly any[] = live.snapshotEvents?.(0) ?? []
+          add('title.snapshot', performance.now() - tSnap)
+          const tScan = performance.now()
+          let title: string | null = null
+          for (let i = events.length - 1; i >= 0; i--) {
+            const event = events[i]
+            if (event?.type === 'session/title' && typeof event.data?.title === 'string') { title = realSessionTitle(event.data.title); break }
+          }
+          add('title.scan', performance.now() - tScan)
+          titles.set(id, { seq, title })
+          while (titles.size > 1024) titles.delete(titles.keys().next().value!)
+          return title
+        }
+        /** A loaded session's title, else its sidecar's; `sidecar` when the caller already read one. */
+        const titleOf = async (id: string, sidecar?: any): Promise<string | null> => {
+          const live = liveTitle(id)
+          if (typeof live === 'string') return live
+          const value = sidecar !== undefined ? sidecar : await sidecarOf(id).catch(() => undefined)
+          return realSessionTitle(value?.title)
+        }
+        /** Time one awaited step into the opt-in phase totals. */
+        const timed = async <T,>(name: string, run: () => Promise<T> | T): Promise<T> => {
+          if (!debug) return await run()
+          const t = performance.now()
+          try { return await run() } finally { add(name, performance.now() - t) }
         }
         for (const b of Object.values(state.sessions)) {
           if (b.project !== project || b.kind === 'shared' || !belongs(b.sessionId)) continue
-          const snap = await persistence?.stat(b.sessionId).catch(() => undefined)
+          const snap = await timed('stat', () => snapshotOf(b.sessionId).catch(() => undefined))
           rows.set(b.sessionId, {
-            sessionId: b.sessionId, title: snap ? await localTitle(b.sessionId) : null, branch: b.branch ?? null, state: b.state, local: !!snap,
+            sessionId: b.sessionId, title: snap ? await timed('title', () => titleOf(b.sessionId)) : null, branch: b.branch ?? null, state: b.state, local: !!snap,
             executionState: b.executionState ?? (b.state === 'bound' ? 'active' : 'inactive'), error: b.error ?? null, failure: b.failure ?? null,
             checkpoints: (state.checkpoints[b.sessionId] ?? []).filter((c) => c.commit && c.changed > 0).length,
             updatedAt: b.updatedAt, stored: !!state.mirror[b.sessionId] && !state.mirror[b.sessionId].error,
@@ -433,25 +720,29 @@ export function apply(ctx: Context): void {
         }
         for (const [id, pending] of Object.entries(state.pending)) {
           if (pending.project !== project || rows.has(id) || !belongs(id)) continue
-          const snap = await persistence?.stat(id)
-          if (snap) rows.set(id, { sessionId: id, title: await localTitle(id), state: 'pending', local: true, checkpoints: 0, updatedAt: snap.header.createdAt, stored: false })
+          const snap = await timed('stat', () => snapshotOf(id))
+          if (!snap) continue
+          const sidecar = await timed('sidecar', () => sidecarOf(id).catch(() => undefined))
+          rows.set(id, { sessionId: id, title: await timed('title', () => titleOf(id, sidecar)), state: 'pending', local: true, checkpoints: 0, updatedAt: snap.header.createdAt, stored: false })
         }
         for (const id of provider?.ownedSessionIds?.(project, unclaimed ? undefined : liveId) ?? []) {
           if (rows.has(id) || !belongs(id)) continue
-          const snap = await persistence?.stat(id)
+          const snap = await timed('stat', () => snapshotOf(id))
           if (!snap || snap.header.origin === 'subagent') continue
-          const sidecar = await provider.readSidecar(id)
+          const sidecar = await timed('sidecar', () => sidecarOf(id))
           if (sidecar?.bindingKind === 'shared') continue
           rows.set(id, {
-            sessionId: id, title: await localTitle(id), state: 'local', local: true,
+            sessionId: id, title: await timed('title', () => titleOf(id, sidecar)), state: 'local', local: true,
             checkpoints: (sidecar?.checkpoints ?? []).filter((c: any) => c.commit && c.changed > 0).length,
             updatedAt: snap.header.createdAt, stored: !!sidecar?.archive && !sidecar.archive.error,
           })
         }
+        mark('owned')
+        mark('pending')
         let discoveryError: { code: string, message: string } | null = null
         const discover = async () => {
           if (identityError) throw identityError
-          return store.discover(project)
+          return store.discover(project, { identity: liveId, local: knownLocal })
         }
         const discovered = args?.localOnly ? [] : await discover().catch((error: any) => {
           discoveryError = { code: error?.code ?? 'Unavailable', message: String(error?.message ?? error) }
@@ -469,16 +760,74 @@ export function apply(ctx: Context): void {
             title: s.title, stored: true,
           })
         }
+        mark('discover')
         // a conversation archived in DSH (its row's Archive, or DSH's own) leaves the project's list until it is unarchived
         const archived = new Set<string>(ctx.workspaceRegistry?.archivedSessionIds ?? [])
-        return { project, discoveryError, sessions: [...rows.values()].filter((r) => !archived.has(r.sessionId)).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)) }
+        const listed = [...rows.values()].filter((r) => !archived.has(r.sessionId)).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+        // A New Session that never received a message is not a conversation: it
+        // stays out of the list until it starts, except for the one open under
+        // the cursor (the client passes it as `current`; a loaded session is one)
+        // so the row does not vanish while it is being used. A titled or started
+        // row never pays for this check; an untitled one reads its snapshot and
+        // sidecar (already read above) and, at most, a short log prefix.
+        const liveSessions = ctx.get('sessions' as never) as any
+        const currentId = typeof args?.current === 'string' && args.current ? args.current : typeof args?.sessionId === 'string' && args.sessionId ? args.sessionId : undefined
+        const visible: any[] = []
+        for (const row of listed) {
+          if (row.title || row.sessionId === currentId || liveSessions?.get?.(row.sessionId as never)) { visible.push(row); continue }
+          // A row in the Store (or one DSH has no local log for) is not this
+          // check's to hide: it is imported, and only proven-blank local drafts
+          // pay for the read below.
+          if (row.state === 'stored' || row.stored === true || row.local === false) { visible.push(row); continue }
+          const snapshot = await snapshotOf(row.sessionId).catch(() => undefined)
+          const sidecar = await sidecarOf(row.sessionId).catch(() => undefined)
+          const blank = typeof sessions.neverStarted === 'function' ? await sessions.neverStarted(row.sessionId, { snapshot, sidecar }).catch(() => false) : false
+          if (!blank) visible.push(row)
+        }
+        // The same annotation `session.state` gives: the host says which branch each row is on.
+        mark('rows')
+        return { project, discoveryError, ...(debug ? { timing: debug.phases } : {}), sessions: visible.map((row) => ({ ...row, ...branchFields(row.sessionId, row.branch) })) }
+      },
+      // Delete the empty New Session rows for good (the owner's one-off cleanup):
+      // a dry run (the default) lists them; `dryRun: false` deletes them. A host
+      // that cannot name DSH's archived conversations (no workspaceRegistry
+      // field) still lists a dry run, with `archiveKnown: false`, but refuses the
+      // delete rather than treat the unknown set as empty.
+      'sessions.pruneNeverStarted': async (args: any) => {
+        const dryRun = args?.dryRun !== false
+        const project = typeof args?.project === 'string' && args.project ? args.project : undefined
+        const current = Array.isArray(args?.current) ? args.current.filter((id: unknown) => typeof id === 'string' && id) as string[] : typeof args?.current === 'string' && args.current ? args.current : undefined
+        const exclude = Array.isArray(args?.exclude) ? args.exclude.filter((id: unknown) => typeof id === 'string' && id) as string[] : typeof args?.exclude === 'string' && args.exclude ? args.exclude : undefined
+        return await sessions.pruneNeverStarted({ dryRun, ...(project ? { project } : {}), ...(current ? { current } : {}), ...(exclude ? { exclude } : {}) })
       },
       'sessions.open': async (args: any) => {
         const sessionId = need(args, 'sessionId')
         const workspaceId = typeof args?.workspaceId === 'string' && args.workspaceId ? args.workspaceId : undefined
-        if (await localPersistence(ctx)?.stat(sessionId).catch(() => undefined)) {
-          await sessions.attach(workspaceId, sessionId)
-          return { sessionId, imported: false, navigate: { sessionId } }
+        const local = await localPersistence(ctx)?.stat(sessionId).catch(() => undefined)
+        if (local) {
+          // Opening a session DSH has not loaded (closed, or restored after a
+          // restart) must announce it to clients: navigating to an id their
+          // catalog does not list is refused (`sessions.retain: unknown session`).
+          const open = ctx.get('sessionController' as never) as any
+          const resolved = open?.resolveAgent ? await open.resolveAgent(sessionId) : undefined
+          if (resolved && 'error' in resolved && resolved.error?.code === 'session/not-found') {
+            throw new CliError('NotFound', 'This session is not stored locally or in any LayerFS project this DSH knows')
+          }
+          const summary = publishSession(sessionId, resolved?.agent)
+          // DSH's client catalog lists the sessions of a workspace. A project
+          // session is kept out of the folder workspaces (`attach` would detach
+          // it), so the row's open attaches it to the workspace the person is in,
+          // without the project guard: the catalog's list read then includes it.
+          if (sessions.placeOfId(sessionId)?.project) {
+            if (workspaceId) {
+              try { await ctx.workspaceRegistry?.get?.(workspaceId as never)?.attachSession?.(sessionId as never) } catch (error: any) {
+                ctx.logger('layerfs').warn('session %s not listed in workspace %s: %s', sessionId, workspaceId, error?.message ?? error)
+              }
+            }
+          } else {
+            await sessions.attach(workspaceId, sessionId)
+          }
+          return { sessionId, imported: false, navigate: { sessionId }, ...(summary ? { session: summary } : {}) }
         }
         // A project hint imports from that project; otherwise DSH's resume reaches the
         // session persistence row, which finds and imports the session itself.
@@ -493,20 +842,50 @@ export function apply(ctx: Context): void {
           if (resolved.error?.code === 'session/not-found') throw new CliError('NotFound', 'This session is not stored locally or in any LayerFS project this DSH knows')
           throw resolved.error
         }
+        const summary = publishSession(sessionId, resolved?.agent)
         await sessions.attach(workspaceId, sessionId)
-        return { ...out, navigate: { sessionId } }
+        return { ...out, navigate: { sessionId }, ...(summary ? { session: summary } : {}) }
       },
       'sessions.close': async (args: any) => { await sessions.close(need(args, 'sessionId'), 'user'); return { ok: true } },
       'sessions.forget': async (args: any) => { await sessions.forget(need(args, 'sessionId')); return { ok: true } },
       // `observe: true` (the views' polls and effect reads): a read that changes nothing
-      'session.state': (args: any) => sessions.view(need(args, 'sessionId'), { observe: args?.observe === true }),
+      'session.state': (args: any) => sessions.view(need(args, 'sessionId'), { observe: args?.observe === true, debug: args?.debug === true }),
       'sessions.availability': async () => { await sessions.refreshAvailability(); return { stores: sessions.availability() } },
+      // Metadata only. The receipts array is deliberately omitted, not
+      // materialized: `readSidecar` keeps it lazy (a long session holds tens of
+      // MB), and no live surface wants the whole projection. A caller that
+      // needs receipts pages `session.receipts` instead.
       'session.annotations': async (args: any) => {
         const id = need(args, 'sessionId')
         const persistence = ctx.get('sessionPersistence' as never) as any
-        return await persistence?.readSidecar?.(id) ?? { invocations: [] }
+        const sidecar = await persistence?.readSidecar?.(id, { cached: true })
+        return sidecar ? sidecarMetadata(sidecar) : { version: 1, sessionId: id }
       },
-      'session.trajectory': async (args: any) => buildTrajectory(await trajectoryInput(need(args, 'sessionId'))),
+      // The paged receipts reader (`readReceipts`) behind a bounded op: the
+      // whole sidecar projection is never an answer, and a page is at most
+      // RECEIPTS_PAGE_MAX rows.
+      'session.receipts': async (args: any) => {
+        const id = need(args, 'sessionId')
+        const from = args?.from
+        if (from !== undefined && !Number.isSafeInteger(from)) throw new CliError('InvalidInput', 'from must be an integer receipt index')
+        const limit = args?.limit === undefined ? RECEIPTS_PAGE_MAX : args.limit
+        if (!Number.isSafeInteger(limit) || limit < 1 || limit > RECEIPTS_PAGE_MAX) {
+          throw new CliError('InvalidInput', `limit must be an integer from 1 to ${RECEIPTS_PAGE_MAX}`)
+        }
+        const persistence = ctx.get('sessionPersistence' as never) as any
+        if (typeof persistence?.readReceipts !== 'function') throw new CliError('Unavailable', 'Project session receipts are not available')
+        return await persistence.readReceipts(id, { ...(from !== undefined ? { from } : {}), limit })
+      },
+      'session.trajectory': async (args: any) => {
+        const id = need(args, 'sessionId')
+        const since = typeof args.since === 'string' ? args.since : undefined
+        let before: number | undefined
+        if (args.before !== undefined) {
+          if (!Number.isSafeInteger(args.before) || args.before < 0) throw new CliError('InvalidInput', 'before must be a record seq')
+          before = args.before
+        }
+        return readTrajectory(await trajectoryInput(id, { whole: before !== undefined }), { ...(since ? { since } : {}), ...(before !== undefined ? { before } : {}) })
+      },
       'session.trajectory.record': async (args: any) => {
         const id = need(args, 'sessionId')
         const seq = Number(args?.seq)
@@ -515,12 +894,55 @@ export function apply(ctx: Context): void {
         if (!detail) throw new CliError('NotFound', `No trajectory record ${seq} in this session's log`)
         return detail
       },
+      'session.trajectory.prompt-diff': async (args: any) => {
+        const id = need(args, 'sessionId')
+        const seq = Number(args?.seq)
+        if (!Number.isInteger(seq)) throw new CliError('InvalidInput', 'seq must be an integer')
+        const diff = promptDiff(await sessionEvents(id), seq)
+        if (!diff) throw new CliError('NotFound', `No recorded prompt change at trajectory record ${seq}`)
+        return diff
+      },
       // B2 #7: a project session row's one action, Archive (DSH's own archive set; Unarchive in DSH brings it back)
       'sessions.archive': async (args: any) => {
         const id = need(args, 'sessionId')
         await ctx.workspaceRegistry.archiveSession(id as never)
         ctx.layerfs.emit('layerfs-session', { sessionId: id })
         return { sessionId: id, archived: true }
+      },
+      // One batch for every row mark and chip (the client's ownership store):
+      // the same read-only lookups `session.place` uses, no mutation, no observe.
+      'sessions.places': (args: any) => {
+        const ids = args?.sessionIds
+        if (!Array.isArray(ids) || ids.length > PLACES_MAX) {
+          throw new CliError('InvalidInput', `sessionIds must be an array of at most ${PLACES_MAX} session ids`)
+        }
+        const values = [...new Set(ids.map((id: unknown) => {
+          if (typeof id !== 'string' || !id) throw new CliError('InvalidInput', 'each session id must be a non-empty string')
+          return id
+        }))]
+        const persistence = ctx.get('sessionPersistence' as never) as any
+        const known = new Set<string>()
+        let allKnown = true
+        if (typeof sessions.knows === 'function') for (const id of values) {
+          if (sessions.knows(id)) known.add(id)
+          else allKnown = false
+        }
+        // Only when an id is not known in memory is the ownership index read, once
+        // for the whole batch: an id no binding, pending choice, live session or
+        // route names has no place and is answered null without a per-id read.
+        const owned = !allKnown && typeof persistence?.ownedSessionIds === 'function'
+          ? new Set<string>(persistence.ownedSessionIds()) : undefined
+        const places: Record<string, { project: string, projectId?: string, scratch?: string } | null> = {}
+        for (const id of values) {
+          if (owned && !known.has(id) && !owned.has(id)) { places[id] = null; continue }
+          const place = sessions.placeOfId(id)
+          if (!place?.project) { places[id] = null; continue }
+          // The project id is local routing metadata; a second batch inside the
+          // service's window reuses it instead of re-reading the owner index per id.
+          const projectId = typeof sessions.projectIdFor === 'function' ? sessions.projectIdFor(id) : persistence?.projectIdOf?.(id) as string | undefined
+          places[id] = { project: place.project, ...(projectId ? { projectId } : {}), ...(place.scratch ? { scratch: place.scratch } : {}) }
+        }
+        return { places }
       },
       'session.place': (args: any) => {
         const id = need(args, 'sessionId')

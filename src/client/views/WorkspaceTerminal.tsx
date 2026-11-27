@@ -10,6 +10,7 @@
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { parseTag, type LogsOutputAnswer } from '../../shared/logs.ts'
 import type { TrajectoryAnswer, TrajectoryDetail } from '../../shared/trajectory.ts'
 import type { ViewProps } from './FileViews.tsx'
@@ -59,7 +60,7 @@ function commandOf(args: string | undefined, fallback: string | undefined): stri
 
 const tail = (text: string) => text.length > OUTPUT_TAIL ? `…${text.slice(-OUTPUT_TAIL)}` : text
 
-export function WorkspaceTerminal({ api, t, events: all, wsName, now, agentName, laneOf, reduced }: {
+export function WorkspaceTerminal({ api, t, events: all, wsName, now, agentName, laneOf, reduced, onOpenLive, liveUnavailable }: {
   api: ViewProps['api']
   t: Translate
   /** This workspace's calls that started by `now`, oldest first. */
@@ -70,6 +71,10 @@ export function WorkspaceTerminal({ api, t, events: all, wsName, now, agentName,
   agentName: (id: string) => string
   laneOf: (agent: string) => string
   reduced: boolean
+  /** Opens the Sandbox page's live terminals; absent when there is no live terminal to open. */
+  onOpenLive?: () => void
+  /** Why no live terminal can be opened, shown muted beside the Replay badge. */
+  liveUnavailable?: string
 }): ReactNode {
   // A terminal shows what ran: the execs (mounts and saves are on the map and in Activity).
   const events = useMemo(() => all.filter((e) => e.method === 'workspace.exec'), [all])
@@ -114,39 +119,52 @@ export function WorkspaceTerminal({ api, t, events: all, wsName, now, agentName,
   const newest = `${entries.at(-1)?.key}:${entries.at(-1)?.events.filter((e) => e.end <= now).length}:${Object.keys(details).length}:${Object.keys(outputs).length}`
   useLayoutEffect(() => { const el = scroller.current; if (el) el.scrollTop = el.scrollHeight }, [newest])
 
-  if (entries.length === 0) return <div className={css.terminal}><p className={css.quiet}>{t('wsTerminalEmpty')}</p></div>
   return (
-    <div className={css.terminal} ref={scroller} role="log" aria-label={t('wsTerminal')}>
-      {entries.map((entry) => {
-        const first = entry.events[0], lastCall = entry.events.at(-1)!
-        const running = entry.events.some((e) => e.end > now)
-        const failed = entry.events.find((e) => e.end <= now && e.outcome !== 'ok')
-        const detail = entry.tool ? details[entry.key] : undefined
-        const typed = entry.tool ? commandOf(detail?.args, entry.tool.summary) : undefined
-        const kept = !entry.tool && first.tag ? outputs[first.tag] : undefined
-        const keptText = kept && !('missing' in kept) ? [kept.stdout, kept.stderr].filter(Boolean).join('\n').trim() : ''
-        const raw = (entry.tool ? (detail?.result ?? entry.tool.result ?? '') : keptText).trim()
-        const result = raw === '(no output)' ? '' : raw
-        const exit = kept && !('missing' in kept) ? kept.exit : undefined
-        const words = entry.tool ? null : execWords(first.argv)
-        const shown = typed ? sanitizeCommand(typed, wsName) : words
-        return (
-          <div key={entry.key} className={css.entry} style={{ ['--lane' as string]: laneOf(first.agent) }}
-            title={`${agentName(first.agent)} · ${stamp(first.start)}${typed ? `\n${typed}` : ''}`}>
-            <pre className={css.command}><span className={css.prompt}>$</span>{shown ?? <span className={css.dim}>{t('wsCommandNotKept')}</span>}</pre>
-            {running ? (
-              <div className={css.waiting}>{!reduced && Math.floor((now - lastCall.start) * 1.8) % 2 === 1 ? null : <span className={css.cursor} />}</div>
-            ) : entry.tool && detail === undefined && !entry.tool.result ? (
-              <div className={css.waiting}>{t('loading')}</div>
-            ) : result ? (
-              <pre className={clsx(css.output, (failed || entry.tool?.isError) && css.outputBad)}>{tail(result)}</pre>
-            ) : null}
-            {!running && (failed || (exit != null && exit !== 0)) ? (
-              <div className={css.bad}>{failed ? failed.outcome : t('trajExit', { code: exit! })}</div>
-            ) : null}
-          </div>
-        )
-      })}
+    <div className={css.panel}>
+      <div className={css.header}>
+        <span className={css.badge}>{t('wsReplay')}</span>
+        {onOpenLive ? (
+          <Button variant="ghost" size="sm" className={css.live} onClick={onOpenLive}>{t('wsOpenLive')}</Button>
+        ) : liveUnavailable ? (
+          <span className={css.liveOff}>{liveUnavailable}</span>
+        ) : null}
+      </div>
+      {entries.length === 0 ? (
+        <div className={css.terminal}><p className={css.quiet}>{t('wsTerminalEmpty')}</p></div>
+      ) : (
+        <div className={css.terminal} ref={scroller} role="log" aria-label={t('wsReplayLabel')}>
+          {entries.map((entry) => {
+            const first = entry.events[0], lastCall = entry.events.at(-1)!
+            const running = entry.events.some((e) => e.end > now)
+            const failed = entry.events.find((e) => e.end <= now && e.outcome !== 'ok')
+            const detail = entry.tool ? details[entry.key] : undefined
+            const typed = entry.tool ? commandOf(detail?.args, entry.tool.summary) : undefined
+            const kept = !entry.tool && first.tag ? outputs[first.tag] : undefined
+            const keptText = kept && !('missing' in kept) ? [kept.stdout, kept.stderr].filter(Boolean).join('\n').trim() : ''
+            const raw = (entry.tool ? (detail?.result ?? entry.tool.result ?? '') : keptText).trim()
+            const result = raw === '(no output)' ? '' : raw
+            const exit = kept && !('missing' in kept) ? kept.exit : undefined
+            const words = entry.tool ? null : execWords(first.argv)
+            const shown = typed ? sanitizeCommand(typed, wsName) : words
+            return (
+              <div key={entry.key} className={css.entry} style={{ ['--lane' as string]: laneOf(first.agent) }}
+                title={`${agentName(first.agent)} · ${stamp(first.start)}${typed ? `\n${typed}` : ''}`}>
+                <pre className={css.command}><span className={css.prompt}>$</span>{shown ?? <span className={css.dim}>{t('wsCommandNotKept')}</span>}</pre>
+                {running ? (
+                  <div className={css.waiting}>{!reduced && Math.floor((now - lastCall.start) * 1.8) % 2 === 1 ? null : <span className={css.cursor} />}</div>
+                ) : entry.tool && detail === undefined && !entry.tool.result ? (
+                  <div className={css.waiting}>{t('loading')}</div>
+                ) : result ? (
+                  <pre className={clsx(css.output, (failed || entry.tool?.isError) && css.outputBad)}>{tail(result)}</pre>
+                ) : null}
+                {!running && (failed || (exit != null && exit !== 0)) ? (
+                  <div className={css.bad}>{failed ? failed.outcome : t('trajExit', { code: exit! })}</div>
+                ) : null}
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

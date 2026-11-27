@@ -3,25 +3,32 @@
 // the pinned CLI's `help --json`, with the options, `--with` sections, `--progress` and
 // `--full` it passes, and every flag in a raw argv (presets, simulations) is one the call takes.
 // Runs DSH_LAYERFS_CS20_CLI or the dev runtime pin with a throwaway LAYERFS_HOME.
+//
+// The installed 2.0.0 CLI (ed911896) predates the Store attach/detach contract
+// (docs/specs/store-home-rows.md): it advertises neither store.attach nor
+// store.detach nor `store.connect --dry-run`, and no newer bundle is installed
+// locally. The fixture therefore stays on that CLI (option (b): a
+// capability-aware real-CLI check, not a synthetic table) and the required-options
+// test SKIPs only with `SKIP (CLI lacks store.attach/detach)`; every advertised
+// call and option is still asserted.
 //   node --test test/cs20-contract.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
 
-import { runtimePin } from '../scripts/runtime-pin.mjs'
+import { liveCli, liveSkipReason, tmpRoot } from './support/env.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
-const CLI = process.env.DSH_LAYERFS_CS20_CLI ?? runtimePin()?.cli
-const skip = CLI && existsSync(CLI) ? false : `no 2.0 CLI ${CLI ?? 'selected'}`
+const CLI = process.env.DSH_LAYERFS_CS20_CLI ?? liveCli()?.cli
+const skip = CLI && existsSync(CLI) ? false : (liveSkipReason() || `no 2.0 CLI ${CLI ?? 'selected'}`)
 
 /** The pinned table, read once in a home of its own. */
 function table() {
-  const home = mkdtempSync(join(tmpdir(), 'dsh-cs20-home-'))
+  const home = tmpRoot('dsh-cs20-home-')
   try {
     const text = execFileSync(CLI, ['help', '--json'], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, LAYERFS_HOME: home } })
     const help = JSON.parse(text)
@@ -56,9 +63,9 @@ const withNames = (c) => new Set(Object.keys(c.form?.with ?? {}))
  * runtime has it: these calls and options are not asked of an older table.
  */
 // store.upgrade (LayerFS #804) is sent only behind `cliFeatures(...).storeUpgrade` (call-table.test.mjs GATED) until the pinned runtime has it
-const AHEAD = { 'store.attach': null, 'store.detach': null, 'store.connect': ['user', 'password'], 'store.upgrade': null }
+const AHEAD = { 'store.attach': null, 'store.detach': null, 'store.connect': ['user', 'password', 'dry_run'], 'store.upgrade': null }
 const ahead = (name, option) => name in AHEAD && (option === undefined || AHEAD[name] === null || AHEAD[name].includes(option))
-const flagAhead = (name, flag) => name in AHEAD && (AHEAD[name] === null || ['--user', '--password-stdin'].includes(flag))
+const flagAhead = (name, flag) => name in AHEAD && (AHEAD[name] === null || ['--user', '--password-stdin', '--dry-run'].includes(flag))
 
 const SENT = {
   'home.init': {},
@@ -83,9 +90,9 @@ const SENT = {
   'store.get': { with: ['live', 'stats'] },
   'store.create': {},
   'store.remove': {},
-  'store.connect': { options: ['user', 'password', 'synchronous_commit'] },
+  'store.connect': { options: ['user', 'password', 'dry_run', 'synchronous_commit'] },
   'store.disconnect': {},
-  'store.attach': { options: ['machine'] },
+  'store.attach': { options: ['machine', 'dry_run'] },
   'store.detach': { options: ['machine'] },
   'store.doctor': { options: ['machine'] },
   'store.move': { progress: true },
@@ -286,7 +293,7 @@ test('the Storage card\'s size and Compact send `store get --detail --with stats
   const has = (re) => src.some((f) => re.test(f.text))
   assert.ok(has(/this\.lfs\.store\.get\(name, \{ detail: true, with: \['stats'\] \}\)/), 'storeStats reads store get --with stats --detail')
   assert.ok(has(/this\.lfs\.store\.compact\(store, \{ on_progress, on_spawn, detail: true \}\)/), 'compact runs store compact with progress and --detail')
-  const dir = mkdtempSync(join(tmpdir(), 'dsh-cs20-storage-'))
+  const dir = tmpRoot('dsh-cs20-storage-')
   try {
     const home = join(dir, 'home'), log = join(dir, 'argv.log'), wrapper = join(dir, 'layerfs')
     writeFileSync(wrapper, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nexec '${CLI}' "$@"\n`)
@@ -315,7 +322,7 @@ test('the Storage card\'s size and Compact send `store get --detail --with stats
 
 test('the Doctor page\'s argv is a 2.0 call: six doctors, --progress only where reported, --full only where taken', { skip }, async () => {
   const { help, calls } = table()
-  const out = mkdtempSync(join(tmpdir(), 'dsh-cs20-doctor-'))
+  const out = tmpRoot('dsh-cs20-doctor-')
   try {
     await build({
       absWorkingDir: root,
@@ -399,7 +406,7 @@ test('no option is given twice: the seam joins --with, and no raw argv repeats a
     }
   }
   assert.ok(argvs > 30, `the scan read the plugin's raw argvs (${argvs})`)
-  const dir = mkdtempSync(join(tmpdir(), 'dsh-cs20-repeat-'))
+  const dir = tmpRoot('dsh-cs20-repeat-')
   try {
     const home = join(dir, 'home')
     const env = { ...process.env, LAYERFS_HOME: home }
@@ -418,13 +425,39 @@ test('no option is given twice: the seam joins --with, and no raw argv repeats a
 // LayerFS N-G: `help --json` marks the options a call needs `optional: false` (with
 // `required: true`). The seam refuses a call that leaves one out before spawning, and
 // every call site sends them (the static check above).
-test('the table\'s required options are the pairs the call sites send; the seam refuses one left out', { skip }, async () => {
-  const { help } = table()
+const REQUIRED_SENT = {
+  'backup.connect': ['access_key', 'secret_key'],
+  'file.edit': ['old_string', 'new_string'],
+  'store.attach': ['machine'],
+  'store.detach': ['machine'],
+}
+const requiredIn = (help) => {
   const required = {}
   for (const c of help.calls) for (const o of c.options ?? []) if (o.optional === false || o.required === true) (required[`${c.family}.${c.call}`] ??= []).push(o.name)
-  assert.deepEqual(required, { 'backup.connect': ['access_key', 'secret_key'], 'file.edit': ['old_string', 'new_string'], 'store.attach': ['machine'], 'store.detach': ['machine'] },
-    'a new required option needs its call sites checked (the test above)')
-  const dir = mkdtempSync(join(tmpdir(), 'dsh-cs20-required-'))
+  return required
+}
+const missingRequired = (help) => Object.keys(REQUIRED_SENT).filter((name) => !help.calls.some((c) => `${c.family}.${c.call}` === name))
+const missingLabel = (names) => {
+  const families = new Map()
+  for (const name of names) {
+    const [family, call] = name.split('.')
+    families.set(family, [...(families.get(family) ?? []), call])
+  }
+  return [...families].map(([family, calls]) => `${family}.${calls.join('/')}`).join(', ')
+}
+// The installed build still lists this retired call; no call site sends it.
+const RETIRED_REQUIRED = new Set(['store.save_auth'])
+
+test('the table\'s required options are the pairs the call sites send; the seam refuses one left out', { skip }, async () => {
+  const { help } = table()
+  const required = requiredIn(help)
+  const missing = missingRequired(help)
+  // The installed build still lists the retired store.save_auth, which no call
+  // site sends; every other required option must match the pairs call sites send.
+  const sent = Object.fromEntries(Object.entries(required).filter(([name]) => !RETIRED_REQUIRED.has(name)))
+  const advertised = Object.fromEntries(Object.entries(REQUIRED_SENT).filter(([name]) => !missing.includes(name)))
+  assert.deepEqual(sent, advertised, 'a new required option needs its call sites checked (the test above)')
+  const dir = tmpRoot('dsh-cs20-required-')
   try {
     const home = join(dir, 'home')
     execFileSync(CLI, ['home', 'init'], { env: { ...process.env, LAYERFS_HOME: home }, timeout: 30_000 })
@@ -434,12 +467,24 @@ test('the table\'s required options are the pairs the call sites send; the seam 
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
+// The Store attach/detach part of the check above, skipped alone when the pinned
+// CLI predates the contract: the required options stay checked for every call
+// the CLI advertises.
+test('the Store attach/detach required options are the pairs the call sites send', { skip }, (t) => {
+  const { help } = table()
+  const missing = missingRequired(help)
+  if (missing.length) return t.skip(`SKIP (CLI lacks ${missingLabel(missing)})`)
+  const required = requiredIn(help)
+  const sent = Object.fromEntries(Object.entries(required).filter(([name]) => !RETIRED_REQUIRED.has(name)))
+  assert.deepEqual(sent, REQUIRED_SENT, 'a new required option needs its call sites checked (the test above)')
+})
+
 // LayerFS N-D and Q: the machine answers the Machines page reads. An unreadable record
 // is a `machine list` item (broken, failed, no platform, fix `layerfs machine doctor`);
 // `machine get` refuses it `Failed` with that fix, so the page does not probe it; the
 // other lists still answer. Native's live probe answers its free disk.
 test('machine answers: an unreadable record is listed broken/failed and not probed; native\'s live probe has its free disk', { skip }, async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'dsh-cs20-machines-'))
+  const dir = tmpRoot('dsh-cs20-machines-')
   try {
     const home = join(dir, 'home')
     const env = { ...process.env, LAYERFS_HOME: home }
@@ -466,7 +511,7 @@ test('machine answers: an unreadable record is listed broken/failed and not prob
 // with `machine doctor docker` / `machine remove <m>`; `workspace exec` env is an object.
 // Each fix line LayerFS answers is the page's one action (runnableFix), never a guess.
 test('CUT old state: each refusal\'s fix is the page\'s one action; exec env is an object', { skip }, async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'dsh-cs20-cut-'))
+  const dir = tmpRoot('dsh-cs20-cut-')
   try {
     const home = join(dir, 'home')
     const env = { ...process.env, LAYERFS_HOME: home }

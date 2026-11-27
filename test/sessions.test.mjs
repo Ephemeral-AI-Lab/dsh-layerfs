@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { Context } from '@deepseek-ai/cordis'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 // Inside the checkout, so the external DSH packages resolve from node_modules.
@@ -18,7 +19,7 @@ const out = mkdtempSync(join(root, 'lib', '.test-sessions-'))
 await build({
   absWorkingDir: root,
   stdin: {
-    contents: "export * from './src/host/sessions/service.ts'\nexport * from './src/host/placement.ts'\nexport * as persistence from './src/host/session-persistence.ts'\nexport { initialState } from './src/host/sessions/state.ts'\nexport * from './src/host/sessions/availability.ts'\nexport * as tracing from './src/host/layerfs/tracing.ts'\n",
+    contents: "export * from './src/host/sessions/service.ts'\nexport * from './src/host/placement.ts'\nexport * as persistence from './src/host/session-persistence.ts'\nexport { initialState } from './src/host/sessions/state.ts'\nexport * from './src/host/sessions/availability.ts'\nexport * as tracing from './src/host/layerfs/tracing.ts'\nexport { apply as applySessionsIndex } from './src/host/sessions/index.ts'\nexport { buildTrajectory, trajectoryRevision } from './src/host/sessions/trace.ts'\n",
     resolveDir: root,
     loader: 'ts',
   },
@@ -57,6 +58,15 @@ function sessions({ state = S.initialState(), lfs = {}, layerfsRoot = '/lfs-root
 
 const session = (id, header, events = []) => ({ id, header: { id, ...header }, snapshotEvents: () => events })
 const ran = [{ type: 'turn/start', data: { turn: 1 } }]
+
+/** The `layerfs-session` events fired, each with the execution state saved when it fired. */
+function sessionSaves(s, state) {
+  const saves = []
+  s.ctx.layerfs.emit = (type, data) => {
+    if (type === 'layerfs-session') saves.push({ sessionId: data.sessionId, executionState: state().sessions[data.sessionId]?.executionState })
+  }
+  return saves
+}
 
 test('placeOf: only recorded legacy project anchors bind; folder paths do not create ownership', () => {
   const state = S.initialState()
@@ -138,6 +148,94 @@ test('choose: a blank session takes the layerfs preset with its project and the 
   await s.choose('np', null)
   assert.deepEqual(selected, ['layerfs', 'layerfs', 'compiler', 'layerfs'])
   rmSync(root, { recursive: true, force: true })
+})
+
+test('checkPlacement passes for a ready project, and reads the machine a PostgreSQL project would use, without writing anything', async () => {
+  // A plain project on a ready machine and Store.
+  const ready = sessions({ lfs: {
+    project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'native', state: 'ready' }) },
+    machine: { get: async (name) => ({ machine: name, state: 'ready' }) },
+    store: { get: async () => ({ store: 'st', engine: 'sqlite', state: 'ready' }) },
+    branch: { fork: async () => { throw new Error('checkPlacement must never claim an identity branch') } },
+  } })
+  assert.deepEqual(await ready.s.checkPlacement('st/app'), { ok: true })
+  assert.deepEqual(ready.state().pending, {})
+  assert.deepEqual(ready.state().sessions, {})
+
+  // A PostgreSQL project with no pick uses its last Sandbox's ready machine
+  // (the choice `mount` makes), never a stopped native one.
+  const got = []
+  const pg = sessions({ lfs: {
+    project: { get: async () => ({ store: 'st', engine: 'postgresql', state: 'ready' }) },
+    machine: {
+      list: async () => ({ items: [
+        { machine: 'native', state: 'ready', supports: ['sqlite'] },
+        { machine: 'docker', state: 'ready', supports: ['sqlite', 'postgresql_sandbox'] },
+      ] }),
+      get: async (name) => { got.push(name); return { machine: name, state: 'ready' } },
+    },
+    store: { get: async () => ({ store: 'st', engine: 'postgresql', state: 'ready', machines: [{ machine: 'docker', reached: 'ok' }] }) },
+    sandbox: { list: async () => ({ items: [{ sandbox: 'old', machine: 'docker', created_at: '2026-11-19T00:00:00Z' }] }) },
+  } })
+  assert.deepEqual(await pg.s.checkPlacement('st/app'), { ok: true })
+  assert.deepEqual(got, ['docker'], 'the project\'s last Sandbox machine was checked')
+  assert.deepEqual(pg.state().pending, {})
+  assert.deepEqual(pg.state().sessions, {})
+})
+
+test('checkPlacement refuses an identity mismatch, missing project, stopped machine and unavailable Store without a placement', async () => {
+  const refused = async ({ lfs, persistence, projectId, machine, code }) => {
+    const { s, state } = sessions({ lfs })
+    if (persistence) s.ctx.get = (name) => (name === 'sessionPersistence' ? persistence : undefined)
+    await assert.rejects(s.checkPlacement('st/app', projectId, machine), (e) => e.code === code)
+    assert.deepEqual(state().pending, {}, 'no pending placement')
+    assert.deepEqual(state().sessions, {}, 'no binding')
+  }
+  const branch = { fork: async () => { throw new Error('checkPlacement must never claim a branch') } }
+  // A listed identity that no longer matches the project (read, never claimed).
+  await refused({
+    persistence: { catalog: { assert: async (project, expected, options) => {
+      assert.deepEqual([project, expected, options], ['st/app', 'old-id', { claim: false }])
+      throw new Refusal('ProjectIdentityChanged', 'This name now refers to another project.')
+    } } },
+    projectId: 'old-id', code: 'ProjectIdentityChanged',
+  })
+  // A project the client listed but that cannot be read.
+  await refused({ lfs: { project: { get: async () => { throw new Refusal('NotFound', 'no project st/app') } }, branch }, code: 'NotFound' })
+  // A SQLite project whose machine is stopped.
+  await refused({ lfs: {
+    project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'vm', state: 'ready' }) },
+    machine: { get: async (name) => ({ machine: name, state: 'stopped', reason: 'stopped' }) },
+    store: { get: async () => ({ store: 'st', engine: 'sqlite', state: 'ready' }) },
+    branch,
+  }, code: 'Unavailable' })
+  // A PostgreSQL project on its picked machine, when that machine is stopped.
+  await refused({ lfs: {
+    project: { get: async () => ({ store: 'st', engine: 'postgresql', state: 'ready' }) },
+    machine: { get: async (name) => ({ machine: name, state: 'stopped' }) },
+    store: { get: async () => ({ store: 'st', engine: 'postgresql', state: 'ready' }) },
+    branch,
+  }, machine: 'vm2', code: 'Unavailable' })
+  // A Store that is blocked by its machine.
+  await refused({ lfs: {
+    project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'native', state: 'ready' }) },
+    machine: { get: async (name) => ({ machine: name, state: 'ready' }) },
+    store: { get: async () => ({ store: 'st', engine: 'sqlite', state: 'blocked', blocked_by: { machine: 'native', reason: 'stopped' } }) },
+    branch,
+  }, code: 'Unavailable' })
+})
+
+test('a failed choose removes the pending placement it wrote, so a retry is not half placed', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-root-'))
+  try {
+    const state = S.initialState()
+    state.sessions.a = { sessionId: 'a', kind: 'project', project: 'st/app', anchor: join(root, 'projects', 'st', 'app'), scratch: '/x', state: 'bound' }
+    const { s, state: readState } = sessions({ state, layerfsRoot: root, lfs: { project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'native' }) } } })
+    s.detach = async () => { throw new Refusal('Busy', 'the Workspace is busy') }
+    await assert.rejects(s.choose('a', 'st/app'), (e) => e.code === 'Busy')
+    assert.equal(readState().pending.a, undefined, 'the pending placement was removed')
+    assert.equal(readState().sessions.a.project, 'st/app', 'the binding stays')
+  } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
 test('the layerfs preset is refused without a project: a blank folder session moves off it', async () => {
@@ -340,6 +438,102 @@ test('ensureBound binds a remote project: Sandbox on its machine, working direct
   rmSync(s.ctx.layerfs.root, { recursive: true, force: true })
 })
 
+// Issue #185: a project session's first message may spend seconds making its
+// Sandbox and mounting the Workspace, and the row used to look idle throughout.
+test('a first bind says Starting while its Workspace mounts, then active', async () => {
+  let atMount, releaseMount
+  const mounting = new Promise((resolve) => { atMount = resolve })
+  const gate = new Promise((resolve) => { releaseMount = resolve })
+  const lfs = {
+    project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'native', state: 'ready' }) },
+    branch: { fork: async () => ({ commit: 'f'.repeat(66) }) },
+    sandbox: {
+      get: async () => { throw new Refusal('NotFound') },
+      create: async () => ({ ok: true }),
+    },
+    workspace: {
+      mount: async (sandbox, _branch, options) => {
+        atMount()
+        await gate
+        return { path: '/host/mount', workspace: `${sandbox}:${options.name}`, commit: 'base-1' }
+      },
+    },
+  }
+  const { s, state } = sessions({ lfs, layerfsRoot: mkdtempSync(join(tmpdir(), 'dsh-root-')) })
+  try {
+    const saves = sessionSaves(s, state)
+    s.ctx.workingDirectory = { get: () => s.ctx.layerfs.root, set: async () => {} }
+    state().pending.n1 = { project: 'st/app' }
+    const agent = { id: 'n1', session: { ...session('n1', { cwd: join(s.ctx.layerfs.root, 'projects', 'st', 'app') }), seq: 0, append: () => {} } }
+    const step = s.ensureBound(agent)
+    await mounting
+    const starting = state().sessions.n1
+    assert.equal(starting.executionState, 'activating', 'the row says Starting while the mount runs')
+    assert.equal(starting.state, 'closed', 'it is not bound yet')
+    assert.equal(starting.project, 'st/app')
+    assert.deepEqual(saves, [{ sessionId: 'n1', executionState: 'activating' }], 'one session event for the start')
+    releaseMount()
+    await step
+    assert.equal(state().sessions.n1.executionState, 'active')
+    assert.equal(state().sessions.n1.state, 'bound')
+    assert.deepEqual(saves, [{ sessionId: 'n1', executionState: 'activating' }, { sessionId: 'n1', executionState: 'active' }], 'then one for active')
+  } finally { rmSync(s.ctx.layerfs.root, { recursive: true, force: true }) }
+})
+
+test('a failed mount leaves no Starting session: it ends interrupted with the error', async () => {
+  let during
+  const lfs = {
+    project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'native', state: 'ready' }) },
+    branch: { fork: async () => ({ commit: 'f'.repeat(66) }) },
+    sandbox: {
+      get: async () => { throw new Refusal('NotFound') },
+      create: async () => ({ ok: true }),
+    },
+    workspace: { mount: async () => { during = { ...state().sessions.n1 }; throw new Refusal('Unavailable', 'worker gone') } },
+  }
+  const { s, state } = sessions({ lfs, layerfsRoot: mkdtempSync(join(tmpdir(), 'dsh-root-')) })
+  try {
+    const saves = sessionSaves(s, state)
+    s.ctx.workingDirectory = { get: () => s.ctx.layerfs.root, set: async () => {} }
+    state().pending.n1 = { project: 'st/app' }
+    const agent = { id: 'n1', session: { ...session('n1', { cwd: join(s.ctx.layerfs.root, 'projects', 'st', 'app') }), seq: 0, append: () => {} } }
+    await assert.rejects(s.ensureBound(agent), (e) => e.code === 'Unavailable' && /worker gone/.test(e.message))
+    assert.equal(during.executionState, 'activating', 'it was starting during the mount')
+    const failed = state().sessions.n1
+    assert.equal(failed.executionState, 'interrupted', 'no stuck Starting')
+    assert.equal(failed.state, 'failed')
+    assert.match(failed.error, /worker gone/)
+    assert.equal(failed.ws, undefined, 'no Workspace is claimed')
+    assert.deepEqual(saves, [{ sessionId: 'n1', executionState: 'activating' }, { sessionId: 'n1', executionState: 'interrupted' }])
+  } finally { rmSync(s.ctx.layerfs.root, { recursive: true, force: true }) }
+})
+
+test('a normal step on a bound, usable session does not show Starting', async () => {
+  const state = S.initialState()
+  state.sessions.live = { sessionId: 'live', kind: 'project', project: 'st/app', anchor: '/a', scratch: '/s', branch: 'dsh.live', sandbox: 'dsh-live', ws: 'dsh-live:main', state: 'bound', executionState: 'active', createdAt: 0, updatedAt: 0 }
+  const { s, state: now } = sessions({ state })
+  const saves = sessionSaves(s, now)
+  const agent = { id: 'live', session: { ...session('live', { cwd: '/scratch' }), seq: 0, append: () => {} } }
+  await s.ensureBound(agent)
+  await s.ensureBound(agent)
+  assert.deepEqual(saves, [], 'no save and no Starting flash')
+  assert.equal(now().sessions.live.executionState, 'active')
+})
+
+test('a subagent follows its root and never shows a Starting state of its own', async () => {
+  const state = S.initialState()
+  state.sessions.owner = { sessionId: 'owner', kind: 'project', project: 'st/app', anchor: '/a', scratch: '/s', branch: 'dsh.owner', sandbox: 'dsh-owner', ws: 'dsh-owner:main', mount: '/m', state: 'bound', executionState: 'active', createdAt: 0, updatedAt: 0 }
+  const { s, state: now } = sessions({ state })
+  const saves = sessionSaves(s, now)
+  s.ctx.workingDirectory = { get: () => '/s', set: async () => {} }
+  const child = { id: 'kid', session: { id: 'kid', header: { id: 'kid', cwd: '/a', origin: 'subagent', parentSession: 'owner' }, snapshotEvents: () => [] } }
+  await s.ensureBound(child)
+  assert.equal(now().sessions.kid.kind, 'shared')
+  assert.equal(now().sessions.kid.state, 'bound')
+  assert.equal(now().sessions.kid.executionState, 'active')
+  assert.deepEqual(saves, [{ sessionId: 'kid', executionState: 'active' }], 'one Active save, never Starting')
+})
+
 test('ensureBound runs a PostgreSQL project where the session picked, else its last machine while attached and running, else the only attached one; otherwise the person picks (spec v23)', async () => {
   const bind = async (machines, { picked, last, attached = [] } = {}) => {
     const calls = []
@@ -374,6 +568,7 @@ test('ensureBound runs a PostgreSQL project where the session picked, else its l
   assert.equal(await bind(fleet, { picked: 'vm1' }), 'vm1', 'the session\'s own pick')
   assert.equal(await bind(fleet, { last: 'vm1', attached: ['docker', 'vm1'] }), 'vm1', 'the project\'s last machine, while attached')
   assert.equal(await bind(fleet, { last: 'vm1', attached: ['docker'] }), 'docker', 'a last machine no longer attached is skipped: the only attached one')
+  assert.equal(await bind(fleet, { last: 'vm3', attached: ['docker'] }), 'docker', 'a broken last machine is skipped')
   assert.equal(await bind(fleet, { attached: ['native'] }), 'native', 'native attached like any machine')
   await assert.rejects(bind(fleet, { last: 'vm2', attached: ['vm2', 'docker'] }), (e) => e.code === 'InvalidInput', 'a stopped last machine, two attached: nothing is guessed')
   await assert.rejects(bind(fleet, {}), (e) => e.code === 'InvalidInput', 'none attached: nothing is guessed, not even native')
@@ -633,6 +828,106 @@ test('an observed session.state (the views\' poll) changes nothing: a refused ma
     await f.s.view('live')
     assert.equal(f.state().sessions.live.executionState, 'interrupted', refused)
   }
+})
+
+test('observed reads check identity and readiness once per short window, and a repeat with no change costs no CLI call', async () => {
+  const state = S.initialState()
+  state.sessions.live = { sessionId: 'live', kind: 'project', project: 'store/app', machine: 'vm', anchor: '/anchor', scratch: '/scratch', state: 'bound', ws: 'box:main', sandbox: 'box', branch: 'retained', executionState: 'active' }
+  state.checkpoints.live = [{ commit: 'saved' }]
+  const calls = []
+  const f = sessions({ state, lfs: {
+    machine: { get: async () => { calls.push('machine'); return { machine: 'vm', state: 'ready' } } },
+    store: { get: async () => { calls.push('store'); return { store: 'store', engine: 'sqlite', state: 'ready' } } },
+    workspace: { status: async (_ws, options) => { calls.push(`status:${options?.detail === true}`); return { overlay: { inode_count: 2 } } } },
+  } })
+  f.s.ctx.get = (name) => name === 'sessionPersistence' ? {
+    assertSessionIdentity: async () => { calls.push('identity'); return { key: 'store/app', store: 'store', machine: 'vm' } },
+    projectIdOf: () => 'permanent-id', local: { stat: async () => ({ eventCount: 5 }) },
+  } : undefined
+  for (let i = 0; i < 3; i++) {
+    const view = await f.s.view('live', { observe: true })
+    assert.equal(view.execution.available, true)
+    assert.equal(view.execution.reason, undefined)
+    assert.deepEqual(view.status?.overlay, { inode_count: 2 }, 'status stays live inside the window')
+    assert.equal(view.binding.state, 'bound')
+  }
+  assert.deepEqual(calls, ['identity', 'machine', 'store', 'status:true'],
+    'identity and readiness read once; a repeat with the same revision answers from the memo, no CLI call')
+  // Without observe (an explicit read) the check always runs, window or not.
+  calls.length = 0
+  await f.s.view('live')
+  assert.deepEqual(calls, ['identity', 'machine', 'store', 'status:true'])
+})
+
+test('an observed read never caches a refused machine, Store or identity: the next read asks again', async () => {
+  for (const refused of ['machine', 'store', 'identity']) {
+    const state = S.initialState()
+    state.sessions.live = { sessionId: 'live', kind: 'project', project: 'store/app', machine: 'vm', anchor: '/anchor', scratch: '/scratch', state: 'bound', ws: 'box:main', sandbox: 'box', branch: 'retained', executionState: 'active' }
+    const calls = []
+    const f = sessions({ state, lfs: {
+      machine: { get: async () => { calls.push('machine'); if (refused === 'machine') throw new Refusal('Unavailable', 'machine vm is stopped'); return { machine: 'vm', state: 'ready' } } },
+      store: { get: async () => { calls.push('store'); if (refused === 'store') throw new Refusal('Unavailable', 'store is blocked'); return { store: 'store', engine: 'sqlite', state: 'ready' } } },
+      workspace: { status: async () => { calls.push('status'); return {} } },
+    } })
+    f.s.ctx.get = (name) => name === 'sessionPersistence' ? {
+      assertSessionIdentity: async () => { calls.push('identity'); if (refused === 'identity') throw new Refusal('ProjectIdentityChanged'); return { key: 'store/app', store: 'store', machine: 'vm' } },
+      projectIdOf: () => 'permanent-id', local: { stat: async () => ({ eventCount: 5 }) },
+    } : undefined
+    const first = await f.s.view('live', { observe: true })
+    assert.equal(first.execution.available, false, refused)
+    assert.ok(first.execution.reason, refused)
+    const second = await f.s.view('live', { observe: true })
+    assert.equal(second.execution.available, false, refused)
+    assert.equal(calls.filter((call) => call === 'identity').length, 2, `${refused}: identity is read again`)
+    if (refused !== 'identity') assert.equal(calls.filter((call) => call === 'machine').length, 2, `${refused}: readiness is read again`)
+    assert.equal(f.state().sessions.live.state, 'bound', `${refused}: an observed refusal changes nothing`)
+  }
+})
+
+test('save and interrupt invalidate the observed readiness window for that session', async () => {
+  const state = S.initialState()
+  state.sessions.live = { sessionId: 'live', kind: 'project', project: 'store/app', machine: 'vm', anchor: '/anchor', scratch: '/scratch', state: 'bound', ws: 'box:main', sandbox: 'box', branch: 'retained', executionState: 'active' }
+  const calls = []
+  const f = sessions({ state, lfs: {
+    machine: { get: async () => { calls.push('machine'); return { machine: 'vm', state: 'ready' } } },
+    store: { get: async () => { calls.push('store'); return { store: 'store', engine: 'sqlite', state: 'ready' } } },
+    workspace: { status: async () => { calls.push('status'); return {} } },
+  } })
+  f.s.ctx.get = (name) => name === 'sessionPersistence' ? {
+    assertSessionIdentity: async () => { calls.push('identity'); return { key: 'store/app', store: 'store', machine: 'vm' } },
+    projectIdOf: () => 'permanent-id', local: { stat: async () => ({ eventCount: 5 }) },
+  } : undefined
+  const once = () => calls.filter((call) => call === 'identity').length
+  await f.s.view('live', { observe: true })
+  await f.s.view('live', { observe: true })
+  assert.equal(once(), 1)
+  f.s.save({ ...f.state().sessions.live })
+  await f.s.view('live', { observe: true })
+  assert.equal(once(), 2, 'save clears the entry')
+  f.s.interrupt('live', 'A test interruption', 'blocked')
+  await f.s.view('live', { observe: true })
+  assert.equal(once(), 3, 'interrupt clears the entry (through its save)')
+})
+
+test('a stopped machine clears observed readiness even with no binding save', async () => {
+  const state = S.initialState()
+  state.sessions.held = { sessionId: 'held', kind: 'project', project: 'store/app', machine: 'vm', anchor: '/anchor', scratch: '/scratch', state: 'closed', executionState: 'interrupted', error: 'Store down', interruption: { kind: 'availability', at: 1 }, branch: 'retained' }
+  const calls = []
+  const f = sessions({ state, lfs: {
+    machine: { get: async () => { calls.push('machine'); return { machine: 'vm', state: 'ready' } } },
+    store: { get: async () => { calls.push('store'); return { store: 'store', engine: 'sqlite', state: 'ready' } } },
+    workspace: { status: async () => { calls.push('status'); return {} } },
+  } })
+  f.s.ctx.get = (name) => name === 'sessionPersistence' ? {
+    assertSessionIdentity: async () => { calls.push('identity'); return { key: 'store/app', store: 'store', machine: 'vm' } },
+    projectIdOf: () => 'permanent-id', local: { stat: async () => ({ eventCount: 5 }) },
+  } : undefined
+  await f.s.view('held', { observe: true })
+  await f.s.view('held', { observe: true })
+  assert.equal(calls.filter((call) => call === 'identity').length, 1)
+  f.s.machinesStopped(['vm'])
+  await f.s.view('held', { observe: true })
+  assert.equal(calls.filter((call) => call === 'identity').length, 2, 'a machine transition clears the entry without a save')
 })
 
 test('an observed read never clears an availability error either; the explicit read does', async () => {
@@ -957,6 +1252,122 @@ test('archive writes stay untagged and record no receipt', async () => {
   assert.deepEqual(tags, [undefined]); assert.deepEqual(recorded, [])
 })
 
+// A session's own host reads (the panel's polls and the pre-step check) run in
+// its trace context: a successful read folds into the sidecar counter before the
+// next annotation or trajectory read, while a tool read and a write keep their
+// receipts. This is the live wiring the receipt policy needs; the policy itself
+// is covered in test/receipt-policy.test.mjs.
+test('a session\'s host reads fold into its sidecar; a tool read and a write keep receipts', async () => {
+  const dir = mkdtempSync(join(root, '.dev-test-receipt-wiring-'))
+  const tags = []
+  const info = { project: 'store/app', store: 'store', engine: 'sqlite', machine: 'vm', created_at: '1970-01-01T00:00:00.100Z' }
+  const branches = []
+  const lfs = {
+    project: { get: traced('project.get', () => info, tags), list: async () => ({ items: [info] }) },
+    branch: { list: traced('branch.list', () => ({ items: branches.map((branch) => ({ branch })) }), tags), fork: async (_, branch) => { branches.push(branch); return { commit: hex('a') } } },
+    machine: { get: traced('machine.get', () => ({ machine: 'vm', state: 'ready' }), tags), list: async () => ({ items: [] }) },
+    store: { get: traced('store.get', () => ({ store: 'store', engine: 'sqlite', state: 'ready' }), tags), list: async () => ({ items: [] }) },
+    workspace: { status: traced('workspace.status', () => ({ changes_count: 0 }), tags) },
+  }
+  const ctx = new Context()
+  ctx.provide('layerfs', { root: join(dir, 'plugin'), projectSessionHome: join(dir, 'project-home'), home: join(dir, 'layerfs-home'), lfs })
+  const fork = ctx.plugin(S.persistence, { root: join(dir, 'normal') })
+  const header = (id) => ({ version: 4, id, createdAt: 1, cwd: '/scratch', isSeeded: false })
+  const binding = (id) => ({ sessionId: id, kind: 'project', project: 'store/app', machine: 'vm', anchor: '/anchor', scratch: '/scratch',
+    sandbox: 'box', ws: 'box:main', branch: 'internal', state: 'bound', executionState: 'active', createdAt: 1, updatedAt: 1 })
+  try {
+    await fork.await()
+    const p = ctx.get('sessionPersistence')
+    for (const id of ['live', 'fresh']) {
+      const writer = await p.create(header(id))
+      await writer.flush(); await writer.close()
+      await p.migrateProject(id, 'store/app')
+    }
+    // Migration reads identity Branches without a session context; start counting here.
+    tags.length = 0
+    const attached = (state) => {
+      const f = sessions({ state, lfs })
+      f.s.ctx.get = (name) => name === 'sessionPersistence' ? p : name === 'layerfsSessions' ? f.s : undefined
+      return f.s
+    }
+    const liveState = S.initialState()
+    liveState.sessions.live = binding('live')
+    const live = attached(liveState)
+    // The panel's poll: identity, readiness and Workspace status are host calls.
+    const view = await live.view('live', { observe: true })
+    assert.equal(view.execution.available, true)
+    const observed = tags.filter((tag) => tag !== undefined)
+    assert.ok(observed.length >= 3, 'the poll made its host reads')
+    assert.ok(observed.every((tag) => tag.startsWith('dsh:live:')), 'each call carries the session id, never dsh:-')
+    const annotations = await p.readSidecar('live')
+    assert.ok(annotations.receipts, 'the next annotations read carries the counter')
+    assert.ok(annotations.receipts.readsTotal >= 3, 'successful host reads folded')
+    assert.equal(annotations.receipts.reads['workspace.status'].count, 1)
+    assert.deepEqual(annotations.invocations, [], 'a folded read writes no receipt')
+
+    const events = [
+      { type: 'turn/start', seq: 1, time: 10, data: { turn: 1 } },
+      { type: 'user/message', seq: 2, time: 11, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'go' }] } },
+      { type: 'turn/end', seq: 3, time: 12, data: { turn: 1 } },
+    ]
+    const input = { sessionId: 'live', project: 'store/app', branch: 'internal', events, invocations: annotations.invocations, checkpoints: [], receipts: annotations.receipts }
+    const revision = S.trajectoryRevision(input)
+    const observation = S.buildTrajectory(input).turns.flatMap((turn) => turn.records).find((record) => record.kind === 'observation')
+    assert.ok(observation, 'the trajectory carries the observation record')
+    assert.equal(observation.text, `polled ${annotations.receipts.readsTotal.toLocaleString('en-US')} times across ${Object.keys(annotations.receipts.reads).length} read-only operations`)
+    assert.equal(observation.reads, annotations.receipts.readsTotal)
+    assert.ok(observation.top.some((line) => line.startsWith('workspace status: ')))
+
+    // A second read (no memo) moves the counter and so the revision, with no new receipt.
+    await live.view('live')
+    const moved = await p.readSidecar('live')
+    assert.ok(moved.receipts.readsTotal > annotations.receipts.readsTotal)
+    assert.notEqual(S.trajectoryRevision({ ...input, receipts: moved.receipts, invocations: moved.invocations }), revision)
+
+    // Many host reads stay one counter: no receipt per poll, however many.
+    const beforeLoop = moved.receipts.readsTotal
+    for (let i = 0; i < 20; i++) await live.view('live')
+    const polled = await p.readSidecar('live')
+    assert.ok(polled.receipts.readsTotal >= beforeLoop + 20, 'every poll folded')
+    assert.deepEqual(polled.invocations, [], 'a poll loop writes no receipts')
+
+    // The pre-step check folds as well.
+    const beforeStep = polled.receipts.readsTotal
+    await live.ensureBound({ id: 'live', session: { id: 'live', cwd: '/scratch', snapshotEvents: () => [] } })
+    const stepped = await p.readSidecar('live')
+    assert.ok(stepped.receipts.readsTotal > beforeStep)
+    assert.ok(tags.filter((tag) => tag !== undefined).every((tag) => tag.startsWith('dsh:live:')), 'no untagged session call')
+
+    // An agent's own read is a command: one receipt, no fold.
+    await p.recordInvocation({ id: 'tool-read', origin: 'tool', sessionId: 'live', project: 'store/app', operation: 'file.read',
+      outcome: 'success', versions: [], at: 2, argv: ['file', 'read', 'store/app', 'internal', '/README.md'] })
+    const commanded = await p.readSidecar('live')
+    assert.deepEqual(commanded.invocations.map((row) => row.id), ['tool-read'], 'the tool read kept its receipt')
+    assert.equal(commanded.receipts.readsTotal, stepped.receipts.readsTotal, 'and bumped nothing')
+    // A write is history too.
+    await p.recordInvocation({ id: 'write', origin: 'host', sessionId: 'live', project: 'store/app', operation: 'file.write',
+      outcome: 'success', versions: [{ kind: 'Commit', id: hex('b'), effect: 'created' }], at: 3, argv: ['file', 'write', 'store/app', 'internal', '/README.md'] })
+    const written = await p.readSidecar('live')
+    assert.deepEqual(written.invocations.map((row) => row.id), ['tool-read', 'write'])
+    assert.equal(written.receipts.readsTotal, stepped.receipts.readsTotal, 'a write bumps no read')
+
+    // A session whose sidecar does not exist yet gets its first folded read.
+    const freshState = S.initialState()
+    freshState.sessions.fresh = binding('fresh')
+    const fresh = attached(freshState)
+    await fresh.view('fresh', { observe: true })
+    const first = await p.readSidecar('fresh')
+    assert.ok(first, 'the observation created the sidecar')
+    assert.ok(first.receipts.readsTotal >= 3, 'its first reads folded')
+    assert.deepEqual(first.invocations, [])
+    assert.ok(tags.filter((tag) => tag !== undefined).some((tag) => tag.startsWith('dsh:fresh:')), 'the fresh session\'s reads carry its own tag')
+    assert.equal(tags.filter((tag) => tag === undefined).length, 0, 'no host read of a session is untagged')
+  } finally {
+    await fork.dispose().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 // ---------------------------------------------------------------- review fixes
 
 test('choosing a project with an unclaimed listing id claims it (the one claiming path)', async () => {
@@ -1073,4 +1484,305 @@ test('re-activating an interrupted binding over a still-mounted Workspace restor
   assert.equal(mount, undefined, 'a docker Workspace has no host path')
   assert.equal(binding.ws, 'dsh-owner:main', 'the Workspace handle is restored')
   assert.deepEqual(mounts, [], 'nothing is remounted')
+})
+
+test('session.state names the branch kind the host returned, without touching the saved binding', async () => {
+  const cases = [
+    ['own', S.branchOf('abc'), 'own', undefined],
+    ['restore', S.branchOf('abc', 2), 'restore', 2],
+    ['resume', `${S.branchOf('abc')}.resume.0123456789ab`, 'resume', undefined],
+    ['other', 'feature/x', 'other', undefined],
+  ]
+  for (const [name, branch, kind, restore] of cases) {
+    const state = S.initialState()
+    state.sessions.abc = { sessionId: 'abc', kind: 'project', project: 'store/app', anchor: '/anchor', scratch: '/scratch', state: 'closed', branch }
+    const f = sessions({ state })
+    const before = structuredClone(state.sessions.abc)
+    const view = await f.s.view('abc')
+    assert.equal(view.binding.branch, branch, name)
+    assert.equal(view.binding.branchKind, kind, name)
+    assert.equal(view.binding.restore, restore, name)
+    assert.deepEqual(f.state().sessions.abc, before, `${name}: the persisted binding is untouched`)
+    assert.equal(f.state().sessions.abc.branchKind, undefined, name)
+  }
+})
+
+test('sessions.list rows carry the branch kind too, from the row\'s branch and its own session id', async () => {
+  const state = S.initialState()
+  const row = (sessionId, branch, updatedAt) => ({ sessionId, kind: 'project', project: 'st/app', anchor: '/a', scratch: '/s', state: 'closed', branch, createdAt: 0, updatedAt })
+  state.sessions.own = row('own', S.branchOf('own'), 1)
+  state.sessions.restored = row('restored', S.branchOf('restored', 2), 2)
+  state.sessions.resumed = row('resumed', `${S.branchOf('resumed')}.resume.0123456789ab`, 3)
+  state.sessions.plain = row('plain', 'feature/x', 4)
+  const ops = {}
+  const ctx = {
+    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
+    layerfsSessions: { state: { read: () => state } },
+    layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
+    plugin() {},
+    // The one scoped injection `apply` needs to register its operations.
+    inject: (deps, callback) => { if (deps.includes('layerfsSessions')) callback(ctx) },
+    on() {},
+    effect() {},
+    get: (name) => name === 'sessionPersistence' ? { stat: async () => undefined, ownedSessionIds: () => [] } : undefined,
+    logger: () => ({ warn() {}, info() {} }),
+    workspaceRegistry: { archivedSessionIds: [] },
+  }
+  S.applySessionsIndex(ctx)
+  const { sessions: listed } = await ops['sessions.list']({ project: 'st/app', localOnly: true })
+  const byId = Object.fromEntries(listed.map((r) => [r.sessionId, r]))
+  assert.deepEqual(Object.keys(byId).sort(), ['own', 'plain', 'restored', 'resumed'])
+  assert.equal(byId.own.branchKind, 'own')
+  assert.equal(byId.restored.branchKind, 'restore')
+  assert.equal(byId.restored.restore, 2)
+  assert.equal(byId.resumed.branchKind, 'resume')
+  assert.equal(byId.plain.branchKind, 'other')
+  assert.equal('restore' in byId.own, false)
+  for (const id of Object.keys(byId)) assert.equal(state.sessions[id].branchKind, undefined, id)
+})
+
+test('sessions.places: a second batch in the window reuses project ids, and ids no session knows do no lookup', () => {
+  const state = S.initialState()
+  state.sessions.live = { sessionId: 'live', kind: 'project', project: 'st/app', anchor: '/a', scratch: '/scratch', state: 'bound' }
+  const f = sessions({ state })
+  let projectIdCalls = 0, ownedCalls = 0
+  const persistence = {
+    projectIdOf: (id) => { projectIdCalls++; return id === 'live' ? 'pid-1' : undefined },
+    ownedSessionIds: () => { ownedCalls++; return ['live'] },
+  }
+  f.s.ctx.get = (name) => name === 'sessionPersistence' ? persistence : undefined
+  const ops = {}
+  const ctx = {
+    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
+    layerfsSessions: f.s,
+    layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
+    plugin() {},
+    inject: (deps, callback) => { if (deps.includes('layerfsSessions')) callback(ctx) },
+    on() {},
+    effect() {},
+    get: (name) => name === 'sessionPersistence' ? persistence : undefined,
+    logger: () => ({ warn() {}, info() {} }),
+    workspaceRegistry: { archivedSessionIds: [] },
+  }
+  S.applySessionsIndex(ctx)
+  const placeCalls = []
+  const placeOfId = f.s.placeOfId.bind(f.s)
+  f.s.placeOfId = (id) => { placeCalls.push(id); return placeOfId(id) }
+  const first = ops['sessions.places']({ sessionIds: ['live', 'unknown', 'unknown-too'] })
+  assert.deepEqual(first, {
+    places: {
+      live: { project: 'st/app', projectId: 'pid-1', scratch: '/scratch' },
+      unknown: null,
+      'unknown-too': null,
+    },
+  })
+  const second = ops['sessions.places']({ sessionIds: ['live', 'unknown', 'unknown-too'] })
+  assert.deepEqual(second, first, 'the payload is identical')
+  assert.equal(projectIdCalls, 1, 'the project id is read once inside the window')
+  assert.equal(ownedCalls, 2, 'the ownership index is read once per batch, never per unknown id')
+  assert.deepEqual(placeCalls, ['live', 'live'], 'ids no binding, pending choice, live session or route names never reach placeOfId')
+})
+
+test('sessions.places: one read-only batch over placeOfId and projectIdOf; bad ids and oversize batches are refused', () => {
+  const places = { live: { project: 'st/app', scratch: '/scratch' }, folder: { project: null }, gone: null }
+  const projectIds = { live: 'pid-1' }
+  const ops = {}
+  const ctx = {
+    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
+    layerfsSessions: { state: { read: () => S.initialState() }, placeOfId: (id) => places[id] ?? null },
+    layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
+    plugin() {},
+    inject: (deps, callback) => { if (deps.includes('layerfsSessions')) callback(ctx) },
+    on() {},
+    effect() {},
+    get: (name) => name === 'sessionPersistence' ? { projectIdOf: (id) => projectIds[id] } : undefined,
+    logger: () => ({ warn() {}, info() {} }),
+    workspaceRegistry: { archivedSessionIds: [] },
+  }
+  S.applySessionsIndex(ctx)
+  assert.deepEqual(ops['sessions.places']({ sessionIds: ['live', 'folder', 'gone', 'live'] }), {
+    places: {
+      live: { project: 'st/app', projectId: 'pid-1', scratch: '/scratch' },
+      folder: null,
+      gone: null,
+    },
+  })
+  assert.deepEqual(ops['sessions.places']({ sessionIds: [] }), { places: {} })
+  for (const bad of [{}, { sessionIds: 'live' }, { sessionIds: [1] }, { sessionIds: [''] }, { sessionIds: Array.from({ length: 201 }, (_, i) => `s${i}`) }]) {
+    assert.throws(() => ops['sessions.places'](bad), (error) => error.code === 'InvalidInput')
+  }
+})
+
+test('sessions.list reads each session\'s log and sidecar once per call', async () => {
+  const state = S.initialState()
+  const row = (sessionId, updatedAt) => ({ sessionId, kind: 'project', project: 'st/app', anchor: '/a', scratch: '/s', state: 'closed', createdAt: 0, updatedAt })
+  state.sessions.local1 = row('local1', 4)
+  state.sessions.local2 = row('local2', 3)
+  state.pending.pend1 = { project: 'st/app' }
+  const stats = new Map(), sidecars = new Map()
+  const persistence = {
+    local: { stat: async (id) => { stats.set(id, (stats.get(id) ?? 0) + 1); return { header: { id, createdAt: 1 } } } },
+    stat: async (id) => { stats.set(id, (stats.get(id) ?? 0) + 1); return { header: { id, createdAt: 1 } } },
+    readSidecar: async (id) => { sidecars.set(id, (sidecars.get(id) ?? 0) + 1); return { title: `sidecar ${id}`, checkpoints: [{ commit: 'c', changed: 1 }] } },
+    ownedSessionIds: () => ['local1', 'local2', 'pend1', 'owned1'],
+    projectIdOf: () => 'pid-1',
+    catalog: { assert: async () => ({ projectId: 'pid-1' }) },
+  }
+  const ops = {}
+  const ctx = {
+    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: { branch: { list: async () => ({ items: [] }) } }, emit() {}, callLog: {} },
+    layerfsSessions: sessions({ state }).s,
+    layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
+    plugin() {}, inject: (deps, callback) => { if (deps.includes('layerfsSessions')) callback(ctx) }, on() {}, effect() {},
+    get: (name) => name === 'sessionPersistence' ? persistence : undefined,
+    logger: () => ({ warn() {}, info() {} }),
+    workspaceRegistry: { archivedSessionIds: [] },
+  }
+  S.applySessionsIndex(ctx)
+  const { sessions: listed } = await ops['sessions.list']({ project: 'st/app', projectId: 'pid-1', localOnly: false })
+  assert.deepEqual(listed.map((r) => r.sessionId).sort(), ['local1', 'local2', 'owned1', 'pend1'])
+  for (const id of ['local1', 'local2', 'pend1', 'owned1']) {
+    assert.equal(stats.get(id), 1, `${id}: one log stat`)
+    assert.equal(sidecars.get(id), 1, `${id}: one sidecar read`)
+  }
+  // The already-read sidecar feeds the title and the checkpoint/stored fields.
+  const owned = listed.find((r) => r.sessionId === 'owned1')
+  assert.equal(owned.title, 'sidecar owned1')
+  assert.equal(owned.checkpoints, 1)
+})
+
+test('a cold sessions.list answers known rows at once, then the walk lands and its event brings the stored session', async () => {
+  let branchLists = 0, manifestReads = 0, head = 'c1'
+  // Keep the first walk's manifest read pending: a list must not wait for it.
+  let release, holding = true
+  const walkGate = new Promise((resolve) => { release = resolve })
+  const manifest = {
+    version: 3, kind: 'dsh-session', sessionId: 'stored1', projectId: 'pid-1', title: 'Stored one',
+    count: 1, checkpoints: [], updatedAt: 10, bindingKind: 'project',
+    header: { version: 4, id: 'stored1', createdAt: 10, isSeeded: false, delegationDepth: 0 },
+  }
+  const lfs = {
+    branch: { list: async () => { branchLists++; return { items: [{ branch: 'dsh.session.stored1', commit: head }] } } },
+    file: {
+      read: async () => {
+        manifestReads++
+        if (holding) await walkGate
+        const text = `${JSON.stringify(manifest)}\n`
+        return { text, size: Buffer.byteLength(text), start_line: 1, line_truncated: false, next_line: null }
+      },
+    },
+  }
+  const persistence = {
+    stat: async () => undefined,
+    readSidecar: async () => undefined,
+    ownedSessionIds: () => [],
+    projectIdOf: () => undefined,
+    catalog: { assert: async () => ({ projectId: 'pid-1' }) },
+  }
+  const state = S.initialState()
+  const f = sessions({ state })
+  const ops = {}
+  const events = []
+  const ctx = {
+    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs, emit: (type, data) => events.push({ type, data }), callLog: {} },
+    layerfsSessions: f.s,
+    layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
+    plugin() {}, inject: (deps, callback) => { if (deps.includes('layerfsSessions')) callback(ctx) }, on() {}, effect() {},
+    get: (name) => name === 'sessionPersistence' ? persistence : undefined,
+    logger: () => ({ warn() {}, info() {} }),
+    workspaceRegistry: { archivedSessionIds: [] },
+  }
+  S.applySessionsIndex(ctx)
+  const list = () => ops['sessions.list']({ project: 'st/app', projectId: 'pid-1', localOnly: false })
+  const announcements = () => events.filter((e) => e.type === 'layerfs-session' && e.data?.discovery === true)
+  const until = async (ready) => { for (let i = 0; i < 200; i++) { if (ready()) return; await new Promise((r) => setTimeout(r, 0)) } throw new Error('timed out') }
+
+  // The cold read answers what is known (nothing) now; the walk finishes behind it.
+  const first = await list()
+  assert.deepEqual(first.sessions, [])
+  assert.equal(branchLists, 1, 'one Branch list inline: the change token')
+  assert.equal(manifestReads, 1, 'the walk started behind the call')
+  // A second read while the walk runs answers known rows and starts no second walk.
+  const second = await list()
+  assert.deepEqual(second.sessions, [])
+  assert.equal(branchLists, 2, 'every read lists the Branches')
+  assert.equal(manifestReads, 1, 'the running walk is not started twice')
+  holding = false
+  release()
+  await until(() => announcements().length === 1)
+  assert.deepEqual(announcements()[0].data, { project: 'st/app', discovery: true })
+  const third = await list()
+  assert.deepEqual(third.sessions.map((r) => r.sessionId), ['stored1'], 'the stored row shows on the event-driven read')
+  assert.equal(branchLists, 3)
+  assert.equal(manifestReads, 1, 'unchanged heads: no stored manifest is read again')
+  // A stored session saved by another process moves its Branch head: the next
+  // read answers the known row at once, and the walk behind it rereads it.
+  head = 'c2'
+  manifest.title = 'Stored one @ c2'
+  f.s.store.forget('stored1')
+  const moved = await list()
+  assert.deepEqual(moved.sessions.map((r) => r.sessionId), ['stored1'], 'the known row is not dropped while the walk runs')
+  await until(() => announcements().length === 2)
+  assert.equal(branchLists, 4, 'a moved head re-walks the Store')
+  assert.equal(manifestReads, 2)
+})
+
+// The metadata projection the UI's annotations read uses: title, checkpoints,
+// the receipt counter and archive, never the lazy receipts array. The lazy
+// getter throwing proves the op never materializes it; the paged receipts op is
+// the only way to read rows, and it is bounded.
+test('session.annotations answers sidecar metadata only; session.receipts pages the rows', async () => {
+  const ops = {}
+  const calls = []
+  let reads = 0
+  const sidecar = {
+    version: 1, sessionId: 'live', project: 'st/app', title: 'A long session',
+    checkpoints: [{ commit: 'c1' }, { commit: 'c2' }],
+    receipts: { version: 1, reads: { 'workspace.status': { count: 83_250, lastAt: 1, lastOutcome: 'success' } }, readsTotal: 83_250, dropped: 0, cap: 5000, truncated: false },
+    archive: { count: 1, updatedAt: 2 },
+  }
+  Object.defineProperty(sidecar, 'invocations', {
+    enumerable: true, configurable: true,
+    get: () => { reads++; throw new Error('session.annotations read the receipts array') },
+  })
+  const persistence = {
+    readSidecar: async (id, options) => { calls.push({ read: 'sidecar', id, options }); return sidecar },
+    readReceipts: async (id, options) => {
+      calls.push({ read: 'receipts', id, options })
+      return { invocations: [{ id: 'r1' }], total: 1, from: 0, truncated: false, dropped: 0, skipped: 0, bytes: 0 }
+    },
+  }
+  const ctx = {
+    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
+    layerfsSessions: {},
+    layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
+    plugin() {},
+    inject: (deps, callback) => { if (deps.includes('layerfsSessions')) callback(ctx) },
+    on() {},
+    effect() {},
+    get: (name) => name === 'sessionPersistence' ? persistence : undefined,
+    logger: () => ({ warn() {}, info() {} }),
+    workspaceRegistry: { archivedSessionIds: [] },
+  }
+  S.applySessionsIndex(ctx)
+  const annotations = await ops['session.annotations']({ sessionId: 'live' })
+  assert.equal(reads, 0, 'the metadata answer never touched the receipts array')
+  assert.deepEqual(calls, [{ read: 'sidecar', id: 'live', options: { cached: true } }])
+  assert.equal('invocations' in annotations, false, 'no receipts array in the answer')
+  assert.equal(annotations.title, 'A long session')
+  assert.deepEqual(annotations.checkpoints, [{ commit: 'c1' }, { commit: 'c2' }])
+  assert.equal(annotations.receipts.readsTotal, 83_250)
+  assert.deepEqual(annotations.archive, { count: 1, updatedAt: 2 })
+  assert.ok(Buffer.byteLength(JSON.stringify(annotations)) < 2048, 'metadata-sized, not sidecar-sized')
+
+  const page = await ops['session.receipts']({ sessionId: 'live', from: -1 })
+  assert.deepEqual(page.invocations, [{ id: 'r1' }])
+  assert.deepEqual(calls.at(-1), { read: 'receipts', id: 'live', options: { from: -1, limit: 1000 } })
+  await ops['session.receipts']({ sessionId: 'live' })
+  assert.deepEqual(calls.at(-1), { read: 'receipts', id: 'live', options: { limit: 1000 } })
+
+  for (const bad of [{}, { sessionId: '' }, { sessionId: 'live', from: 1.5 }, { sessionId: 'live', from: '1' },
+    { sessionId: 'live', limit: 0 }, { sessionId: 'live', limit: 1001 }, { sessionId: 'live', limit: 1.5 }]) {
+    await assert.rejects(() => ops['session.receipts'](bad), (error) => error.code === 'InvalidInput')
+  }
 })

@@ -1,5 +1,5 @@
 /** Home identity, primary need, disclosure and underline inventory tabs. */
-import type { KeyboardEvent, ReactNode } from 'react'
+import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react'
 import { FishLogo } from '@deepseek-ai/dsh-client-ui-primitives'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import css from './HomeHero.module.css'
@@ -55,6 +55,19 @@ export function HomeHero({ title, identity, titleAside, titleDetail, tone, signa
   /** Remaining notices, immediately after the disclosure button. */
   notices?: ReactNode
 }): ReactNode {
+  const tabList = useRef<HTMLDivElement>(null)
+  // A phone's tab strip scrolls sideways: bring the tab just chosen fully into sight.
+  useEffect(() => {
+    const list = tabList.current
+    if (!list || list.scrollWidth <= list.clientWidth) return
+    const tab = list.querySelector<HTMLElement>('[data-active]')
+    if (!tab) return
+    const edge = list.getBoundingClientRect()
+    const box = tab.getBoundingClientRect()
+    if (box.left < edge.left) list.scrollLeft -= edge.left - box.left
+    else if (box.right > edge.right) list.scrollLeft += box.right - edge.right
+  }, [active])
+
   const onTabKeyDown = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft' && e.key !== 'Home' && e.key !== 'End') return
     e.preventDefault()
@@ -92,7 +105,7 @@ export function HomeHero({ title, identity, titleAside, titleDetail, tone, signa
       </header>
       {notices}
       <div className={css.toolbar}>
-        <div className={css.tabList} role="tablist" aria-label={tabsLabel}>
+        <div ref={tabList} className={css.tabList} role="tablist" aria-label={tabsLabel}>
           {tabs.map((tab, i) => {
             const selected = tab.key === active
             return (

@@ -1,6 +1,6 @@
 // Shots for docs/guide/conversation.md: the guide fixture's project conversation and its LayerFS tabs.
 // Read only: nothing here sends a message, restores or saves.
-const SESSION = 'session-ef98eca3-a037-47dd-801a-4eb84d21d36b'
+const SESSION = 'session-b103116f-da49-4cb7-a158-fdd38a0d450f'
 
 /** Open the fixture conversation on one of its tabs. */
 async function open(page, h, tab, ready) {
@@ -29,17 +29,17 @@ export default [
       await open(page, h, 'Trajectory', () => h.see('Turn checkpoint'))
       // the turn before the first: DSH's own calls (Sandbox, Workspace) and the Start checkpoint
       const before = page.getByRole('button', { name: /^Before the first turn/ })
-      if ((await before.getAttribute('aria-expanded')) !== 'true') await before.click()
+      if (await before.count() && (await before.getAttribute('aria-expanded')) !== 'true') await before.click()
       await h.wait(600)
     },
     callouts: [
-      (p) => p.getByRole('toolbar', { name: 'Trajectory toolbar' }).locator('button').first(),
+      (p) => p.getByRole('toolbar', { name: 'Trajectory toolbar' }).getByRole('button', { name: /(Collapse|Expand) turns/ }),
       (p) => p.getByRole('toolbar', { name: 'Trajectory toolbar' }).getByRole('button', { name: /LayerFS calls$/ }),
       (p) => p.getByRole('checkbox', { name: 'Only LayerFS writes' }),
-      (p) => p.getByRole('toolbar', { name: 'Trajectory toolbar' }).locator('[class*=counts]'),
+      (p) => p.locator('[class*=timelineHead] [class*=counts]').first(),
       (p) => p.getByRole('searchbox', { name: 'Search trajectory' }),
-      (p) => p.locator('[class*=timeline]').first(),
-      (p) => p.locator('[data-row^="h:"]').first(),
+      (p) => p.locator('[class*=timelineBlock]').first(),
+      (p) => p.locator('[data-row^="t:"]').first(),
       (p) => p.getByRole('button', { name: /^Turn 1/ }),
       (p) => p.getByRole('button', { name: /^Context messages/ }).first(),
       (p) => kindRow(p, 'tool').first().locator('[class*=opCount]'),
@@ -140,5 +140,15 @@ export default [
     ],
     // the Workspaces section: the view toggle and the project list under it
     clip: (p) => p.getByRole('button', { name: 'Show DSH workspaces' }).first().locator('xpath=ancestor::*[.//ul[contains(@class,"list_projects")]][1]'),
+  },
+  {
+    // 390x844: Filters replaces the toolbar and the timeline folds to one summary line
+    file: 'conversation-phone', size: '390x844',
+    run: async (page, h) => {
+      await h.session(SESSION)
+      await page.getByRole('tab', { name: 'Trajectory', exact: true }).first().waitFor({ timeout: 20000 })
+      await page.getByRole('tab', { name: 'Trajectory', exact: true }).first().click()
+      await h.wait(2500)
+    },
   },
 ]

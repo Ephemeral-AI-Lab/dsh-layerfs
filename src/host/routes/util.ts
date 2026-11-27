@@ -53,6 +53,12 @@ export interface RouteHost {
   /** A confirmed Sandbox close invalidates its local mounts. */
   sandboxClosed?(name: string): Promise<void>
   /**
+   * The conversation a Sandbox belongs to: a project session binding's
+   * `sandbox` names it (a shared subagent binding owns no Sandbox), else
+   * undefined. Read from the sessions state; never inferred from the name.
+   */
+  sessionOf?(name: string): string | undefined
+  /**
    * What each session tag (`dsh:<session>:<receipt>`) means to a project
    * session on this host: its title, turn and checkpoint, as the Logs page
    * labels a call. A tag no session here owns is absent. Best effort.

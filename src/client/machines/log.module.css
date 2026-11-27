@@ -223,3 +223,76 @@
 .panelHead > header {
   padding-top: 0;
 }
+
+/* ---------- touch and narrow panes ----------
+   Every control inside a machine or Sandbox tab panel is a 44 px thumb
+   target on a coarse pointer or under 1180 px: the panels carry the files
+   tree, the cards, the log and the terminals alike, so one rule keeps the
+   whole page honest. The phone then gives the log its full width and lets
+   the toolbar wrap instead of squeezing the find field. */
+
+@media (max-width: 1180px), (pointer: coarse) {
+  .tabPanel :is(button, a[href], input, select) {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .tabPanel button {
+    min-width: var(--lfs-tap, 44px);
+  }
+
+  /* a text link is inline by default, where min-height would not apply */
+  .tabPanel button[class*='_link'] {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  /* the DSH input wrapper has a fixed 32 px height */
+  .tabPanel :global(span[class*='_wrap_']) {
+    height: var(--lfs-tap, 44px);
+  }
+
+  .tabPanel :global(label:has(> input[type='checkbox'])) {
+    display: inline-flex;
+    align-items: center;
+    min-width: var(--lfs-tap, 44px);
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .toggle {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .iconButton {
+    width: var(--lfs-tap, 44px);
+    min-width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+  }
+}
+
+@media (max-width: 640px) {
+  .toolbar {
+    gap: 6px;
+  }
+
+  .find {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  .status {
+    flex: 1 1 100%;
+    white-space: normal;
+  }
+
+  .pane {
+    height: max(320px, calc(100dvh - 220px));
+  }
+
+  .scroll {
+    padding: 8px;
+  }
+
+  .tabsTop {
+    margin-top: var(--lfs-page-top-inset, 20px);
+  }
+}

@@ -78,6 +78,17 @@ export class PresetManager {
   private switching = false
   private readonly tasks = new Set<Promise<unknown>>()
   private readonly snapshots = new Map<string, { name: string, sandboxes: boolean, executionMode: PresetExecutionMode, script: any }>()
+  /**
+   * The catalog as last built, with the key naming every input `definition()`
+   * reads: the jobs' movement (`revision`), the manifest, and whether the home
+   * exists. `list()` answers the same array (and the same preset objects) until
+   * one of those changes; a poll therefore costs no regeneration.
+   */
+  private catalog: { key: string, items: DemoPreset[] } | null = null
+  /** Single-preset reads cached by name and mode, under the same key. */
+  private readonly definitions = new Map<string, { key: string, item: DemoPreset }>()
+  /** Goes up whenever a job moves (state, phase, verification): a cached catalog never outlives it. */
+  private revision = 0
 
   constructor(private readonly host: PresetHost, readonly state: string, readonly home: string) {
     mkdirSync(state, { recursive: true, mode: 0o700 })
@@ -97,6 +108,7 @@ export class PresetManager {
   }
 
   private publish(job: PresetJob): void {
+    this.revision++
     this.persist()
     this.host.emit('demo-preset', { jobId: job.id, preset: job.preset, state: job.state })
   }
@@ -113,7 +125,33 @@ export class PresetManager {
     return [...this.jobs.values()].reverse().find((job) => job.preset === name) ?? null
   }
 
+  /**
+   * Every input of one preset's definition: the jobs' latest move, the manifest
+   * a Build writes, and the home's initialization. The manifest is read whole
+   * (hundreds of bytes): a regenerated catalog is far dearer than this key.
+   */
+  private key(): string {
+    let manifest = ''
+    try { manifest = readFileSync(join(this.state, 'demo-fixtures.json'), 'utf8') } catch (e: any) { if (e.code !== 'ENOENT') throw e }
+    return JSON.stringify([this.revision, manifest, existsSync(join(this.home, 'layerfs.json'))])
+  }
+
+  /** The preset as built, or the cached one when nothing it reads has changed. */
   definition(name: string, requestedMode?: string): DemoPreset {
+    return this.definitionAt(name, requestedMode, this.key())
+  }
+
+  private definitionAt(name: string, requestedMode: string | undefined, key: string): DemoPreset {
+    const slot = `${name}\u0000${requestedMode ?? ''}`
+    const hit = this.definitions.get(slot)
+    if (hit?.key === key) return hit.item
+    for (const [other, entry] of this.definitions) if (entry.key !== key) this.definitions.delete(other)
+    const item = this.buildDefinition(name, requestedMode)
+    this.definitions.set(slot, { key, item })
+    return item
+  }
+
+  private buildDefinition(name: string, requestedMode?: string): DemoPreset {
     const preset = presetOf(name)
     const manifest = read(join(this.state, 'demo-fixtures.json'))
     const job = this.latest(name)
@@ -151,8 +189,10 @@ export class PresetManager {
   }
 
   list(): DemoPresets {
-    const items = Object.keys(presets).map((name) => this.definition(name))
-    return { items, home: this.home, busy: this.exclusive() || !!liveReceipt(join(this.state, 'demo-fixtures.lock')) }
+    const key = this.key()
+    if (this.catalog?.key !== key) this.catalog = { key, items: Object.keys(presets).map((name) => this.definitionAt(name, undefined, key)) }
+    // `busy` follows the lock (a reset in flight) rather than the cached items.
+    return { items: this.catalog.items, home: this.home, busy: this.exclusive() || !!liveReceipt(join(this.state, 'demo-fixtures.lock')) }
   }
 
   /** The preset's own Store names: always this home's, even when a listing fails. */

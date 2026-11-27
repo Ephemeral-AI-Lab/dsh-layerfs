@@ -13,7 +13,7 @@ import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { chromium } from 'playwright-core'
-import { CHROME, runTurn } from '../tools/e2e-lib.mjs'
+import { CHROME, createStore, runTurn } from '../tools/e2e-lib.mjs'
 import { dismiss } from '../tools/ui.mjs'
 
 const dirA = process.env.A_DIR, dirB = process.env.B_DIR
@@ -47,6 +47,17 @@ async function open(dir) {
   return { page, op, http, openProject }
 }
 
+/** Every retained receipt of a client's session, one bounded `session.receipts` page at a time. */
+const receiptsOf = async (client, sessionId) => {
+  const rows = []
+  for (let from = 0; ;) {
+    const page = await client.op('session.receipts', { sessionId, from, limit: 1000 })
+    rows.push(...page.invocations)
+    from = page.from + page.invocations.length
+    if (!page.invocations.length || from >= page.total) return rows
+  }
+}
+
 let failed = false
 try {
   const A = await open(dirA)
@@ -55,7 +66,7 @@ try {
   step(`A: project ${project}, one turn`)
   const src = mkdtempSync(join(tmpdir(), 'dshlfs-imp-'))
   writeFileSync(join(src, 'README.md'), '# app\n')
-  await A.http('POST', '/api/stores', { name: store })
+  await createStore(A.http, store)
   const init = await A.http('POST', '/api/projects', { store, name: 'app', source: src })
   for (let i = 0; i < 120 && (await A.http('GET', `/api/project-inits/${init.id}`)).step !== 'done'; i++) await new Promise((r) => setTimeout(r, 500))
   const placed1 = await A.openProject(project)
@@ -63,7 +74,8 @@ try {
   const t1 = await runTurn(A.page, { message: projectCommand('echo from-a > a.txt'), newSession: false })
   assert.ok(t1.ok, t1.error)
   const observed = await A.op('session.annotations', { sessionId: placed1.sessionId })
-  const invocations = observed.invocations ?? []
+  assert.equal('invocations' in observed, false, 'annotations answers metadata, not the receipts')
+  const invocations = await receiptsOf(A, placed1.sessionId)
   const exec = invocations.find((row) => row.operation === 'workspace.exec' && row.origin === 'tool')
   assert.ok(exec?.toolCallId, 'managed CLI invocation has exact tool provenance')
   assert.deepEqual(exec.versions, [], 'workspace.exec receives no checkpoint links')
@@ -79,8 +91,19 @@ try {
 
   step('B: the project lists the stored session')
   const B = await open(dirB)
-  const listed = await B.op('sessions.list', { project })
-  const row = listed.sessions.find((s) => s.sessionId === sid)
+  // A cold `sessions.list` answers the rows it already knows and completes the
+  // Store walk behind the call, announcing it with `layerfs-session`
+  // (`discovery: true`); the stored row shows on the next read (commit deeb565).
+  const storedRow = async (what, sessionId, ms = 30000) => {
+    const end = Date.now() + ms
+    for (;;) {
+      const found = (await B.op('sessions.list', { project })).sessions.find((s) => s.sessionId === sessionId)
+      if (found) return found
+      if (Date.now() > end) throw new Error(`timed out: ${what}`)
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+  }
+  const row = await storedRow('B lists the stored session', sid)
   console.log(row)
   assert.ok(row?.stored, 'stored in the project')
   assert.equal(row.local, false, 'not yet local to B')
@@ -89,7 +112,9 @@ try {
   const opened = await B.op('sessions.open', { sessionId: sid, project })
   assert.equal(opened.imported, true)
   const importedAnnotations = await B.op('session.annotations', { sessionId: sid })
-  assert.ok(importedAnnotations.invocations?.some((row) => row.id === exec.id), 'portable sidecar preserves invocation identities')
+  assert.equal('invocations' in importedAnnotations, false, 'annotations answers metadata after import too')
+  const importedReceipts = await receiptsOf(B, sid)
+  assert.ok(importedReceipts.some((row) => row.id === exec.id), 'portable sidecar preserves invocation identities')
   step('B: the Logs view shows the imported session from its receipts')
   const receiptLog = await B.op('logs.list', { tag: `dsh:${sid}:`, limit: 1000 })
   const execLine = receiptLog.lines.find((line) => line.tag === exec.tag)

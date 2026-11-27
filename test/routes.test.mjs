@@ -10,7 +10,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
-import { loadRoutes, pinned, testHost } from './routes-helper.mjs'
+import { liveSkipReason, loadRoutes, pinned, testHost } from './routes-helper.mjs'
+import { tmpRoot } from './support/env.mjs'
 
 const R = await loadRoutes()
 const repoRoot = new URL('..', import.meta.url).pathname
@@ -83,7 +84,11 @@ test('dispatch: machines view, platforms filter, unknown route 404', async () =>
     assert.equal(m.status, 200)
     assert.deepEqual(m.body.machines.map((x) => x.name), ['native', 'lima1'])
     assert.equal(m.body.layerfs, '2.0.0-test')
-    assert.equal(m.body.live.lima1.freeDisk, 10)
+    // B4: a plain read is records only and never waits on the live probe; the
+    // page's Check again (`?fresh=1`) probes now and its answer is the liveness
+    assert.equal(m.body.live.lima1.freeDisk, null)
+    const again = await http('GET', '/api/machines?fresh=1')
+    assert.equal(again.body.live.lima1.freeDisk, 10)
     assert.deepEqual(m.body.stores.map((s) => s.name), ['s1'])
     const p = await http('GET', '/api/platforms')
     assert.deepEqual(p.body.platforms.map((x) => x.platform), ['lima'])
@@ -707,9 +712,9 @@ test('project init job and saved reads route to their calls', async () => {
 
 const pin = pinned()
 
-test('live: machines, store create, project init, list/get, branches, fs, file', { skip: !pin && 'no pinned LayerFS CLI', timeout: 600_000 }, async (context) => {
-  // a short path: the native daemon's sockets live in the home
-  const root = mkdtempSync('/tmp/dshrt-')
+test('live: machines, store create, project init, list/get, branches, fs, file', { skip: !pin && liveSkipReason(), timeout: 600_000 }, async (context) => {
+  // a short-ish path: the native daemon's sockets live in the home
+  const root = tmpRoot('dshrt-')
   const home = join(root, 'home')
   // a 2.0 CLI makes no home on a read: `home init` first, as Set up LayerFS does
   execFileSync(pin.cli, ['home', 'init'], { env: { ...process.env, LAYERFS_HOME: home }, timeout: 30_000 })
@@ -776,7 +781,43 @@ test('live: machines, store create, project init, list/get, branches, fs, file',
   assert.ok(Array.isArray(sandboxes))
   const storage = await ok('GET', '/api/storage')
   assert.ok(storage.stores.some((s) => s.name === 'rt' && s.projects.includes('demo')))
-  // a Sandbox, a forked side Branch mounted in it, its status, unmount and close
+})
+
+// A Linux native Sandbox needs root for FUSE; the docker machine's worker runs
+// namespaces Sandboxes as the container's own user. On macOS the native machine runs
+// them directly. Either way the project sits on a Store of that machine.
+const sandboxHost = !pin ? null : process.platform === 'darwin' ? 'native' : existsSync('/var/run/docker.sock') && pin.bundle ? 'docker' : null
+const sandboxSkip = !pin ? liveSkipReason() : !sandboxHost && 'needs Docker and DSH_LAYERFS_BUNDLE: a native Linux Sandbox backend needs root for FUSE'
+
+test('live: a Sandbox, a forked side Branch mounted in it, its status, unmount and close', { skip: sandboxSkip, timeout: 600_000 }, async (context) => {
+  const root = tmpRoot('dshsb-'), home = join(root, 'home'), src = join(root, 'src')
+  const env = { ...process.env, LAYERFS_HOME: home, ...(pin.bundle ? { LAYERFS_BUNDLE: pin.bundle } : {}) }
+  const savedBundle = process.env.LAYERFS_BUNDLE
+  if (pin.bundle) process.env.LAYERFS_BUNDLE = pin.bundle
+  const lfs = R.cli.client({ cli: pin.cli, home, bundle: pin.bundle })
+  const t = testHost({ lfs, root, home, cli: pin.cli, daemon: pin.daemon ?? null, discovery: () => R.cli.discover({ cli: pin.cli }) })
+  const groups = R.createGroups(t.host, async () => ({ ok: true }))
+  const http = async (method, path, body) => R.handle(groups, { method, path, body })
+  const ok = async (method, path, body) => {
+    const r = await http(method, path, body)
+    assert.equal(r.status, 200, `${method} ${path}: ${JSON.stringify(r.body)}`)
+    return r.body
+  }
+  const key = encodeURIComponent('sbd/demo')
+  context.after(async () => {
+    await http('POST', `/api/projects/${key}/close-sandboxes`, { force: true }).catch(() => {})
+    await groups.projects.close()
+    // --force: a failed assertion may leave the Sandbox recorded; its worker must still go.
+    try { execFileSync(pin.cli, ['machine', 'stop', sandboxHost, '--force'], { env, timeout: 120_000 }) } catch {}
+    if (savedBundle === undefined) delete process.env.LAYERFS_BUNDLE; else process.env.LAYERFS_BUNDLE = savedBundle
+    rmSync(root, { recursive: true, force: true })
+  })
+  execFileSync(pin.cli, ['home', 'init'], { env, timeout: 30_000 })
+  if (sandboxHost === 'docker') execFileSync(pin.cli, ['machine', 'start', 'docker'], { env, timeout: 300_000 })
+  mkdirSync(src)
+  writeFileSync(join(src, 'README.md'), '# hello\n')
+  execFileSync(pin.cli, ['store', 'create', 'sbd', '--machine', sandboxHost], { env, timeout: 120_000 })
+  execFileSync(pin.cli, ['project', 'init', 'sbd/demo', src], { env, timeout: 120_000 })
   await ok('POST', `/api/projects/${key}/sandboxes`, { name: 'rtsb' })
   const ws = await ok('POST', '/api/sandboxes/rtsb/workspaces', { branch: 'side', fork: true, name: 'w' })
   assert.equal(ws.branch ?? 'side', 'side')
@@ -787,9 +828,73 @@ test('live: machines, store create, project init, list/get, branches, fs, file',
   const main = await http('POST', '/api/sandboxes/rtsb/workspaces', { branch: 'main' })
   assert.equal(main.status, 400)
   await ok('DELETE', `/api/workspaces/${encodeURIComponent(handle)}?discard=1`)
-  await ok('DELETE', '/api/sandboxes/rtsb')
+  // The namespaces backend can still see a Sandbox process a moment after cgroup.kill and refuses
+  // the removal with `nothing was sent` (before effect). Wait for it to clear, as a Busy retry does,
+  // instead of failing this route test on LayerFS's teardown race.
+  for (let i = 0; ; i++) {
+    const removed = await http('DELETE', '/api/sandboxes/rtsb')
+    if (removed.status === 200) break
+    if (i >= 60 || !/nothing was sent/.test(String(removed.body?.message ?? ''))) {
+      assert.equal(removed.status, 200, `DELETE /api/sandboxes/rtsb: ${JSON.stringify(removed.body)}`)
+      break
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
   const gone = await http('GET', '/api/sandboxes/rtsb')
   assert.equal(gone.status, 404, JSON.stringify(gone.body))
+})
+
+test('file history: a provenance page walks the Branch\'s own line once per pinned head, then keeps it', async () => {
+  const pin = (c) => c.repeat(66)
+  const own = [{ commit: 'c3', parent: 'c2', change: 'modified', message: 'three' }, { commit: 'c2', parent: null, change: 'modified', message: 'two' }]
+  const other = [{ commit: 'm1', parent: 'm0', change: 'added', message: 'one' }]
+  const impl = {
+    ...base,
+    branch: { get: async () => ({ commit: pin('f') }) },
+    // provenance: two of feat's own Commits and one made on main before the fork
+    file: { history: async (_project, _branch, _path, o) => (o.traversal === 'branch' ? { items: own } : { items: [...own, ...other] }) },
+    commit: { get: async (_project, id) => ({ m1: { branch: 'main' }, c3: { branch: 'feat' }, c2: { branch: 'feat' } })[id] ?? {} },
+  }
+  const { http, calls, root } = fakeGroups(impl)
+  const path = `/api/projects/${encodeURIComponent('s1/p')}/file-query?branch=feat&path=%2Fa.txt&kind=revisions`
+  try {
+    const first = await http('GET', path)
+    assert.equal(first.status, 200, JSON.stringify(first.body))
+    assert.deepEqual(first.body.items.map((r) => [r.ref.id, r.ref.branch, r.message]), [['c3', 'feat', 'three'], ['c2', 'feat', 'two'], ['m1', 'main', 'one']])
+    assert.deepEqual([first.body.has_more, first.body.continuation], [false, null])
+    assert.deepEqual(calls, ['branch.get', 'file.history', 'file.history', 'commit.get'], 'the page, its own line, and the one version saved elsewhere')
+    calls.length = 0
+    const again = await http('GET', path)
+    assert.deepEqual(again.body, first.body, 'the same rows in the same order')
+    assert.deepEqual(calls, ['branch.get', 'file.history'], 'the own line of this pinned head is kept, so the history is walked once')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('commit detail: the diff is read only when the caller asks for the changes', async () => {
+  const commit = 'a'.repeat(66), parent = 'b'.repeat(66)
+  const impl = {
+    ...base,
+    branch: { get: async () => ({ commit }) },
+    commit: {
+      get: async () => ({ commit, parent, branch: 'feat', message: 'one', created_at: new Date(5).toISOString(), size: 12, new_canonical_bytes: 3, new_stored_bytes: 2, new_metadata_bytes: 1 }),
+      diff: async () => ({ items: [{ path: '/a.txt', change: 'modified' }], next_cursor: 'c2' }),
+    },
+  }
+  const { http, calls, root } = fakeGroups(impl)
+  const path = `/api/projects/${encodeURIComponent('s1/p')}/history?branch=feat&commit=${commit}`
+  try {
+    const full = await http('GET', path)
+    assert.equal(full.status, 200, JSON.stringify(full.body))
+    assert.deepEqual(calls, ['commit.get', 'commit.diff'])
+    assert.deepEqual(full.body.changes, [{ path: '/a.txt', kind: 'modified' }], 'the diff\'s rows, as the route has always named them')
+    assert.equal(full.body.nextChanges, 'c2')
+    // the fork-point row reads the header only (its `sourceBranch`), so its diff is not read
+    calls.length = 0
+    const head = await http('GET', `${path}&changes=0`)
+    assert.equal(head.status, 200, JSON.stringify(head.body))
+    assert.deepEqual(calls, ['commit.get'], 'no commit.diff')
+    assert.deepEqual(head.body, { item: full.body.item, changes: [], nextChanges: null }, 'the same shape, with no changes read')
+  } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
 test('project storage: a ledger of each save\'s counters from 2.0 commit list --detail pages (by cursor), then only new saves', async () => {
@@ -829,7 +934,7 @@ test('project storage: a ledger of each save\'s counters from 2.0 commit list --
       },
     },
   }
-  const { http, groups, root } = fakeGroups(impl)
+  const { http, groups, calls, root } = fakeGroups(impl)
   const path = `/api/projects/${encodeURIComponent('s1/p')}/storage`
   try {
     const first = await http('GET', path)
@@ -856,6 +961,13 @@ test('project storage: a ledger of each save\'s counters from 2.0 commit list --
     assert.equal(done.body.growth.at(-1), 1250)
     assert.deepEqual({ name: done.body.store.name, projects: done.body.store.projects, stored: done.body.store.stored, file: done.body.store.file }, { name: 's1', projects: 2, stored: 100, file: 4096 })
     assert.deepEqual(done.body.main, { logical: 100, files: 3, directories: 1, complete: true })
+    // the Store is opened once: one `store get --with stats` answers its counters and its projects
+    calls.length = 0
+    const counted = await http('GET', path)
+    assert.equal(counted.status, 200, JSON.stringify(counted.body))
+    assert.deepEqual(counted.body.store, done.body.store)
+    assert.equal(calls.filter((c) => c === 'store.get').length, 1, 'one store get opens the Store once')
+    assert.equal(calls.filter((c) => c === 'project.stats').length, 1, 'the main tree is still one project.stats')
     assert.deepEqual(asked.filter(([b]) => b === 'c'), [['c', null], ['c', '100']], 'c\'s second page by the cursor its first answered')
     assert.ok(!asked.some(([b]) => b === 'd'))
     // a new save on b: a recount lists only b, and stops at the save it knows
@@ -874,7 +986,7 @@ test('project storage: a ledger of each save\'s counters from 2.0 commit list --
   }
 })
 
-test('project size: counting until the first count ends, then packed bytes and main\'s size; the Store\'s bytes when alone', async () => {
+test('project size: one call a row (the Store alone, the record otherwise), counting until the first count ends', async () => {
   const id = (n) => `12${String(n).padStart(3, '0')}${'a'.repeat(61)}`
   const history = [2, 1].map((n) => ({ commit: id(n), created_at: new Date(1_000_000 + n).toISOString(), via: 'fs', size: 100, new_canonical_bytes: 20, new_stored_bytes: 10, new_metadata_bytes: 4 }))
   let open = () => {}
@@ -892,19 +1004,26 @@ test('project size: counting until the first count ends, then packed bytes and m
       },
     },
   }
-  const { http, groups, root } = fakeGroups(impl)
+  const { http, groups, calls, root } = fakeGroups(impl)
   const path = `/api/projects/${encodeURIComponent('s1/p')}/size`
   try {
+    // alone in its Store: the Store's packed bytes, publications to main included, from ONE read
+    calls.length = 0
+    const alone = await http('GET', `${path}?alone=1`)
+    assert.equal(alone.status, 200, JSON.stringify(alone.body))
+    assert.deepEqual(alone.body, { project: 's1/p', stored: 8423, counting: false })
+    assert.deepEqual(calls, ['store.get'], 'one store get --with stats: no project record and no tree walk')
+    // a shared Store: the record names the ledger, which is read from disk, so nothing else is asked
+    calls.length = 0
     const first = await http('GET', path)
     assert.equal(first.status, 200, JSON.stringify(first.body))
-    assert.deepEqual(first.body, { project: 's1/p', stored: null, counting: true, files: 900 })
+    assert.deepEqual(first.body, { project: 's1/p', stored: null, counting: true })
     open()
     await groups.projects.storageLedgers.settle('s1/p', 7)
+    calls.length = 0
     const done = await http('GET', path)
-    assert.deepEqual(done.body, { project: 's1/p', stored: 20, counting: false, files: 900 })
-    // alone in its Store: the Store's packed bytes, publications to main included
-    const alone = await http('GET', `${path}?alone=1`)
-    assert.deepEqual(alone.body, { project: 's1/p', stored: 8423, counting: false, files: 900 })
+    assert.deepEqual(done.body, { project: 's1/p', stored: 20, counting: false })
+    assert.deepEqual(calls, ['project.get'], 'the ledger is fresh: one record read, and no project.stats or store.get')
   } finally {
     open()
     await groups.projects.close()

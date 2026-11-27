@@ -23,9 +23,9 @@ const PINNED = [entry('machine', 'list'), entry('machine', 'stop'), entry('sandb
 /** Stage 1's table: images, load, prune, `image` of kind `image`, progress (plus the identity's `sandbox-runtime`). */
 const STAGE1 = [entry('machine', 'list'), entry('machine', 'images'), entry('machine', 'load_image'), entry('machine', 'prune'), entry('machine', 'stop', ['force']), entry('sandbox', 'create', ['image', 'on_progress'], 'image')]
 
-function fixture(lfs, calls = PINNED, features = []) {
+function fixture(lfs, calls = PINNED, features = [], sessionOf = undefined) {
   const root = mkdtempSync(join(tmpdir(), 'dsh-routes-features-'))
-  const t = testHost({ lfs, root, home: join(root, 'home'), discovery: async () => ({ identity: { version: '2.0.0-test', features }, calls }) })
+  const t = testHost({ lfs, root, home: join(root, 'home'), discovery: async () => ({ identity: { version: '2.0.0-test', features }, calls }), sessionOf })
   const groups = R.createGroups(t.host, async () => ({}))
   return { groups, host: t.host, events: t.events, logs: t.logs, http: (method, path, body) => R.handle(groups, { method, path, body }), close: () => rmSync(root, { recursive: true, force: true }) }
 }
@@ -321,6 +321,46 @@ test('Sandbox reads: a cached Busy refusal is dropped by mount, unmount, commit 
   } finally { Date.now = realNow; f.close() }
 })
 
+test('Sandboxes: a project binding labels its Sandbox with its sessionId; a shared subagent binding owns none', async () => {
+  const head = 'c'.repeat(66)
+  const rows = [
+    { sandbox: 'dsh-own', project: 's1/p', state: 'ready' },
+    { sandbox: 'dsh-sub', project: 's1/p', state: 'ready' },
+    { sandbox: 'plain', project: 's1/p', state: 'ready' },
+  ]
+  const lfs = {
+    project: { get: async (key) => ({ project: key, store: 's1', engine: 'sqlite', machine: 'native', created_at: new Date(7).toISOString() }) },
+    store: { get: async (name) => ({ store: name, machine: 'native', engine: 'sqlite', state: 'ready' }) },
+    branch: { list: async () => ({ items: [{ branch: 'main', commit: head }], next_cursor: null }) },
+    sandbox: {
+      list: async () => ({ items: rows, next_cursor: null }),
+      get: async (name) => ({ sandbox: name, project: 's1/p', workspaces: [] }),
+    },
+  }
+  // a project conversation's binding names its own Sandbox; a shared subagent's names its parent's Sandbox but owns none
+  const sessions = {
+    'session-own': { sessionId: 'session-own', kind: 'project', project: 's1/p', sandbox: 'dsh-own' },
+    'session-sub': { sessionId: 'session-sub', kind: 'shared', parent: 'session-own', project: 's1/p', sandbox: 'dsh-sub' },
+  }
+  const f = fixture(lfs, PINNED, [], (name) => R.sessionOfSandbox(name, sessions))
+  const key = encodeURIComponent('s1/p')
+  const at = (list, name) => list.find((b) => b.name === name)
+  try {
+    const state = (await f.http('GET', `/api/projects/${key}`)).body
+    assert.equal(at(state.sandboxes, 'dsh-own').sessionId, 'session-own')
+    for (const name of ['dsh-sub', 'plain']) assert.ok(!('sessionId' in at(state.sandboxes, name)), `${name} in the project state`)
+    const listed = (await f.http('GET', `/api/projects/${key}/sandboxes`)).body
+    assert.equal(at(listed, 'dsh-own').sessionId, 'session-own')
+    for (const name of ['dsh-sub', 'plain']) assert.ok(!('sessionId' in at(listed, name)), `${name} in the Sandboxes list`)
+    assert.equal((await f.http('GET', '/api/sandboxes/dsh-own')).body.sessionId, 'session-own')
+    for (const name of ['dsh-sub', 'plain']) assert.ok(!('sessionId' in (await f.http('GET', `/api/sandboxes/${name}`)).body), name)
+    // the lookup itself: only a project binding answers, never a shared one, never a name prefix
+    assert.equal(R.sessionOfSandbox('dsh-own', sessions), 'session-own')
+    assert.equal(R.sessionOfSandbox('dsh-sub', { 'session-sub': sessions['session-sub'] }), undefined)
+    assert.equal(R.sessionOfSandbox('dsh-own', undefined), undefined)
+  } finally { f.close() }
+})
+
 test('Branches: main first on page 0 and never again, however many pages', async () => {
   const head = 'c'.repeat(66)
   // 2.0 `branch list --detail` by cursor: rows `{ branch, commit }`; main read on its own (`branch get`)
@@ -474,20 +514,52 @@ test('client api: a Remote call lost after it was sent is tagged transport-unkno
   } finally { api.dispose() }
 })
 
+/** The built client API module, once per test file. */
+let clientApiModule
+async function loadClientApi() {
+  if (!clientApiModule) {
+    const { build } = await import('esbuild')
+    const { outputFiles } = await build({ entryPoints: [fileURLToPath(new URL('../src/client/api.ts', import.meta.url))], bundle: true, write: false, format: 'esm', platform: 'node' })
+    clientApiModule = await import(`data:text/javascript;base64,${Buffer.from(outputFiles[0].contents).toString('base64')}`)
+  }
+  return clientApiModule
+}
+
+/** A client API over a fake Remote: `answer(op, args)` gives each answer (a refusal as `{ ok: false }`). */
+async function clientOver(t, answer, nav = {}) {
+  const { createApi } = await loadClientApi()
+  const events = { [Symbol.asyncIterator]: () => ({ next: () => new Promise(() => {}) }), dispose() {} }
+  const ops = []
+  const remote = { events: () => events, async call(request) {
+    ops.push(request)
+    return (await answer(request.op, request.args)) ?? { ok: true, value: {} }
+  } }
+  const made = []
+  const opened = []
+  const api = createApi(() => remote, {
+    createSession: nav.createSession ?? (async workspaceId => { made.push(workspaceId); return `session-${made.length}` }),
+    openSession: id => opened.push(id),
+    openPanel() {}, openWorkspace: async () => {},
+  }, () => undefined)
+  t.after(() => api.dispose())
+  return { api, ops, made, opened }
+}
+
 test('client api: New project session creates distinct drafts in a shared scratch workspace', async (t) => {
-  const { build } = await import('esbuild')
-  const { outputFiles } = await build({ entryPoints: [fileURLToPath(new URL('../src/client/api.ts', import.meta.url))], bundle: true, write: false, format: 'esm', platform: 'node' })
-  const { createApi } = await import(`data:text/javascript;base64,${Buffer.from(outputFiles[0].contents).toString('base64')}`)
   const bindings = new Map()
   const opened = []
+  const ops = []
   const workspace = { connectWorkspace: async () => 'existing-draft' }
   const events = { [Symbol.asyncIterator]: () => ({ next: () => new Promise(() => {}) }), dispose() {} }
   const remote = { events: () => events, async call({ op, args }) {
+    ops.push(op)
+    if (op === 'sessions.checkPlacement') return { ok: true, value: { ok: true } }
     if (op === 'sessions.prepareScratch') return { ok: true, value: { workspaceId: 'scratch' } }
     assert.equal(op, 'sessions.choose')
     bindings.set(args.sessionId, args.project)
     return { ok: true, value: {} }
   } }
+  const { createApi } = await loadClientApi()
   const api = createApi(() => remote, {
     createSession: async workspaceId => { assert.equal(workspaceId, 'scratch'); return `session-${opened.length + 1}` },
     openSession: id => opened.push(id),
@@ -497,6 +569,55 @@ test('client api: New project session creates distinct drafts in a shared scratc
   await api.openProjectSession('store/second')
   assert.deepEqual([...bindings], [['session-1', 'store/first'], ['session-2', 'store/second']])
   assert.deepEqual(opened, ['session-1', 'session-2'])
+  assert.deepEqual(ops, ['sessions.checkPlacement', 'sessions.prepareScratch', 'sessions.choose', 'sessions.checkPlacement', 'sessions.prepareScratch', 'sessions.choose'], 'each placement is checked before its draft is made')
+})
+
+test('client api: a preflight refusal creates no session and archives nothing', async (t) => {
+  const { api, ops, made, opened } = await clientOver(t, async (op) => {
+    if (op === 'sessions.checkPlacement') return { ok: false, error: { code: 'ProjectIdentityChanged', message: 'This name now refers to another project.' } }
+    return undefined
+  })
+  await assert.rejects(api.openProjectSession('store/app', 'scratch'), (e) => e.code === 'ProjectIdentityChanged' && /another project/.test(e.message))
+  assert.deepEqual(ops.map((request) => request.op), ['sessions.checkPlacement'])
+  assert.equal(ops[0].args.project, 'store/app')
+  assert.deepEqual(made, [], 'no draft session is created')
+  assert.deepEqual(opened, [])
+})
+
+test('client api: a refused choose archives and forgets the blank session, then rethrows the refusal', async (t) => {
+  const archived = []
+  const forgotten = []
+  const { api, made, opened } = await clientOver(t, async (op, args) => {
+    if (op === 'sessions.checkPlacement') return { ok: true, value: { ok: true } }
+    if (op === 'sessions.choose') return { ok: false, error: { code: 'SessionStarted', message: 'Start a new session to change its project' } }
+    if (op === 'sessions.archive') archived.push(args.sessionId)
+    if (op === 'sessions.forget') forgotten.push(args.sessionId)
+    return undefined
+  })
+  await assert.rejects(api.openProjectSession('store/app', 'scratch'), (e) => e.code === 'SessionStarted' && e.message === 'Start a new session to change its project')
+  assert.deepEqual(made, ['scratch'])
+  assert.deepEqual(archived, ['session-1'], 'the blank session is hidden')
+  assert.deepEqual(forgotten, ['session-1'], 'its pending placement is cleared')
+  assert.deepEqual(opened, [], 'the refusal is not navigated to')
+})
+
+test('client api: a failed cleanup never replaces the original placement refusal', async (t) => {
+  const warnings = []
+  const warn = console.warn
+  console.warn = (...args) => warnings.push(args)
+  t.after(() => { console.warn = warn })
+  const forgotten = []
+  const { api, opened } = await clientOver(t, async (op, args) => {
+    if (op === 'sessions.checkPlacement') return { ok: true, value: { ok: true } }
+    if (op === 'sessions.choose') return { ok: false, error: { code: 'Unavailable', message: 'The project Store is not ready.' } }
+    if (op === 'sessions.archive') return { ok: false, error: { code: 'NotFound', message: 'no such session' } }
+    if (op === 'sessions.forget') forgotten.push(args.sessionId)
+    return undefined
+  })
+  await assert.rejects(api.openProjectSession('store/app', 'scratch'), (e) => e.code === 'Unavailable' && e.message === 'The project Store is not ready.')
+  assert.deepEqual(forgotten, ['session-1'], 'the pending placement is cleared even when archiving fails')
+  assert.equal(warnings.length, 1, 'the cleanup failure is logged')
+  assert.deepEqual(opened, [])
 })
 
 /** The client API over a fake Remote whose event stream the test drops and reopens, and whose calls it answers by hand. */

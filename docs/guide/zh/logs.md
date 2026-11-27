@@ -9,8 +9,8 @@
 
 *隔离测试数据。*
 
-日志页按时间倒序列出这个 LayerFS 主目录上的每一次 LayerFS 调用：一行一个调用，写明确切的
-CLI 命令、结果、保存了什么；如果是 DSH 发起的调用，还会写明它属于哪个会话、哪一轮、哪个检查点。
+日志页按时间倒序列出这个 LayerFS 主目录上的每一次 LayerFS 调用：一行（窄面板上一张卡片）一个调用，
+写明确切的 CLI 命令、结果、保存了什么；如果是 DSH 发起的调用，还会写明它属于哪个会话、哪一轮、哪个检查点。
 想知道某次点击到底跑了哪条 CLI 调用，就来这里看：在应用里随便按一个按钮，再看这一页的最上面。
 
 ![日志页，带编号标注](../img/logs-overview.png)
@@ -23,7 +23,7 @@ CLI 命令、结果、保存了什么；如果是 DSH 发起的调用，还会�
 | 4 | **操作**（Operation） | 只看某一类或某一个调用（`workspace`、`workspace.commit`…） |
 | 5 | **客户端**（Client） | **全部**（All）· **cli** · **node** · **python** · **rust** |
 | 6 | **结果**（Outcome） | **全部**（All）· **成功**（OK）· **被拒绝**（Refused） |
-| 7 | **仅写入**（Writes only） | 隐藏读取（默认打开） |
+| 7 | **仅写入**（Writes only） | 隐藏读取（默认关闭；原生日志上的纯写入读取代价高，所以页面默认显示所有调用） |
 | 8 | 命令 | 调用原样的写法：`layerfs workspace commit dsh-…:main --message '<10 bytes>' --detail` |
 | 9 | 已保存 | 调用保存了什么：**已提交**（committed）/ **已分叉**（forked）/ **已合并**（merged）/ **已发布**（published）/ **无变化**（unchanged），以及一个短 id |
 | 10 | 会话 | 它所属的会话和位置：**第 3 轮 · 轮次检查点**（turn 3 · turn checkpoint）、**第 1 轮 · 工具调用**（turn 1 · tool call）、**主机保存**（host save）、**第 0 轮 · 起点 · 引用**（turn 0 · base · references） |
@@ -32,12 +32,13 @@ CLI 命令、结果、保存了什么；如果是 DSH 发起的调用，还会�
 
 ## 布局
 
-先是标题行（**日志**（Logs）、**刷新**（Refresh）、**重置…**（Reset…）），然后是筛选条件，再下面是调用表格，
-表格底部有 **加载更早的调用**（Load older calls）。点一行会打开这次调用的详情。
+先是标题行（**日志**（Logs）、**刷新**（Refresh）、**重置…**（Reset…）），然后是筛选条件，再下面是调用列表，
+列表底部有 **加载更早的调用**（Load older calls）。宽面板画成表格，窄面板一次调用一张卡片。
+点一行或一张卡片会打开这次调用的详情。
 
 ## 主体
 
-这张表回答的是“LayerFS 做了什么、为谁做的、成功了没有”。页面读取的是 LayerFS 自己为这个主目录记的
+这个列表回答的是“LayerFS 做了什么、为谁做的、成功了没有”。页面读取的是 LayerFS 自己为这个主目录记的
 调用日志（`home log`），凡是使用这个主目录的客户端都会往里写（DSH、LayerFS Connect、终端、脚本）。
 如果运行时还没有 `home log`，页面就读插件的替代日志（`trace/calls.jsonl`），里面只有 DSH 发起的调用。
 一行就是一次调用；DSH 给自己的每次调用打上 `dsh:<session>:<receipt>` 标签，主机据此在这一行标出
@@ -45,13 +46,13 @@ CLI 命令、结果、保存了什么；如果是 DSH 发起的调用，还会�
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
-| 表格 | 每页 100 次调用，最新的在前：**时间**（Time，相对时间，悬停显示确切时间）、**客户端**（Client）、**命令**（Command，类别和调用名加粗；内容显示为 `'<N bytes>'`）、**结果**（Outcome）、**耗时**（Duration）、**已保存**（Saved）、**会话**（Session） | 点击一行或按 Enter → 打开调用详情。↑/↓ 在行之间移动。悬停或聚焦命令 → 显示完整命令 | `logs.list` → `home log --detail` (读取)，筛选条件以 `--call`、`--client`、`--tag`、`--outcome` 传入 | **正在读取调用…**（Loading calls…）；**无法读取调用日志**（Could not read the call log），附 **重试**（Retry） |
+| 调用列表 | 每页 100 次调用，最新的在前：**时间**（Time，相对时间，悬停显示确切时间）、**客户端**（Client）、**命令**（Command，类别和调用名加粗；内容显示为 `'<N bytes>'`）、**结果**（Outcome）、**耗时**（Duration）、**已保存**（Saved）、**会话**（Session） | 点击一行或按 Enter → 打开调用详情。↑/↓ 在行之间移动。悬停或聚焦命令 → 显示完整命令。窄面板上一次调用是一张三行卡片——时间、结果和耗时；命令占一行，可以左右滑动；保存了什么、属于哪个会话——不显示 Client 列 | `logs.list` → `home log --detail` (读取)，筛选条件以 `--call`、`--client`、`--tag`、`--outcome` 传入 | **正在读取调用…**（Loading calls…）；**无法读取调用日志**（Could not read the call log），附 **重试**（Retry） |
 | **刷新**（Refresh） | | 按下 → 重新读取第一页 | `home log` (读取) | 读取期间不可用。每来一次新调用（主机的 `logs` 事件）、重新连接、窗口获得焦点时，页面也会重新读取，已加载的页保留 |
 | 项目搜索 | | 输入 `store/project` → 只看提到它的调用（稍等片刻生效）；按 Escape 清空 | `home log` (读取；在这里按子串匹配) | |
 | **操作**（Operation） | 目前见过的类别和调用 | 选择 → 只看这些 | `home log --call` (读取) | |
 | **客户端**（Client） | | 选择 → 只看这个客户端 | `home log --client` (读取) | |
 | **结果**（Outcome） | | **成功**（OK）→ 只看成功的；**被拒绝**（Refused）→ 其余所有结果 | `home log --outcome ok` (读取)；**被拒绝**（Refused）在这里筛选 | |
-| **仅写入**（Writes only） | 默认打开 | 关掉 → 读取也显示 | —（由主机筛选） | **还没有写入**（No writes yet）· *读取调用已隐藏。*（Read calls are hidden.）**显示读取**（Show reads） |
+| **仅写入**（Writes only） | 默认关闭：页面打开时显示所有调用 | 打开 → 只留下其 LayerFS 调用写过东西（或保存了版本）的调用；再关掉 → 读取也显示 | —（原生日志没有读写标志，所以这是显式选择；由主机筛选） | **还没有写入**（No writes yet）· *读取调用已隐藏。*（Read calls are hidden.）**显示读取**（Show reads） |
 | 结果单元格 | **成功**（OK），或红色的 LayerFS 错误码（`NotFound`、`Busy`…） | — | — | |
 | 已保存单元格 | **已提交**（committed）/ **已分叉**（forked）/ **已合并**（merged）/ **已发布**（published）/ **无变化**（unchanged），以及版本的短 id（悬停显示完整 id） | — | — | 调用没保存任何东西时显示 **—** |
 | 会话单元格 | 会话标题，以及 **第 *n* 轮 · 工具调用**（turn *n* · tool call）、**第 *n* 轮 · 轮次检查点**（turn *n* · turn checkpoint）、**主机保存**（host save）、**引用**（references） | 点标题 → 打开那个对话 | — | 不是 DSH 发起的调用显示 **—** |
@@ -61,7 +62,8 @@ CLI 命令、结果、保存了什么；如果是 DSH 发起的调用，还会�
 ![只看一个会话的日志页](../img/logs-session.png)
 
 为一个会话打开时（1，从 **此会话的调用**（Calls of this session）进来），页面会清掉其他所有筛选，
-所以 **仅写入**（Writes only）（2）是关着的，读取和被拒绝的调用也都会显示。这个示例会话一共有 10 次调用：
+显示这个标签下的所有调用：读取和被拒绝的调用也都会显示，**仅写入**（Writes only）（2）保持关闭，
+除非你手动打开。这个示例会话一共有 10 次调用：
 分支分叉（**第 0 轮 · 起点**（turn 0 · base）），DSH 自己的 `sandbox get`（在创建 Sandbox 之前，所以被拒绝，
 **NotFound**），`sandbox create` 和 `workspace mount`（**主机保存**（host save）），之后每一轮各一次
 `workspace exec`（智能体的工具调用）和一次 `workspace commit`（轮次检查点）。
@@ -79,6 +81,11 @@ CLI 命令、结果、保存了什么；如果是 DSH 发起的调用，还会�
 | **此检查点的调用**（Calls of this checkpoint）/ **带此标签的调用**（Calls with this tag）（5） | | 按下 → 表格只显示带这个标签的调用 | `home log --tag` (读取) | |
 | **此会话的调用**（Calls of this session）（6） | | 按下 → 表格只显示这个会话的调用 | `home log --tag dsh:<session>:` (读取) | |
 | **输出**（Output） | **退出码**（Exit code）、**stdout** 和 **stderr** 的大小，每个流都有 **复制**（Copy），JSON 会标出来；被拒绝的调用显示错误码、消息、**修复：**（Fix:）和 **拒绝详情**（Refusal details） | 输出读不出来时有 **重试**（Retry） | `logs.output`（没有 LayerFS 调用：DSH 为自己发起的调用保留的输出） | **正在读取输出…**（Loading output…）；**此调用没有输出。**（The call printed nothing.）；**已截断：…**（Truncated: …） |
+
+手机上，调用详情是一张全高面板：占满整个面板，头部的控件留在顶部，内容在下面滚动，
+底部绕过主屏幕指示条。命令保持一行，可以左右滑动，不会折成一截一截。
+
+![手机上的调用详情：一张全高面板](../img/logs-phone.png)
 
 ![一次没有保留输出的调用](../img/logs-output.png)
 

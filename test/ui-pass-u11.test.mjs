@@ -55,7 +55,8 @@ test('FAIL 1: the views\' session read (mount, events, the 10 s poll) asks for t
   walk(join(root, 'src/client'))
   assert.deepEqual(callers, ['src/client/views/hooks.ts'])
   assert.match(src('src/client/views/hooks.ts'), /api\.op<SessionStateView>\('session\.state', \{ sessionId: root, observe: true \}\)/)
-  assert.match(src('src/host/sessions/index.ts'), /sessions\.view\(need\(args, 'sessionId'\), \{ observe: args\?\.observe === true \}\)/)
+  // `debug` (opt-in phase timing) rides along; a caller without it behaves as before.
+  assert.match(src('src/host/sessions/index.ts'), /sessions\.view\(need\(args, 'sessionId'\), \{ observe: args\?\.observe === true(?:, debug: args\?\.debug === true)? \}\)/)
 })
 
 // ---------------------------------------------------------------- FAIL 2
@@ -144,6 +145,7 @@ const START_SITES = {
   'src/client/machines/parts.tsx': 'the machine card\'s own Start / power button and its own fix',
   'src/client/machines/ImageMenu.tsx': 'that machine\'s own Restart worker (its images menu)',
   'src/client/projects/ProjectList.tsx': 'the project row\'s "Start <machine>"',
+  'src/client/projects/session-readiness.ts': 'the readiness action\'s kind (a type and a classification): sends nothing',
   'src/client/projects/setup/ProjectDialog.tsx': 'StartFirst (twice) and the project row\'s "Start <machine>"',
   'src/client/projects/setup/run.ts': 'startMachine itself (called only from StartFirst)',
   'src/client/storage/HomeOverview.tsx': 'a trouble row\'s "Restart <machine>\'s worker"',

@@ -97,8 +97,10 @@ Links to the pages this one leads to.
   ```bash
   DSH_LAYERFS_DEV_DIR=$PWD/.dev-guide node tools/guide/shoot.mjs tools/guide/shots/store.mjs
   ```
-- 默认 1440×900、2 倍分辨率，除非某张截图需要别的尺寸。整页没有额外信息时，用 `clip` 裁到组件本身。
+- 默认 1440×900、2 倍分辨率，除非某张截图需要别的尺寸。整页没有额外信息时，用 `clip` 裁到组件本身；
   编号标注按页面主表格的顺序编号。
+- 手机布局和桌面不同的页面还要一张手机截图：390×844、2 倍分辨率。先改文字、手机截图稍后补时，
+  指南用正文描述手机上的行为；补这张图不需要重截其他页面的图。
 - 图片命名为 `<page>-<what>.png`。截图通过后，删掉 `img/_failed-*.png`。
 - 示例数据：Starter 预设的 Store `demo-starter`（项目 `bookshelf`，Docker 机器上的 Sandbox
   `guide-box`）、native 上的 Store `guide-notes`（项目 `handbook`，以及由 `fixture-session.mjs` 生成的

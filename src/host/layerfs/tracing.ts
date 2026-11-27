@@ -10,9 +10,11 @@ import { createHash, randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
-import { OUTPUT_MAX, operationOf, type CallLine, type CallOutput, type SimulationStep } from '../../shared/logs.ts'
+import { isWrite, OUTPUT_MAX, operationOf, type CallLine, type CallOutput, type SimulationStep } from '../../shared/logs.ts'
 import { appendCallLine, makeReceipt, renderCall, ROTATE_BYTES, savedFields } from './call-log.ts'
 import { DEFAULT_BOUNDS, RAW_DIR, outputName, outputRecord, outputsDir, outputSink, writeOutput, type OutputBounds } from './call-output.ts'
+import { displayKind, RECEIPT_META_FIELD, receiptAggregateLines, versionEffect, type ReceiptMeta } from '../../shared/trajectory.ts'
+export { receiptAggregateLines, RECEIPT_META_FIELD, type ReadCount, type ReceiptMeta } from '../../shared/trajectory.ts'
 
 export interface VersionLink { kind: 'Commit' | 'Layer'; id: string; effect: 'created' | 'unchanged' | 'referenced' }
 /**
@@ -56,6 +58,14 @@ export interface TraceIdentity {
 }
 export interface TraceContext extends TraceIdentity {
   record: (invocation: Invocation) => Promise<void>
+  /**
+   * Fold a successful host read into the session's receipt counter instead of
+   * `record`ing it (see {@link receiptDisposition}). Persistence implements it
+   * (one counter per session, in the sidecar metadata); without it the counter
+   * is still kept in this process, so a dropped observation is never lost
+   * silently, but it does not survive a reload.
+   */
+  aggregate?: (invocation: Invocation) => void | Promise<void>
   onError?: (error: unknown) => void
 }
 const context = new AsyncLocalStorage<TraceContext>()
@@ -89,17 +99,16 @@ export function savedVersions(operation: string, result: any): VersionLink[] {
 }
 
 /**
- * Versions a call log line names. `Committed`/`Added` created;
- * `UpToDate`/`NoChanges` unchanged; `Forked` referenced. A line has no
- * `fast_forward`, so `Merged` is created only when the caller read
- * `fastForward: false` from the call's stored answer ({@link fastForwardOfOutput}),
- * else referenced.
+ * Versions a call log line names, in whichever vocabulary wrote its `kind`
+ * (`committed`/`Committed` …; see {@link versionEffect}). A line has no
+ * `fast_forward`, so a merge (`merged`/`Merged`) is created only when the
+ * caller read `fastForward: false` from the call's stored answer
+ * ({@link fastForwardOfOutput}), else referenced.
  */
 export function lineVersions(line: Pick<CallLine, 'argv' | 'kind' | 'commit' | 'layer'>, fastForward?: boolean): VersionLink[] {
   const allowed: readonly string[] = CHECKPOINT_OPERATIONS
   if (!allowed.includes(operationOf(line.argv))) return []
-  const effects: Record<string, VersionLink['effect']> = { Committed: 'created', Added: 'created', UpToDate: 'unchanged', NoChanges: 'unchanged', Forked: 'referenced', Merged: fastForward === false ? 'created' : 'referenced' }
-  const effect = line.kind ? effects[line.kind] : undefined
+  const effect = line.kind ? versionEffect(line.kind, fastForward) : undefined
   const hex = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{66}$/.test(value)
   if (!effect) return []
   if (hex(line.commit)) return [{ kind: 'Commit', id: line.commit, effect }]
@@ -205,7 +214,7 @@ export function receiptFromLine(line: CallLine, identity: TraceIdentity, id: str
   const allowed: readonly string[] = CHECKPOINT_OPERATIONS
   const captureGap = !targetKnown ? 'target-workspace-unconfirmed'
     : outcome === 'success' && allowed.includes(operation) && !line.kind ? 'structured-result-unavailable' : undefined
-  const code = line.outcome === 'ok' ? undefined : shortText(line.outcome), kind = shortText(line.kind)
+  const code = line.outcome === 'ok' ? undefined : shortText(line.outcome), rawKind = shortText(line.kind), kind = rawKind ? displayKind(rawKind) : undefined
   return {
     ...portable(identity, id, project), operation, outcome,
     versions: outcome === 'success' && targetKnown && !identity.internal ? lineVersions(line, fastForward) : [],
@@ -214,6 +223,295 @@ export function receiptFromLine(line: CallLine, identity: TraceIdentity, id: str
     ...(line.tag ? { tag: line.tag } : {}), ...(code ? { code } : {}), ...(kind ? { kind } : {}),
     ...execFacts(operation, exit),
   }
+}
+
+/* ------------------------------------------------------------------------- *
+ * Receipt policy: a write is history, an observation is a counter.
+ *
+ * A session's sidecar used to grow by one receipt per traced call whatever the
+ * operation: a real one reached 83,250 receipts / 55.2 MB, and 92% of them were
+ * read-only calls the plugin makes itself (the Observe view's polls, store and
+ * branch listings, log reads). No history row was needed for those: the
+ * Trajectory already budgets read-only calls away past 64 per record, so their
+ * detail was parsed from disk and then never shown.
+ *
+ * The policy here records a call only when it is history — a mutation, any
+ * refusal or unknown outcome, or an agent command — and folds the observation
+ * into a per-session counter kept in the sidecar metadata. Compatibility is
+ * one-way and idempotent: a legacy sidecar still loads as it is, and its first
+ * write folds every read-only receipt into the counter (see
+ * {@link compactInvocations}); the aggregate remembers the last receipt it
+ * folded ({@link ReceiptMeta.foldedThrough}), so a migration interrupted after
+ * the metadata landed never counts a receipt twice.
+ *
+ * "Agent command" is a receipt's *producer*, not its async context: a receipt
+ * built from a tool's tagged call-log line ({@link receiptFromLine}, the agent's
+ * own shell) is history; a receipt built by {@link traceInvocation} is the host
+ * process making a call, even when it runs inside a tool's async context, and a
+ * successful host read is exactly the polling to count. Classifying by the
+ * ambient `origin` would count the plugin's own work during a tool call as the
+ * agent's.
+ * ------------------------------------------------------------------------- */
+
+/** Receipts kept per session; a compaction trims the oldest past this and counts them. */
+export const RECEIPT_CAP = 5000
+/** Sidecar metadata key of one session's receipt counter ({@link ReceiptMeta}). */
+export const RECEIPT_META = 'receipts'
+
+/** An empty counter for one session (or a cap under test). */
+export function emptyReceiptMeta(cap = RECEIPT_CAP): ReceiptMeta {
+  return { version: 1, reads: {}, readsTotal: 0, dropped: 0, cap, truncated: false }
+}
+
+const isRecord = (value: unknown): value is Record<string, any> => !!value && typeof value === 'object' && !Array.isArray(value)
+const isCount = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0
+const outcomeOf = (value: unknown): Invocation['outcome'] => value === 'refusal' || value === 'unknown' ? value : 'success'
+
+/** A counter from whatever a sidecar held: never trust it, never grow it. */
+function normalizeMeta(raw: unknown, cap: number): ReceiptMeta {
+  const meta = emptyReceiptMeta(cap)
+  if (!isRecord(raw)) return meta
+  if (isCount(raw.cap) && raw.cap > 0) meta.cap = Math.trunc(raw.cap)
+  if (isCount(raw.dropped)) meta.dropped = Math.trunc(raw.dropped)
+  meta.truncated = raw.truncated === true || meta.dropped > 0
+  if (Number.isFinite(raw.firstAt)) meta.firstAt = raw.firstAt
+  if (Number.isFinite(raw.lastAt)) meta.lastAt = raw.lastAt
+  if (typeof raw.foldedThrough === 'string' && raw.foldedThrough) meta.foldedThrough = raw.foldedThrough
+  if (isRecord(raw.reads)) {
+    for (const [operation, value] of Object.entries(raw.reads)) {
+      if (!operation || !isRecord(value) || !isCount(value.count) || value.count < 1) continue
+      meta.reads[operation] = {
+        count: Math.trunc(value.count),
+        lastAt: Number.isFinite(value.lastAt) ? value.lastAt : 0,
+        lastOutcome: outcomeOf(value.lastOutcome),
+      }
+      meta.readsTotal += Math.trunc(value.count)
+    }
+  }
+  return meta
+}
+
+/** A receipt's start, as `at` when the writer recorded one. */
+const receiptAt = (receipt: any): number => Number.isFinite(receipt?.at) ? receipt.at : 0
+
+/**
+ * Fold one observation into a counter. With `count: true` it is a successful
+ * host read (the default for a success); otherwise only the last time and
+ * outcome move, which a recorded refusal contributes without being counted.
+ */
+export function noteRead(meta: ReceiptMeta, read: { operation: string, at: number, outcome?: Invocation['outcome'] }, options: { count?: boolean } = {}): void {
+  if (!read.operation) return
+  const outcome = read.outcome ?? 'success'
+  const counted = options.count ?? outcome === 'success'
+  const at = Number.isFinite(read.at) ? read.at : 0
+  const current = meta.reads[read.operation]
+  if (!current && !counted) return
+  if (!current) meta.reads[read.operation] = { count: 1, lastAt: at, lastOutcome: outcome }
+  else {
+    if (counted) current.count++
+    if (at >= current.lastAt) { current.lastAt = at; current.lastOutcome = outcome }
+  }
+  if (counted) {
+    meta.readsTotal++
+    if (meta.firstAt === undefined || at < meta.firstAt) meta.firstAt = at
+  }
+  if (meta.lastAt === undefined || at >= meta.lastAt) meta.lastAt = at
+}
+
+/** Fold one observation into a raw sidecar counter (normalized first); the write side's entry point. */
+export function foldRead(meta: unknown, read: { operation: string, at: number, outcome?: Invocation['outcome'] }, options: { cap?: number, count?: boolean } = {}): ReceiptMeta {
+  const next = normalizeMeta(meta, options.cap ?? RECEIPT_CAP)
+  noteRead(next, read, options)
+  return next
+}
+
+/**
+ * Attach a session's counter to the receipts array a caller already holds: the
+ * trajectory input carries the array, not the sidecar, so this keeps the
+ * counter beside it without copying. Non-enumerable, so JSON of the receipts
+ * is unchanged.
+ */
+export function withReceiptMeta<T extends readonly any[]>(rows: T, meta: ReceiptMeta | undefined): T {
+  if (meta && typeof meta === 'object') Object.defineProperty(rows, RECEIPT_META_FIELD, { value: meta, enumerable: false, configurable: true })
+  return rows
+}
+
+/** The counter attached to a receipts array by {@link withReceiptMeta}, when there is one. */
+export function receiptMetaOf(rows: unknown): ReceiptMeta | undefined {
+  const meta = (rows as any)?.[RECEIPT_META_FIELD]
+  return meta && typeof meta === 'object' ? meta as ReceiptMeta : undefined
+}
+
+/** Calls that are history whatever their outcome: they changed or saved something. */
+const HISTORY_OPERATIONS = new Set([
+  'file.write', 'file.edit', 'file.apply', 'file.rm', 'file.mkdir', 'file.mv', 'file.cp',
+  'workspace.commit', 'branch.fork', 'branch.merge', 'branch.publish', 'branch.remove',
+  'sandbox.create', 'sandbox.remove', 'project.init', 'project.import',
+])
+/** Operations the receipt policy always records; `store.*` is history except the one read named below. */
+export function historyOperation(operation: string): boolean {
+  if (HISTORY_OPERATIONS.has(operation)) return true
+  return operation.startsWith('store.') && operation !== 'store.get'
+}
+
+/** Whether a call only reads, from its argv when there is one, else from its operation name. */
+export function readOnlyOperation(operation: string, argv?: readonly string[]): boolean {
+  const words = argv && argv.length >= 2 ? argv : operation.split('.')
+  return !isWrite(words)
+}
+
+/** Who produced a receipt: the agent's own command (a tagged call-log line) or the host process. */
+export type ReceiptProducer = 'tool' | 'host'
+
+/**
+ * What the receipt policy does with one receipt. A `tool` producer is an agent
+ * command and always keeps its receipt; a `host` producer keeps mutations,
+ * version-naming calls, refusals/unknowns and `store.*`, and folds a successful
+ * read-only call into the counter.
+ */
+export function receiptDisposition(receipt: Pick<Invocation, 'operation' | 'outcome' | 'argv' | 'versions'>, producer: ReceiptProducer): 'keep' | 'aggregate' {
+  if (producer === 'tool') return 'keep'
+  if (receipt.outcome !== 'success') return 'keep'
+  if (Array.isArray(receipt.versions) && receipt.versions.length > 0) return 'keep'
+  if (historyOperation(receipt.operation)) return 'keep'
+  return readOnlyOperation(receipt.operation, receipt.argv) ? 'aggregate' : 'keep'
+}
+
+/** Whether a stored/legacy receipt is a successful read-only call to fold, never a write or a refusal. */
+function observableRead(receipt: any): boolean {
+  if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt)) return false
+  if (receipt.outcome !== 'success') return false
+  if (Array.isArray(receipt.versions) && receipt.versions.length > 0) return false
+  const operation = typeof receipt.operation === 'string' ? receipt.operation : ''
+  if (!operation || historyOperation(operation)) return false
+  const argv = Array.isArray(receipt.argv) ? receipt.argv.filter((word: unknown) => typeof word === 'string') : undefined
+  return readOnlyOperation(operation, argv)
+}
+
+/** One compaction's result: the new counter, the receipts kept, and what moved. */
+export interface ReceiptCompaction {
+  meta: ReceiptMeta
+  /** Receipts kept, in their original order (reads folded, the oldest trimmed past the cap). */
+  invocations: any[]
+  /** Receipt objects the compaction saw. */
+  before: number
+  /** Receipts kept. */
+  after: number
+  /** Read-only receipts folded by this run. */
+  folded: number
+  /** Receipts this run trimmed past the cap. */
+  dropped: number
+}
+
+/**
+ * Fold every successful read-only receipt into `meta` and keep the rest, oldest
+ * trimmed past the cap. Pure: the caller writes both halves. Idempotent — a
+ * second run over the result folds nothing and keeps the same receipts — and
+ * safe to retry after a crash between writing the metadata and the receipts:
+ * `meta.foldedThrough` names the last receipt already counted, so a second run
+ * skips (and drops) the rows up to it instead of counting them again.
+ */
+export function compactInvocations(meta: unknown, invocations: readonly unknown[], options: { cap?: number } = {}): ReceiptCompaction {
+  const next = normalizeMeta(meta, options.cap ?? RECEIPT_CAP)
+  const cap = options.cap ?? next.cap
+  const rows = invocations.filter((row): row is any => !!row && typeof row === 'object' && !Array.isArray(row))
+  const through = next.foldedThrough
+  const throughAt = through ? rows.findIndex((row) => row?.id === through) : -1
+  const kept: any[] = []
+  let folded = 0
+  rows.forEach((row, index) => {
+    if (!observableRead(row)) { kept.push(row); return }
+    // A row at or before the retry watermark was folded by the interrupted run.
+    if (throughAt < 0 || index > throughAt) {
+      noteRead(next, { operation: row.operation, at: receiptAt(row), outcome: 'success' })
+      if (typeof row.id === 'string' && row.id) next.foldedThrough = row.id
+      folded++
+    }
+  })
+  next.cap = cap
+  let dropped = 0
+  if (kept.length > cap) { dropped = kept.length - cap; kept.splice(0, dropped) }
+  if (dropped > 0) { next.dropped += dropped; next.truncated = true }
+  return { meta: next, invocations: kept, before: rows.length, after: kept.length, folded, dropped }
+}
+
+/** What a sidecar file compaction measured and changed. */
+export interface SidecarCompaction extends ReceiptCompaction {
+  path: string
+  /** File sizes before and after; equal when the file was already compact. */
+  bytes: { before: number, after: number }
+}
+
+/**
+ * Compact one session's sidecar on disk: fold its read-only receipts into the
+ * `receipts` metadata, keep the written history, trim the oldest past the cap,
+ * and write the result atomically (the original is kept once as `.bak`). This
+ * is the migration an existing sidecar gets on its next write: after it, a list
+ * or trajectory read parses kilobytes, not tens of megabytes. A second call
+ * finds nothing to fold and rewrites nothing.
+ */
+export function compactSidecarFile(path: string, options: { cap?: number, backup?: boolean } = {}): SidecarCompaction | undefined {
+  if (!existsSync(path)) return undefined
+  const text = readFileSync(path, 'utf8')
+  let raw: any
+  try { raw = JSON.parse(text) } catch { return undefined }
+  if (!isRecord(raw)) return undefined
+  if (!Array.isArray(raw.invocations)) return undefined
+  const compaction = compactInvocations(raw[RECEIPT_META], raw.invocations, options)
+  const next: any = { ...raw, [RECEIPT_META]: compaction.meta, invocations: compaction.invocations }
+  const out = `${JSON.stringify(next, null, 2)}\n`
+  const before = Buffer.byteLength(text), after = Buffer.byteLength(out)
+  if (out !== text) {
+    if (options.backup !== false && !existsSync(`${path}.bak`)) writeFileSync(`${path}.bak`, text, { mode: 0o600 })
+    const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`
+    writeFileSync(tmp, out, { mode: 0o600 })
+    renameSync(tmp, path)
+  }
+  return { ...compaction, path, bytes: { before, after } }
+}
+
+/**
+ * An in-process counter sink for a trace context that provides no `aggregate`
+ * of its own. It only reaches calls that share this module instance: the
+ * persistence plugin runs as a separate bundle with its own copy of this file,
+ * so production contexts (`hostOperation` and the tool-call hook) hand their
+ * folded reads to `aggregateInvocation` explicitly through the context, and a
+ * registration made by another bundle could not reach them.
+ */
+type ReceiptAggregate = (invocation: Invocation) => void | Promise<void>
+let registeredAggregate: ReceiptAggregate | undefined
+/** Register (or clear) the in-process counter sink; a trace context's own `aggregate` wins. */
+export function setReceiptAggregate(aggregate: ReceiptAggregate | undefined): void { registeredAggregate = aggregate }
+
+/** In-process counters for sessions whose persistence has not adopted {@link compactSidecarFile} yet. */
+const READ_AGGREGATES = new Map<string, ReceiptMeta>()
+/** Sessions kept hot; a counter is tiny, the map still must not grow forever. */
+const READ_AGGREGATE_SESSIONS = 256
+
+/** The live counter of one session, when a policy dropped a read this process (tests and the inspector). */
+export function aggregatedReads(sessionId: string): ReceiptMeta | undefined {
+  return READ_AGGREGATES.get(sessionId)
+}
+
+/** Forget the live counters: one session, or every one (test isolation). */
+export function resetAggregatedReads(sessionId?: string): void {
+  if (sessionId === undefined) READ_AGGREGATES.clear()
+  else READ_AGGREGATES.delete(sessionId)
+}
+
+/** Fold a dropped host read (or note a recorded read refusal) into the session's live counter. */
+function aggregateRead(sessionId: string, receipt: Invocation): void {
+  let meta = READ_AGGREGATES.get(sessionId)
+  if (!meta) {
+    meta = emptyReceiptMeta()
+    READ_AGGREGATES.set(sessionId, meta)
+    while (READ_AGGREGATES.size > READ_AGGREGATE_SESSIONS) {
+      const oldest = READ_AGGREGATES.keys().next().value
+      if (oldest === undefined) break
+      READ_AGGREGATES.delete(oldest)
+    }
+  }
+  noteRead(meta, { operation: receipt.operation, at: receipt.at ?? 0, outcome: receipt.outcome }, { count: receipt.outcome === 'success' })
 }
 
 /** The call an SDK invocation makes, for its receipt (computed only inside a trace context). */
@@ -238,7 +536,8 @@ export async function traceInvocation<T>(operation: string, run: (tag?: string) 
     } catch { /* receipt argv is best effort */ }
     // the kind is this log's own word for a 2.0 answer (as the call log line's), else the answer's own `kind`
     const code = error ? shortText(error.code) ?? 'Failed' : undefined
-    const kind = error ? undefined : savedFields(words ?? operation.split('.'), result).kind ?? shortText((result as any)?.kind)
+    const rawKind = error ? undefined : savedFields(words ?? operation.split('.'), result).kind ?? shortText((result as any)?.kind)
+    const kind = rawKind ? displayKind(rawKind) : undefined
     const receipt: Invocation = {
       ...portable(trace, id, !targetKnown ? '' : targetProject ?? trace.project), operation,
       outcome: error ? error.transport === 'refusal' ? 'refusal' : 'unknown' : 'success',
@@ -249,9 +548,28 @@ export async function traceInvocation<T>(operation: string, run: (tag?: string) 
       ...(tag ? { tag } : {}), ...(code ? { code } : {}), ...(kind ? { kind } : {}),
       ...execFacts(operation, error ? undefined : (result as any)?.exit_code, error ? undefined : (result as any)?.exec),
     }
-    // The mutation has already run; never retry it. A tool call's receipt is
-    // rebuilt from its tagged call log line when this write fails.
-    try { await trace.record(receipt) } catch (recordError) { trace.onError?.(recordError) }
+    // History first: a mutation, any refusal/unknown, and every agent command get
+    // their receipt. A successful host read is observation: it folds into the
+    // session's counter, so 31,597 polls cost 31,597 increments, not 31,597 rows.
+    const aggregate = trace.aggregate ?? registeredAggregate
+    if (receiptDisposition(receipt, 'host') === 'aggregate') {
+      aggregateRead(trace.sessionId, receipt)
+      if (aggregate) {
+        try { await aggregate(receipt) } catch (aggregateError) { trace.onError?.(aggregateError) }
+      }
+    } else {
+      // A refused read is history (its receipt follows) and also moves the
+      // counter's last outcome, so the aggregate line stays truthful.
+      if (receipt.outcome !== 'success' && readOnlyOperation(receipt.operation, receipt.argv)) {
+        aggregateRead(trace.sessionId, receipt)
+        if (aggregate) {
+          try { await aggregate(receipt) } catch (aggregateError) { trace.onError?.(aggregateError) }
+        }
+      }
+      // The mutation has already run; never retry it. A tool call's receipt is
+      // rebuilt from its tagged call log line when this write fails.
+      try { await trace.record(receipt) } catch (recordError) { trace.onError?.(recordError) }
+    }
   }
 }
 

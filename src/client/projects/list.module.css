@@ -232,14 +232,14 @@
 
 /* a session row and its Archive action, shown on hover or keyboard focus */
 .sessionItem {
-  position: relative;
   display: flex;
   align-items: center;
+  gap: 4px;
+  padding-inline-end: 6px;
 }
 
 .sessionAction {
-  position: absolute;
-  inset-inline-end: 6px;
+  flex: none;
   opacity: 0;
 }
 
@@ -270,11 +270,21 @@
   color: var(--dsw-alias-label-primary);
 }
 
-.interrupted {
+/* The readiness word beside a session's title, in the small chip style: muted
+   for every state, red for Interrupted (the one the row must not hide). */
+.interrupted,
+.word {
   flex: none;
   font-size: 12px;
   line-height: 16px;
+}
+
+.interrupted {
   color: var(--lf-tone-danger-fg);
+}
+
+.word {
+  color: var(--dsw-alias-label-tertiary);
 }
 
 /* Notices (no sessions, loading, errors) start where titles start. */
@@ -351,4 +361,79 @@
   display: flex;
   gap: 6px;
   padding: 2px var(--dsh-sidebar-row-padding, 12px) 4px;
+}
+
+/* B2: the pending-open status at the centre of the conversation pane. The
+   page-wide overlay cannot inherit the pane's box, so opening.tsx measures the
+   pane into --lfs-opening-x/-y; the 50% fallbacks keep a centred pill if the
+   measure has not run. Never a backdrop: it has no size but its own and takes
+   no pointer events, so the composer, the tab row and the Chat stay as they
+   were. */
+.opening {
+  position: fixed;
+  top: var(--lfs-opening-y, 50%);
+  left: var(--lfs-opening-x, 50%);
+  transform: translate(-50%, -50%);
+  z-index: 21;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* `left` at the pane centre leaves only the right half as the shrink-to-fit
+     space at 390/430, so an auto width would wrap the one-line status there.
+     The pill takes its own content width and stays one line; the cap still
+     keeps it inside a narrow phone with the safe-area insets. */
+  width: max-content;
+  max-width: min(320px, calc(100vw - 32px - var(--lfs-safe-left, 0px) - var(--lfs-safe-right, 0px)));
+  white-space: nowrap;
+  padding: 4px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.12));
+  border-radius: 999px;
+  corner-shape: round;
+  background: var(--dsw-alias-bg-base, #fff);
+  color: var(--dsw-alias-label-secondary, #666);
+  font-size: 12px;
+  line-height: 18px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  pointer-events: none;
+}
+
+.openingMark {
+  display: inline-flex;
+  flex: none;
+  color: var(--dsw-alias-label-caption, #888);
+}
+
+/* Touch (iPad/iPhone, and a narrow window): every row is a thumb target and
+   the row's actions are visible without hover. Readiness stays words-only:
+   no action is added to a session row here, only Archive's target is sized. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .projectRow {
+    height: max(32px, var(--lfs-tap, 44px));
+  }
+
+  .session {
+    height: max(32px, var(--lfs-tap, 44px));
+  }
+
+  .rowActions .iconButton {
+    width: var(--lfs-tap, 44px);
+    min-width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+  }
+
+  .start {
+    height: var(--lfs-tap, 44px);
+  }
+
+  .sessionAction {
+    height: var(--lfs-tap, 44px);
+    min-width: var(--lfs-tap, 44px);
+  }
+}
+
+/* A touch screen must not rely on hover to reveal Archive. */
+@media (hover: none), (max-width: 640px) {
+  .sessionAction {
+    opacity: 1;
+  }
 }

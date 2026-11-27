@@ -1,9 +1,7 @@
 /**
- * The Sandbox map's two illustrations: the agent whale and the LayerFS mark.
- * The whale is tinted by `--lane` (set on an ancestor) and keeps fixed white
- * and ink from DSH's static palette so it reads the same in both themes; the
- * LayerFS mark is the brand drawing (LayerFS Connect's `layerfs-mark.tsx`)
- * with its own two blues.
+ * The Sandbox map's agent whale. It is tinted by `--lane` (set on an ancestor)
+ * and keeps fixed white and ink from DSH's static palette so it reads the same
+ * in both themes.
  */
 import type { CSSProperties, ReactNode } from 'react'
 import css from './marks.module.css'
@@ -32,19 +30,6 @@ export function Whale({ size = 28, spout = 0, bob = 0, className }: { size?: num
       <circle className={css.shine} cx="24.15" cy="16.4" r=".95" />
       <circle className={css.shine} cx="22.6" cy="18.3" r=".45" />
       <path className={css.mouth} d="M27.1 19.6c.3.75 1.25.75 1.55 0" strokeWidth={0.8} fill="none" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-/** The LayerFS mark (the same drawing as the LayerFS repo's layerfs-mark.svg). */
-export function LayerfsMark({ size, className }: { size?: number | string, className?: string }): ReactNode {
-  return (
-    <svg className={className} width={size} height={size} viewBox="6 6 188 188" fill="none" aria-hidden>
-      <path d="M88.5 22 L111.5 22 L170 135 L148.5 135 L100 49.5 L51.5 135 L30 135 Z" fill="#93B1E0" stroke="#93B1E0" strokeWidth="2" strokeLinejoin="round" />
-      <path d="M27 161 L57 161 L100 117 L143 161 L173 161" stroke="#2F5BB5" strokeWidth="10.5" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="100" cy="117" r="15.5" fill="#2F5BB5" />
-      <circle cx="27" cy="161" r="15.5" fill="#2F5BB5" />
-      <circle cx="173" cy="161" r="15.5" fill="#2F5BB5" />
     </svg>
   )
 }

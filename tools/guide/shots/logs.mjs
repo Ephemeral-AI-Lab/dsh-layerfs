@@ -4,7 +4,18 @@ const SESSION_ROW = (p) => p.locator('tbody tr').filter({ hasText: 'workspace co
 /** Center's Logs page, from Center's navigation bar (its tool group). */
 async function logs(page, h) {
   await h.home()
-  await page.locator('header[aria-label="Home navigation"]').getByRole('button', { name: 'Logs', exact: true }).click()
+  const bar = page.locator('header[aria-label="Home navigation"]')
+  // Phones keep the sidebar off-canvas and move Doctor/Logs/Settings into More.
+  if (page.viewportSize().width <= 480) {
+    const collapse = page.getByRole('button', { name: 'Collapse sidebar' })
+    if (await collapse.count()) { await collapse.first().click(); await h.wait(400) }
+  }
+  const direct = bar.getByRole('button', { name: 'Logs', exact: true })
+  if (await direct.isVisible().catch(() => false)) await direct.click()
+  else {
+    await bar.getByRole('button', { name: 'More', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Logs' }).click()
+  }
   await page.getByRole('table', { name: 'Calls' }).waitFor({ timeout: 20000 })
   await h.wait(1200)
   // later calls may push the fixture conversation's row onto an older page
@@ -34,7 +45,7 @@ export default [
     run: logs,
     callouts: [
       (p) => p.getByRole('button', { name: 'Refresh', exact: true }).last(),
-      (p) => p.getByRole('button', { name: 'Reset…' }),
+      (p) => p.getByRole('button', { name: /^Reset/ }),
       (p) => p.getByRole('textbox', { name: 'Project (store/project)' }),
       (p) => p.getByRole('button', { name: 'Operation' }),
       (p) => p.getByRole('tablist', { name: 'Client' }),
@@ -84,10 +95,27 @@ export default [
     file: 'logs-reset',
     run: async (page, h) => {
       await logs(page, h)
-      await page.getByRole('button', { name: 'Reset…' }).click()
+      await page.getByRole('button', { name: /^Reset/ }).click()
       await page.getByRole('dialog', { name: 'Reset the call log?' }).waitFor({ timeout: 10000 })
       await h.wait(600)
     },
     clip: (p) => p.getByRole('dialog', { name: 'Reset the call log?' }),
+  },
+  {
+    // 390x844: the call detail is a full-height sheet; the newest row is enough
+    file: 'logs-phone', size: '390x844',
+    run: async (page, h) => {
+      await h.home()
+      const bar = page.locator('header[aria-label="Home navigation"]')
+      const collapse = page.getByRole('button', { name: 'Collapse sidebar' })
+      if (await collapse.count()) { await collapse.first().click(); await h.wait(400) }
+      await bar.getByRole('button', { name: 'More', exact: true }).click()
+      await page.getByRole('menuitem', { name: 'Logs' }).click()
+      await page.getByRole('table', { name: 'Calls' }).waitFor({ timeout: 20000 })
+      await h.wait(1200)
+      await page.locator('tbody tr').first().locator('td').nth(2).click()
+      await page.getByRole('dialog').waitFor({ timeout: 10000 })
+      await h.wait(1000)
+    },
   },
 ]

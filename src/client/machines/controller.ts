@@ -11,7 +11,8 @@
  * read starts one. A Start, Stop, Create or Remove re-reads the view after
  * success and after refusal (a refusal can follow a real side effect).
  */
-import { HostError, enc, q, type HostEvent, type LayerfsApi } from '../api.ts'
+import { HostError, enc, q, type HostEvent, type HostPriority, type LayerfsApi } from '../api.ts'
+import { afterFirstPaint } from '../ui/first-paint.ts'
 import {
   mergeStage, staleView, startupFailure,
   type Creation, type MachineStartup, type MachinesView, type NewMachine, type PruneAnswer, type ProjectSummary, type RuntimeStatus, type SandboxImagesView, type SandboxInfo,
@@ -128,11 +129,17 @@ export class MachinesController {
   private readonly finished = new Map<string, number>()
   private settleTimer: ReturnType<typeof setTimeout> | undefined
   private active = 0
+  /** The visit's token: one machines read serves the visit; a panel focus that begins a new visit reads again. */
+  private visit = 0
+  /** The visit whose view a read has started for (`-1`: none yet). */
+  private readVisit = -1
   private timer: ReturnType<typeof setInterval> | undefined
   private reading: Promise<void> | null = null
   private again = false
   private readonly off: (() => void)[] = []
   private seq = 0
+  /** A first-screen activation's deferred reads are dropped if the page went away first. */
+  private paintEpoch = 0
   /** The sampler's metrics for the machines a page watches; polls only while the window is visible and a reading page is the one shown. */
   readonly metrics: MetricsPoller
 
@@ -143,7 +150,7 @@ export class MachinesController {
   constructor(private readonly api: LayerfsApi, private readonly shown: () => boolean = () => true) {
     this.connected = new Cell(api.connected())
     const onScreen = () => (typeof document === 'undefined' || document.visibilityState === 'visible') && this.shown()
-    this.metrics = new MetricsPoller((query) => this.api.call<MetricsView>('GET', `/api/metrics${query}`), onScreen)
+    this.metrics = new MetricsPoller((query) => this.api.call<MetricsView>('GET', `/api/metrics${query}`, undefined, { priority: 'background' }), onScreen)
     if (typeof document !== 'undefined') {
       const seen = () => { if (onScreen()) this.metrics.wake() }
       document.addEventListener('visibilitychange', seen)
@@ -169,7 +176,7 @@ export class MachinesController {
       reload: () => this.reload(),
       recheck: async () => {
         try {
-          const data = await api.call<MachinesView>('GET', '/api/machines?fresh=1')
+          const data = await api.call<MachinesView>('GET', '/api/machines?fresh=1', undefined, { fresh: true })
           this.machines.set({ status: 'ready', data, error: null, observedAt: Date.now() })
         } catch (error) {
           const prev = this.machines.getSnapshot()
@@ -222,9 +229,17 @@ export class MachinesController {
   private activate(): () => void {
     this.active++
     if (this.active === 1) {
+      this.visit++
       this.reload()
-      this.reloadRuntime()
-      this.readCreations()
+      // The pinned runtime and the background-creates list decorate the first
+      // screen; the machines view itself draws it. A later page (after paint)
+      // finds `afterFirstPaint` settled and reads at once.
+      const epoch = ++this.paintEpoch
+      void afterFirstPaint().then(() => {
+        if (this.active === 0 || this.paintEpoch !== epoch) return
+        this.reloadRuntime('background')
+        this.readCreations()
+      })
       this.timer = setInterval(() => {
         if ((typeof document === 'undefined' || document.visibilityState === 'visible') && this.shown()) this.reload()
       }, POLL_MS)
@@ -238,15 +253,34 @@ export class MachinesController {
     }
   }
 
+  /**
+   * The panel came back into view while a page was already showing it: read
+   * again. A fresh mount reads through {@link activate}, so a focus that
+   * arrives before or just after that mount adds no second read.
+   */
+  refocus(): void {
+    if (this.active > 0 && this.readVisit !== this.visit) this.reload()
+  }
+
+  /** The panel left: the next focus is a return, not this visit's mount. */
+  hide(): void {
+    this.readVisit = -1
+  }
+
   /** One read at a time; a reload asked during a read runs once after it. */
   reload(): void {
+    // A reload during a read still belongs to this visit: the queued read is
+    // that visit's answer, so a focus arriving after it does not add a third.
+    this.readVisit = this.visit
     if (this.reading) { this.again = true; return }
     const current = this.machines.getSnapshot()
     if (current.status === 'idle') this.machines.set({ ...current, status: 'loading' })
     const began = Date.now()
     this.reading = (async () => {
       try {
-        const data = await this.api.call<MachinesView>('GET', '/api/machines')
+        // One answer per visit: the sidebar and the board read the same view,
+        // and a recheck/focus inside the share's short age joins that answer.
+        const data = await this.api.call<MachinesView>('GET', '/api/machines', undefined, { share: true })
         this.machines.set({ status: 'ready', data, error: null, observedAt: Date.now() })
         this.forgetFinished(began)
       } catch (error) {
@@ -260,10 +294,10 @@ export class MachinesController {
     })()
   }
 
-  reloadRuntime(): void {
+  reloadRuntime(priority: HostPriority = 'interactive'): void {
     const prev = this.runtime.getSnapshot()
     if (prev.status === 'idle') this.runtime.set({ ...prev, status: 'loading' })
-    this.api.op<RuntimeStatus>('runtime.status').then(
+    this.api.op<RuntimeStatus>('runtime.status', undefined, { priority }).then(
       (data) => this.runtime.set({ status: 'ready', data, error: null, observedAt: Date.now() }),
       (error) => { const p = this.runtime.getSnapshot(); this.runtime.set({ status: p.data ? 'ready' : 'error', data: p.data, error, observedAt: p.observedAt }) },
     )
@@ -367,7 +401,7 @@ export class MachinesController {
 
   /** GET /api/sandbox-creates: the host's running and failed creates replace what this page knew. */
   private readCreations(): void {
-    this.api.call<{ creations?: Creation[] }>('GET', '/api/sandbox-creates').then((answer) => {
+    this.api.call<{ creations?: Creation[] }>('GET', '/api/sandbox-creates', undefined, { priority: 'background' }).then((answer) => {
       const list = Array.isArray(answer?.creations) ? answer.creations : []
       const next: Record<string, Creation> = {}
       for (const c of list) if (c && typeof c.id === 'string' && c.phase !== 'done') next[c.id] = c

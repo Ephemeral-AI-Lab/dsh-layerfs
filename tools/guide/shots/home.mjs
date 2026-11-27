@@ -3,7 +3,7 @@
 
 const bar = (p) => p.locator('header[aria-label="Home navigation"]')
 const tools = (p) => p.getByRole('group').filter({ has: p.getByRole('button', { name: 'Try a preset', exact: true }) })
-const head = (p) => tools(p).locator('xpath=..')
+const head = (p) => p.locator('header[class*=HomeHero]')
 const homeTab = (p, name) => p.getByRole('tablist', { name: 'Projects, Stores, backups, connections and machines' }).getByRole('tab', { name: new RegExp(`^${name}\\b`) })
 
 /** Home, on one of its tabs. */
@@ -16,9 +16,7 @@ async function homeOn(page, h, name) {
 /** Home › Stores on a kind (SQLite or PostgreSQL) and, on SQLite, a view (Stores or Buckets). */
 async function storesOn(page, h, kind, view) {
   await homeOn(page, h, 'Stores')
-  await page.locator(`[data-store-kind=${kind}]`).click()
-  await h.wait(500)
-  if (view) await page.getByRole('tablist', { name: 'Show' }).getByRole('tab', { name: new RegExp(`^${view}`) }).click()
+  await page.getByRole('tablist', { name: 'Kind of Store' }).getByRole('tab', { name: new RegExp(`^${kind}`, 'i') }).click()
   await h.wait(1500)
 }
 
@@ -40,14 +38,14 @@ export default [
     ],
   },
   {
-    file: 'home-head-card',
+    file: 'home-overview-head',
     run: async (page, h) => { await homeOn(page, h, 'Projects'); await h.wait(1000) },
     clip: (p) => head(p),
     pad: 16,
     callouts: [
-      (p) => head(p).locator('[class*=identity] [class*=name]'),
-      (p) => head(p).getByRole('button', { name: /^LayerFS 2/ }),
       (p) => head(p).locator('h1'),
+      (p) => head(p).getByRole('button', { name: /^LayerFS 2/ }),
+      (p) => head(p).locator('[class*=HomeHero_status]'),
       (p) => tools(p).getByRole('button', { name: 'Try a preset' }),
       (p) => tools(p).getByRole('button', { name: 'Refresh' }),
     ],
@@ -60,8 +58,8 @@ export default [
     callouts: [
       (p) => bar(p).getByRole('button', { name: 'Back' }),
       (p) => bar(p).getByRole('button', { name: 'Forward' }),
-      (p) => bar(p).getByRole('navigation', { name: 'Location' }).getByRole('button', { name: 'Stores', exact: true }),
-      (p) => bar(p).getByRole('button', { name: 'Switch from demo-starter' }),
+      (p) => bar(p).getByRole('navigation', { name: 'Location' }),
+      (p) => bar(p).locator('[class*=crumbMore]'),
       (p) => bar(p).getByRole('button', { name: /Jump to/ }),
       (p) => bar(p).getByRole('button', { name: 'Refresh' }),
       (p) => bar(p).getByRole('button', { name: 'Add' }),
@@ -90,7 +88,7 @@ export default [
     file: 'home-crumb-switcher',
     run: async (page, h) => {
       await h.home(); await h.jump('bookshelf', 'bookshelf'); await h.wait(1200)
-      await bar(page).getByRole('button', { name: 'Switch from demo-starter' }).click(); await h.wait(600)
+      await bar(page).locator('[class*=crumbMore]').first().click(); await h.wait(600)
     },
     callouts: [(p) => p.getByRole('menu').first()],
   },
@@ -117,7 +115,7 @@ export default [
     callouts: [
       (p) => p.getByRole('button', { name: "Hide handbook's sessions and Sandboxes" }),
       (p) => p.getByRole('tabpanel').getByRole('button', { name: 'handbook', exact: true }),
-      (p) => p.getByRole('tabpanel').getByRole('button', { name: 'guide-notes', exact: true }),
+      (p) => p.getByRole('tabpanel').getByRole('button', { name: /^(guide-notes|demo-starter)$/ }).first(),
       (p) => p.locator('[data-session]').first(),
       (p) => p.locator('[data-list-switch]').first(),
       (p) => p.getByRole('button', { name: 'handbook actions' }),
@@ -136,16 +134,16 @@ export default [
     run: async (page, h) => { await storesOn(page, h, 'sqlite', 'Stores'); await h.see('guide-notes'); await h.wait(1500) },
     callouts: [
       (p) => p.getByRole('tablist', { name: 'Kind of Store' }),
-      (p) => p.getByRole('tablist', { name: 'Show' }),
-      (p) => p.getByRole('tabpanel').getByRole('button', { name: 'New Store' }),
+      (p) => homeTab(p, 'Buckets'),
+      (p) => p.getByRole('button', { name: 'New Store' }),
       (p) => p.locator('[data-store="guide-notes"]'),
     ],
   },
   {
     file: 'home-buckets',
-    run: async (page, h) => { await storesOn(page, h, 'sqlite', 'Buckets'); await h.see('guide-backups'); await h.wait(1000) },
+    run: async (page, h) => { await homeOn(page, h, 'Buckets'); await h.see('guide-backups'); await h.wait(1000) },
     callouts: [
-      (p) => p.getByRole('tablist', { name: 'Show' }),
+      (p) => homeTab(p, 'Buckets'),
       (p) => p.getByRole('button', { name: 'List bucket files' }),
       (p) => p.getByRole('tabpanel').getByRole('button', { name: 'Add bucket' }),
       (p) => p.locator('[data-bucket="guide-backups"]'),
@@ -157,7 +155,7 @@ export default [
     run: async (page, h) => { await storesOn(page, h, 'postgresql'); await h.wait(800) },
     callouts: [
       (p) => p.locator('[data-store-kind=postgresql]'),
-      (p) => p.getByRole('tabpanel').getByRole('button', { name: 'Connect a database' }),
+      (p) => p.getByRole('button', { name: 'Connect a database', exact: true }),
       (p) => p.getByText('No PostgreSQL database connected yet.'),
     ],
   },
@@ -169,7 +167,7 @@ export default [
     },
     callouts: [
       (p) => p.getByRole('button', { name: 'New machine' }),
-      (p) => p.getByRole('button', { name: 'More machine actions' }),
+      (p) => p.getByRole('button', { name: 'Diagnose this host' }),
       (p) => p.getByRole('button', { name: 'Hide what docker holds' }),
       (p) => p.getByRole('button', { name: 'docker', exact: true }),
       (p) => p.locator('[data-machine="docker"] button[data-machine="docker"]'),
@@ -179,8 +177,15 @@ export default [
     ],
   },
   {
-    file: 'home-machines-more',
-    run: async (page, h) => { await homeOn(page, h, 'Machines'); await page.getByRole('button', { name: 'More machine actions' }).click(); await h.wait(600) },
-    callouts: [(p) => p.getByRole('menu').first()],
+    // 390x844: the one-row nav bar, the scrolling tab strip and project cards
+    file: 'home-phone', size: '390x844',
+    run: async (page, h) => {
+      await h.center()
+      const collapse = page.getByRole('button', { name: 'Collapse sidebar' })
+      if (await collapse.count()) await collapse.first().click()
+      await h.wait(500)
+      await homeTab(page, 'Projects').click()
+      await h.see('handbook'); await h.wait(2000)
+    },
   },
 ]

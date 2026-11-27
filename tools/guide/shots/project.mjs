@@ -280,4 +280,23 @@ export default [
     },
     size: '1440x1400',
   },
+  {
+    // 390x844: the tab strip scrolls and the actions take the next line
+    file: 'project-phone', size: '390x844',
+    run: async (page, h) => {
+      await h.center()
+      const collapse = page.getByRole('button', { name: 'Collapse sidebar' })
+      if (await collapse.count()) await collapse.first().click()
+      await h.wait(500)
+      const bar = page.locator('header[aria-label="Home navigation"]')
+      await bar.getByRole('button', { name: /Jump to/ }).first().click()
+      await page.getByRole('combobox', { name: 'Jump to' }).fill('bookshelf')
+      await h.wait(500)
+      await page.getByRole('option').filter({ hasText: 'bookshelf' }).first().click()
+      await h.wait(2500)
+      await projectTabs(page).getByRole('tab', { name: 'Files', exact: true }).click()
+      await page.getByRole('tablist', { name: 'Open files' }).waitFor({ timeout: 20000 })
+      await h.wait(1500)
+    },
+  },
 ]

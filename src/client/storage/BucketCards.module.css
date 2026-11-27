@@ -101,15 +101,17 @@
 
 .line {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0;
+  gap: 0 4px;
   margin: 0;
-  overflow: hidden;
+  overflow: visible;
   font-size: 12px;
   line-height: 16px;
   color: var(--dsw-alias-label-secondary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
 }
 
@@ -137,8 +139,8 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, auto);
   align-items: center;
-  gap: 10px;
-  height: 28px;
+  gap: 4px 10px;
+  min-height: 28px;
   font-size: 12.5px;
 }
 
@@ -149,14 +151,15 @@
 .file {
   min-width: 0;
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
   border: 0;
   background: none;
   font: inherit;
   color: var(--dsw-alias-label-primary);
   text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
   cursor: pointer;
 }
 
@@ -338,4 +341,68 @@ button.storeName {
   font-size: 12px;
   line-height: 17px;
   color: var(--dsw-alias-label-secondary);
+}
+
+/* Touch: the bucket name, every file row, Restore, the store link and the
+   foot's verbs are thumb targets. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .seg button {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .card button {
+    min-width: var(--lfs-tap, 44px);
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .card button[aria-haspopup='menu'] {
+    min-width: var(--lfs-tap, 44px);
+  }
+
+  .name {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .row {
+    height: auto;
+    min-height: var(--lfs-tap, 44px);
+  }
+}
+
+/* A phone: a file row is two lines — the file's name across both columns, then
+   its size, its Store and its date — so a long backup name wraps rather than
+   hiding behind an ellipsis. */
+@media (max-width: 640px) {
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 10px;
+    padding-block: 6px;
+  }
+
+  .file {
+    flex: 1 1 100%;
+    overflow: visible;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+  }
+
+  .size {
+    flex: none;
+  }
+
+  .store {
+    flex: 1 1 auto;
+    justify-content: flex-start;
+    max-width: none;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .restore {
+    margin-inline-start: auto;
+  }
 }

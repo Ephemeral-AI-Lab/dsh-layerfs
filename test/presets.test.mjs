@@ -10,7 +10,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
-import { loadRoutes, pinned, testHost } from './routes-helper.mjs'
+import { liveSkipReason, loadRoutes, pinned, testHost } from './routes-helper.mjs'
+import { tmpRoot } from './support/env.mjs'
 import { MachineStop } from '../src/host/presets/machine-stop.js'
 import { EnvironmentReset } from '../src/host/presets/environment-reset.js'
 import { CONTENT_VERSION } from '../src/host/presets/recipe/presets.js'
@@ -213,8 +214,8 @@ test('router: while a preset holds the home, changes are refused and reads pass'
 
 const pin = pinned()
 
-test('live: Build cleanup still removes data from a private home', { skip: !pin && 'no pinned LayerFS CLI', timeout: 300_000 }, async () => {
-  const base = mkdtempSync('/tmp/lfsp-')
+test('live: Build cleanup still removes data from a private home', { skip: !pin && liveSkipReason(), timeout: 300_000 }, async () => {
+  const base = tmpRoot('lfsp-')
   const home = join(base, 'h'), state = join(base, 'presets')
   const env = { ...process.env, LAYERFS_HOME: home }
   const cli = (...argv) => JSON.parse(execFileSync(pin.cli, argv, { env, encoding: 'utf8' }))
@@ -359,7 +360,7 @@ test('Reset rejects a CLI without force-stop support before confirmation or any 
   } finally { rmSync(fixture.base, { recursive: true, force: true }) }
 })
 
-test('live: the selected legacy CLI is rejected before Reset reaches its private home', { skip: !pin && 'no pinned LayerFS CLI' }, async t => {
+test('live: the selected legacy CLI is rejected before Reset reaches its private home', { skip: !pin && liveSkipReason() }, async t => {
   const fixture = stoppingFixture({ forceSupport: false })
   try {
     const { CliDriver } = await import(pathToFileURL(join(out, 'driver.mjs')).href)

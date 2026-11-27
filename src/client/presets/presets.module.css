@@ -196,8 +196,8 @@
   border-radius: var(--dsw-radius-md);
   background: var(--dsw-alias-bg-module-platform);
   font-family: var(--ds-font-family-code);
-  font-size: 11.5px;
-  line-height: 17px;
+  font-size: 12px;
+  line-height: 18px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--dsw-alias-label-secondary);
@@ -292,8 +292,8 @@
   grid-auto-columns: 1fr;
   grid-auto-flow: column;
   gap: 4px;
-  font-size: 11px;
-  line-height: 16px;
+  font-size: 12px;
+  line-height: 18px;
   color: var(--dsw-alias-label-tertiary);
 }
 
@@ -591,7 +591,7 @@
 .commandNumber {
   flex: none;
   min-width: 36px;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 18px;
   text-align: end;
   color: var(--dsw-alias-label-tertiary);
@@ -631,15 +631,15 @@
   border-radius: var(--dsw-radius-sm);
   background: var(--dsw-alias-bg-module-platform);
   font-family: var(--ds-font-family-code);
-  font-size: 11.5px;
-  line-height: 17px;
+  font-size: 12px;
+  line-height: 18px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--dsw-alias-label-secondary);
 }
 
 .lane {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--dsw-alias-label-tertiary);
 }
 
@@ -808,5 +808,120 @@
   .presetList {
     border-right: 0;
     border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+  }
+}
+
+/* ---------- touch: every preset control is a thumb target ---------- */
+@media (max-width: 1180px), (pointer: coarse) {
+  .iconButton {
+    width: var(--lfs-tap, 44px);
+    min-width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+  }
+
+  .headActions button,
+  .headActions > span > button,
+  .dialogHead button,
+  .dialogHead > button {
+    min-width: var(--lfs-tap, 44px);
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .modalFooter button,
+  .pagination button,
+  .scriptToolbar button,
+  .scriptFilter button,
+  .statusLink,
+  .actionsStart button,
+  .detailsHead button {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .presetItem {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .row {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .select {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .rowAction {
+    min-width: var(--lfs-tap, 44px);
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .disclosure > summary {
+    display: flex;
+    align-items: center;
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .scriptModal [class*='header'] > button,
+  .confirmModal [class*='close'] {
+    min-width: var(--lfs-tap, 44px);
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .scriptModal summary {
+    display: flex;
+    align-items: center;
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .option label {
+    min-height: var(--lfs-tap, 44px);
+    align-items: center;
+  }
+}
+
+/* ---------- a phone: the dialog, the script and the confirm are full-width sheets ---------- */
+@media (max-width: 640px) {
+  .dialog.dialog {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100%;
+    margin: 0;
+    border-radius: 0;
+  }
+
+  .confirmModal {
+    width: 100vw;
+    max-width: 100vw;
+    max-height: calc(100vh - 8px);
+    max-height: calc(100dvh - 8px);
+    margin: 0 -24px;
+    border-radius: 0;
+  }
+
+  .modalFooter {
+    padding-bottom: calc(8px + var(--lfs-safe-bottom));
+  }
+
+  .scriptModal {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100%;
+    margin: 0;
+    border-radius: 0;
+  }
+
+  .scriptBody {
+    flex: 1 1 auto;
+    max-height: none;
+    padding-bottom: calc(8px + var(--lfs-safe-bottom));
+  }
+
+  .presetDetail {
+    padding-bottom: var(--lfs-safe-bottom);
   }
 }

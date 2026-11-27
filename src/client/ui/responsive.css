@@ -1,0 +1,42 @@
+/* The plugin's one responsive scale. Component CSS must not invent its own
+   touch sizes or safe-area paddings; it reads these tokens (with a fallback so
+   a view still renders if this file is not loaded).
+
+   Breakpoints, chosen from the devices this plugin ships to and the widths at
+   which its own layouts break (not from framework defaults):
+
+     phone   <= 480px   390/430 iPhone: one column, full-width rows
+     compact <= 640px   phone landscape / split view: controls wrap
+     tablet  <= 834px   834 iPad portrait: the Trajectory inspector is a sheet
+     wide    <= 1180px  1180 iPad 11" landscape: touch sizing still applies
+
+   A coarse pointer is treated like the wide edge: a tablet does not become a
+   mouse merely because it is 1180px wide, and a desktop window narrowed to
+   tablet size still gets the same comfortable controls. */
+:root {
+  --lfs-tap: 30px;
+  --lfs-control-h: 30px;
+  --lfs-row-h: 30px;
+  /* The gap between two controls that share a row. Micro-spacing (4 px) is
+     fine for a mouse; a finger gets 8 px. */
+  --lfs-gap-control: 4px;
+  /* The air between a control and the edge of the surface that holds it. */
+  --lfs-inset-control: 12px;
+  --lfs-space-3: 12px;
+  --lfs-space-4: 16px;
+  --lfs-space-5: 24px;
+  --lfs-space-6: 32px;
+  --lfs-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --lfs-safe-left: env(safe-area-inset-left, 0px);
+  --lfs-safe-right: env(safe-area-inset-right, 0px);
+}
+
+@media (max-width: 1180px), (pointer: coarse) {
+  :root {
+    --lfs-tap: 44px;
+    --lfs-control-h: 44px;
+    --lfs-row-h: 44px;
+    --lfs-gap-control: 8px;
+    --lfs-inset-control: 16px;
+  }
+}

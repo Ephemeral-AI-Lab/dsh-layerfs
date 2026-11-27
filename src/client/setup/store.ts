@@ -4,8 +4,9 @@
  * events, and the Set up LayerFS modal's open state. Any view opens the modal
  * with `setupDialog.open(section)`; Later is remembered per viewer.
  */
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { LayerfsApi } from '../api.ts'
+import { afterFirstPaint } from '../ui/first-paint.ts'
 import { useQuery } from '../ui/use-query.ts'
 
 /** A piece's verdict against the CLI's build. */
@@ -138,12 +139,39 @@ export function useSetupDialog(): SetupSection | null {
 const EVENTS = ['setup-changed', 'runtime-changed', 'connection']
 
 /**
+ * How long a `setup.status` answer may serve the sidebar's other mounts (the
+ * modal, Home's decoration). The check changes only on setup events, which
+ * clear the shared answer; 10 s covers the boot→panel gap on the shared 3194
+ * rig (2.7 s when quiet, ~7 s under load). While the modal is open its 5 s
+ * poll and Check/Check again are forced reads, so being open never waits out
+ * this age. This is a client answer age, not a host TTL.
+ */
+export const SETUP_SHARE_MAX_AGE_MS = 10_000
+
+/**
  * `setup.status`, kept across remounts and reread on setup events; `visible`
  * also rereads every 5 s while the page is visible (the modal, Settings).
+ * `afterPaint` holds the first read for {@link afterFirstPaint}: Home's second
+ * mount decorates the first card, while the boot mount decides whether the
+ * setup modal opens at once, so only one of them may run at first paint. The
+ * read is shared while in flight, and it still starts on mount and is fresh.
  */
-export function useSetupStatus(api: LayerfsApi, visible = false) {
+export function useSetupStatus(api: LayerfsApi, visible = false, afterPaint = false) {
   const [tick, bump] = useTick()
-  const read = useQuery(() => api.op<SetupStatus>('setup.status'), [api], { refresh: [tick], cache: 'op setup.status' })
+  /** Set by `check`: Check/Check again is a forced read, past the shared answer. */
+  const forced = useRef(false)
+  const load = () => {
+    const options = forced.current
+      ? { share: true as const, fresh: true }
+      : { share: { maxAgeMs: SETUP_SHARE_MAX_AGE_MS } }
+    forced.current = false
+    return api.op<SetupStatus>('setup.status', undefined, options)
+  }
+  const read = useQuery(
+    () => (afterPaint ? afterFirstPaint().then(load) : load()),
+    [api, afterPaint],
+    { refresh: [tick], cache: 'op setup.status' },
+  )
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined
     // coalesced: a save emits runtime-changed and setup-changed together
@@ -152,10 +180,18 @@ export function useSetupStatus(api: LayerfsApi, visible = false) {
   }, [api])
   useEffect(() => {
     if (!visible) return
-    const id = setInterval(() => { if (document.visibilityState === 'visible') bump() }, 5000)
+    // The open modal's own 5 s poll is a read, not a share: it must see a
+    // runtime or folder change that no event reported.
+    const id = setInterval(() => {
+      if (document.visibilityState !== 'visible') return
+      forced.current = true
+      bump()
+    }, 5000)
     return () => clearInterval(id)
   }, [visible])
-  return { ...read, check: bump }
+  // Check/Check again reads the host; an event tick (`bump`) may reuse a recent answer.
+  const check = () => { forced.current = true; bump() }
+  return { ...read, check }
 }
 
 /** `runtime.installed`, reread on setup events. */

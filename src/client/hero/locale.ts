@@ -4,6 +4,8 @@ export const NS = 'layerfsHero'
 const en = {
   chipAria: 'LayerFS project: {project}',
   noProject: 'No project',
+  placeUnknown: 'Could not read this session\'s project',
+  retry: 'Retry',
   scratchChoose: 'Choose scratch folder',
   scratchBrowse: 'Browse local folders…',
   scratchEnterPath: 'Enter a folder path…',
@@ -43,6 +45,8 @@ const en = {
 const zh: typeof en = {
   chipAria: 'LayerFS 项目：{project}',
   noProject: '无项目',
+  placeUnknown: '无法读取此会话的项目',
+  retry: '重试',
   scratchChoose: '选择草稿目录',
   scratchBrowse: '浏览本地文件夹…',
   scratchEnterPath: '输入文件夹路径…',

@@ -258,13 +258,15 @@ function DockerSection({ m, images }: { m: MachineInfo, images: Query<SandboxIma
             <Button variant="ghost" size="sm" icon={<IconRefreshOutlineRegular size={12} />} onClick={() => images.reload()}>{t('imgRefresh')}</Button>
           </span>
         )}>
+        {/* Above the list: the list scrolls, so a hint below it would sit over
+            the rows it clips (their boxes extend past the scrollport). */}
+        <BuildHint />
         {total === 0
           ? <p className={css.muted}>{t('imgDockerEmpty', { machine: m.name })}</p>
           : usable.length + unusable.length === 0
             ? <p className={css.muted}>{t('imgNoMatch', { query })}</p>
             : <ul className={css.imgList} aria-label={title}>{usable.map(row)}{unusable.map(row)}</ul>}
         {!canCopy && <p className={css.muted}>{t('imgCopyNeedsRunning', { machine: m.name })}</p>}
-        <BuildHint />
         {error != null && <Refusal error={error} labels={refusal} compact className={css.errorText} />}
       </Section>
     </Card>

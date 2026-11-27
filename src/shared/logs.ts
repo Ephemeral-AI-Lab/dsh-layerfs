@@ -86,7 +86,19 @@ export interface LogsListAnswer {
   /** Newest first. */
   lines: LabeledLine[]
   next?: string
+  /**
+   * `next` continues the list. For a filtered scan stopped by its page budget
+   * (`partial`), true only means older lines were not scanned yet: they may or
+   * may not hold another match.
+   */
   has_more: boolean
+  /**
+   * True when a filtered scan stopped at its page budget before the log ended:
+   * `next` continues exactly after the last scanned page, and neither an empty
+   * `lines` nor `has_more` proves anything about the older calls. Absent when
+   * the scan reached the end (or the page is unfiltered).
+   */
+  partial?: boolean
   /** Lines that did not parse. */
   skipped: number
   /** `layerfs`: the pinned CLI's native log (every client of the home); `plugin`: this plugin's stand-in. */
@@ -189,7 +201,7 @@ export function operationOf(argv: readonly string[]): string {
 }
 
 /** Read-only calls hidden by `writes` until LayerFS #659 Q1 adds a read/write bit. */
-const READ_CALLS = new Set(['list', 'get', 'status', 'read', 'stat', 'diff', 'commits', 'blame', 'revision', 'images', 'search', 'glob', 'grep', 'log', 'platforms', 'show', 'tree', 'history', 'stats', 'info', 'check', 'capabilities', 'files', 'space', 'doctor'])
+const READ_CALLS = new Set(['list', 'get', 'status', 'read', 'stat', 'diff', 'commits', 'blame', 'revision', 'images', 'search', 'glob', 'grep', 'log', 'platforms', 'show', 'tree', 'history', 'stats', 'info', 'check', 'capabilities', 'files', 'space', 'doctor', 'auths'])
 /** Families that only read and have no call word (`layerfs doctor`, `layerfs help`). */
 const READ_FAMILIES = new Set(['logs', 'doctor', 'help'])
 export function isWrite(argv: readonly string[]): boolean {

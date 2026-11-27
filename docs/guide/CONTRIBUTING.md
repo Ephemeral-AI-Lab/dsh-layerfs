@@ -102,6 +102,9 @@ Links to the pages this one leads to.
   ```
 - 1440×900 at 2× unless a shot needs another size. Crop to a component with `clip` when
   the whole page adds nothing. Callouts are numbered in the order of the page's key table.
+- A page whose phone layout differs gets a phone shot too: 390×844 at 2×. When the words
+  are updated before the phone pass, the guide describes the phone behaviour in prose;
+  the shot comes later and no other page's image needs re-shooting for it.
 - Name images `<page>-<what>.png`. Delete `img/_failed-*.png` once a shot passes.
 - The fixture: the Starter preset Store `demo-starter` (project `bookshelf`, Sandbox
   `guide-box` on the Docker machine), the Store `guide-notes` on native (project

@@ -17,7 +17,7 @@
 .history {
   display: inline-flex;
   flex: none;
-  gap: 2px;
+  gap: var(--lfs-gap-control, 4px);
 }
 
 .bar button {
@@ -82,6 +82,7 @@
 .crumbPair {
   display: inline-flex;
   align-items: center;
+  gap: var(--lfs-gap-control, 4px);
   min-width: 0;
 }
 
@@ -136,7 +137,7 @@ span.crumb {
   justify-content: center;
   width: 20px;
   height: 28px;
-  margin-left: -4px;
+  margin-left: 0;
   padding: 0;
   border: 0;
   border-radius: var(--dsw-radius-md);
@@ -194,7 +195,7 @@ button.crumb[aria-expanded='true'],
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
 }
 
 /* ---------- tools ---------- */
@@ -235,8 +236,8 @@ button.crumb[aria-expanded='true'],
   padding: 0 5px;
   border-radius: 999px;
   corner-shape: round;
-  font-size: 11px;
-  line-height: 16px;
+  font-size: 12px;
+  line-height: 18px;
   font-weight: 500;
   text-align: center;
   font-variant-numeric: tabular-nums;
@@ -325,7 +326,7 @@ button.crumb[aria-expanded='true'],
 
 .jobsShare {
   flex: none;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
   font-variant-numeric: tabular-nums;
 }
 
@@ -409,7 +410,7 @@ button.crumb[aria-expanded='true'],
 }
 
 .jumpInput::placeholder {
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .jumpList {
@@ -426,7 +427,7 @@ button.crumb[aria-expanded='true'],
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .jumpItem {
@@ -468,7 +469,7 @@ button.crumb[aria-expanded='true'],
   white-space: nowrap;
   text-align: right;
   font-size: 12px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .jumpNothing {
@@ -476,7 +477,7 @@ button.crumb[aria-expanded='true'],
   padding: 24px 12px;
   text-align: center;
   font-size: 13px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .jumpFoot {
@@ -484,5 +485,168 @@ button.crumb[aria-expanded='true'],
   padding: 8px 16px;
   border-top: 0.5px solid var(--dsw-alias-border-l2);
   font-size: 12px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* Touch: the bar's controls are thumb targets, and its 11px counts read at 12px. */
+@media (max-width: 1180px), (pointer: coarse) {
+  .iconButton {
+    width: var(--lfs-tap, 44px);
+    min-width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+  }
+
+  .crumb,
+  .crumbMore,
+  .countButton,
+  .addButton,
+  .jumpField,
+  .jobs {
+    height: var(--lfs-tap, 44px);
+  }
+
+  /* A short crumb ("dsh") is still a 44 x 44 target: box-sizing keeps the
+     8px side padding inside the minimum, so the bar's height and its
+     neighbours do not grow. */
+  .crumb {
+    box-sizing: border-box;
+    min-width: var(--lfs-tap, 44px);
+  }
+
+  .crumbMore {
+    width: var(--lfs-tap, 44px);
+  }
+
+  .toolCount {
+    font-size: 12px;
+    line-height: 18px;
+  }
+}
+
+@media (max-width: 1180px), (pointer: coarse) {
+  .jumpField {
+    min-width: var(--lfs-tap, 44px);
+  }
+}
+
+/* ---------- phone tools ---------- */
+
+/* The one 44 px menu that stands in for Doctor, Logs, Settings and Refresh
+   when the bar is a phone's width. It is in the DOM everywhere (so its menu
+   keeps one behaviour) and shows only where the others collapse. */
+.moreTool {
+  position: relative;
+  display: none;
+}
+
+.moreDot {
+  position: absolute;
+  top: 11px;
+  right: 10px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  corner-shape: round;
+  background: var(--lf-tone-warning-dot);
+  box-shadow: var(--lf-tone-warning-halo);
+}
+
+.moreDot[data-tone='danger'] {
+  background: var(--lf-tone-danger-dot);
+  box-shadow: var(--lf-tone-danger-halo);
+}
+
+@media (max-width: 1180px), (pointer: coarse) {
+  .moreList [role='menuitem'] {
+    min-height: var(--lfs-tap, 44px);
+  }
+}
+
+/* A phone: one row. Back and Forward, the page's crumb, then search, Add and
+   the tools menu — each a thumb target, none squeezed off the edge. */
+@media (max-width: 480px) {
+  .bar {
+    flex-wrap: nowrap;
+    min-height: 0;
+    padding: 6px 10px;
+    gap: 4px;
+  }
+
+  .history {
+    gap: var(--lfs-gap-control, 4px);
+  }
+
+  .crumbs {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .crumbList {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .crumbList::-webkit-scrollbar {
+    display: none;
+  }
+
+  .crumb {
+    max-width: 100%;
+  }
+
+  .tools {
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+    gap: var(--lfs-gap-control, 4px);
+    margin-left: auto;
+  }
+
+  .jumpField {
+    width: var(--lfs-tap, 44px);
+    min-width: var(--lfs-tap, 44px);
+    margin-inline-end: 0;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .jumpText,
+  .jumpKeys,
+  .secondaryTool,
+  .jobs {
+    display: none;
+  }
+
+  .moreTool {
+    display: inline-flex;
+  }
+
+  .addButton {
+    padding: 0 10px;
+  }
+}
+
+/* Touch: the page showing is never the crumb that gets cut. The current crumb
+   keeps its natural width; the ancestors shrink or scroll away, and the list
+   is scrolled to the current page when it changes (NavBar's effect). */
+@media (max-width: 1180px), (pointer: coarse) {
+  /* A tablet-or-phone tool cluster: no cluster narrower than 8 px. */
+  .tools {
+    gap: var(--lfs-gap-control, 8px);
+  }
+
+  .crumbItem:has(.crumbCurrent) {
+    flex: 0 0 auto;
+  }
+
+  .crumbCurrent {
+    flex: 0 0 auto;
+    max-width: none;
+  }
+
+  .crumbCurrent .crumbLabel {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: nowrap;
+  }
 }

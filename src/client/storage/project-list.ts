@@ -21,7 +21,7 @@ export const PROJECT_SORTS: readonly ProjectSort[] = ['session', 'default', 'siz
 export const DEFAULT_SORT: ProjectSort = 'session'
 
 /** `GET /api/projects/<key>/size`. */
-export interface ProjectSize { project: string, stored: number | null, counting: boolean, files: number | null }
+export interface ProjectSize { project: string, stored: number | null, counting: boolean }
 
 /** The `useQuery` cache key a project card keeps its size under (`store/project`). */
 export const sizeCacheKey = (key: string): string => `project-size:${key}`

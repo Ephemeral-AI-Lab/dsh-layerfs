@@ -22,6 +22,18 @@
  * The machine list the sampler takes its turns from is `machine.list` (a kept
  * read shared with the machines view), asked at most once per {@link TICK_MS}.
  *
+ * **Liveness is sampled here too** (layerfs-project#B4): alongside its stats
+ * read, each machine's turn runs the live probe (`machine get --with live`)
+ * through {@link SamplerDeps.probe}, so `GET /api/machines` answers from the
+ * last probe instead of paying 200+ ms on a page read. A ready or unknown
+ * machine is probed every {@link TICK_MS}; a stop, start or any state change
+ * asks once more; a stopped or broken machine is otherwise not probed. A
+ * probe refusal is kept by the view as the machine's last known liveness.
+ * `stop()` aborts a stats read in flight but not a probe: the probe is
+ * single-flight and shared with the machines view's explicit `fresh=1` read,
+ * so aborting it here would cancel a page's own probe. The sampler drops the
+ * answer after a stop and schedules nothing.
+ *
  * `GET /api/metrics?machines=<names>&since=<seq>` ({@link MetricsSampler.view})
  * is answered from memory with no LayerFS call. Rates are not computed here:
  * the page turns two counters into a rate (src/client/machines/metrics.ts).
@@ -76,8 +88,12 @@ export interface Point<V> { seq: number, t: number, values: V | null, code?: str
 interface MachineTrack {
   name: string
   state: string
+  /** Whether `machine.list`'s record is readable: an unreadable one is not probed (`machine get` refuses it). */
+  readable: boolean
   /** When this machine's next turn is (this host's clock). */
   due: number
+  /** When this machine's next live probe is due; `Infinity` when it stopped being worth probing (a stopped or broken record). */
+  probeDue: number
   /** Its last read timed out: its next turn is skipped. */
   skip: boolean
   points: Point<MachineValues>[]
@@ -117,10 +133,24 @@ const realClock: Clock = { now: () => Date.now(), setTimeout: (run, ms) => { con
 
 /** What the sampler needs from LayerFS: the machine list and one machine's stats. */
 export interface SamplerDeps {
-  /** `machine.list()`'s machines: `{ name, state }` each. */
-  list: () => Promise<{ name: string, state: string }[]>
+  /** `machine.list()`'s machines: `{ name, state }` each, and whether its record can be read (an unreadable record is not probed). */
+  list: () => Promise<{ name: string, state: string, readable?: boolean }[]>
   /** One `machine.stats(name)`, aborted by `signal` when the sampler stops. */
   stats: (name: string, signal: AbortSignal) => Promise<unknown>
+  /**
+   * One machine's live probe (`machine get <m> --detail --with live`), the
+   * only read that says whether a Docker machine died. It runs in the
+   * machine's turns, never on a page read (layerfs-project#B4): once every
+   * {@link TICK_MS} while the record says `ready` or `unknown`, and once more
+   * when its record changes (a stop, a start). Absent: no liveness sampling
+   * (a test or a caller that has nothing to probe).
+   *
+   * No `AbortSignal`: the machines view's implementation (`probeNow`) is
+   * single-flight and shared with its explicit `fresh=1` probe, so a sampler
+   * stop cannot abort it without also aborting a page's own probe. The
+   * sampler drops the answer after a stop and schedules nothing.
+   */
+  probe?: (name: string) => Promise<unknown>
   /** Whether the pinned CLI has machine.stats. */
   offered: () => Promise<boolean>
   clock?: Clock
@@ -178,7 +208,7 @@ export class MetricsSampler {
     this.schedule(0)
   }
 
-  /** Stop: the read in flight is aborted; nothing more is read. */
+  /** Stop: the stats read in flight is aborted; a live probe is left to finish (see {@link SamplerDeps.probe}); nothing more is read. */
   stop(): void {
     this.running = false
     this.clock.clearTimeout(this.timer)
@@ -189,7 +219,7 @@ export class MetricsSampler {
   /** A machine was started, stopped, created or removed: the next turn lists the machines again (no read of its own). */
   relist(): void { this.listedAt = -Infinity }
 
-  /** Whether a read is running now (tests). */
+  /** Whether a stats read is running now (tests); a live probe has no sampler abort and is not counted. */
   get reading(): boolean { return this.controller !== null }
 
   private schedule(ms: number): void {
@@ -198,7 +228,11 @@ export class MetricsSampler {
     this.timer = this.clock.setTimeout(() => { this.timer = undefined; void this.step() }, Math.max(0, ms))
   }
 
-  /** One turn: list when due, then the machine whose turn is first (a read, a stopped gap, or a skipped turn). */
+  /**
+   * One turn: list when due, then the machine whose turn is first (a stats
+   * read, a live probe, a stopped gap, or a skipped turn). One LayerFS call
+   * per turn: a probe and a stats read of the same machine never overlap.
+   */
   async step(): Promise<void> {
     if (!this.running || this.stepping) return
     this.stepping = true
@@ -207,16 +241,17 @@ export class MetricsSampler {
       if (now - this.listedAt >= TICK_MS) {
         this.listedAt = now
         this.isOffered = await this.deps.offered().catch(() => false)
-        if (this.isOffered) {
+        // the liveness sampler still needs the rows when the pinned CLI cannot read stats
+        if (this.isOffered || this.deps.probe) {
           try { this.listed(await this.deps.list(), this.clock.now()) } catch { /* the last list stays; asked again next tick */ }
         }
         now = this.clock.now()
       }
-      if (!this.isOffered) return
       this.prune(now)
-      let next: MachineTrack | null = null
-      for (const m of this.machines.values()) if (m.due <= now && (!next || m.due < next.due)) next = m
-      if (!next) return
+      const action = this.nextAction(now)
+      if (!action) return
+      if (action.kind === 'probe') { await this.probe(action.m); return }
+      const next = action.m
       if (next.skip) { next.skip = false; next.due = now + TICK_MS; return }
       if (!SAMPLED_STATES.has(next.state)) { this.gap(next, now, STOPPED); next.due = now + TICK_MS; return }
       await this.read(next)
@@ -226,26 +261,49 @@ export class MetricsSampler {
     }
   }
 
+  /** The earliest due turn now: a stats read, or a live probe (an equal time reads stats first). */
+  private nextAction(now: number): { kind: 'stats' | 'probe', m: MachineTrack } | null {
+    let next: { kind: 'stats' | 'probe', m: MachineTrack, at: number } | null = null
+    if (this.isOffered) for (const m of this.machines.values()) if (m.due <= now && (!next || m.due < next.at)) next = { kind: 'stats', m, at: m.due }
+    if (this.deps.probe) for (const m of this.machines.values()) if (m.readable && m.probeDue <= now && (!next || m.probeDue < next.at)) next = { kind: 'probe', m, at: m.probeDue }
+    return next && { kind: next.kind, m: next.m }
+  }
+
+  /** One live probe: its answer (or refusal) is the machines view's last known liveness; nothing is queued or retried. */
+  private async probe(m: MachineTrack): Promise<void> {
+    try { await this.deps.probe?.(m.name) } catch { /* the view keeps the refusal the probe stored */ }
+    if (!this.running) return
+    // a ready or unknown machine is asked again next tick; a stopped/broken one only got the probe its state change asked for
+    m.probeDue = SAMPLED_STATES.has(m.state) || m.state === 'unknown' ? this.clock.now() + TICK_MS : Infinity
+  }
+
   /** Milliseconds until the next turn or list. */
   private nextIn(): number {
     const now = this.clock.now()
     let at = this.listedAt + TICK_MS
-    if (this.isOffered) for (const m of this.machines.values()) at = Math.min(at, m.due)
+    for (const m of this.machines.values()) {
+      if (this.isOffered) at = Math.min(at, m.due)
+      if (this.deps.probe && m.readable) at = Math.min(at, m.probeDue)
+    }
     return Math.max(0, at - now)
   }
 
-  private listed(rows: { name: string, state: string }[], now: number): void {
+  private listed(rows: { name: string, state: string, readable?: boolean }[], now: number): void {
     const seen = new Set<string>()
     for (const row of rows) {
       if (!row || typeof row.name !== 'string' || !row.name) continue
       seen.add(row.name)
       const state = typeof row.state === 'string' && row.state ? row.state : 'unknown'
+      const readable = row.readable !== false
       const known = this.machines.get(row.name)
       if (known) {
         // a machine that just began to run is read at its next turn, not 15 s after its last stopped gap
         if (!SAMPLED_STATES.has(known.state) && SAMPLED_STATES.has(state)) known.due = Math.min(known.due, now)
+        // a state that changed makes the last probe stale: ask once, even a stop (its free disk is not the running machine's)
+        if (known.state !== state) known.probeDue = Math.min(known.probeDue, now)
         known.state = state
-      } else this.machines.set(row.name, { name: row.name, state, due: now, skip: false, points: [], latest: null })
+        known.readable = readable
+      } else this.machines.set(row.name, { name: row.name, state, readable, due: now, probeDue: now, skip: false, points: [], latest: null })
     }
     for (const [name] of this.machines) {
       if (seen.has(name)) continue

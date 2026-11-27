@@ -2,8 +2,8 @@
  * palette (an illustration reads the same in both themes). */
 
 .whale {
-  --whale-white: var(--dsw-static-neutral-00, #fff);
-  --whale-ink: var(--dsw-static-neutral-900, #0f0f0f);
+  --whale-white: var(--dsw-static-neutral-00);
+  --whale-ink: var(--dsw-static-neutral-900);
   display: block;
   flex-shrink: 0;
   overflow: visible;

@@ -53,6 +53,8 @@ const HISTORY_PAGES_KEPT = 512
 const HISTORY_WIDE_PAGE = 100
 /** Branch Commit counts kept per host (Projects.historyCounts). */
 const HISTORY_COUNTS_KEPT = 2048
+/** Own-line sets kept per pinned head (Projects.historyOwn). */
+const HISTORY_OWN_KEPT = 512
 /** Commits whose Branch is kept (`Projects.madeOn`). */
 const MADE_ON_KEPT = 20000
 
@@ -144,20 +146,37 @@ export const refusalOf = (error: any) => ({ code: error?.code ?? 'Failed', messa
 export const STORE_REFUSALS = new Set(['Busy', 'Unresolved', 'Unavailable'])
 
 /**
+ * The conversation a Sandbox belongs to, from the sessions state's bindings:
+ * a project binding's `sandbox` names it. A `shared` subagent binding owns no
+ * Sandbox (it follows its parent's), so it never answers, even when its
+ * inherited fields name one. Never inferred from the Sandbox's name.
+ */
+export function sessionOfSandbox(name: string, sessions: Record<string, any> | undefined | null): string | undefined {
+  for (const binding of Object.values(sessions ?? {})) {
+    if (binding?.kind === 'project' && binding?.sandbox === name) return typeof binding.sessionId === 'string' ? binding.sessionId : undefined
+  }
+  return undefined
+}
+
+/**
  * A 2.0 Sandbox (a `sandbox list --detail` row, or `sandbox get --detail
  * --with stats`) -> SandboxInfo. `state` is one of the six with its
  * companions; `workspaces` are read only from `sandbox get` (a list row
  * leaves them `unread`). Each Workspace is `{ workspace: "<sandbox>:<name>",
  * branch, running, state, op, path, commit, base_layer, branch_moved,
  * pending_merge, commands }`; `stats.workspaces` adds its overlay and usage.
+ * `sessionOf` names the conversation that owns this Sandbox, when one does
+ * (`sessionId`); it is passed in so the function stays a pure row shaper.
  */
-export function sandboxInfo(s: any, workspaces: any[] | null = null) {
+export function sandboxInfo(s: any, workspaces: any[] | null = null, sessionOf?: (name: string) => string | undefined) {
   const name = String(s.sandbox ?? s.name)
+  const sessionId = sessionOf?.(name)
   const stats = s.stats && typeof s.stats === 'object' ? s.stats : null
   const perWorkspace = new Map<string, any>((Array.isArray(stats?.workspaces) ? stats.workspaces : []).map((w: any) => [String(w?.workspace), w]))
   return {
     id: name,
     name,
+    ...(sessionId ? { sessionId } : {}),
     state: typeof s.state === 'string' ? s.state : 'ready',
     op: opOf(s.op),
     ...companionsOf(s),
@@ -307,6 +326,13 @@ export class Projects {
   readonly historyCounts = new Map<string, { head: string, count: number }>()
   readonly counting = new Map<string, Promise<{ head: string | null, count: number }>>()
   /**
+   * `<project> <branch> <path> <at>` -> the Commits on the Branch's own line for
+   * that path at that pinned head, and the depth read (`covered`). Commits never
+   * move, so a provenance page read again names its own versions without walking
+   * the Branch again.
+   */
+  readonly historyOwn = new Map<string, { covered: number, own: Set<string> }>()
+  /**
    * `<project> <commit>` -> the Branch the Commit was made on (`commit get`
    * answers it; file history and blame do not). A Commit never moves, so the
    * answer is kept, the oldest dropped past {@link MADE_ON_KEPT}.
@@ -332,6 +358,9 @@ export class Projects {
   }
 
   get lfs() { return this.host.lfs() }
+
+  /** The conversation that owns a Sandbox, from the host's sessions state (none: undefined). */
+  private readonly sessionOf = (name: string): string | undefined => this.host.sessionOf?.(name)
 
   private log(line: string): void { this.host.log(line) }
 
@@ -545,7 +574,7 @@ export class Projects {
         project: { ...this.summary(record), ...storeFacts, refusal: listed.refused },
         branches: [],
         layers: [],
-        sandboxes: sandboxes.map((s) => sandboxInfo(s)),
+        sandboxes: sandboxes.map((s) => sandboxInfo(s, null, this.sessionOf)),
         last: null,
         commits: null,
         store,
@@ -560,7 +589,7 @@ export class Projects {
       branches: branchInfos(listed),
       // 2.0 lists none of main's Layers but its newest (§9 Q3)
       layers: main?.commit ? [{ id: main.commit, message: '', at: null, from: null }] : [],
-      sandboxes: sandboxes.map((s) => sandboxInfo(s)),
+      sandboxes: sandboxes.map((s) => sandboxInfo(s, null, this.sessionOf)),
       last: null,
       commits: null,
       store,
@@ -573,7 +602,7 @@ export class Projects {
   async sandboxes(key: string) {
     const { key: project } = projectRef(key)
     const listed = await pages((p) => this.lfs.sandbox.list({ project, ...p, detail: true }))
-    return listed.map((s) => sandboxInfo(s))
+    return listed.map((s) => sandboxInfo(s, null, this.sessionOf))
   }
 
   /**
@@ -655,7 +684,7 @@ export class Projects {
   async sandbox(name: string) {
     if (typeof name !== 'string' || !name) throw refuse(400, 'InvalidInput', 'Name the Sandbox.')
     const record = await sandboxObservation(this.lfs, name)
-    const info = sandboxInfo({ ...record, sandbox: record?.sandbox ?? name }, Array.isArray(record?.workspaces) ? record.workspaces : [])
+    const info = sandboxInfo({ ...record, sandbox: record?.sandbox ?? name }, Array.isArray(record?.workspaces) ? record.workspaces : [], this.sessionOf)
     // running commands: which ones this host's Sandbox pages started (by exact exec id), and whose session a tag names
     const tags = new Set<string>()
     for (const w of info.workspaces) for (const r of w.running ?? []) if (r.tag) tags.add(r.tag)
@@ -810,39 +839,41 @@ export class Projects {
   async projectStorage(key: string, q: URLSearchParams) {
     const record = await this.record(key)
     const project = keyOf(record), created = msAt(record.created_at)
-    const [view, store, storeRecord, main] = await Promise.all([
+    // One `store get --with stats` opens the Store once: it answers the counters and the projects.
+    const [view, storeRead, main] = await Promise.all([
       this.storageLedgers.view(project, created, { refresh: q.get('refresh') === '1' }),
-      this.lfs.store.get(record.store, { with: ['stats'] }).then((r: any) => r?.stats ?? {}, (error: any) => ({ refusal: refusalOf(error) })),
-      this.lfs.store.get(record.store).catch(() => null),
+      this.lfs.store.get(record.store, { with: ['stats'] }).then((r: any) => ({ record: r ?? null, refusal: null }), (error: any) => ({ record: null, refusal: refusalOf(error) })),
       this.lfs.project.stats(project).catch(() => null),
     ])
+    const store: any = storeRead.record?.stats ?? {}
     // `projects_count` sits beside a list cut at 20
-    const projects = typeof storeRecord?.projects_count === 'number' ? storeRecord.projects_count : Array.isArray(storeRecord?.projects) ? new Set(storeRecord.projects).size : null
+    const projects = typeof storeRead.record?.projects_count === 'number' ? storeRead.record.projects_count : Array.isArray(storeRead.record?.projects) ? new Set(storeRead.record.projects).size : null
     return {
       ...view,
-      store: { name: record.store, projects, ...('refusal' in store ? { refusal: store.refusal } : { historyLogical: store.logical_bytes ?? null, canonical: store.canonical_bytes ?? null, stored: store.stored_bytes ?? null, metadata: store.metadata_bytes ?? null, file: store.file_bytes ?? null }) },
+      store: { name: record.store, projects, ...(storeRead.refusal ? { refusal: storeRead.refusal } : { historyLogical: store.logical_bytes ?? null, canonical: store.canonical_bytes ?? null, stored: store.stored_bytes ?? null, metadata: store.metadata_bytes ?? null, file: store.file_bytes ?? null }) },
       main: main ? { logical: main.size ?? null, files: main.file_count ?? null, directories: main.dir_count ?? null, complete: main.partial !== true } : null,
     }
   }
 
   /**
-   * A project's size for its Overview card, and the raw bytes of main's latest
-   * tree. Alone in its Store (`?alone=1`, the caller knows the Store's
-   * projects) the project's size is the Store's packed bytes, which count every
-   * write, publications to main included. In a shared Store it is the packed
-   * bytes its saves wrote first (the ledger above, refreshed in the background;
-   * `counting` until a first read finishes or while one runs).
+   * A project's size for its Overview card: the packed bytes its saves wrote
+   * first (the ledger above, refreshed in the background; `counting` until a
+   * first read finishes or while one runs). Alone in its Store (`?alone=1`,
+   * the caller knows the Store's projects) it is the Store's packed bytes,
+   * which count every write, publications to main included: one `store get`.
+   * The card shows no other figure, so this route walks no tree.
    */
   async projectSize(key: string, q: URLSearchParams) {
-    const record = await this.record(key)
-    const project = keyOf(record), created = msAt(record.created_at)
-    const files = this.lfs.project.stats(project).then((main: any) => typeof main?.size === 'number' ? main.size : null, () => null)
+    const { store: storeName, key: project } = projectRef(key)
     if (q.get('alone') === '1') {
-      const [store, logical] = await Promise.all([this.lfs.store.get(record.store, { with: ['stats'] }).then((r: any) => r?.stats ?? null, () => null), files])
-      return { project, stored: typeof store?.stored_bytes === 'number' ? store.stored_bytes : null, counting: false, files: logical }
+      // Alone in its Store the Store's packed bytes are the answer: no record and no tree walk.
+      const store: any = await this.lfs.store.get(storeName, { with: ['stats'] }).then((r: any) => r?.stats ?? null, () => null)
+      return { project, stored: typeof store?.stored_bytes === 'number' ? store.stored_bytes : null, counting: false }
     }
-    const [view, logical] = await Promise.all([this.storageLedgers.view(project, created), files])
-    return { project, stored: view.totals && !view.partial ? view.totals.stored : null, counting: view.partial || view.building !== null, files: logical }
+    // A shared Store counts this project's saves in its ledger; its `created_at` names which ledger.
+    const record = await this.record(key)
+    const view = await this.storageLedgers.view(project, msAt(record.created_at))
+    return { project, stored: view.totals && !view.partial ? view.totals.stored : null, counting: view.partial || view.building !== null }
   }
 
   async history(key: string, q: URLSearchParams) {
@@ -854,12 +885,16 @@ export class Projects {
     }
     const commit = q.get('commit')
     if (commit) {
-      const c = await this.lfs.commit.get(project, commit, { branch, detail: true })
-      const id = String(c?.commit ?? commit)
-      const from = q.get('from') ?? c.parent ?? c.base
-      if (!from) return { item: commitInfo({ ...c, commit: id }, branch), changes: [], nextChanges: null }
+      const head = await this.lfs.commit.get(project, commit, { branch, detail: true })
+      const id = String(head?.commit ?? commit)
+      const item = commitInfo({ ...head, commit: id }, branch)
+      // `?changes=0`: the caller reads the Commit's header only (a fork point named by
+      // `source_branch`), so its diff is not read; the answer keeps the same shape.
+      if (q.get('changes') === '0') return { item, changes: [], nextChanges: null }
+      const from = q.get('from') ?? head.parent ?? head.base
+      if (!from) return { item, changes: [], nextChanges: null }
       const diff = await this.lfs.commit.diff(project, id, { from, limit: 100, ...(q.get('cursor') ? { cursor: q.get('cursor') } : {}) })
-      return { item: commitInfo({ ...c, commit: id }, branch), changes: (diff.items ?? []).map(({ path, change }: any) => ({ path, kind: String(change) })), nextChanges: diff.next_cursor ?? null }
+      return { item, changes: (diff.items ?? []).map(({ path, change }: any) => ({ path, kind: String(change) })), nextChanges: diff.next_cursor ?? null }
     }
     // Resume from the immutable last parent, rather than re-reading a moving head.
     const at = q.get('at') ?? q.get('head')
@@ -992,14 +1027,30 @@ export class Projects {
     }
     if (kind === 'revisions') {
       const traversal = q.get('traversal') ?? 'provenance'
-      const page: any = await this.lfs.file.history(project, branch, path, { at, traversal, limit: pageSize, ...(q.get('continuation') ? { cursor: q.get('continuation') } : {}), detail: true })
+      const continuation = q.get('continuation')
+      const page: any = await this.lfs.file.history(project, branch, path, { at, traversal, limit: pageSize, ...(continuation ? { cursor: continuation } : {}), detail: true })
       const items: any[] = page?.items ?? []
       // A provenance page also lists Commits made on the Branches the path came from: the same
       // page on this Branch's own line says which are its own, `commit get` names the others.
-      let own = new Set<string>(traversal === 'branch' ? items.map((r) => String(r.commit)) : [])
-      if (traversal !== 'branch' && items.length) {
-        const line: any = await this.lfs.file.history(project, branch, path, { at, traversal: 'branch', limit: q.get('continuation') ? 1000 : pageSize }).catch(() => null)
-        own = new Set((line?.items ?? []).map((r: any) => String(r.commit)))
+      // That own line never changes at a pinned head, so it is walked once per head and kept:
+      // reading the same page again (a remount, a page back) asks one `file.history`.
+      let own: Set<string>
+      if (traversal === 'branch') own = new Set(items.map((r) => String(r.commit)))
+      else {
+        const needed = continuation ? 1000 : pageSize
+        const ownKey = JSON.stringify([project, branch, path, at])
+        const kept = this.historyOwn.get(ownKey)
+        if (kept && kept.covered >= needed) own = kept.own
+        else if (!items.length) own = new Set()
+        else {
+          const line: any = await this.lfs.file.history(project, branch, path, { at, traversal: 'branch', limit: needed }).catch(() => null)
+          own = new Set((line?.items ?? []).map((r: any) => String(r.commit)))
+          // A refusal (null) says nothing about the own line: only a page is kept, at the depth read.
+          if (line) {
+            this.historyOwn.set(ownKey, { covered: needed, own })
+            if (this.historyOwn.size > HISTORY_OWN_KEPT) this.historyOwn.delete(this.historyOwn.keys().next().value!)
+          }
+        }
       }
       // a Commit's parent is on its Branch (a Branch's first Commit has none)
       const madeOn = await this.branchesOf(project, items.map((r) => String(r.commit)), branch, own)
@@ -1061,7 +1112,20 @@ export class Projects {
 
   async branches(key: string, q: URLSearchParams) {
     const project = projectRef(key).key
-    if (q.get('branch')) return this.lfs.branch.get(project, q.get('branch'), { detail: true })
+    if (q.get('branch')) {
+      const branch = q.get('branch')!
+      const info: any = await this.lfs.branch.get(project, branch, { detail: true })
+      // `with=commit`: the head's header (message, time) in the same answer. The Export
+      // dialog needs both and used to read the Commit detail in a second round trip.
+      if (q.get('with') !== 'commit') return info
+      const head = typeof info?.commit === 'string' ? info.commit : null
+      // A header that cannot be read leaves the Branch answer intact (the dialog then
+      // reads the Commit itself, as it always did).
+      const item = head
+        ? await this.lfs.commit.get(project, head, { branch, detail: true }).then((c: any) => commitInfo({ ...c, commit: head }, branch), () => null)
+        : null
+      return { ...info, item }
+    }
     const page = await this.branchPage(project, q.get('pos'))
     return { items: page.items.map((b: any) => ({ name: String(b.branch), head: pinOf(b), parent: null, forkedFrom: b.forked_from ?? null, state: 'open', commits: null })), next: page.next }
   }

@@ -4,3 +4,12 @@ lib/
 *.log
 .dev*.log
 .layerfs-sdk/
+
+# impeccable design tooling (installed locally, not product code)
+.claude/
+
+# skills CLI output (installed locally, not product code)
+.agents/
+agent/
+skills/
+skills-lock.json

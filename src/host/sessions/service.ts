@@ -27,11 +27,61 @@ import type { SessionStore } from './store.ts'
 import { withTraceContext, type Invocation } from '../layerfs/tracing.ts'
 import { classifyStore, storeOf, type StoreHealth } from './availability.ts'
 import type { SessionFailure } from '../../shared/pg-failure.ts'
+import { branchFields, type BranchFields } from '../../shared/session-branch.ts'
 import { attachedFrom, lastUsed, pgPlacement } from '../placement.ts'
 import { machineRows } from '../layerfs/machine-records.ts'
 
 /** How long a passed identity and readiness check stands for pre-step checks. */
 const IDENTITY_FRESH_MS = 15_000
+
+/**
+ * How long a successful observed identity check (project.get + branch.list)
+ * stands while the views poll. They read `session.state {observe: true}` every
+ * SESSION_POLL_MS (10 s, src/client/views/model.ts) through a 500 ms coalescing
+ * timer, so consecutive polls are ~10.5 s apart; 12 s clears that cadence with
+ * margin for scheduling jitter. Each observed read that reuses the check renews
+ * this window, so a steady poll pays only the Workspace status read instead of
+ * re-reading identity every time.
+ */
+const OBSERVED_IDENTITY_MS = 12_000
+
+/**
+ * The longest a renewed identity check may stand without a fresh read. A poll
+ * renewing OBSERVED_IDENTITY_MS would otherwise leave an identity branch
+ * changed by another installation unread for as long as a view stays open; one
+ * real check a minute bounds it. Identity changes this host sees (a save, bind,
+ * mount, detach, restore or interrupt) clear the memo at once regardless.
+ */
+const OBSERVED_IDENTITY_FULL_MS = 60_000
+
+/**
+ * How long a successful observed machine + Store readiness check stands when a
+ * poll does not follow. Both change rarely and every change this host sees
+ * clears it (`machinesStopped`, a Store health transition, a save or interrupt).
+ * An observed read that reuses the check renews this window, so a steady poll
+ * keeps it instead of re-reading the machine and Store every 30 s.
+ */
+const OBSERVED_READY_MS = 30_000
+
+/**
+ * The longest a renewed readiness check may stand without a fresh read. A
+ * machine stopped or a Store lost from outside this host is the change no local
+ * invalidation sees, and this bounds how long a polling view may show it as
+ * ready; the first check still stands only this long regardless of renewals.
+ * Identity shares this ceiling. A steady poll renews both checks, so their hard
+ * re-checks are deliberately allowed to fall on the same poll: one 5-CLI full
+ * pass a minute rather than two separate 3-CLI passes. Do not lengthen either
+ * window; 60 s is the freshness bound.
+ */
+const OBSERVED_READY_FULL_MS = 60_000
+
+/**
+ * How long an observed answer stands while the session's local revision does
+ * not change. Kept under the views' 10 s poll: a repeat inside the window costs
+ * no CLI call, while the poll still reads the Workspace status and the mount, so
+ * an unsaved file or a lost mount shows within one poll as before.
+ */
+const OBSERVED_MEMO_MS = 8_000
 
 /** A Store of this LayerFS home; `id` when the CLI reports Store identity. */
 export interface HomeStore { name: string, id?: string }
@@ -58,10 +108,23 @@ export type Place =
   | { readonly kind: 'shared', readonly parent: string, readonly anchor: string }
   | { readonly kind: 'folder', readonly cwd: string }
 
+/** A binding as the views read it: the host also names the branch kind. */
+export type ViewBinding = Binding & BranchFields
+
+/** Where one observed read spent its time, for `session.state {debug: true}`. */
+export interface SessionViewTiming {
+  /** Wall time in ms by step; `other` is the host-side remainder of `total`. */
+  readonly phases: Record<string, number>
+  /** CLI calls this read issued by step (0 when a remembered pass answered). */
+  readonly calls: { readonly identity: number, readonly readiness: number, readonly status: number }
+  /** Whether the answer came from the memo (no CLI call at all). */
+  readonly memo: boolean
+}
+
 /** The state a session panel shows. */
 export interface SessionView {
   readonly sessionId: string
-  readonly binding: Binding | null
+  readonly binding: ViewBinding | null
   readonly checkpoints: readonly Checkpoint[]
   readonly project: string | null
   /** The session works in the Scratch project (it has no project of its own). */
@@ -70,10 +133,39 @@ export interface SessionView {
   readonly mirror: unknown
   readonly execution?: { state: 'inactive' | 'activating' | 'active' | 'interrupted', available: boolean, reason?: string, projectId?: string }
   readonly archive: { localCount: number, savedCount: number, updatedAt?: number, error?: string } | null
+  /** Opt-in (`debug: true`): where an observed read spent its time. */
+  readonly timing?: SessionViewTiming
 }
 
 /** Whether a session has not started its first turn (its preset can still change). */
 const isFresh = (agent: any): boolean => !agent.session.snapshotEvents(0).some((e: any) => e.type === 'turn/start')
+
+/**
+ * The events a conversation's log may hold when it has never started: the
+ * header `session` line and creation/opening metadata. Any message, turn,
+ * title, request or tool event means it has started and is never pruned.
+ */
+const BLANK_EVENTS = new Set(['session', 'permission/preset', 'sandbox/mode', 'approval/policy', 'agent-preset/selected', 'session/end-seed'])
+/** A blank log holds a handful of those events; a longer one is a conversation (and is never read in full). */
+const BLANK_EVENTS_MAX = 64
+
+/** Whether a log's events are only creation metadata: no message, title or turn (conservative: unknown events mean started). */
+export function neverStartedLog(events: readonly any[]): boolean {
+  if (events.length > BLANK_EVENTS_MAX) return false
+  for (const event of events) if (!BLANK_EVENTS.has(String(event?.type ?? ''))) return false
+  return true
+}
+
+/** A real title: a non-empty string. "New session" is a client display fallback, never a stored title. */
+export function realSessionTitle(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() !== '' ? value : null
+}
+
+/**
+ * What {@link LayerfsSessions.neverStarted} was given by a caller that already
+ * read the snapshot and sidecar (a list reads both anyway).
+ */
+export interface NeverStartedKnown { snapshot?: any, sidecar?: any }
 
 export class LayerfsSessions extends Service {
   static inject = ['layerfs', 'layerfsRemote', 'workspaceRegistry', 'workingDirectory', 'sessions']
@@ -88,6 +180,14 @@ export class LayerfsSessions extends Service {
   /** When each PostgreSQL Store's server was last asked (one connection per ask). */
   private readonly serverChecked = new Map<string, number>()
   private availabilityRun: Promise<void> | undefined
+  /** Successful observed identity checks by owner, with the row facts they answered. */
+  private freshIdentity?: Map<string, { at: number, checkedAt: number, project: string, machine?: string, row: { kind?: string | null, machine?: string | null, store: string } }>
+  /** Successful observed machine + Store readiness checks by owner. */
+  private freshReadiness?: Map<string, { at: number, checkedAt: number, project: string, machine: string, store: string }>
+  /** The last observed answer per requested session, keyed by the revision it answered. */
+  private observedAnswers?: Map<string, { at: number, revision: string, ownerId: string, project: string, machine?: string, view: SessionView }>
+  /** Project ids read for sessions.places, reused for the same window. */
+  private freshProjectIds?: Map<string, { at: number, id?: string }>
 
   constructor(ctx: Context) {
     super(ctx, 'layerfsSessions')
@@ -281,22 +381,65 @@ export class LayerfsSessions extends Service {
       await this.lfs.project.get(project); this.ensureAnchor(project)
     }
     await persistence?.migrateProject?.(live ?? sessionId, project)
+    const written = project ? { project, ...(machine ? { machine } : {}) } : undefined
+    // A placement change can change the place (and with it identity/readiness).
+    this.forgetFreshReads(sessionId)
     this.state.update((s) => {
-      if (project) s.pending[sessionId] = { project, ...(machine ? { machine } : {}) }
+      if (written) s.pending[sessionId] = written
       else delete s.pending[sessionId]
     })
-    // The New Session row's preset chip follows the choice before the first
-    // turn: a project session runs the `layerfs` preset, a plain one the default.
-    const agent = live ? (this.ctx.get?.('agents' as never) as any)?.get?.(sessionId) : undefined
-    if (agent && previous !== project) await this.selectPreset(agent, !project)
-    // DSH reuses a blank session only while it remains a candidate of the
-    // selected workspace. Remove membership at pre-step, after materialization.
-    if (project && bound) await this.detach(sessionId)
-    else if (!project && live?.header?.cwd) {
-      const workspace = this.ctx.workspaceRegistry?.list?.().find((w) => real(w.path) === real(live.header.cwd))
-      if (workspace) await workspace.attachSession(sessionId as never)
+    try {
+      // The New Session row's preset chip follows the choice before the first
+      // turn: a project session runs the `layerfs` preset, a plain one the default.
+      const agent = live ? (this.ctx.get?.('agents' as never) as any)?.get?.(sessionId) : undefined
+      if (agent && previous !== project) await this.selectPreset(agent, !project)
+      // DSH reuses a blank session only while it remains a candidate of the
+      // selected workspace. Remove membership at pre-step, after materialization.
+      if (project && bound) await this.detach(sessionId)
+      else if (!project && live?.header?.cwd) {
+        const workspace = this.ctx.workspaceRegistry?.list?.().find((w) => real(w.path) === real(live.header.cwd))
+        if (workspace) await workspace.attachSession(sessionId as never)
+      }
+      this.ctx.layerfs.emit('layerfs-session', { sessionId })
+    } catch (error) {
+      // A choice that fails after writing its pending placement leaves no half
+      // placement behind, so a retry starts clean. A claimed project identity
+      // stays: it is intentional and shared by every conversation of the project.
+      if (written) this.state.update((s) => {
+        const pending = s.pending[sessionId]
+        if (pending && pending.project === written.project && (pending.machine ?? undefined) === (written.machine ?? undefined)) delete s.pending[sessionId]
+      })
+      throw error
     }
-    this.ctx.layerfs.emit('layerfs-session', { sessionId })
+  }
+
+  /**
+   * Read-only check of what placing a new conversation in `project` needs: the
+   * identity the client listed (`projectId`, when it has one), the project
+   * itself, and the machine and Store its Sandbox would use. Nothing is
+   * claimed or written and no session is touched. Throws the same refusal the
+   * placement would, so the client can stop before creating a session.
+   */
+  async checkPlacement(project: string, projectId?: string, machine?: string): Promise<{ ok: true }> {
+    const persistence = this.ctx.get?.('sessionPersistence' as never) as any
+    // The same two checks `chooseNow` makes before it writes anything: the
+    // listed identity still names this project, and the project is readable.
+    const row = projectId ? await persistence?.catalog?.assert(project, projectId, { claim: false }) : undefined
+    const info: any = await this.lfs.project.get(project, { detail: true })
+    const kind = row?.kind ?? info?.engine ?? null
+    // A PostgreSQL project's machine is chosen per session when it is bound
+    // (`machineFor`, as `mount` does): the picked one, else its last Sandbox's.
+    const effective = kind === 'postgresql' ? await this.machineFor(project, machine) : undefined
+    // A PostgreSQL project's machine is per session: when none is picked and the
+    // Store has no single attached machine, say so here rather than checking a
+    // machine (native) that nothing attached to this Store.
+    if (kind === 'postgresql' && !effective) throw this.unplaced(project)
+    await this.assertReady({
+      kind,
+      machine: row?.machine ?? info?.machine ?? null,
+      store: row?.store ?? info?.store ?? storeOf(project)!,
+    }, effective)
+    return { ok: true }
   }
 
   /**
@@ -349,6 +492,16 @@ export class LayerfsSessions extends Service {
   // ------------------------------------------------------------- binding
 
   binding(sessionId: string): Binding | undefined { return this.state.read().sessions[sessionId] }
+
+  /**
+   * Whether an in-memory record (a binding, a pending choice, a live session)
+   * names this id. `sessions.places` uses it to skip ids no session can know
+   * before asking the ownership index.
+   */
+  knows(sessionId: string): boolean {
+    const state = this.state.read()
+    return !!state.sessions[sessionId] || !!state.pending[sessionId] || !!this.ctx.sessions?.get?.(sessionId as never)
+  }
   checkpoints(sessionId: string): Checkpoint[] { return this.state.read().checkpoints[sessionId] ?? [] }
 
   simulationOf(sessionId: string): SimulationBinding | undefined {
@@ -365,6 +518,7 @@ export class LayerfsSessions extends Service {
     }
     this.ensureAnchor(project)
     const simulation: SimulationBinding = { ...metadata, state: metadata.state ?? 'running', handoffReady: false }
+    this.forgetFreshReads(sessionId)
     this.state.update((s) => {
       s.pending[sessionId] = { project, simulation }
       if (s.sessions[sessionId]) s.sessions[sessionId].simulation = simulation
@@ -401,6 +555,118 @@ export class LayerfsSessions extends Service {
     return (this.ctx.get?.('layerfsSimulations' as never) as any)?.isActive?.(sessionId) === true
   }
 
+  /**
+   * Clear an owner's remembered reads: a saved binding (a mount, a detach, an
+   * interrupt, an activation) can change what identity+readiness would answer.
+   * A memo of the owner or of a subagent placed under it goes too.
+   */
+  private forgetFreshReads(sessionId: string): void {
+    this.freshIdentity?.delete(sessionId)
+    this.freshReadiness?.delete(sessionId)
+    this.freshProjectIds?.delete(sessionId)
+    for (const [id, entry] of this.observedAnswers ?? []) {
+      if (id === sessionId || entry.ownerId === sessionId) this.observedAnswers!.delete(id)
+    }
+  }
+
+  /** Clear remembered reads whose project or machine a transition may have invalidated. */
+  private clearFreshReads(test: (entry: { project: string, machine?: string }) => boolean): void {
+    for (const [sessionId, entry] of this.freshIdentity ?? []) if (test(entry)) this.freshIdentity!.delete(sessionId)
+    for (const [sessionId, entry] of this.freshReadiness ?? []) if (test(entry)) this.freshReadiness!.delete(sessionId)
+    for (const [sessionId, entry] of this.observedAnswers ?? []) if (test(entry)) this.forgetFreshReads(sessionId)
+  }
+
+  /**
+   * The row a successful observed identity pass returned, while it still stands
+   * for this binding. A reuse renews the poll window; the first check still
+   * stands only OBSERVED_IDENTITY_FULL_MS.
+   */
+  private observedIdentity(ownerId: string, binding: Binding | null | undefined): { kind?: string | null, machine?: string | null, store: string } | undefined {
+    const entry = (this.freshIdentity ??= new Map()).get(ownerId)
+    if (!entry) return undefined
+    const now = Date.now()
+    if (now - entry.at >= OBSERVED_IDENTITY_MS || now - entry.checkedAt >= OBSERVED_IDENTITY_FULL_MS) { this.freshIdentity.delete(ownerId); return undefined }
+    if (!binding?.project || entry.project !== binding.project || entry.machine !== binding.machine) return undefined
+    entry.at = now
+    return entry.row
+  }
+
+  /** Remember a successful observed identity pass; a refused pass never reaches here. */
+  private rememberObservedIdentity(ownerId: string, binding: Binding | null | undefined, row: { kind?: string | null, machine?: string | null, store: string }): void {
+    if (!binding?.project) return
+    const now = Date.now()
+    ;(this.freshIdentity ??= new Map()).set(ownerId, { at: now, checkedAt: now, project: binding.project, machine: binding.machine, row: { kind: row.kind, machine: row.machine, store: row.store } })
+  }
+
+  /** The machine and Store a readiness check reads for one identity row (assertReady's own rule). */
+  private readyTargets(row: { kind?: string | null, machine?: string | null, store: string }, placed?: string | null): { machine: string, store: string } {
+    return { machine: row.kind === 'postgresql' ? (placed ?? 'native') : (row.machine ?? 'native'), store: row.store }
+  }
+
+  /**
+   * Whether a successful observed readiness check still stands for this binding
+   * and identity row. A reuse renews the poll window; the check still stands at
+   * most OBSERVED_READY_FULL_MS after it was read.
+   */
+  private observedReadiness(ownerId: string, binding: Binding | null | undefined, row: { kind?: string | null, machine?: string | null, store: string }): boolean {
+    const entry = (this.freshReadiness ??= new Map()).get(ownerId)
+    if (!entry) return false
+    const now = Date.now()
+    if (now - entry.at >= OBSERVED_READY_MS || now - entry.checkedAt >= OBSERVED_READY_FULL_MS) { this.freshReadiness.delete(ownerId); return false }
+    const target = this.readyTargets(row, binding?.machine)
+    if (!binding?.project || entry.project !== binding.project || entry.machine !== target.machine || entry.store !== target.store) return false
+    entry.at = now
+    return true
+  }
+
+  /** Remember a successful observed readiness check; a refused pass never reaches here. */
+  private rememberObservedReadiness(ownerId: string, binding: Binding | null | undefined, row: { kind?: string | null, machine?: string | null, store: string }): void {
+    if (!binding?.project) return
+    const target = this.readyTargets(row, binding.machine)
+    const now = Date.now()
+    ;(this.freshReadiness ??= new Map()).set(ownerId, { at: now, checkedAt: now, project: binding.project, machine: target.machine, store: target.store })
+  }
+
+  /**
+   * What an observed answer depends on, from local state only: the binding and
+   * checkpoints it shows, the live log length, the mirror and the Store health.
+   * Equal revisions answer identically, so a repeat can reuse the answer.
+   */
+  private observedRevision(sessionId: string, ownerId: string, binding: Binding | null | undefined, persistence: any): string {
+    const state = this.state.read()
+    const checkpoints = state.checkpoints[ownerId] ?? []
+    const last = checkpoints[checkpoints.length - 1]
+    const mirror = state.mirror[ownerId]
+    const live = this.ctx.sessions?.get?.(sessionId as never) as any
+    const seq = typeof live?.seq === 'number' ? live.seq : live?.snapshotEvents ? live.snapshotEvents(0).length : ''
+    const store = binding?.project ? storeOf(binding.project) : undefined
+    const health = store ? this.storeHealth?.get(store) : undefined
+    return [
+      binding?.updatedAt ?? '', binding?.state ?? '', binding?.executionState ?? '', binding?.branch ?? '',
+      binding?.ws ?? '', binding?.mount ?? '', binding?.restores ?? '', binding?.error ?? '', binding?.interruption?.at ?? '',
+      seq, checkpoints.length,
+      last ? `${last.kind}:${last.turn}:${last.endSeq ?? ''}:${last.commit ?? ''}:${last.changed}` : '',
+      mirror ? `${mirror.count}:${mirror.updatedAt}:${mirror.error ?? ''}` : '',
+      health ? `${health.state}:${health.reason ?? ''}` : '',
+      persistence?.projectIdOf?.(sessionId) ?? '', persistence?.projectIdOf?.(ownerId) ?? '',
+    ].join('|')
+  }
+
+  /**
+   * The project id recorded for a session, for sessions.places. It is local
+   * routing metadata (no CLI call), but a batch asks for many at once and each
+   * lookup re-reads the ownership index, so a second batch inside the window
+   * reuses it. A missing id is remembered as missing.
+   */
+  projectIdFor(sessionId: string): string | undefined {
+    const cache = (this.freshProjectIds ??= new Map())
+    const entry = cache.get(sessionId)
+    if (entry && Date.now() - entry.at < OBSERVED_READY_MS) return entry.id
+    const id = (this.ctx.get?.('sessionPersistence' as never) as any)?.projectIdOf?.(sessionId) as string | undefined
+    cache.set(sessionId, { at: Date.now(), id })
+    return id
+  }
+
   private save(binding: Binding): Binding {
     // a classified failure belongs to the error it was read from: a binding saved with another error (or none)
     // drops the failure it carried over (`...binding`), unless the caller set a new one with it
@@ -409,6 +675,7 @@ export class LayerfsSessions extends Service {
     if (!binding.error) delete binding.failure
     binding.updatedAt = Date.now()
     this.state.update((s) => { s.sessions[binding.sessionId] = binding })
+    this.forgetFreshReads(binding.sessionId)
     this.ctx.layerfs.emit('layerfs-session', { sessionId: binding.sessionId })
     return binding
   }
@@ -447,8 +714,21 @@ export class LayerfsSessions extends Service {
           this.ctx.layerfs.emit('layerfs-operation', { sessionId })
         }
       },
+      // The counter sink is resolved here, through the context, not through
+      // tracing.ts's process-wide registration: the persistence plugin is a
+      // separate bundle with its own copy of that module, so a registration
+      // made there never reaches the CLI calls this plugin makes.
+      aggregate: async (invocation) => {
+        const persistence = this.ctx.get?.('sessionPersistence' as never) as any
+        if (persistence?.aggregateInvocation) await persistence.aggregateInvocation(invocation)
+      },
       onError: (e) => this.ctx.logger('layerfs').warn('record host operation: %s', String(e)),
     }, run)
+  }
+
+  /** The refusal a PostgreSQL placement without a single attached machine gets (nothing is guessed). */
+  private unplaced(project: string): CliError {
+    return new CliError('InvalidInput', `Choose the machine this session runs on: Store ${storeOf(project)} has no single attached machine`, null, 'refusal', null)
   }
 
   /**
@@ -588,8 +868,6 @@ export class LayerfsSessions extends Service {
     await this.lane(sessionId, async () => {
       try {
         await this.validateExecutionIdentity(sessionId)
-        const preparing = this.binding(sessionId)
-        if (preparing?.kind === 'project') this.save({ ...preparing, executionState: 'activating' })
         if (this.isSimulationManaged(sessionId)) return await this.bindSimulation(agent, place)
         if (place.kind === 'shared') return await this.bindShared(agent, place.parent, place.anchor, strict)
         await this.hostOperation(sessionId, place.project, undefined, () => this.bindProject(agent, place.project, place.anchor, source))
@@ -616,10 +894,23 @@ export class LayerfsSessions extends Service {
     const sessionId = String(agent.id)
     // An owner choice in flight decides this step's place; wait for it.
     await this.settled(sessionId)
+    const place = this.placeOf(agent.session ?? { id: sessionId })
     // Normal sessions are stock DSH: no LayerFS lock, identity or binding applies.
-    if (this.placeOf(agent.session ?? { id: sessionId }).kind === 'folder' && !this.simulationOf(sessionId)) return
+    if (place.kind === 'folder' && !this.simulationOf(sessionId)) return
     const held = this.ctx.layerfs.exclusive?.()
     if (held) throw new CliError('ConnectBusy', held)
+    // From here on every LayerFS call is this session's host work, so run it in
+    // the session's trace context: successful reads fold into its receipt
+    // counter (no receipt), writes and refusals keep theirs, and each call
+    // carries `dsh:<sessionId>:` rather than the session-less `dsh:-:` tag.
+    const project = this.binding(sessionId)?.project ?? (place.kind === 'project' ? place.project : undefined)
+    if (!project) return await this.ensureBoundNow(agent, options)
+    await this.hostOperation(sessionId, project, undefined, () => this.ensureBoundNow(agent, options))
+  }
+
+  /** {@link ensureBound} once the session's place and project are known. */
+  private async ensureBoundNow(agent: any, options: { rebind?: boolean } = {}): Promise<void> {
+    const sessionId = String(agent.id)
     await this.validateExecutionIdentity(sessionId, { recent: true })
     if (this.isSimulationManaged(sessionId)) {
       if (agent.model?.current?.()?.provider !== 'simulation') throw new CliError('Busy', 'Stop the active project script before changing its model')
@@ -793,15 +1084,34 @@ export class LayerfsSessions extends Service {
     const selected = this.selectedScratch(agent, anchor, existing)
     const { scratch } = selected
     await persistence?.migrateProject?.(agent.session, project)
+    // The row says Starting while the Sandbox is made and its Workspace mounted.
+    // This binding is replaced by the same one saved Active below; a failure
+    // leaves it Interrupted (bindAgent's catch), never stuck starting. A normal
+    // step on a live session returns from ensureBound before reaching this.
+    const usable = existing?.state === 'bound' && !!existing.ws && (!existing.mount || existsSync(existing.mount))
+    if (!usable) {
+      this.save({
+        ...(existing ?? { sessionId, kind: 'project', project, anchor, ...selected, state: 'closed', createdAt: Date.now(), updatedAt: Date.now() }),
+        executionState: 'activating',
+      })
+    }
     let binding: Binding
     let forkReceipt: string | undefined
     if (existing?.branch && existing.sandbox) {
       const resolved = await persistence?.assertSessionIdentity?.(sessionId)
-      binding = { ...existing, ...selected, machine: resolved ? (resolved.kind === 'postgresql' ? existing.machine ?? 'native' : resolved.machine ?? 'native') : existing.machine, state: existing.state }
+      // A PostgreSQL project has no Store-wide machine: keep the recorded one and
+      // never fall back to native. With none recorded (and the identity resolver
+      // silent), the project's own row says the kind; then the person picks one.
+      const kind = resolved?.kind ?? (existing.machine ? null : ((await this.lfs.project.get(project, { detail: true }))?.engine ?? null))
+      const machine = kind === 'postgresql'
+        ? existing.machine
+        : resolved?.machine ?? existing.machine ?? (resolved ? 'native' : undefined)
+      if (kind === 'postgresql' && !machine) throw this.unplaced(project)
+      binding = { ...existing, ...selected, machine, state: existing.state }
     } else {
       const machine = await this.machineFor(project, existing?.machine ?? this.state.read().pending[sessionId]?.machine)
       // no machine named and none (or several) attached: the person picks one; nothing is guessed
-      if (!machine) throw new CliError('InvalidInput', `Choose the machine this session runs on: Store ${storeOf(project)} has no single attached machine`, null, 'refusal', null)
+      if (!machine) throw this.unplaced(project)
       const sandbox = this.simulationOf(sessionId) ? this.simulationSandbox(sessionId) : sandboxOf(sessionId)
       const branch = existing?.resumeFromArchive ? `${branchOf(sessionId)}.resume.${randomUUID().replaceAll('-', '').slice(0, 12)}` : branchOf(sessionId)
       const start = this.forkSource(sessionId, header, project)
@@ -876,10 +1186,15 @@ export class LayerfsSessions extends Service {
     const seq = session?.seq ?? 0
     let checkpoint: Checkpoint
     let receipt: string | undefined
+    let status: any
     try {
-      await (this.ctx.get?.('sessionPersistence' as never) as any)?.assertSessionIdentity?.(sessionId)
-      // 2.0 `workspace status --detail`: `changes` (the first 20) and `changes_count`, `branch_moved`, `pending_merge`
-      const status = await this.lfs.workspace.status(binding.ws, { detail: true })
+      // The identity and status reads are this session's host reads: fold them
+      // into its counter even though the save itself writes a receipt.
+      await this.hostOperation(sessionId, binding.project!, turn, async () => {
+        await (this.ctx.get?.('sessionPersistence' as never) as any)?.assertSessionIdentity?.(sessionId)
+        // 2.0 `workspace status --detail`: `changes` (the first 20) and `changes_count`, `branch_moved`, `pending_merge`
+        status = await this.lfs.workspace.status(binding.ws, { detail: true })
+      })
       const entries = Number(status?.changes_count ?? (Array.isArray(status?.changes) ? status.changes.length : 0)) || 0
       if (!entries && !status?.pending_merge && !status?.branch_moved && kind === 'turn') return undefined
       // Tagged with this session's own id: the session that owns the checkpoint.
@@ -888,7 +1203,7 @@ export class LayerfsSessions extends Service {
       // Agents change files with `file` calls and their own Workspaces' Commits, so the
       // session Branch often moved while this Workspace changed nothing: count what moved.
       const changed = result?.unchanged !== true ? Math.max(entries, 1)
-        : status?.branch_moved && commit ? await this.pathsChanged(binding.project!, status.commit ?? status.base_layer, commit) : 0
+        : status?.branch_moved && commit ? await this.hostOperation(sessionId, binding.project!, turn, () => this.pathsChanged(binding.project!, status.commit ?? status.base_layer, commit)) : 0
       checkpoint = { kind, turn, seq, commit, branch: binding.branch!, changed, message, at: Date.now(), ...(receipt ? { receipt } : {}) }
       if (commit && binding.simulation?.handoffReady) {
         this.state.update((s) => {
@@ -1079,6 +1394,9 @@ export class LayerfsSessions extends Service {
    * No checkpoint or worker call is possible after its machine has stopped. */
   machinesStopped(machines: readonly string[]): void {
     const stopped = new Set(machines)
+    // A stopped machine changes readiness even for a session whose binding is
+    // already closed (no save would clear its entry).
+    this.clearFreshReads((entry) => stopped.has(entry.machine ?? 'native'))
     for (const owner of this.owners((b) => !!b.sandbox && stopped.has(b.machine ?? 'native') && (b.state === 'bound' || !!b.ws))) {
       this.interrupt(owner.sessionId, `Machine ${owner.machine ?? 'native'} was stopped. Execution was interrupted; send a new message after it is started again.`, 'availability')
     }
@@ -1136,7 +1454,11 @@ export class LayerfsSessions extends Service {
       let health = classifyStore(row, live)
       // A PostgreSQL verdict holds until the server is asked again.
       if (row?.engine === 'postgresql' && !askServer && previous?.state === 'unavailable' && health.state === 'available') health = previous
-      if (previous?.state !== health.state || previous?.reason !== health.reason) changed = true
+      if (previous?.state !== health.state || previous?.reason !== health.reason) {
+        changed = true
+        // A Store transition invalidates observed readiness for its projects.
+        this.clearFreshReads((entry) => storeOf(entry.project) === name)
+      }
       this.storeHealth.set(name, health)
       for (const owner of watched) {
         if (storeOf(owner.project) !== name) continue
@@ -1158,15 +1480,15 @@ export class LayerfsSessions extends Service {
 
   /** The machine and Store a project executes on must be ready now (read-only; starts nothing). */
   private async assertReady(row: { kind?: string | null, machine?: string | null, store: string }, placed?: string | null): Promise<void> {
-    const machine = row.kind === 'postgresql' ? (placed ?? 'native') : (row.machine ?? 'native')
+    const { machine, store: storeName } = this.readyTargets(row, placed)
     // records only (the 2.0 six states): `ready` with no op is ready; anything else is named with its fix
     const status = await this.lfs.machine.get(machine, { detail: true })
     if ((status?.state ?? 'ready') !== 'ready' || status?.op) {
       throw new CliError('Unavailable', `Machine ${machine} is not ready (${status?.state ?? 'unknown'}${status?.reason ? `: ${status.reason}` : ''}). Start or repair it, then send the message again.`, null, 'refusal', typeof status?.fix === 'string' ? status.fix : null)
     }
-    const store = await this.lfs.store.get(row.store, { detail: true })
+    const store = await this.lfs.store.get(storeName, { detail: true })
     const health = classifyStore(store)
-    this.storeHealth.set(row.store, health)
+    this.storeHealth.set(storeName, health)
     if (health.state !== 'available') {
       throw Object.assign(new CliError('Unavailable', health.reason ?? 'The project Store is not ready. Restore access, then send the message again.'), health.failure ? { failure: health.failure } : {})
     }
@@ -1194,6 +1516,7 @@ export class LayerfsSessions extends Service {
     // Scratch is a user-selected folder and may be shared with normal sessions.
     // Even legacy generated scratch can hold evidence; release it separately.
     this.state.update((s) => { delete s.sessions[sessionId]; delete s.pending[sessionId] })
+    this.forgetFreshReads(sessionId)
   }
 
   /** Save and close every session Sandbox of a project (before the project is removed). */
@@ -1245,6 +1568,123 @@ export class LayerfsSessions extends Service {
   }
 
   /**
+   * Whether one conversation has never started: it has no user/assistant
+   * message, no title and no turn in its log, and no checkpoint, archive or
+   * mirror record. It is also false for a subagent, an imported/seeded session
+   * and anything that cannot be verified (a missing log that is not a pending
+   * choice), so a caller may only ever delete what this proves blank.
+   * `known` lets a caller that already read the snapshot and sidecar pass them
+   * in (sessions.list does); without it they are read here.
+   *
+   * A read is not usage: the sidecar's receipt counter also folds the draft's
+   * own placement/identity reads (`project.get`, `branch.list`, `machine.get`,
+   * `store.get`), so it is deliberately not consulted. Content in the log (a
+   * message, turn or title event) or a title/checkpoint/archive record starts
+   * the conversation and keeps it.
+   */
+  async neverStarted(sessionId: string, known: NeverStartedKnown = {}): Promise<boolean> {
+    const state = this.state.read()
+    const binding = state.sessions[sessionId]
+    // A subagent, a fork, or anything with a checkpoint/mirror record has history that is not this cleanup's.
+    if (binding?.kind === 'shared' || binding?.from || binding?.base || state.checkpoints[sessionId]?.length || state.mirror[sessionId]) return false
+    const persistence = this.ctx.get?.('sessionPersistence' as never) as any
+    // `local` routes to the owner's backend and never imports on a miss.
+    const local = persistence?.local ?? persistence
+    const snapshot = 'snapshot' in known ? known.snapshot : await local?.stat?.(sessionId).catch(() => undefined)
+    if (snapshot?.header?.origin === 'subagent' || snapshot?.header?.isSeeded === true) return false
+    const sidecar = 'sidecar' in known ? known.sidecar : await persistence?.readSidecar?.(sessionId, { cached: true }).catch(() => undefined)
+    // Receipts are not consulted: `sidecar.receipts.readsTotal` counts the
+    // draft's own placement reads and is kept for the trajectory's OBSERVATION.
+    if (realSessionTitle(sidecar?.title) !== null || sidecar?.archive?.count || sidecar?.checkpoints?.length || sidecar?.invocations?.length) return false
+    // A pending choice with no log yet has nothing to keep; any other missing
+    // log cannot be verified and stays (when in doubt, skip).
+    if (!snapshot) return state.pending[sessionId] !== undefined
+    // The header cache's event count is a cheap reject: a log past the blank
+    // bound is a conversation, and is not opened here.
+    if (Number(snapshot.eventCount) > BLANK_EVENTS_MAX) return false
+    const live = (this.ctx.get?.('sessions' as never) as any)?.get?.(sessionId as never) as any
+    if (live) return neverStartedLog(live.snapshotEvents?.(0) ?? [])
+    // A draft's log is a handful of metadata lines: read only the short prefix
+    // that can still prove blank (the list already has the snapshot/sidecar).
+    const reader = await local?.open?.(sessionId, 'read').catch(() => undefined)
+    if (!reader) return false
+    try {
+      const read = await reader.read(0, BLANK_EVENTS_MAX + 1)
+      return neverStartedLog(read?.events ?? [])
+    } catch { return false } finally { await reader.close?.().catch(() => {}) }
+  }
+
+  /**
+   * Delete this home's conversations that never started (an empty New Session
+   * that was placed in a project but never received a message). A candidate is
+   * pending (or bound) and proven blank by {@link neverStarted}; the current
+   * selection and every loaded conversation are always kept. An id the person
+   * archived in DSH is never a draft to prune, and `exclude` keeps further ids
+   * for a caller that already knows them. `dryRun` defaults to true, so only
+   * `{ dryRun: false }` deletes; a real run removes each candidate's log and
+   * owner route through the persistence row (the same path Presets Reset uses),
+   * its binding/pending choice and checkpoint/mirror rows, and emits one
+   * `layerfs-session {deleted: true}` per id. Safe to re-run: a second run finds
+   * no candidates.
+   *
+   * Only an array at `workspaceRegistry.archivedSessionIds` proves the archive
+   * set; a missing field means **unknown**, not empty. A dry run still answers
+   * (with `archiveKnown: false`) so an operator can inspect the candidates, but
+   * a real run refuses: without the set, an archived draft looks like a draft.
+   * @returns the candidates the scan proved blank, the ids actually deleted,
+   * and whether the host could name DSH's archive set.
+   */
+  async pruneNeverStarted(options: { dryRun?: boolean, project?: string, current?: string | readonly string[], exclude?: string | readonly string[] } = {}): Promise<{ candidates: string[], deleted: string[], archiveKnown: boolean }> {
+    const state = this.state.read()
+    const only = typeof options.project === 'string' && options.project ? options.project : undefined
+    const current = new Set<string>(Array.isArray(options.current) ? options.current : options.current ? [options.current] : [])
+    // Archived conversations are an explicit keep, not drafts: the person put
+    // them in DSH's archive. `exclude` is the caller's own keep list for an id
+    // that is not archived (the CLI's --exclude).
+    const claimed = (this.ctx.workspaceRegistry as any)?.archivedSessionIds
+    const archiveKnown = Array.isArray(claimed)
+    if (options.dryRun === false && !archiveKnown) {
+      throw new CliError('InvalidInput',
+        'Refusing to delete: this host cannot verify DSH\'s archived conversations (workspaceRegistry.archivedSessionIds is not available), so an archived draft could be mistaken for a candidate. Nothing was deleted; a dry run still lists candidates. Restart DSH to apply.',
+        { archiveKnown: false, reason: 'archive-unknown' }, 'refusal',
+        'Restart DSH so the host exposes workspaceRegistry.archivedSessionIds, then run again with dryRun: false')
+    }
+    const archived = new Set<string>(archiveKnown ? claimed : [])
+    const exclude = new Set<string>([...archived, ...(Array.isArray(options.exclude) ? options.exclude : options.exclude ? [options.exclude] : [])])
+    const catalog = this.ctx.get?.('sessions' as never) as any
+    const candidates: string[] = []
+    for (const id of [...new Set([...Object.keys(state.pending), ...Object.keys(state.sessions)])].sort()) {
+      const project = state.pending[id]?.project ?? state.sessions[id]?.project
+      if (only && project !== only) continue
+      // The conversation open under a cursor never vanishes; nor does one that is loaded and may be running, archived, or explicitly excluded.
+      if (current.has(id) || exclude.has(id) || catalog?.get?.(id as never)) continue
+      if (await this.neverStarted(id).catch(() => false)) candidates.push(id)
+    }
+    if (options.dryRun !== false || !candidates.length) return { candidates, deleted: [], archiveKnown }
+    const persistence = this.ctx.get?.('sessionPersistence' as never) as any
+    // Wait for in-flight work per session (a bind, a choice), then delete only
+    // what the scan proved blank. Candidates are never loaded, so no activity
+    // is stopped and nothing is archived first.
+    await Promise.all(candidates.map((id) => this.lane(id, async () => {})))
+    const projects = new Set<string>()
+    for (const id of candidates) {
+      const binding = this.state.read().sessions[id]
+      const project = this.state.read().pending[id]?.project ?? binding?.project
+      if (project) projects.add(project)
+      if (binding?.kind === 'project' && binding.sandbox) {
+        try { await this.lfs.sandbox.remove(binding.sandbox, { force: true }) } catch { /* an empty Sandbox may already be gone */ }
+      }
+      this.store?.forget(id)
+    }
+    await persistence?.deleteSessions?.(candidates)
+    this.state.update((s) => { for (const id of candidates) { delete s.sessions[id]; delete s.checkpoints[id]; delete s.mirror[id]; delete s.pending[id] } })
+    for (const id of candidates) this.forgetFreshReads(id)
+    for (const id of candidates) this.ctx.layerfs.emit('layerfs-session', { sessionId: id, deleted: true })
+    for (const project of projects) this.ctx.layerfs.emit('layerfs-workspaces-changed', { project })
+    return { candidates, deleted: candidates, archiveKnown }
+  }
+
+  /**
    * Delete this home's project conversations (Presets Reset and Build). A
    * loaded session is archived with its activity stopped first, through DSH's
    * workspace registry, so it cannot start another turn; then its log, owner
@@ -1272,6 +1712,7 @@ export class LayerfsSessions extends Service {
     const persistence = this.ctx.get?.('sessionPersistence' as never) as any
     await persistence?.deleteSessions?.(ids)
     this.state.update((s) => { for (const id of ids) { delete s.sessions[id]; delete s.checkpoints[id]; delete s.mirror[id]; delete s.pending[id] } })
+    for (const id of ids) this.forgetFreshReads(id)
     for (const id of ids) this.ctx.layerfs.emit('layerfs-session', { sessionId: id, deleted: true })
     for (const project of new Set(targets.map((t) => t.project))) this.ctx.layerfs.emit('layerfs-workspaces-changed', { project })
     return ids
@@ -1292,12 +1733,64 @@ export class LayerfsSessions extends Service {
    * Store or Workspace check is answered as unavailable, but the binding is
    * neither interrupted nor saved; that stays with an explicit action or the
    * host's own availability poll.
+   *
+   * An observed read is cheap when nothing moved: a successful identity check
+   * stands for OBSERVED_IDENTITY_MS since the poll that last used it (and at
+   * most OBSERVED_IDENTITY_FULL_MS since it was read), machine and Store
+   * readiness for OBSERVED_READY_MS since the poll that last used it (and at
+   * most OBSERVED_READY_FULL_MS since it was read), and an answer whose local
+   * revision is unchanged (inside OBSERVED_MEMO_MS) is returned with no CLI call
+   * at all. Every other observed read still reads the Workspace status and the
+   * mount, so the unsaved count and a lost mount stay current. `debug` adds
+   * `timing`, the per-step split.
    */
-  async view(sessionId: string, options: { observe?: boolean } = {}): Promise<SessionView> {
+  async view(sessionId: string, options: { observe?: boolean, debug?: boolean } = {}): Promise<SessionView> {
+    // The panel polls and effect reads are the session's own host work: every
+    // LayerFS call below runs in its trace context, so a successful poll folds
+    // into that session's counter (and carries its `dsh:<sessionId>:` tag)
+    // instead of disappearing as an untagged host call. A session with no
+    // project (a plain folder or a not-yet-placed draft) makes no project call.
+    const binding = this.binding(sessionId)
+    const effective = binding?.kind === 'shared' && binding.parent ? this.binding(binding.parent) ?? binding : binding
+    const project = effective?.project ?? this.placeOfId(sessionId)?.project
+    if (!project) return this.viewNow(sessionId, options)
+    return this.hostOperation(sessionId, project, undefined, () => this.viewNow(sessionId, options))
+  }
+
+  /** {@link view} in the session's trace context (see there). */
+  private async viewNow(sessionId: string, options: { observe?: boolean, debug?: boolean } = {}): Promise<SessionView> {
+    const observe = options.observe === true
+    const profile = options.debug === true
+      ? { at: performance.now(), phases: {} as Record<string, number>, calls: { identity: 0, readiness: 0, status: 0 }, memo: false }
+      : undefined
+    /** Time one awaited step into the opt-in phase split. */
+    const time = async <T,>(name: string, run: () => Promise<T> | T): Promise<T> => {
+      if (!profile) return await run()
+      const at = performance.now()
+      try { return await run() } finally { profile.phases[name] = +((profile.phases[name] ?? 0) + (performance.now() - at)).toFixed(1) }
+    }
+    const timing = (): SessionViewTiming | undefined => {
+      if (!profile) return undefined
+      const total = +(performance.now() - profile.at).toFixed(1)
+      if (profile.memo) return { phases: { total }, calls: { identity: 0, readiness: 0, status: 0 }, memo: true }
+      const named = Object.values(profile.phases).reduce((sum, ms) => sum + ms, 0)
+      return { phases: { ...profile.phases, total, other: +Math.max(0, total - named).toFixed(1) }, calls: profile.calls, memo: false }
+    }
     let binding = this.binding(sessionId) ?? null
     let effective = binding
     if (binding?.kind === 'shared' && binding.parent) effective = this.binding(binding.parent) ?? binding
     const persistence = this.ctx.get?.('sessionPersistence' as never) as any
+    const ownerId = effective?.sessionId ?? sessionId
+    // The cheap path first: while this session's own revision holds, the last
+    // answer still stands, and answering it costs no CLI call at all. Memos are
+    // only kept for a placed session (an archived row has no local binding).
+    if (observe && binding?.project) {
+      const kept = this.observedAnswers?.get(sessionId)
+      if (kept && kept.revision === this.observedRevision(sessionId, ownerId, effective, persistence) && Date.now() - kept.at < OBSERVED_MEMO_MS) {
+        if (profile) profile.memo = true
+        return profile ? { ...kept.view, timing: timing() } : kept.view
+      }
+    }
     let archivedCheckpoints: Checkpoint[] = []
     if (!effective) {
       const project = this.placeOfId(sessionId)?.project
@@ -1310,17 +1803,51 @@ export class LayerfsSessions extends Service {
     }
     let available = true
     let reason: string | undefined
-    const ownerId = effective?.sessionId ?? sessionId
     let refusal: string | undefined
     try {
-      const row = await persistence?.assertSessionIdentity?.(ownerId)
-      if (row) await this.assertReady(row, effective?.machine)
-    } catch (error: any) { available = false; reason = String(error?.message ?? error); refusal = error?.code }
+      // Observed reads (the views' polls) reuse a successful identity check and a
+      // successful readiness check; a refusal is never cached, and the
+      // non-observe path always reads afresh.
+      if (observe) {
+        let row = this.observedIdentity(ownerId, effective)
+        if (!row) {
+          row = await time('identity', () => persistence?.assertSessionIdentity?.(ownerId))
+          if (row) {
+            if (profile) profile.calls.identity = 2
+            this.rememberObservedIdentity(ownerId, effective, row)
+          }
+        }
+        if (row && !this.observedReadiness(ownerId, effective, row)) {
+          await time('readiness', () => this.assertReady(row!, effective?.machine))
+          if (profile) profile.calls.readiness = 2
+          this.rememberObservedReadiness(ownerId, effective, row)
+        }
+      } else {
+        const row = await persistence?.assertSessionIdentity?.(ownerId)
+        if (row) await this.assertReady(row, effective?.machine)
+      }
+    } catch (error: any) {
+      available = false
+      reason = String(error?.message ?? error)
+      refusal = error?.code
+      // A refusal is never cached: the next observed read checks identity and
+      // readiness again, and no older answer may stand in for this one.
+      if (observe) { this.freshIdentity?.delete(ownerId); this.freshReadiness?.delete(ownerId); this.observedAnswers?.delete(sessionId) }
+    }
     let status: unknown = null
     if (available && effective?.kind === 'project' && effective.state === 'bound' && effective.ws) {
-      status = await this.lfs.workspace.status(effective.ws, { detail: true }).catch((error: any) => { available = false; reason = String(error?.message ?? error); refusal = error?.code; return { error: errorOf(error) } })
+      const ws = effective.ws
+      if (profile) profile.calls.status = 1
+      status = await time('status', () => this.lfs.workspace.status(ws, { detail: true }).catch((error: any) => {
+        available = false
+        reason = String(error?.message ?? error)
+        refusal = error?.code
+        // A failed status is never answered from an older successful memo.
+        this.observedAnswers?.delete(sessionId)
+        return { error: errorOf(error) }
+      }))
     }
-    const stored = effective && !options.observe ? this.binding(effective.sessionId) : undefined
+    const stored = effective && !observe ? this.binding(effective.sessionId) : undefined
     if (!available && stored?.state === 'bound') {
       // Same deactivation as the background poll: the panel just noticed first.
       this.interrupt(stored.sessionId, reason ?? 'The project is unavailable.', refusal === 'Unavailable' ? 'availability' : 'blocked')
@@ -1333,12 +1860,13 @@ export class LayerfsSessions extends Service {
       binding = this.binding(sessionId) ?? binding
     }
     const project = effective?.project ?? this.placeOfId(sessionId)?.project ?? null
-    const live = this.ctx.sessions.get(sessionId as never) as any
+    const live = this.ctx.sessions?.get?.(sessionId as never) as any
     const snapshot = project ? await persistence?.local?.stat(sessionId) : undefined
     const mirror = effective ? this.state.read().mirror[effective.sessionId] ?? null : null
-    return {
+    const view: SessionView = {
       sessionId,
-      binding: effective,
+      // A new object: the persisted binding never gains these fields.
+      binding: effective ? { ...effective, ...branchFields(effective.sessionId, effective.branch) } : null,
       checkpoints: effective ? this.checkpoints(effective.sessionId).length ? this.checkpoints(effective.sessionId) : archivedCheckpoints : [],
       project,
       execution: project ? { state: effective?.executionState ?? (effective?.state === 'bound' ? 'active' : effective?.state === 'failed' ? 'interrupted' : 'inactive'), available, reason, projectId: persistence?.projectIdOf?.(sessionId) } : undefined,
@@ -1351,5 +1879,14 @@ export class LayerfsSessions extends Service {
         ...(mirror ? { updatedAt: mirror.updatedAt, ...(mirror.error ? { error: mirror.error } : {}) } : {}),
       } : null,
     }
+    // A successful observed answer stands while its revision holds: the revision
+    // is read again now, after the awaits, so a state change during the read is
+    // never answered stale.
+    if (observe && available && binding?.project) {
+      const kept = (this.observedAnswers ??= new Map())
+      kept.set(sessionId, { at: Date.now(), revision: this.observedRevision(sessionId, ownerId, effective, persistence), ownerId, project: effective?.project ?? project ?? '', machine: effective?.machine, view })
+      while (kept.size > 256) kept.delete(kept.keys().next().value!)
+    }
+    return profile ? { ...view, timing: timing() } : view
   }
 }

@@ -54,13 +54,13 @@
 }
 
 .mainSummary > span {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--dsw-alias-label-tertiary);
 }
 
 .count {
-  font-size: 11px;
-  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
 }
 
 .actions {
@@ -70,6 +70,83 @@
 }
 
 /* ---------- stage and canvas ---------- */
+
+/* A Branch with nothing saved of its own: the version it started from, as one
+   read-only row above the graph (never a Commit, so it has no diff to open). */
+.forkBase {
+  flex: none;
+  /* The read-only start row is a card in the column, so it keeps the 16 px
+     card inset on all edges instead of touching the column's content box. */
+  padding: var(--lfs-space-4, 16px) var(--lfs-space-4, 16px) 8px;
+}
+
+.forkBaseRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 18px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.forkBaseRow > svg {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+@media (hover: hover) {
+  .forkBaseRow:hover {
+    color: var(--dsw-alias-label-primary);
+  }
+}
+
+.forkBaseRow[data-selected] {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.forkBaseRow:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
+  outline-offset: 1px;
+}
+
+.forkBaseText {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.forkBaseNote {
+  margin-left: auto;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+@media (max-width: 1180px), (pointer: coarse) {
+  .forkBaseRow {
+    min-height: var(--lfs-tap, 44px);
+  }
+}
+
+@media (max-width: 640px) {
+  .forkBaseNote {
+    flex: 1 1 100%;
+    margin-left: 22px;
+  }
+}
 
 .stage {
   position: relative;
@@ -133,8 +210,8 @@
 }
 
 .tickLabel {
-  fill: var(--dsw-alias-label-tertiary);
-  font-size: 10.5px;
+  fill: var(--dsw-alias-label-secondary);
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -154,9 +231,9 @@
 }
 
 .layerLabel {
-  fill: var(--lf-tone-success-dot);
+  fill: var(--lf-tone-success-fg);
   font-family: var(--ds-font-family-code);
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
   paint-order: stroke;
   stroke: var(--dsw-alias-bg-base);
@@ -249,26 +326,34 @@
   --ink: var(--bough);
   cursor: pointer;
   font-family: var(--ds-font-family-code);
-  font-size: 10.5px;
+  font-size: 12px;
   outline: none;
 }
 
-.branchTag > rect {
+/* The pill stays a 16px label; .tagHit is the invisible thumb target, as tall as
+   the lane gap allows (up to 44px), so it never reaches the next lane. */
+.tagHit {
+  fill: transparent;
+  pointer-events: all;
+}
+
+.branchTag .tagBody {
   fill: var(--ink);
 }
 
 .branchTag > text {
-  fill: var(--dsw-alias-bg-base);
+  fill: var(--bough-ink, var(--dsw-alias-bg-base));
   font-weight: 500;
+  pointer-events: none;
 }
 
-.branchTag:focus-visible > rect {
+.branchTag:focus-visible .tagBody {
   stroke: var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
   stroke-width: 2;
 }
 
 @media (hover: hover) {
-  .branchTag:hover > rect {
+  .branchTag:hover .tagBody {
     stroke: var(--dsw-alias-label-primary);
     stroke-width: 1;
   }
@@ -331,11 +416,16 @@
   bottom: 6px;
   display: flex;
   align-items: center;
-  gap: 6px;
+  /* Its controls are separate (not one segmented group): a finger gets the
+     coarse control gap, a mouse the deliberate 6 px. */
+  gap: max(6px, var(--lfs-gap-control, 6px));
 }
 
 .dock .mapControls {
   position: static;
+  /* The branch finder and Refresh are separate controls, not one segmented
+     group: they take the control gap (4 px fine, 8 px coarse). */
+  gap: var(--lfs-gap-control, 4px);
 }
 
 .dock .mapControls button {
@@ -376,7 +466,7 @@
   background: none;
   color: var(--dsw-alias-label-secondary);
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -409,7 +499,7 @@
   padding: 0 8px;
   border-left: 0.5px solid var(--dsw-alias-border-l2);
   color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -532,7 +622,7 @@
   background: none;
   color: var(--dsw-alias-label-tertiary);
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
 }
@@ -586,7 +676,7 @@
 }
 
 .eyebrow {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--dsw-alias-label-tertiary);
 }
 
@@ -615,7 +705,7 @@
   grid-template-columns: 64px minmax(0, 1fr);
   gap: 6px;
   margin: 0;
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .detail dt {
@@ -630,7 +720,7 @@
 .detail dd code,
 .detail p code {
   font-family: var(--ds-font-family-code);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .paths {
@@ -655,7 +745,7 @@
   background: none;
   color: inherit;
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   text-align: left;
   cursor: pointer;
 }
@@ -711,8 +801,8 @@
   padding: 3px 8px;
   border-radius: var(--dsw-radius-md);
   background: color-mix(in srgb, var(--dsw-alias-bg-base) 86%, transparent);
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 10.5px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
   pointer-events: none;
 }
 
@@ -781,7 +871,7 @@
   gap: 8px;
   padding: 3px 12px 0;
   color: var(--dsw-alias-label-tertiary);
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .alert {
@@ -825,6 +915,9 @@
 }
 
 .diffModalBody {
+  /* the diff inside the modal queries the modal's own width: its two columns
+     stack to one on a phone, like the project page's diff */
+  container: files-main / inline-size;
   min-height: 200px;
   max-height: 70vh;
   overflow: auto;
@@ -880,6 +973,88 @@
   }
 }
 
+/* Up to a laptop the key sits above the controls instead of sharing their row. */
+@container history (max-width: 1100px) {
+  .legend {
+    right: 8px;
+    bottom: calc(var(--lfs-tap, 44px) + 14px);
+    max-width: none;
+  }
+}
+
+/* Narrow: the controls stay on screen while the tree scrolls under them, and
+   the key steps aside so nothing overlaps. */
+@container history (max-width: 900px) {
+  .dock {
+    position: fixed;
+    right: max(8px, var(--lfs-safe-right, 0px));
+    bottom: calc(8px + var(--lfs-safe-bottom, 0px));
+    left: max(8px, var(--lfs-safe-left, 0px));
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .legend {
+    display: none;
+  }
+}
+
+/* ---------- a finger ---------- */
+
+@media (max-width: 1180px), (pointer: coarse) {
+  .forkBaseRow {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .mapControls button {
+    height: var(--lfs-tap, 44px);
+    min-width: var(--lfs-tap, 44px);
+    padding: 0 10px;
+  }
+
+  .zoomValue {
+    height: var(--lfs-tap, 44px);
+  }
+
+  .inspectorClose {
+    align-items: center;
+    justify-content: center;
+    width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+    padding: 0;
+  }
+
+  .branchRow > button:first-child {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .family {
+    justify-content: center;
+    min-width: var(--lfs-tap, 44px);
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .search > button {
+    align-items: center;
+    justify-content: center;
+    width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+  }
+
+  .pathButton {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .detailActions button {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .alert button {
+    min-height: var(--lfs-tap, 44px);
+    padding: 0 6px;
+  }
+}
+
 /* ---------- compare ---------- */
 
 .picking {
@@ -904,4 +1079,25 @@
   min-height: 320px;
   max-height: 76vh;
   overflow: hidden;
+}
+
+/* Our modals' close control and change tags read and press like the rest of the surface. */
+.compareModal [class*="_close_"],
+.diffModal [class*="_close_"] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@media (max-width: 1180px), (pointer: coarse) {
+  .compareModal [class*="_close_"],
+  .diffModal [class*="_close_"] {
+    width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+  }
+}
+
+.pathKind {
+  font-size: 12px;
+  line-height: 18px;
 }

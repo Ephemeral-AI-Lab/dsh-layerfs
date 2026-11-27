@@ -34,7 +34,7 @@ export default [
     run: async (page, h) => { await docker(page, h); await tab(page, h, 'Overview', 4000); await h.see('Healthy') },
     callouts: [
       (p) => p.getByRole('tablist').first(),
-      (p) => panel(p).getByRole('heading', { name: 'docker' }),
+      (p) => p.getByRole('heading', { name: 'docker', level: 1 }),
       (p) => p.getByRole('button', { name: 'Stop worker (docker)' }),
       (p) => p.getByRole('button', { name: 'More for docker' }),
       (p) => p.locator('[data-ov-usage]'),
@@ -131,7 +131,7 @@ export default [
       (p) => p.locator('[data-log-scroll]'),
     ] },
   { file: 'machine-native',
-    run: async (page, h) => { await jump(page, h, 'LayerFS Home', /^LayerFS Home/); await tab(page, h, 'Overview', 4000); await page.locator('[data-machine-details]').waitFor() },
+    run: async (page, h) => { await jump(page, h, 'native', /^native Native/); await tab(page, h, 'Overview', 4000); await page.locator('[data-machine-details]').waitFor() },
   },
   { file: 'machine-board',
     run: async (page, h) => { await board(page, h); await page.locator('[data-machine="docker"] [data-sandbox-row="guide-box"]').waitFor() },
@@ -154,7 +154,7 @@ export default [
       await board(page, h)
       await page.getByRole('button', { name: 'New machine' }).click(); await h.wait(1500)
       await dialog(page).getByText('Add a machine').first().waitFor()
-      await dialog(page).getByRole('button', { name: /^Create Lima/ }).first().click(); await h.wait(1500)
+      await dialog(page).getByRole('button', { name: /Not available on this computer/ }).click(); await h.wait(1200)
     },
     clip: (p) => dialog(p), pad: 24 },
 ]

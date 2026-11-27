@@ -22,6 +22,7 @@
 }
 
 .head {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -33,8 +34,10 @@
   min-width: 0;
   margin: 0;
   font-size: 15px;
+  line-height: 20px;
   font-weight: 500;
   color: var(--dsw-alias-label-primary);
+  overflow-wrap: anywhere;
 }
 
 .close {
@@ -49,6 +52,7 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-height: 0;
   padding: 8px 20px 4px;
 }
 
@@ -110,16 +114,20 @@
 .mono {
   font-family: var(--dsw-font-mono);
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .error {
   margin: 0;
   font-size: 12px;
   color: var(--lf-tone-danger-fg);
+  overflow-wrap: anywhere;
 }
 
 .footer {
+  flex: none;
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   padding: 16px 20px 18px;
@@ -152,6 +160,7 @@
 .pickBar {
   flex: none;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding: 12px 20px 14px;
@@ -174,4 +183,125 @@
 
 .latest {
   color: var(--dsw-alias-state-business-primary);
+}
+
+/* ---------- touch and narrow screens ----------
+   The same dialog, sized for a thumb: every control a tap target, the body
+   scrolls inside the frame, and the action row clears the home indicator.
+   Breakpoints are ui/responsive.css's (wide 1180, tablet 834, phone 480). */
+
+@media (max-width: 1180px), (pointer: coarse) {
+  .close.close {
+    width: var(--lfs-tap, 44px);
+    height: var(--lfs-tap, 44px);
+    min-width: var(--lfs-tap, 44px);
+  }
+
+  .head button,
+  .footer button,
+  .pickBar button,
+  .card > button {
+    min-height: var(--lfs-tap, 44px);
+  }
+
+  .head button {
+    min-width: var(--lfs-tap, 44px);
+  }
+
+  /* The folder path is a field, not a 42 px inner input. */
+  .folderRow input,
+  .dialog input {
+    min-height: var(--lfs-tap, 44px);
+  }
+}
+
+/* A tablet's height is free: the version map gets the room the phone sheet
+   would take, instead of a 660px window in the middle. */
+@media (max-width: 834px) {
+  .dialog.dialog:has([data-export-size='large']) {
+    height: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  /* a full-height sheet on a phone: the header stays, the body scrolls, the
+     actions sit at the bottom, and nothing is wider than the screen. */
+  .dialog.dialog,
+  .dialog.dialog:has([data-export-size='large']) {
+    width: 100%;
+    height: 100%;
+    max-height: 100%;
+    border-radius: var(--dsw-radius-panel);
+  }
+
+  .head {
+    align-items: flex-start;
+    padding: max(10px, env(safe-area-inset-top, 0px)) 16px 6px;
+  }
+
+  .head .title {
+    font-size: 15px;
+    line-height: 20px;
+  }
+
+  .formBody {
+    flex: 1;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 4px 16px 8px;
+  }
+
+  .footer {
+    padding: 10px 16px calc(10px + var(--lfs-safe-bottom, 0px));
+  }
+
+  .footer button {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  /* version: text keeps the row, the action gets its own thumb-sized row */
+  .card {
+    flex-wrap: wrap;
+    padding: 10px;
+  }
+
+  .card > button {
+    flex: 1 0 100%;
+  }
+
+  /* folder: a path is worth the full width; its action sits under it */
+  .folderRow {
+    flex-wrap: wrap;
+  }
+
+  .folderRow > :first-child {
+    flex: 1 0 100%;
+  }
+
+  .folderRow > button {
+    flex: 1 0 100%;
+  }
+
+  .pane {
+    padding: 0 16px;
+  }
+
+  .pickBar {
+    padding: 10px 16px calc(10px + var(--lfs-safe-bottom, 0px));
+  }
+
+  .picked {
+    flex: 1 0 100%;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    line-height: 18px;
+    overflow-wrap: anywhere;
+  }
+
+  .pickBar button {
+    flex: 1 1 0;
+    min-width: 0;
+  }
 }

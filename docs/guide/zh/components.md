@@ -13,6 +13,10 @@
 
 当前主页导航栏，标号 1–3 分别是诊断、日志和设置。
 
+在手机上（宽 480 px 及以下），整条栏只剩一行：后退和前进、当前的面包屑、
+只剩图标的跳转到、**+ 添加**，以及一个 **⋯ 更多**（More）菜单。诊断、日志、设置、正在进行的传输，以及页面上有刷新时的刷新，
+都收进 **更多**，其余行为不变。
+
 ![主页导航栏：1 诊断、2 日志、3 设置（隔离测试数据，当前界面）](../img/home-navigation.png)
 
 *隔离测试数据。*
@@ -24,15 +28,16 @@
 | # | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|---|
 | 1, 2 | 后退 · 前进 | 箭头 | 按下 → 上一个或下一个 Center 页面（最多保留 50 个） | —（本地历史） | 到头时不可用 |
-| 3 | 面包屑 | `主页 › Store › demo-starter › bookshelf` | 按一个面包屑 → 去那一页 | — | 最后一个面包屑就是你所在的页面 |
+| 3 | 面包屑 | `主页 › Store › demo-starter › bookshelf` | 按一个面包屑 → 去那一页 | — | 最后一个面包屑就是你所在的页面。触摸尺寸下每个面包屑至少 44 px 宽，很短的名称也容易按到；当前这一级保留自然宽度，绝不以省略号结尾，上级面包屑会收缩或滚到一边，列表跟着当前页走 |
 | 4 | 面包屑切换 | 面包屑后面的一个箭头（**从 {name} 切换**，Switch from {name}），或当前面包屑上的一个小三角，在那个位置有同级项时出现 | 按下 → 列出它的同级项（每个 Store、这个 Store 里的每个项目……），带上种类和位置 → 打开其中一个 | —（使用 Center 已读到的内容） | 只有同级项多于一个时才出现 |
 | | 传输 | **{n} 个传输**（{n} transfers），带百分比和进度条，在迁移、备份或恢复进行时出现 | 按下 → 那个 Store 的页面（只有一个任务时），或一个列出它们的菜单（有多个时） | —（Center 已在跟踪的任务） | 没有任务运行时隐藏 |
-| 5 | **跳转到…**（Jump to…） | 一个带 **⌘K**（**Ctrl+K**）的输入框 | 点它或按快捷键 → **跳转到会话、项目、Store、机器、Sandbox 或存储桶**（Jump to a session, project, Store, machine, Sandbox or bucket），按项目、Store、机器、Sandbox、存储桶、页面和会话分组。会话结果显示标题与 ID，选中后打开对话。**↑ ↓ 移动 · Enter 打开 · Esc 关闭**（↑ ↓ to move · Enter to open · Esc to close） | —（在 Center 已读到的内容中搜索） | **没有与“{q}”匹配的项**（Nothing matches “{q}”）。最多 60 条结果。有对话框打开时快捷键不可用 |
+| 5 | **跳转到…**（Jump to…） | 一个带 **⌘K**（**Ctrl+K**）的输入框；手机上是一个 44 px 的图标 | 点它或按快捷键 → **跳转到会话、项目、Store、机器、Sandbox 或存储桶**（Jump to a session, project, Store, machine, Sandbox or bucket），按项目、Store、机器、Sandbox、存储桶、页面和会话分组。会话结果显示标题与 ID，选中后打开对话。**↑ ↓ 移动 · Enter 打开 · Esc 关闭**（↑ ↓ to move · Enter to open · Esc to close） | —（在 Center 已读到的内容中搜索） | **没有与“{q}”匹配的项**（Nothing matches “{q}”）。最多 60 条结果。有对话框打开时快捷键不可用 |
 | 6 | 刷新 | 一个环形箭头，除主页、诊断和日志外每个页面都有（这三页各自有刷新） | 按下 → 页面重新读取它的数据 | 页面自己的读取 | 读取时显示一个圆点 |
 | 7 | **+ 添加**（+ Add） | **新建会话**（New session）、**新建项目**（New project）、**导入文件夹**（Import a folder）、**新建 Sandbox**（New Sandbox）、**新建 Store**（New Store，从机器页打开时预选那台机器）、**连接数据库**（Connect a database）、**新建机器**（New machine）、**添加存储桶**（Add bucket）、**试用预设**（Try a preset） | 打开对应的对话框 | `store create` · `store connect`、`store get` · `machine create` · `backup connect` · 预设自己的脚本。新建项目：`store create`、`project init`、`store move` | 新建机器和新建 Sandbox 不可用时仍显示，并说明原因 |
-| | 诊断 | 带计数的盾牌图标，提示为 **诊断：{n} 项发现**（Doctor: {n} findings） | 按下 → `LayerFS › 诊断`（[诊断](health.md)） | 读取主机保存的结果。如果还没有结果，打开主页时会运行一次 `home doctor` | 有错误时计数为红色，有警告时为琥珀色 |
-| | 日志 | 列表图标 | 按下 → `LayerFS › 日志`（[日志](logs.md)） | — | |
-| | 设置 | 齿轮图标 | 按下 → 设置 LayerFS | `home get`（读取） | |
+| | 诊断 | 带计数的盾牌图标，提示为 **诊断：{n} 项发现**（Doctor: {n} findings）；手机上在 **更多** 里 | 按下 → `LayerFS › 诊断`（[诊断](health.md)） | 读取主机保存的结果。如果还没有结果，打开主页时会运行一次 `home doctor` | 有错误时计数为红色，有警告时为琥珀色 |
+| | 日志 | 列表图标；手机上在 **更多** 里 | 按下 → `LayerFS › 日志`（[日志](logs.md)） | — | |
+| | 设置 | 齿轮图标；手机上在 **更多** 里 | 按下 → 设置 LayerFS | `home get`（读取） | |
+| | 更多 | **⋯ 更多**（More），手机上唯一的工具菜单 | 按下 → **诊断** 及其计数、**日志**、**设置**、页面上有刷新时的 **刷新**，以及正在进行的传输 | 各项自己的调用 | 只在手机上有；诊断有发现时显示圆点，有错误为红色 |
 
 ![面包屑的切换菜单](../img/home-crumb-switcher.png)
 
@@ -66,6 +71,9 @@
 | 3 | 状态行 | 最紧急的那件事，或者 **没有需要处理的事项**（Nothing needs your attention） | 那件事的按钮（见[待处理提示](#needs-you-notices)） | 按钮的调用 | 事项前有圆点：故障为红点、警告为琥珀点；无需处理时没有圆点。有多项时显示 **还有 {n} 个**（+{n} more） |
 | 4 | 试用预设 | 预设图标 | 按下 → [预设](presets.md) | — | |
 | 5 | 刷新 | 一个环形箭头。提示：**重新读取 Store、机器和存储桶，并重新运行 Home 检查 · Checked {ago}**（Read the Stores, machines and buckets again, and re-run the home checks · Checked {ago}） | 按下 → 重新读取 Store、机器和存储桶，并重新运行主目录检查 | `home get`、`project list`、`store list` (读取)，然后 `home doctor` | 检查运行期间显示进行中圆点 |
+
+手机上，状态行在标题下方单独占一条：文字按需要的宽度换行，操作按钮按拇指大小挪到下一行，
+所以两者都不会压在上面那一行上。
 
 Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker unavailable）胶囊；按它可以查看原因和它点名的 docker 机器。
 按 **还有 {n} 个**（+{n} more）可在状态行下方展开或收起其余待处理事项及对应的修复按钮。被拒绝的操作显示在那里，可按 **关闭**（Dismiss）收起。
@@ -136,6 +144,12 @@ Store、机器和平台信息（`home get`、`machine get`、`machine list`、`s
 它们正是读者要复制的内容。这覆盖[修复](components.md#fix-buttons)里的 CLI 命令行、诊断行里的 **调用**（Call）、
 [设置 LayerFS](entry-points.md#set-up-layerfs) 里的固定版本、[文件标签页](project.md#files)上的路径与 ID、
 运行时或提交号徽标，以及[项目对话框](entry-points.md#project-dialog)里的文件夹、存储名称、数据库 URL、登录名和用户输入框。
+
+## 文字对比度
+
+小号弱化文字和链接在两种主题下都通过 WCAG AA（4.5:1）。浅色主题里，弱化标签在所在表面上达到 5.8:1，
+链接达到 5.4:1；深色主题共用的链接是 5.99:1，继续使用原来的颜色。分支标签的标签文字会按泳道颜色
+选择浅色或深色墨色，所以无论这个分支家族分到什么颜色，标签都读得清。
 
 ## 文件视图
 
@@ -268,6 +282,9 @@ Store 页面头部下方、Store 卡片的状态行里，以及在[诊断](healt
 | **取消**（Cancel） / × / Escape | | 关闭。什么都不运行 | — | 运行期间不可用 |
 | 操作按钮 | 移除类操作为红色（**移除**，Remove；**删除**，Delete；**断开连接**，Disconnect；**运行这些步骤**，Run the steps），**压缩**（Compact）为普通样式 | 运行操作。被拒绝时，拒绝信息留在表单下方 | 调用方的调用 | 运行时转圈 |
 
+手机上，确认对话框是底部面板：整宽，贴在面板底部，头部的控件和操作按钮固定，中间内容滚动，
+底部避开主屏幕指示条。两个按钮各占一半宽度，拇指够得着。
+
 用到它的地方：
 
 - 移除 Store（输入名称，`store remove`）。
@@ -279,6 +296,16 @@ Store 页面头部下方、Store 卡片的状态行里，以及在[诊断](healt
 - 日志的 **重置…**（Reset…，`logs.reset`）。
 - 诊断页的 **删除项目**（Delete project，`project delete`）。
 - 会删除数据的修复链（输入名称）。
+
+## 对话框
+
+每个 LayerFS 对话框都放在 DSH 的模态框外框里：宽度和卡片四周的边距由外框决定，里面只有我们的内容。
+在粗指针（手机或平板）上，对话框里的每个控件都是 44 px 的点击目标，底部避开主屏幕指示条；
+内容很长时，中间的主体滚动，头部和底部固定不动。
+
+有两个对话框在手机上占满整个屏幕：[调用详情](logs.md#call-detail)和
+[设置 LayerFS](entry-points.md#set-up-layerfs) 会变成全高面板。[确认对话框](#confirm-dialog)是底部面板；
+[项目对话框](entry-points.md#project-dialog)保留外框给的卡片，长到外框允许的高度，头部和底部固定。
 
 ## 修复按钮
 

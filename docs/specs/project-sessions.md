@@ -1,6 +1,10 @@
 # LayerFS project sessions and conversation handling
 
 Status: implementation specification, based on the session-design discussion.
+
+Sessions run in a per-session Sandbox (`dsh-<session>`) with one Workspace
+named `main` on the session's branch. A project-owned Sandbox was considered
+and is not planned; see `docs/specs/refinement-decisions.md` §1.
 The implementation retains stock DSH formats and public plugin seams; practical
 integration details are recorded below.
 
@@ -392,6 +396,31 @@ ownership must not be inferred from a folder path.
   requires its parent execution context; it must fail clearly if that context
   is unavailable rather than starting unrelated project work.
 
+### Persistence seam (DIP-1 fixed, DIP-2 accepted)
+
+The sessions adapter reaches DSH's persistence service by its registry key
+(`ctx.get('sessionPersistence' as never) as any`) rather than through a
+declared port.
+
+- **DIP-1, fixed.** The `session.annotations` projection (`sidecarMetadata`)
+  lives in `src/host/sessions/annotations.ts`, so the adapter has no value
+  import of `src/host/session-persistence.ts`. Only a type import of
+  `SessionSidecar` remains, which the compiler checks and the bundle drops.
+  The answer's shape policy belongs to the adapter; reading and writing DSH's
+  files belongs to the driver.
+- **DIP-2, accepted before release.** The call sites still use the untyped
+  registry seam. A `SessionPersistencePort` interface would type them, but it
+  would also have to describe DSH's reader, catalog and session methods while
+  those are pre-release and moving; the interface would be a new seam whose
+  churn exceeds the type safety it buys, and the pinned DSH build is the only
+  implementation. The constraint while accepted: **no new concrete imports**
+  of `session-persistence.ts` in `src/host/sessions/index.ts`; every method
+  stays optional and guarded (`?.` or a `typeof … === 'function'` refusal), so
+  an older build degrades instead of failing; and a new method is named in the
+  seam comment in `index.ts` and in this section. Revisit after the DSH
+  persistence API settles: then declare the port once, cast at the composition
+  root, and keep the guards for older plugins.
+
 ## 11. Durable ownership and lazy execution
 
 Conversation ownership is independent of availability and execution resources:
@@ -427,6 +456,19 @@ empty branch `dsh.project.<uuid>`, forked from `main`.
   its conversations.
 - Hidden. File and history views hide `dsh.project.*` (and `dsh.session.*`)
   branches. Machine and app-home paths are not part of identity.
+
+### Refused placements
+
+A refused placement creates no conversation. `openProjectSession` first runs
+`sessions.checkPlacement`, a read-only check of the listed project identity
+(`projectId`, when known), the project itself, and its machine and Store; it
+claims nothing, writes no pending placement and opens no session. If
+`sessions.choose` still refuses after the blank session was created (a race, or
+a failure only the write path can find), the client archives that blank session
+and clears its pending placement with `sessions.forget`, then shows the original
+refusal where the button was pressed. `choose` also removes a pending placement
+it wrote when it fails later, so a retry never starts half placed. A project
+identity claimed by the attempt stays: it is intentional and shared.
 
 A durable catalog under the project-session home combines live discovery with
 previously observed projects and locally owned conversations. A failed read is

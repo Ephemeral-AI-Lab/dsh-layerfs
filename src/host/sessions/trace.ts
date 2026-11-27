@@ -7,9 +7,42 @@
  */
 import type { TraceCheckpoint, TraceOp, TraceVersion } from '../../shared/trace.ts'
 import {
-  DETAIL_MAX, PREVIEW_MAX,
-  type AssistantRecord, type ToolRecord, type TrajectoryAnswer, type TrajectoryDetail, type TrajectoryTurn, type UserRecord,
+  DETAIL_MAX, FIRST_PAGE_BYTES, FIRST_PAGE_OPS, FIRST_PAGE_RECORDS, MAX_OPS, MAX_RECORDS, MAX_RECORD_BYTES, MAX_RECORD_OPS,
+  OLDER_PAGE_BYTES, PREVIEW_MAX, TOOL_DESCRIPTION_MAX, displayKind, kindFamily,
+  type AssistantRecord, type RequestRecord, type SystemRecord, type ToolRecord, type ToolsChange, type TraceCheckpointRow,
+  type TrajectoryAnswer,
+  type TrajectoryDetail, type TrajectoryRecord, type TrajectoryReply, type TrajectoryTool, type TrajectoryTurn, type TrajectoryUsage,
+  type UserRecord, type ObservationRecord, type ReceiptMeta,
+  RECEIPT_META_FIELD, receiptAggregateLines,
 } from '../../shared/trajectory.ts'
+import { isWrite } from '../../shared/logs.ts'
+import { promptChanges } from './prompt-diff.ts'
+
+/**
+ * A tail window of the log, instead of the whole log (B9-C): `events` starts at
+ * a `turn/start` and runs to EOF, so every turn it holds is complete. The
+ * answer says `windowed`, its `recordTotal` counts this window's records only,
+ * and `windowFromSeq`/`recordTotalKnown` say what is missing.
+ */
+export interface TrajectoryWindowInput {
+  /** The window's oldest event seq: records before it are not known. */
+  fromSeq: number
+  /** The turn that event opens: receipts before it are not part of the build. */
+  fromTurn: number
+  /** The log's file identity: a grown log is a new revision even before its window's length moves. */
+  logKey: string
+  /**
+   * The last request header before the window: its seq and raw tool catalog.
+   * The page's first request then reads `toolsChanged` and its prompt
+   * predecessor against the real one, not the window's edge.
+   */
+  prompt?: { seq: number, tools: readonly unknown[] }
+  /**
+   * Tool-call ids whose first occurrence is before the window: a repeat inside
+   * it is the same call, not a record (the whole parse keeps the first one).
+   */
+  seenCalls?: readonly string[]
+}
 
 export interface TrajectoryInput {
   sessionId: string
@@ -18,10 +51,309 @@ export interface TrajectoryInput {
   branch: string | null
   /** The DSH session log (`snapshotEvents(0)`), or undefined when not loaded. */
   events?: readonly any[]
+  /** Set when `events` is only the log's newest window ({@link TrajectoryWindowInput}). */
+  window?: TrajectoryWindowInput
   /** Receipts from the sidecar, oldest first. */
   invocations: readonly any[]
+  /** The sidecar's read-only receipt counter, when one was folded. */
+  receipts?: ReceiptMeta
   /** Checkpoints, oldest first. */
   checkpoints: readonly any[]
+}
+
+/**
+ * The counter an input carries: explicit, or attached (non-enumerably) to the
+ * receipts array by persistence. `sessions/index.ts` hands the trajectory only
+ * the array, so both channels are read; prefer the explicit field when a caller
+ * can pass it.
+ */
+function receiptCounts(input: TrajectoryInput): ReceiptMeta | undefined {
+  const attached = (input.invocations as any)?.[RECEIPT_META_FIELD] as ReceiptMeta | undefined
+  const counts = input.receipts ?? attached
+  return counts && typeof counts === 'object' ? counts : undefined
+}
+
+/**
+ * A cheap identity of what `buildTrajectory` would read: the log's length, tail
+ * window and last seq, the Branch, and the checkpoint and receipt tails. Reading it is
+ * O(1) over the loaded log and metadata (no walk, no serialization), so an
+ * unchanged `session.trajectory` is answered without building or sending the
+ * records. Any new event, checkpoint or receipt, a Branch change, a different
+ * project or a log that appeared or vanished changes it.
+ */
+export function trajectoryRevision(input: TrajectoryInput): string {
+  const events = input.events
+  const last = events?.length ? events[events.length - 1] : undefined
+  const checkpoint = input.checkpoints.length ? input.checkpoints[input.checkpoints.length - 1] : undefined
+  const receipt = input.invocations.length ? input.invocations[input.invocations.length - 1] : undefined
+  const counts = receiptCounts(input)
+  return [
+    events ? 'log' : 'nolog',
+    input.window ? `w:${input.window.fromSeq}:${input.window.prompt?.seq ?? ''}:${input.window.logKey}` : 'whole',
+    events?.length ?? 0,
+    Number.isInteger(last?.seq) ? last.seq : '',
+    last?.type ?? '',
+    input.project ?? '',
+    input.branch ?? '',
+    input.checkpoints.length,
+    checkpoint ? [checkpoint.kind, checkpoint.turn, checkpoint.changed, checkpoint.endSeq ?? '', checkpoint.commit ?? ''].join('.') : '',
+    input.invocations.length,
+    receipt && typeof receipt === 'object' ? (receipt.id ?? '') : '',
+    // A folded poll writes no receipt, so the revision carries the counter too:
+    // the observation row is never answered as `unchanged` while it moved.
+    counts?.readsTotal ?? 0,
+    counts?.dropped ?? 0,
+    counts?.truncated ? 'truncated' : '',
+  ].join(':')
+}
+
+/** Calls that are never dropped from a page: they wrote or named a version, or were refused. */
+const essentialOp = (op: TraceOp): boolean =>
+  op.versions.length > 0 || op.outcome !== 'success' || isWrite(op.argv?.length ? op.argv : op.operation.split('.'))
+
+/** The UTF-8 length of a value's JSON: what actually goes on the wire. */
+const jsonBytes = (value: unknown): number => {
+  const json = JSON.stringify(value)
+  return json === undefined ? 0 : Buffer.byteLength(json)
+}
+
+/**
+ * The records and calls one page of this answer carries. `before` (a record
+ * seq) selects the next older page; without it the page is the newest
+ * {@link FIRST_PAGE_RECORDS} records. Older pages carry {@link MAX_RECORDS}.
+ * Every page stops at its byte budget ({@link FIRST_PAGE_BYTES} for the first,
+ * {@link OLDER_PAGE_BYTES} for an older one) measured as UTF-8 bytes, and no
+ * record may cost more than {@link MAX_RECORD_BYTES} on its own. Non-record
+ * content (checkpoints, DSH's own calls, receipts without a call) rides with
+ * the turn it belongs to; a turn that the record cut only partly keeps
+ * `totalRecords`, and tool records that kept only some of their calls keep
+ * `opsTotal`. Calls that wrote, named a version or were refused are kept ahead
+ * of the other calls, which are budgeted per answer and per record, newest
+ * first (a shell loop can log thousands of reads under one call); only a
+ * record that alone exceeds {@link MAX_RECORD_BYTES} can lose its oldest
+ * calls, and its `opsTotal` says so.
+ */
+export function pageTrajectory(answer: TrajectoryAnswer, before?: number): TrajectoryAnswer {
+  const entries: { turn: number, record: TrajectoryRecord }[] = []
+  answer.turns.forEach((turn, index) => { for (const record of turn.records) entries.push({ turn: index, record }) })
+  let end = entries.length
+  if (before !== undefined) {
+    const at = entries.findIndex((entry) => entry.record.seq >= before)
+    end = at < 0 ? entries.length : at
+  }
+  const first = before === undefined
+  const cap = first ? FIRST_PAGE_RECORDS : MAX_RECORDS
+  const budget = first ? FIRST_PAGE_BYTES : OLDER_PAGE_BYTES
+  let count = Math.min(cap, end)
+  let page = buildPage(answer, entries, end, count, first)
+  // A page over its byte budget sheds its oldest records, sized from the page
+  // being built (its calls are already trimmed) rather than from the whole
+  // answer's untrimmed records, then rebuilds so its call budget is re-spent on
+  // what it keeps. `count` falls by at least one each pass, so this terminates;
+  // one record is the hard floor, and `buildPage` bounds that record too. A
+  // record cut this way stays reachable through `hasMore`/`olderBefore` and its
+  // turn's `totalRecords`, so it reads as not loaded, never as missing.
+  for (;;) {
+    const size = jsonBytes(page)
+    if (size <= budget || count <= 1) break
+    const excess = size - budget
+    let drop = 0
+    let bytes = 0
+    for (const turn of page.turns) {
+      for (const record of turn.records) {
+        bytes += jsonBytes(record) + 1
+        drop++
+        if (bytes >= excess) break
+      }
+      if (bytes >= excess) break
+    }
+    const next = count - Math.max(1, Math.min(drop || 1, count - 1))
+    if (next >= count) break
+    count = next
+    page = buildPage(answer, entries, end, count, first)
+  }
+  return page
+}
+
+/** One page of at most `count` records ending at `end`, with the calls its records keep. */
+function buildPage(answer: TrajectoryAnswer, entries: { turn: number, record: TrajectoryRecord }[], end: number, count: number, first: boolean): TrajectoryAnswer {
+  const start = Math.max(0, end - count)
+  const kept = entries.slice(start, end)
+  const wanted = new Set(kept.map((entry) => entry.record))
+  // Which calls each carried record and orphan call keeps. Newest first, so a
+  // page keeps the calls closest to what just happened; essential calls always.
+  const keepOp = new Map<TraceOp, boolean>()
+  for (const { record } of kept) {
+    if (record.kind === 'tool') for (const op of record.ops) if (essentialOp(op)) keepOp.set(op, true)
+  }
+  const pageTurns = kept.length ? { first: kept[0]!.turn, last: kept[kept.length - 1]!.turn } : undefined
+  if (pageTurns) {
+    for (let turn = pageTurns.first; turn <= pageTurns.last; turn++) {
+      for (const call of answer.turns[turn]!.orphanCalls) for (const op of call.ops) if (essentialOp(op)) keepOp.set(op, true)
+    }
+  }
+  let budget = first ? FIRST_PAGE_OPS : MAX_OPS
+  const newerFirst = (ops: readonly TraceOp[]): void => {
+    let keptHere = 0
+    for (let i = ops.length - 1; i >= 0 && budget > 0; i--) {
+      const op = ops[i]!
+      if (keepOp.get(op)) continue
+      if (keptHere >= MAX_RECORD_OPS) break
+      keepOp.set(op, true)
+      budget--
+      keptHere++
+    }
+  }
+  for (let i = kept.length - 1; i >= 0; i--) {
+    const record = kept[i]!.record
+    if (record.kind === 'tool') newerFirst(record.ops)
+  }
+  if (pageTurns) {
+    for (let turn = pageTurns.last; turn >= pageTurns.first; turn--) {
+      for (const call of answer.turns[turn]!.orphanCalls) newerFirst(call.ops)
+    }
+  }
+  const prune = <T extends { ops: TraceOp[] }>(value: T): T => {
+    const ops = value.ops.filter((op) => keepOp.get(op))
+    return ops.length === value.ops.length ? value : { ...value, ops, opsTotal: value.ops.length }
+  }
+  // The first page starts at the turn its oldest kept record is in; an older
+  // page covers every turn up to its newest kept one (checkpoint-only turns
+  // included), so old turns load with their records.
+  let from = 0
+  let to = answer.turns.length - 1
+  if (kept.length) {
+    from = first ? kept[0]!.turn : 0
+    to = first ? answer.turns.length - 1 : kept[kept.length - 1]!.turn
+  } else if (!first) {
+    from = answer.turns.length
+    to = -1
+  }
+  const turns: TrajectoryTurn[] = []
+  for (let i = from; i <= to; i++) {
+    const turn = answer.turns[i]!
+    const records = turn.records.filter((record) => wanted.has(record)).map((record) => boundRecord(record.kind === 'tool' ? prune(record) : record))
+    const orphanCalls = turn.orphanCalls.map(prune)
+    turns.push({
+      ...turn, records, orphanCalls,
+      // A first-page-only answer already knows the whole turn's count; a cut
+      // here must keep it, not replace it with the page's smaller one.
+      ...(records.length !== turn.records.length ? { totalRecords: turn.totalRecords ?? turn.records.length } : {}),
+    })
+  }
+  const total = answer.recordTotal ?? entries.length
+  // A windowed answer always has an older page: the tail read is only used for
+  // a long, unloaded log, so records before the window exist even when this
+  // page already carries every record the window materialized.
+  const hasMore = start > 0 || answer.windowed === true || (answer.recordTotal !== undefined && total > end && kept.length > 0)
+  return {
+    ...answer, turns,
+    recordTotal: total,
+    ...(hasMore && kept.length ? { hasMore: true, olderBefore: kept[0]!.record.seq } : {}),
+  }
+}
+
+/** The string fields a record's bound may cut, and the flag each sets. */
+const RECORD_TEXT_FIELDS = ['text', 'result', 'summary'] as const
+type RecordTextField = (typeof RECORD_TEXT_FIELDS)[number]
+
+/**
+ * `record` with `field` cut to the longest prefix that keeps the whole record
+ * within `max` bytes. The field's `truncated` mark says it was cut; a record
+ * already under the budget is returned as it is.
+ */
+function cutToFit(record: TrajectoryRecord, field: RecordTextField, max: number): TrajectoryRecord {
+  const value = (record as any)[field]
+  if (typeof value !== 'string' || !value) return record
+  if (jsonBytes(record) <= max) return record
+  // The cut's own mark counts against the budget: include it in every measure.
+  const mark = field === 'text' ? { truncated: true } : field === 'result' ? { resultTruncated: true } : { summaryTruncated: true }
+  let lo = 0
+  let hi = value.length
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2)
+    if (jsonBytes({ ...record, [field]: value.slice(0, mid), ...mark }) <= max) lo = mid
+    else hi = mid - 1
+  }
+  return { ...record, [field]: value.slice(0, lo), ...mark } as TrajectoryRecord
+}
+
+/**
+ * `record` cut to {@link MAX_RECORD_BYTES}: one record may not spend a page's
+ * budget alone. The oldest read-only calls go first; then preview text a
+ * fixture or a huge call put past the preview caps; then the remaining calls'
+ * argv; the calls that wrote, named a version or were refused go last.
+ * `opsTotal`, `truncated`, `resultTruncated` and `summaryTruncated` report
+ * every cut. A record already under the budget is returned unchanged, so
+ * normal builds (previews at {@link PREVIEW_MAX} and calls at
+ * {@link MAX_RECORD_OPS}) take the fast path.
+ */
+function boundRecord(record: TrajectoryRecord, max = MAX_RECORD_BYTES): TrajectoryRecord {
+  if (jsonBytes(record) <= max) return record
+  let out: any = { ...record }
+  if (out.kind === 'tool' && out.ops.length) {
+    const total = out.opsTotal ?? out.ops.length
+    let ops: TraceOp[] = out.ops
+    while (ops.length && jsonBytes({ ...out, ops }) > max) {
+      const at = ops.findIndex((op) => !essentialOp(op))
+      if (at < 0) break
+      ops = ops.slice(0, at).concat(ops.slice(at + 1))
+    }
+    if (ops.length !== out.ops.length) out = { ...out, ops, opsTotal: total }
+  }
+  for (const field of RECORD_TEXT_FIELDS) out = cutToFit(out, field, max)
+  if (out.kind === 'observation' && jsonBytes(out) > max) out = { ...out, top: [] }
+  if (out.kind === 'request' && jsonBytes(out) > max) {
+    const { toolsChanged, ...lean } = out
+    out = lean
+  }
+  if (out.kind === 'tool' && jsonBytes(out) > max) {
+    out = { ...out, ops: out.ops.map((op: TraceOp) => op.argv?.length ? { ...op, argv: undefined } : op) }
+  }
+  if (out.kind === 'tool' && out.ops.length) {
+    const total = out.opsTotal ?? out.ops.length
+    let ops: TraceOp[] = out.ops
+    while (ops.length > 1 && jsonBytes({ ...out, ops }) > max) ops = ops.slice(1)
+    if (ops.length !== out.ops.length) out = { ...out, ops, opsTotal: total }
+  }
+  return out as TrajectoryRecord
+}
+
+/**
+ * `session.trajectory` reads over one host: memoise the built answer per
+ * session keyed by its revision (the newest `memo` sessions kept), answer an
+ * unchanged `since` with `{ unchanged: true }` without building, and return a
+ * page otherwise. Callers without `since` (a tab opening) build only the first
+ * page — its newest records, with the whole input's totals and counts — and
+ * only a `{ before }` read builds the whole answer. Either way at most one
+ * build happens between changes.
+ */
+export function trajectoryReader(memo = 8, build: (input: TrajectoryInput, scope?: TrajectoryBuildScope) => TrajectoryAnswer = buildTrajectory) {
+  const answers = new Map<string, { revision: string, answer: TrajectoryAnswer, partial: boolean }>()
+  return (input: TrajectoryInput, options: { since?: string, before?: number } = {}): TrajectoryReply => {
+    const revision = trajectoryRevision(input)
+    if (options.before === undefined && options.since !== undefined && options.since === revision) {
+      return { sessionId: input.sessionId, revision, unchanged: true }
+    }
+    const kept = answers.get(input.sessionId)
+    // A first page can reuse the partial answer a tab already has; an older
+    // page needs the whole log, so a partial one is rebuilt in full.
+    const reusable = kept?.revision === revision && !(kept.partial && options.before !== undefined)
+    let answer: TrajectoryAnswer
+    if (reusable) {
+      answer = kept!.answer
+      answers.delete(input.sessionId)
+      answers.set(input.sessionId, kept!)
+    } else {
+      // Drop the stale answer before building: a long session's is tens of MB,
+      // and the new one is built while the old would still be held.
+      answers.delete(input.sessionId)
+      answer = options.before === undefined ? build(input, { newest: FIRST_PAGE_RECORDS }) : build(input)
+      answers.set(input.sessionId, { revision, answer, partial: answer.recordTotal !== undefined })
+      while (answers.size > memo) answers.delete(answers.keys().next().value!)
+    }
+    return pageTrajectory(answer, options.before)
+  }
 }
 
 const SUMMARY_MAX = 200
@@ -33,6 +365,24 @@ const finite = (value: unknown): number | undefined => typeof value === 'number'
 const clip = (value: string): string => {
   const line = value.replace(/\s+/g, ' ').trim()
   return line.length > SUMMARY_MAX ? `${line.slice(0, SUMMARY_MAX - 1)}…` : line
+}
+
+/** DSH's `TokenUsage` (assistant/message) under the record's compact names; absent fields stay absent. */
+export function usageOf(value: unknown): TrajectoryUsage | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const usage = value as Record<string, unknown>
+  const out: TrajectoryUsage = {}
+  if (finite(usage.inputTokens) !== undefined) out.input = usage.inputTokens as number
+  if (finite(usage.outputTokens) !== undefined) out.output = usage.outputTokens as number
+  if (finite(usage.cacheReadTokens) !== undefined) out.cacheRead = usage.cacheReadTokens as number
+  if (finite(usage.cacheWriteTokens) !== undefined) out.cacheWrite = usage.cacheWriteTokens as number
+  return Object.keys(out).length ? out : undefined
+}
+
+/** One line of a `request/header`: the model route and how many tools it declares. */
+function requestSummary(provider: string | undefined, model: string | undefined, tools: number): string {
+  const route = provider && model ? `${provider}/${model}` : model ?? provider ?? 'unknown model'
+  return clip(`${route} · ${tools} ${tools === 1 ? 'tool' : 'tools'}`)
 }
 
 /** One line of a tool call's arguments: its command, path or first text field. */
@@ -89,7 +439,7 @@ export function toOp(receipt: any, checkpoints: readonly any[], current: string 
     ...(Array.isArray(receipt.argv) ? { argv: receipt.argv.filter((w: unknown) => typeof w === 'string') } : {}),
     outcome: receipt.outcome === 'success' || receipt.outcome === 'refusal' ? receipt.outcome : 'unknown',
     ...(text(receipt.code) ? { code: receipt.code } : {}),
-    ...(text(receipt.kind) ? { kind: receipt.kind } : {}),
+    ...(text(receipt.kind) ? { kind: displayKind(receipt.kind) } : {}),
     ...(finite(receipt.at) !== undefined ? { at: receipt.at } : {}),
     ...(finite(receipt.ms) !== undefined ? { ms: receipt.ms } : {}),
     ...(receipt.exit === null || Number.isInteger(receipt.exit) ? { exit: receipt.exit } : {}),
@@ -129,7 +479,149 @@ function preview(parts: readonly string[]): { text: string, truncated: boolean }
 const stepKey = (turn: unknown, step: unknown): string => `${turn}:${step}`
 const integer = (value: unknown): number | undefined => Number.isInteger(value) ? value as number : undefined
 
+// ------------------------------------------------------- a request's tool catalog
+
+/** An object's keys sorted at every level, so equal structures serialize equally. */
+function sortedValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortedValue)
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    const source = value as Record<string, unknown>
+    for (const key of Object.keys(source).sort()) out[key] = sortedValue(source[key])
+    return out
+  }
+  return value
+}
+
+/** A tool's comparable form: its description and parameters, key order ignored. */
+function toolFingerprint(tool: any): string {
+  try {
+    return JSON.stringify(sortedValue({ description: tool?.description ?? null, parameters: tool?.parameters ?? null })) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+/** One header's catalog as name → fingerprint, in header order. */
+function toolFingerprints(tools: unknown): Map<string, string> {
+  const out = new Map<string, string>()
+  if (!Array.isArray(tools)) return out
+  for (const tool of tools) {
+    const name = text(tool?.name)
+    if (name) out.set(name, toolFingerprint(tool))
+  }
+  return out
+}
+
+/** What a catalog gained, lost and kept changed from the previous request to this one. */
+function toolsChangeOf(before: Map<string, string>, after: Map<string, string>): ToolsChange {
+  const added: string[] = []
+  const removed: string[] = []
+  const changed: string[] = []
+  for (const [name, fingerprint] of after) {
+    const was = before.get(name)
+    if (was === undefined) added.push(name)
+    else if (was !== fingerprint) changed.push(name)
+  }
+  for (const name of before.keys()) if (!after.has(name)) removed.push(name)
+  return { added, removed, changed }
+}
+
+/** A tool's description as one preview line: whitespace collapsed, at most {@link TOOL_DESCRIPTION_MAX} characters. */
+function descriptionPreview(value: unknown): { text: string, truncated: boolean } | undefined {
+  if (typeof value !== 'string') return undefined
+  const line = value.replace(/\s+/g, ' ').trim()
+  if (!line) return undefined
+  if (line.length <= TOOL_DESCRIPTION_MAX) return { text: line, truncated: false }
+  return { text: `${line.slice(0, TOOL_DESCRIPTION_MAX - 1)}…`, truncated: true }
+}
+
+/** Top-level properties a parameter schema declares; 0 for a schema without any. */
+function parameterCount(parameters: unknown): number | undefined {
+  if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters)) return undefined
+  const properties = (parameters as Record<string, unknown>).properties
+  if (!properties || typeof properties !== 'object' || Array.isArray(properties)) return 0
+  return Object.keys(properties).length
+}
+
+/** Serialized size, or Infinity for a value JSON cannot hold. */
+function jsonSize(value: unknown): number {
+  try { return JSON.stringify(value)?.length ?? 0 } catch { return Number.POSITIVE_INFINITY }
+}
+
+/**
+ * A request header's parsed tool catalog for the detail, descriptions previewed
+ * and schemas kept as logged. It is packed into {@link DETAIL_MAX} serialized
+ * characters: tools are dropped from the end when they no longer fit, and a
+ * tool whose own schema is too big keeps its name, description and count
+ * without it. `cut` reports either loss so the detail can say `tools`.
+ */
+function toolCatalog(tools: unknown): { tools: TrajectoryTool[], cut: boolean } {
+  const out: TrajectoryTool[] = []
+  if (!Array.isArray(tools)) return { tools: out, cut: false }
+  const budget = DETAIL_MAX
+  let used = 2 // the array's brackets
+  let cut = false
+  for (const raw of tools) {
+    const tool = raw && typeof raw === 'object' ? raw as Record<string, unknown> : undefined
+    const description = descriptionPreview(tool?.description)
+    const parameters = tool?.parameters
+    const count = parameterCount(parameters)
+    const entry: TrajectoryTool = {
+      name: text(tool?.name) ?? '?',
+      ...(description ? { description: description.text, ...(description.truncated ? { descriptionTruncated: true } : {}) } : {}),
+      ...(count !== undefined ? { parameterCount: count } : {}),
+      ...(parameters !== undefined ? { parameters } : {}),
+    }
+    const lean: TrajectoryTool = { ...entry }
+    delete lean.parameters
+    const comma = out.length ? 1 : 0
+    const withSchema = jsonSize(entry) + comma
+    if (used + withSchema <= budget) { out.push(entry); used += withSchema; continue }
+    const without = jsonSize(lean) + comma
+    cut = true
+    if (used + without > budget || !Number.isFinite(without)) break
+    out.push(lean)
+    used += without
+  }
+  return { tools: out, cut }
+}
+
 type ToolEntry = ToolRecord & { turn: number }
+
+/**
+ * A record-producing event's seq, in log order; a repeated tool call counts
+ * once. A window seeds `seen` with the call ids its prefix already logged, so a
+ * repeat inside the window is not counted as a new record.
+ */
+export function recordEventSeqs(events: readonly any[] | undefined, seen?: ReadonlySet<string>): number[] {
+  const out: number[] = []
+  if (!events) return out
+  const calls = new Set<string>(seen)
+  for (const event of events) {
+    const type = event?.type
+    const data = event?.data
+    const seq = integer(event?.seq)
+    if (seq === undefined) continue
+    if (type === 'user/message') { if (data) out.push(seq) }
+    else if (type === 'assistant/message') { if (integer(data?.turn) !== undefined) out.push(seq) }
+    else if (type === 'system/message') { if (data?.message && integer(data?.turn) !== undefined) out.push(seq) }
+    else if (type === 'request/header') { if (data?.header) out.push(seq) }
+    else if (type === 'tool/call') {
+      if (integer(data?.turn) !== undefined && text(data.callId) && !calls.has(data.callId)) {
+        calls.add(data.callId)
+        out.push(seq)
+      }
+    }
+  }
+  return out
+}
+
+/** What a build keeps: a first page keeps only the newest records, with the whole input's totals and counts. */
+export interface TrajectoryBuildScope {
+  /** Keep only the newest `newest` records (a first page); totals, counts and the revision still cover the whole input. */
+  newest?: number
+}
 
 /**
  * The session's trajectory, one pass over the log. Turn attribution: assistant,
@@ -138,12 +630,25 @@ type ToolEntry = ToolRecord & { turn: number }
  * `turn/end`; DSH logs a turn's input right after its `turn/start`). One logged
  * outside any open turn belongs to the next turn to open; at the log's end, with
  * no next `turn/start` yet, that is the last logged turn + 1 (turn 1 when none).
+ *
+ * With `scope.newest`, only those records are materialized (previews, calls and
+ * result text are left unread for the rest), so a tab opening does not pay for
+ * a whole session; `recordTotal`, `counts` and the revision still cover it all.
  */
-/** A call log `kind` that says the call made a version (call-log.ts savedFields). */
-const CREATING_KINDS: ReadonlySet<string> = new Set(['Committed', 'Added', 'Merged'])
-
-export function buildTrajectory(input: TrajectoryInput): TrajectoryAnswer {
+export function buildTrajectory(input: TrajectoryInput, scope: TrajectoryBuildScope = {}): TrajectoryAnswer {
   const { checkpoints, branch } = input
+  // A first-page build reads the whole log for totals but materializes only the
+  // newest records: `keepSeqs` is their event seqs. A short log (or a full
+  // build) keeps everything.
+  const windowCalls = input.window?.seenCalls?.length ? new Set(input.window.seenCalls) : undefined
+  const allSeqs = scope.newest !== undefined && scope.newest > 0 ? recordEventSeqs(input.events, windowCalls) : undefined
+  const keepSeqs = allSeqs && allSeqs.length > scope.newest! ? new Set(allSeqs.slice(-scope.newest!)) : undefined
+  const keep = (seq: number): boolean => keepSeqs === undefined || keepSeqs.has(seq)
+  // The recorded prompt changes (docs/specs/layerfs-trajectory.md): a system or
+  // request record gains only a hint and its predecessor's seq here; the diff
+  // text itself stays behind `session.trajectory.prompt-diff`. A window seeds
+  // the predecessor header so its first request compares against the real one.
+  const prompt = promptChanges(input.events, input.window?.prompt)
   const turns = new Map<number, TrajectoryTurn>()
   const turn = (n: number): TrajectoryTurn => {
     let t = turns.get(n)
@@ -152,13 +657,22 @@ export function buildTrajectory(input: TrajectoryInput): TrajectoryAnswer {
   }
   const tools = new Map<string, ToolEntry>()
   const stepStarts = new Map<string, number>()
+  /** Usage logged on `step/end` (older fixtures and parity notes); the message's own usage wins. */
+  const stepUsages = new Map<string, TrajectoryUsage>()
   let open: number | undefined
   let last: number | undefined
+  /** The last event seq: the observation row sits just after it, once per session. */
+  let lastSeq: number | undefined
+  /** The previous request header's catalog, for this request's change marks; a window seeds it. */
+  let previousTools: Map<string, string> | undefined = input.window?.prompt ? toolFingerprints(input.window.prompt.tools) : undefined
+  /** The step currently open between `step/start` and `step/end`. */
+  let openStep: { turn: number, step: number } | undefined
   let pending: UserRecord[] = []
   for (const event of input.events ?? []) {
     const type = event?.type
     const data = event?.data
     const seq = integer(event?.seq)
+    if (seq !== undefined) lastSeq = seq
     const at = finite(event?.time)
     if (type === 'turn/start') {
       const n = integer(data?.turn)
@@ -175,14 +689,25 @@ export function buildTrajectory(input: TrajectoryInput): TrajectoryAnswer {
       if (open === n) open = undefined
       last = Math.max(last ?? n, n)
     } else if (type === 'step/start') {
-      if (at !== undefined && integer(data?.turn) !== undefined) stepStarts.set(stepKey(data.turn, data.step), at)
+      const n = integer(data?.turn)
+      const step = integer(data?.step)
+      if (at !== undefined && n !== undefined && step !== undefined) stepStarts.set(stepKey(n, step), at)
+      openStep = n !== undefined && step !== undefined ? { turn: n, step } : undefined
+    } else if (type === 'step/end') {
+      const n = integer(data?.turn)
+      const step = integer(data?.step)
+      if (n !== undefined && step !== undefined) {
+        const usage = usageOf(data?.usage)
+        if (usage) stepUsages.set(stepKey(n, step), usage)
+        if (openStep?.turn === n && openStep.step === step) openStep = undefined
+      }
     } else if (type === 'user/message') {
       if (seq === undefined || !data) continue
       const kind = text(data.source?.kind) ?? 'unknown'
-      const p = preview(blocks(data.content, 'text'))
+      const p = keep(seq) ? preview(blocks(data.content, 'text')) : undefined
       const record: UserRecord = {
         kind: kind === 'user' ? 'user' : 'context', seq, turn: open ?? 0, source: kind,
-        ...(at !== undefined ? { at } : {}), text: p.text, ...(p.truncated ? { truncated: true } : {}),
+        ...(at !== undefined ? { at } : {}), text: p?.text ?? '', ...(p?.truncated ? { truncated: true } : {}),
       }
       if (open !== undefined) turn(open).records.push(record)
       else pending.push(record)
@@ -190,22 +715,65 @@ export function buildTrajectory(input: TrajectoryInput): TrajectoryAnswer {
       const n = integer(data?.turn)
       if (seq === undefined || n === undefined) continue
       const content = data.message?.content
-      const p = preview(blocks(content, 'text'))
+      const p = keep(seq) ? preview(blocks(content, 'text')) : undefined
       const toolCalls = Array.isArray(content) ? content.filter((b: any) => b?.type === 'tool-call').length : 0
       const step = integer(data.step)
       const startedAt = step !== undefined ? stepStarts.get(stepKey(n, step)) : undefined
+      const usage = usageOf(data.usage)
       const record: AssistantRecord = {
         kind: 'assistant', seq, turn: n, ...(step !== undefined ? { step } : {}), ...(at !== undefined ? { at } : {}),
-        text: p.text, ...(p.truncated ? { truncated: true } : {}),
+        text: p?.text ?? '', ...(p?.truncated ? { truncated: true } : {}),
         ...(blocks(content, 'reasoning').length ? { thinking: true } : {}),
         toolCalls, ...(startedAt !== undefined ? { startedAt } : {}), ...(data.interrupted === true ? { interrupted: true } : {}),
+        ...(usage ? { usage } : {}),
       }
+      turn(n).records.push(record)
+    } else if (type === 'system/message') {
+      if (seq === undefined || !data?.message) continue
+      const n = integer(data?.turn)
+      if (n === undefined) continue
+      const step = integer(data?.step)
+      const p = keep(seq) ? preview(blocks(data.message.content, 'text')) : undefined
+      const source = text(data.message.source?.name) ?? text(data.message.source?.kind)
+      const changed = prompt.flags.get(seq)
+      const record: SystemRecord = {
+        kind: 'system', seq, turn: n, ...(step !== undefined ? { step } : {}), ...(at !== undefined ? { at } : {}),
+        text: p?.text ?? '', ...(p?.truncated ? { truncated: true } : {}), ...(source ? { source } : {}),
+        ...(changed ? { promptChanged: changed.promptChanged, previousSeq: changed.previousSeq } : {}),
+      }
+      turn(n).records.push(record)
+    } else if (type === 'request/header') {
+      if (seq === undefined || !data?.header) continue
+      // `request/header` names no position: the step it was logged inside is the
+      // assistant step that follows it. Without one, keep the turn it was logged in.
+      const n = openStep?.turn ?? open ?? last ?? 0
+      const step = openStep?.step
+      const header = data.header
+      const provider = text(header?.config?.provider)
+      const model = text(header?.config?.model)
+      const tools = Array.isArray(header?.tools) ? header.tools.length : 0
+      const reason = text(data.reason)
+      const catalog = toolFingerprints(header?.tools)
+      const changed = prompt.flags.get(seq)
+      const record: RequestRecord = {
+        kind: 'request', seq, turn: n, ...(step !== undefined ? { step } : {}), ...(at !== undefined ? { at } : {}),
+        ...(provider ? { provider } : {}), ...(model ? { model } : {}), tools,
+        ...(previousTools ? { toolsChanged: toolsChangeOf(previousTools, catalog) } : {}),
+        ...(reason ? { reason } : {}),
+        summary: requestSummary(provider, model, tools),
+        ...(changed ? { promptChanged: changed.promptChanged, previousSeq: changed.previousSeq } : {}),
+      }
+      previousTools = catalog
       turn(n).records.push(record)
     } else if (type === 'tool/call') {
       const n = integer(data?.turn)
       if (seq === undefined || n === undefined || !text(data.callId) || tools.has(data.callId)) continue
+      // A call whose first occurrence is before the window belongs to that
+      // earlier record; the whole parse drops this repeat.
+      if (windowCalls?.has(data.callId)) continue
+      if (input.window && n < input.window.fromTurn) continue
       const step = integer(data.step)
-      const summary = summarize(data.arguments)
+      const summary = keep(seq) ? summarize(data.arguments) : undefined
       const record: ToolEntry = {
         kind: 'tool', seq, turn: n, ...(step !== undefined ? { step } : {}), ...(at !== undefined ? { at } : {}),
         callId: data.callId, name: text(data.name) ?? '?', ...(summary ? { summary } : {}), ops: [],
@@ -215,12 +783,25 @@ export function buildTrajectory(input: TrajectoryInput): TrajectoryAnswer {
     } else if (type === 'tool/result') {
       const record = tools.get(data?.message?.toolCallId)
       if (!record || record.resultSeq !== undefined) continue
-      const p = preview(blocks(data.message.content, 'text'))
-      record.result = p.text
-      if (p.truncated) record.resultTruncated = true
+      const p = keep(record.seq) ? preview(blocks(data.message.content, 'text')) : undefined
+      if (p) {
+        record.result = p.text
+        if (p.truncated) record.resultTruncated = true
+      }
       if (data.message.isError === true) record.isError = true
       if (seq !== undefined) record.resultSeq = seq
       if (at !== undefined) record.endedAt = at
+    }
+  }
+  // DSH logs a step's usage on its `assistant/message`; the parity note calls it
+  // step usage. A log that also stamps `step/end` covers a message without one.
+  if (stepUsages.size) {
+    for (const t of turns.values()) {
+      for (const record of t.records) {
+        if (record.kind !== 'assistant' || record.usage || record.step === undefined) continue
+        const usage = stepUsages.get(stepKey(record.turn, record.step))
+        if (usage) record.usage = usage
+      }
     }
   }
   if (pending.length) {
@@ -229,6 +810,9 @@ export function buildTrajectory(input: TrajectoryInput): TrajectoryAnswer {
     for (const r of pending) { r.turn = n; t.records.push(r) }
   }
 
+  const allCheckpoints: TraceCheckpointRow[] = []
+  /** The per-turn objects, with their errors and receipt op, for counting only. */
+  const allCheckpointModels: { checkpoint: TraceCheckpoint, turn: number }[] = []
   const byReceipt = new Map<string, TraceCheckpoint>()
   for (const c of checkpoints) {
     if (!c || !Number.isInteger(c.turn)) continue
@@ -238,14 +822,69 @@ export function buildTrajectory(input: TrajectoryInput): TrajectoryAnswer {
       ...(c.error && text(c.error.code) ? { error: { code: c.error.code, message: String(c.error.message ?? '') } } : {}),
     }
     turn(c.turn).checkpoints.push(checkpoint)
+    allCheckpointModels.push({ checkpoint, turn: c.turn })
+    // The strip and the lane are navigation, not records: keep the row lean
+    // (no receipt op, no error) and independent of which turns a page keeps.
+    allCheckpoints.push({
+      turn: c.turn, kind: checkpoint.kind, commit: checkpoint.commit, branch: checkpoint.branch,
+      changed: checkpoint.changed, message: checkpoint.message, at: checkpoint.at,
+    })
     if (text(c.receipt)) byReceipt.set(c.receipt, checkpoint)
   }
+
+  const created = new Set<string>()
+  let unnamed = 0
+  let callsWithVersions = 0
+  /** The versions (and the unnamed kind) a receipt contributes, without building its `TraceOp`. */
+  const receiptMade = (receipt: any): boolean => {
+    let any = false
+    for (const v of Array.isArray(receipt?.versions) ? receipt.versions : []) {
+      if (!v || (v.kind !== 'Commit' && v.kind !== 'Layer') || !text(v.id) || !['created', 'unchanged', 'referenced'].includes(v.effect)) continue
+      if (v.effect === 'created') { created.add(v.id); any = true }
+    }
+    const kind = text(receipt?.kind)
+    if (!any && receipt?.outcome === 'success' && kind && kindFamily(displayKind(kind)) === 'created') { unnamed++; any = true }
+    return any
+  }
   const orphans = new Map<string, { callId: string, ops: TraceOp[] }>()
+  /** A checkpoint's receipt did create a version (counted while the receipts are read). */
+  const checkpointMade = new Map<TraceCheckpoint, boolean>()
+  /** Tool calls whose receipts created a version (the page may not carry their call lines). */
+  const callMade = new Set<string>()
   for (const receipt of input.invocations) {
     if (!receipt || typeof receipt !== 'object' || !text(receipt.id)) continue
     if (text(receipt.sessionId) && receipt.sessionId !== input.sessionId) continue
-    const op = toOp(receipt, checkpoints, branch)
     const n = integer(receipt.turn) ?? 0
+    if (keepSeqs) {
+      // A first page: count every receipt, but build the call line only for a
+      // record (or host/checkpoint call) the page keeps.
+      const callId = text(receipt.toolCallId)
+      // A receipt of a call whose record is before the window is not this
+      // window's (the full page drops the repeated call too).
+      if (callId && windowCalls?.has(callId)) continue
+      const made = receiptMade(receipt)
+      if (callId) {
+        if (made) callMade.add(callId)
+        const record = tools.get(callId)
+        if (record) {
+          if (keepSeqs.has(record.seq)) record.ops.push(toOp(receipt, checkpoints, branch))
+          continue
+        }
+        let orphan = orphans.get(callId)
+        if (!orphan) {
+          orphans.set(callId, orphan = { callId, ops: [] })
+          turn(n).orphanCalls.push(orphan)
+        }
+        orphan.ops.push(toOp(receipt, checkpoints, branch))
+        continue
+      }
+      const op = toOp(receipt, checkpoints, branch)
+      const checkpoint = byReceipt.get(op.id)
+      if (checkpoint) { checkpoint.op = op; checkpointMade.set(checkpoint, made) }
+      else turn(n).hostOps.push(op)
+      continue
+    }
+    const op = toOp(receipt, checkpoints, branch)
     if (text(receipt.toolCallId)) {
       const record = tools.get(receipt.toolCallId)
       if (record) { record.ops.push(op); continue }
@@ -262,33 +901,95 @@ export function buildTrajectory(input: TrajectoryInput): TrajectoryAnswer {
     else turn(n).hostOps.push(op)
   }
 
+  // A first page keeps only its newest records: drop the older turns, and say
+  // how many records each cut turn holds in the whole log. The rest stays
+  // reachable through `olderBefore`, so a cut record reads as not loaded rather
+  // than missing.
+  let firstPageTotal: number | undefined
+  if (keepSeqs) {
+    firstPageTotal = allSeqs!.length
+    let boundary = Number.POSITIVE_INFINITY
+    for (const t of turns.values()) {
+      const full = t.records.length
+      const records = t.records.filter((record) => keepSeqs.has(record.seq))
+      if (records.length !== full) {
+        t.records = records
+        if (records.length) t.totalRecords = full
+      }
+      if (records.length && t.turn < boundary) boundary = t.turn
+    }
+    if (boundary !== Number.POSITIVE_INFINITY) for (const n of [...turns.keys()]) if (n < boundary) turns.delete(n)
+  }
+
+  // The session-level observation row: one line for the read-only host calls the
+  // receipt counter folded, after the newest record (the same place in a whole
+  // build and a first-page build). It is a record like any other, so a page's
+  // byte budget and count include it; when it is kept in both builds, it is
+  // identical. No counters: a write-only session shows no row.
+  const counts = receiptCounts(input)
+  const observation = receiptAggregateLines(counts)
+  if (observation.length) {
+    const target = last ?? 0
+    const record: ObservationRecord = {
+      kind: 'observation',
+      seq: (lastSeq ?? 0) + 1,
+      turn: target,
+      ...(finite(counts?.lastAt) !== undefined ? { at: counts!.lastAt } : {}),
+      text: observation[0]!,
+      top: observation.slice(1),
+      reads: counts!.readsTotal,
+      ...(counts!.truncated ? { truncated: true } : {}),
+    }
+    turn(target).records.push(record)
+    // The first-page total counts every record the whole log holds; the
+    // observation is one of them (and is always among the newest kept).
+    if (keepSeqs) firstPageTotal = (firstPageTotal ?? allSeqs!.length) + 1
+  }
+
   // B2 #3: every version the session made (its turns' checkpoints too), and the tool calls that made one. A saving
   // call whose version is not linked (a commit of a Workspace other than the bound one) still counts, by its kind.
-  const created = new Set<string>()
-  let unnamed = 0
-  let callsWithVersions = 0
-  const madeBy = (op: TraceOp): boolean => {
-    let any = false
-    for (const v of op.versions) if (v.effect === 'created') { created.add(v.id); any = true }
-    if (!any && op.outcome === 'success' && CREATING_KINDS.has(op.kind ?? '')) { unnamed++; any = true }
-    return any
-  }
-  const count = (ops: readonly TraceOp[]): void => { if (ops.map(madeBy).some(Boolean)) callsWithVersions++ }
-  for (const record of tools.values()) count(record.ops)
-  for (const orphan of orphans.values()) count(orphan.ops)
-  for (const t of turns.values()) {
-    for (const op of t.hostOps) madeBy(op)
-    for (const c of t.checkpoints) {
-      const linked = c.op ? madeBy(c.op) : false
-      if (!linked && c.commit && !c.error && c.changed > 0) created.add(c.commit)
+  if (keepSeqs) {
+    // The first page already counted every receipt; only the checkpoint's own
+    // commit can still add a version when its call created none.
+    callsWithVersions = callMade.size
+    for (const { checkpoint, turn } of allCheckpointModels) {
+      // A window cannot see an older turn's save; its receipt and version are
+      // counted only when the window holds them (otherwise the checkpoint's
+      // commit would read as created by the window).
+      if (input.window && turn < input.window.fromTurn) continue
+      const linked = checkpointMade.get(checkpoint) ?? false
+      if (!linked && checkpoint.commit && !checkpoint.error && checkpoint.changed > 0) created.add(checkpoint.commit)
+    }
+  } else {
+    const madeBy = (op: TraceOp): boolean => {
+      let any = false
+      for (const v of op.versions) if (v.effect === 'created') { created.add(v.id); any = true }
+      if (!any && op.outcome === 'success' && kindFamily(op.kind) === 'created') { unnamed++; any = true }
+      return any
+    }
+    const count = (ops: readonly TraceOp[]): void => { if (ops.map(madeBy).some(Boolean)) callsWithVersions++ }
+    for (const record of tools.values()) count(record.ops)
+    for (const orphan of orphans.values()) count(orphan.ops)
+    for (const t of turns.values()) {
+      if (input.window && t.turn < input.window.fromTurn) continue
+      for (const op of t.hostOps) madeBy(op)
+      for (const c of t.checkpoints) {
+        const linked = c.op ? madeBy(c.op) : false
+        if (!linked && c.commit && !c.error && c.changed > 0) created.add(c.commit)
+      }
     }
   }
 
   return {
     sessionId: input.sessionId, project: input.project, branch,
     turns: [...turns.values()].sort((a, b) => a.turn - b.turn),
+    // Every page spreads this answer, so every page carries the whole set.
+    checkpoints: allCheckpoints,
     logLoaded: input.events !== undefined,
+    ...(input.window ? { windowed: true as const, windowFromSeq: input.window.fromSeq, recordTotalKnown: false as const } : {}),
     counts: { versionsCreated: created.size + unnamed, callsWithVersions },
+    revision: trajectoryRevision(input),
+    ...(firstPageTotal !== undefined ? { recordTotal: firstPageTotal } : {}),
   }
 }
 
@@ -306,7 +1007,24 @@ function full<F extends string>(value: string, field: F, cut: F[]): string {
 export function trajectoryDetail(events: readonly any[] | undefined, seq: number): TrajectoryDetail | undefined {
   if (!events || !Number.isInteger(seq)) return undefined
   let call: any
+  /** The last request header before the target: the catalog a change is read against. */
+  let previousRequestSeq: number | undefined
   for (const event of events) {
+    if (event?.type === 'request/header' && event?.data?.header && Number.isInteger(event.seq)) {
+      if (event.seq === seq) {
+        const cut: ('header' | 'tools')[] = []
+        const value = full(JSON.stringify(event.data.header, null, 2) ?? '', 'header', cut)
+        const catalog = toolCatalog(event.data.header?.tools)
+        if (catalog.cut) cut.push('tools')
+        return {
+          seq, kind: 'request', header: value,
+          ...(Array.isArray(event.data.header?.tools) ? { tools: catalog.tools } : {}),
+          ...(previousRequestSeq !== undefined ? { previousRequestSeq } : {}),
+          ...(cut.length ? { truncated: cut } : {}),
+        }
+      }
+      if (event.seq < seq) previousRequestSeq = event.seq
+    }
     if (call) {
       if (event?.type === 'tool/result' && event.data?.message?.toolCallId === call.callId) {
         const cut: ('args' | 'result')[] = []
@@ -318,6 +1036,11 @@ export function trajectoryDetail(events: readonly any[] | undefined, seq: number
     }
     if (event?.seq !== seq) continue
     const data = event.data
+    if (event.type === 'system/message' && data?.message) {
+      const cut: 'text'[] = []
+      const value = full(blocks(data.message.content, 'text').join('\n'), 'text', cut)
+      return { seq, kind: 'system', text: value, ...(cut.length ? { truncated: cut } : {}) }
+    }
     if (event.type === 'user/message' && data) {
       const cut: 'text'[] = []
       const value = full(blocks(data.content, 'text').join('\n'), 'text', cut)

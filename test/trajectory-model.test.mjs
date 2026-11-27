@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  checkpointVersion, durationParts, filterTurns, flattenRows, focusTarget, laneItems, opCommand, opWrites, place,
-  prettyArgs, recentTurns, recordMatches, selectionTurn, shownHostOp, thinLane, timeSpan,
+  checkpointKey, drawLaneMarks, checkpointVersion, compactNumber, durationParts, filterTurns, flattenRows, focusTarget, laneItems, loadedRecords, mergeOlder, opCommand,
+  opWrites, place, prettyArgs, recentTurns, recordMatches, selectionTurn, shownHostOp, thinLane, timeSpan, toolEntries,
 } from '../src/client/views/trajectory-model.ts'
 
 const T0 = 1_700_000_000_000
@@ -39,6 +39,18 @@ const turn2 = {
   checkpoints: [],
 }
 const answer = { sessionId: 's', project: 'st/p', branch: 'b1', turns: [turn1, turn2], logLoaded: true, counts: { versionsCreated: 2, callsWithVersions: 1 } }
+
+const parityTurn = {
+  turn: 3, at: T0 + 30_000, endAt: T0 + 30_010,
+  records: [
+    { kind: 'system', seq: 20, turn: 3, step: 1, at: T0 + 30_000, text: 'You are a careful agent', source: 'system-prompt', truncated: true },
+    { kind: 'user', seq: 21, turn: 3, at: T0 + 30_001, source: 'user', text: 'go' },
+    { kind: 'request', seq: 22, turn: 3, step: 1, at: T0 + 30_002, provider: 'deepseek', model: 'deepseek-chat', tools: 3, reason: 'initial', summary: 'deepseek/deepseek-chat · 3 tools' },
+    { kind: 'assistant', seq: 23, turn: 3, step: 1, at: T0 + 30_009, startedAt: T0 + 30_002, text: 'ok', toolCalls: 0, usage: { input: 1200, output: 340 } },
+  ],
+  orphanCalls: [], hostOps: [], checkpoints: [],
+}
+const parityAnswer = { ...answer, turns: [parityTurn] }
 
 test('opWrites: writes and version-naming calls; reads without versions are not', () => {
   assert.equal(opWrites(exec), true)
@@ -186,4 +198,192 @@ test('thinLane: a crowded lane keeps one mark per bin, preferring the selected i
   const few = thinLane(items.slice(0, 50), span, null, 100)
   assert.equal(few.length, 50, 'a lane within the cap is drawn as is')
   assert.ok(few.every((m) => m.more === 0))
+})
+
+
+test('drawLaneMarks: marks landing on each other draw once; a checkpoint always survives', () => {
+  const span = { start: 0, end: 1000 }
+  const at = (start, key, select, tone) => ({ start, end: start, key, select, tone, more: 0 })
+  // Two records at (almost) the same instant, as two assistant steps seconds apart in a long session are.
+  const merged = drawLaneMarks([at(0, 'r1', 'r:1'), at(0.1, 'r2', 'r:2'), at(500, 'r3', 'r:3')], span, 5, null)
+  assert.equal(merged.length, 2, 'the pair at 0/0.1 collapses')
+  assert.equal(merged[0].select, 'r:1', 'the first of a point group keeps the mark')
+  assert.equal(merged[0].more, 1, 'and counts the record it stands for')
+  assert.equal(merged[1].select, 'r:3')
+  // The selected item wins the group.
+  const picked = drawLaneMarks([at(0, 'r1', 'r:1'), at(0.1, 'r2', 'r:2')], span, 5, 'r:2')
+  assert.equal(picked.length, 1)
+  assert.equal(picked[0].select, 'r:2')
+  assert.equal(picked[0].more, 1)
+  // A checkpoint is never hidden by a nearby op, and two checkpoints never merge.
+  const cp = at(0, 'cp1:0', 'c:1:0')
+  const withOp = drawLaneMarks([cp, at(0.2, 'op1', 'c:1:0')], span, 5, null)
+  assert.equal(withOp.length, 1)
+  assert.equal(withOp[0].key, 'cp1:0')
+  assert.equal(withOp[0].more, 1)
+  const twoCps = drawLaneMarks([cp, { ...at(0.1, 'cp1:1', 'c:1:1') }], span, 5, null)
+  assert.equal(twoCps.length, 2, 'both checkpoints keep their mark')
+  // A mark whose box overlaps a long bar collapses into it; a clear one does not.
+  const bar = { start: 0, end: 50, key: 'r9', select: 'r:9', more: 0 }
+  const inside = drawLaneMarks([bar, at(10, 'r10', 'r:10')], span, 0, null)
+  assert.equal(inside.length, 1, 'a point inside a bar is not painted over it')
+  const clear = drawLaneMarks([bar, at(60, 'r10', 'r:10')], span, 0, null)
+  assert.equal(clear.length, 2, 'a mark past the bar keeps its own')
+})
+
+test('system and request records: search words, lane, rows and the only-writes filter', () => {
+  const [system, user, request] = parityTurn.records
+  assert.equal(recordMatches(system, 'careful'), true)
+  assert.equal(recordMatches(system, 'system-prompt'), true)
+  assert.equal(recordMatches(request, 'deepseek-chat'), true)
+  assert.equal(recordMatches(request, '3 tools'), true)
+  assert.equal(recordMatches(user, 'careful'), false)
+
+  // Only LayerFS writes keeps tool calls only; messages never survive it.
+  assert.deepEqual(filterTurns([parityTurn], { onlyWrites: true, query: '' }), [])
+  const found = filterTurns([parityTurn], { onlyWrites: false, query: 'deepseek' })
+  assert.deepEqual(found.map((t) => t.turn), [3])
+  assert.deepEqual(found[0].records.map((r) => r.seq), [22])
+
+  // Rows: system and request are ordinary records (not context folds).
+  const rows = flattenRows([parityTurn], { turnOpen: () => true, callOpen: () => true, contextOpen: () => false })
+  assert.deepEqual(rows.map((r) => r.type === 'record' ? [r.record.seq, r.record.kind] : r.type), [
+    'turn', [20, 'system'], [21, 'user'], [22, 'request'], [23, 'assistant'],
+  ])
+  assert.ok(!rows.some((r) => r.type === 'contextToggle'), 'system/request are not context messages')
+})
+
+test('system and request stay in the Input lane; assistant usage changes no lane', () => {
+  const items = laneItems([parityTurn], T0 + 40_000)
+  const input = items.filter((i) => i.lane === 'input')
+  assert.deepEqual(input.map((i) => [i.select, i.label]), [
+    ['r:20', 'You are a careful agent'],
+    ['r:21', 'go'],
+    ['r:22', 'deepseek/deepseek-chat · 3 tools'],
+  ])
+  assert.deepEqual(items.filter((i) => i.lane === 'model').map((i) => i.select), ['r:23'])
+  assert.ok(!items.some((i) => i.lane === 'system'), 'no new lane')
+  assert.deepEqual(timeSpan([parityTurn], T0), { start: T0 + 30_000, end: T0 + 31_000 })
+})
+
+test('selection and focus reach system/request records by their seq', () => {
+  assert.equal(focusTarget(parityAnswer, JSON.stringify({ seq: 20 })).record.kind, 'system')
+  assert.equal(focusTarget(parityAnswer, JSON.stringify({ seq: 22 })).record.kind, 'request')
+  assert.equal(selectionTurn(parityAnswer, 'r:20'), 3)
+  assert.equal(selectionTurn(parityAnswer, 'r:22'), 3)
+})
+
+test('compactNumber: whole counts below 1000, one decimal below ten, k and m above', () => {
+  assert.equal(compactNumber(0), '0')
+  assert.equal(compactNumber(340), '340')
+  assert.equal(compactNumber(999), '999')
+  assert.equal(compactNumber(1000), '1k')
+  assert.equal(compactNumber(1200), '1.2k')
+  assert.equal(compactNumber(12_345), '12k')
+  assert.equal(compactNumber(150_000), '150k')
+  assert.equal(compactNumber(1_200_000), '1.2m')
+  assert.equal(compactNumber(2_000_000), '2m')
+  assert.equal(compactNumber(Number.NaN), '—')
+})
+
+test('toolEntries: header order with change marks, then removed tools with their previous values', () => {
+  const tools = [
+    { name: 'bash', description: 'run a shell command', parameterCount: 1 },
+    { name: 'glob', description: 'find files', parameterCount: 1 },
+    { name: 'write', description: 'write a file', parameterCount: 0 },
+  ]
+  const change = { added: ['glob'], removed: ['read'], changed: ['bash'] }
+  const previous = [
+    { name: 'bash', description: 'run a command', parameterCount: 1 },
+    { name: 'read', description: 'read a file', parameterCount: 2 },
+    { name: 'write', description: 'write a file', parameterCount: 0 },
+  ]
+  const entries = toolEntries(tools, change, previous)
+  assert.deepEqual(entries.map((entry) => [entry.name, entry.mark ?? null]), [
+    ['bash', '~'], ['glob', '+'], ['write', null], ['read', '−'],
+  ])
+  assert.equal(entries[0].previous.description, 'run a command', 'a changed tool carries its earlier value')
+  assert.equal(entries[1].previous, undefined, 'an added tool has no earlier value')
+  assert.equal(entries[3].previous.description, 'read a file', 'a removed tool comes from the previous catalog')
+
+  // Without the previous catalog (not read yet): names and marks only.
+  const bare = toolEntries(tools, change, undefined)
+  assert.deepEqual(bare.map((entry) => [entry.name, entry.mark ?? null]), [['bash', '~'], ['glob', '+'], ['write', null], ['read', '−']])
+  assert.ok(bare.every((entry) => entry.previous === undefined))
+
+  // No change: no marks, no removed entries.
+  assert.deepEqual(toolEntries(tools, { added: [], removed: [], changed: [] }, undefined).map((entry) => entry.mark ?? null), [null, null, null])
+  assert.deepEqual(toolEntries(tools, undefined, undefined).map((entry) => entry.mark ?? null), [null, null, null])
+  assert.deepEqual(toolEntries([], { added: [], removed: [], changed: [] }, undefined), [])
+})
+
+
+// ---------------------------------------------------- paging on screen
+
+const paged = {
+  ...answer, revision: 'r1', recordTotal: 4, hasMore: true, olderBefore: 4,
+  turns: [{ ...turn2, records: [turn2.records[1]], totalRecords: 2 }],
+}
+const olderPage = {
+  ...answer, revision: 'r2', recordTotal: 4,
+  turns: [
+    { ...turn1, records: [turn1.records[0]], checkpoints: [], hostOps: [], orphanCalls: [] },
+    { ...turn2, records: [turn2.records[0]], checkpoints: [], hostOps: [], orphanCalls: [] },
+  ],
+}
+
+test('loadedRecords counts what the answer carries', () => {
+  assert.equal(loadedRecords(answer), turn1.records.length + turn2.records.length)
+  assert.equal(loadedRecords(paged), 1)
+})
+
+test('mergeOlder appends records in log order, keeps the newer turn and takes the older cursor', () => {
+  const merged = mergeOlder(paged, olderPage)
+  assert.equal(merged.revision, 'r1', 'the revision the first page was built from stays')
+  assert.equal(merged.recordTotal, 4)
+  assert.equal(merged.hasMore, undefined, 'the older page exhausted the history')
+  assert.equal(merged.olderBefore, undefined)
+  assert.deepEqual(merged.turns.map((turn) => turn.turn), [1, 2], 'an older turn joins the list, ordered')
+  const turn = merged.turns.find((t) => t.turn === 2)
+  assert.deepEqual(turn.records.map((r) => r.seq), [10, 11], 'log order')
+  assert.equal(turn.totalRecords, 2, 'the first page keeps its total')
+  assert.equal(turn.checkpoints.length, paged.turns[0].checkpoints.length, 'the newer turn keeps its checkpoints')
+  assert.equal(loadedRecords(merged), 3, 'the older page\'s records plus the first page\'s')
+})
+
+test('mergeOlder keeps the older cursor while records remain, and never repeats a record', () => {
+  const more = { ...olderPage, hasMore: true, olderBefore: 9, turns: [{ ...turn2, records: [turn2.records[0], turn2.records[1]], checkpoints: [], hostOps: [], orphanCalls: [] }] }
+  const merged = mergeOlder(paged, more)
+  assert.equal(merged.hasMore, true)
+  assert.equal(merged.olderBefore, 9)
+  assert.equal(merged.turns.find((t) => t.turn === 2).records.length, 2, 'the already loaded record is not repeated')
+  const again = mergeOlder(merged, more)
+  assert.equal(again.turns.find((t) => t.turn === 2).records.length, 2)
+})
+
+const cpRow = (turn, at, kind = 'turn') => ({
+  turn, kind, commit: `12${String(turn).padStart(64, '0')}`, branch: 'b1',
+  changed: kind === 'base' ? 0 : 1, message: `${kind} ${turn}`, at,
+})
+const checkpointTicks = (items) => items.filter((item) => item.lane === 'layerfs' && item.select?.startsWith('c:'))
+
+test('a page whose turns are newer than every checkpoint still ticks the base and all eight', () => {
+  const newer = { ...turn2, records: [turn2.records[0]], orphanCalls: [], hostOps: [], checkpoints: [] }
+  const base = cpRow(0, T0 - 5000, 'base')
+  assert.equal(checkpointTicks(laneItems([newer], T0 + 20_000, [base])).length, 1, 'the base tick at 0:00')
+  const eight = [base, ...[7, 46, 171, 188, 195, 199, 210].map((turn, i) => cpRow(turn, T0 + 30_000 + i))]
+  const items = laneItems([newer], T0 + 40_000, eight)
+  assert.equal(checkpointTicks(items).length, 8, 'one LayerFS tick per checkpoint even with no turn loaded')
+  assert.equal(timeSpan([newer], T0 + 40_000, eight)?.start, base.at, 'the axis reaches the base checkpoint')
+})
+
+test('a loaded turn\'s checkpoints are not ticked twice, and a checkpoint outside it still ticks', () => {
+  const loaded = { ...turn1, checkpoints: [{ ...turn1.checkpoints[0], turn: 1 }] }
+  const base = cpRow(0, T0 - 5000, 'base')
+  const outside = cpRow(2, T0 + 20_000)
+  const items = laneItems([loaded], T0 + 20_000, [base, { ...loaded.checkpoints[0], turn: 1 }, outside])
+  const ticks = checkpointTicks(items)
+  assert.equal(ticks.length, 3, 'base, the loaded turn, and the unloaded turn once each')
+  assert.deepEqual(ticks.map((item) => item.select), [checkpointKey(1, 0), checkpointKey(0, 0), checkpointKey(2, 0)])
+  assert.equal(new Set(items.map((item) => item.key)).size, items.length, 'no duplicate keys')
 })

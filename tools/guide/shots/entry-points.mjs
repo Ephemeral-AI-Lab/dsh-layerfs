@@ -37,9 +37,10 @@ async function newMenu(page, h, item) {
 /** Replace the home folder (/Users/<name>) with ~ in the page's text, so no account name shows. */
 async function maskHome(page) {
   await page.evaluate(() => {
+    const home = /(?:\/Users|\/home)\/[^/\s]+/g
     const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
-    for (let n = walk.nextNode(); n; n = walk.nextNode()) if (/\/Users\/[^/\s]+/.test(n.nodeValue)) n.nodeValue = n.nodeValue.replace(/\/Users\/[^/\s]+/g, '~')
-    for (const el of document.querySelectorAll('[title]')) { const v = el.getAttribute('title'); if (/\/Users\//.test(v)) el.setAttribute('title', v.replace(/\/Users\/[^/\s]+/g, '~')) }
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) if (home.test(n.nodeValue)) n.nodeValue = n.nodeValue.replace(home, '~')
+    for (const el of document.querySelectorAll('[title]')) { const v = el.getAttribute('title'); if (/(?:\/Users|\/home)\//.test(v)) el.setAttribute('title', v.replace(home, '~')) }
   })
 }
 
@@ -98,7 +99,7 @@ export default [
       (p) => lfsView(p).getByRole('button', { name: 'Toggle conversations in handbook' }),
       (p) => lfsView(p).getByRole('button', { name: 'Set up handbook' }),
       (p) => lfsView(p).getByRole('button', { name: 'New session in handbook' }),
-      (p) => lfsView(p).getByRole('button', { name: 'New session', exact: true }),
+      (p) => lfsView(p).getByRole('button', { name: /^Fake session/ }).first(),
     ],
   },
   {
@@ -135,8 +136,7 @@ export default [
     file: 'entry-project-new',
     run: async (page, h) => { await newMenu(page, h, 'New project'); await h.wait(500) },
     callouts: [
-      (p) => dialog(p).getByRole('navigation', { name: 'Steps' }),
-      (p) => dialog(p).getByRole('radiogroup').first(),
+      (p) => dialog(p).getByRole('radiogroup'),
       (p) => dialog(p).getByRole('button', { name: 'Cancel' }),
       (p) => dialog(p).getByRole('button', { name: 'Create and open' }),
     ],
@@ -145,15 +145,15 @@ export default [
     file: 'entry-project-store',
     run: async (page, h) => {
       await newMenu(page, h, 'New project')
-      await dialog(page).getByRole('navigation', { name: 'Steps' }).getByRole('button', { name: /Store/ }).click(); await h.wait(1200)
+      await dialog(page).getByRole('radio').filter({ hasText: /SQLite/ }).first().scrollIntoViewIfNeeded(); await h.wait(1200)
     },
-    callouts: [(p) => dialog(p).getByRole('radio', { name: /SQLite/ }), (p) => dialog(p).getByRole('radio', { name: /PostgreSQL/ })],
+    callouts: [(p) => dialog(p).getByRole('radio').filter({ hasText: /SQLite/ }).first(), (p) => dialog(p).getByRole('radio').filter({ hasText: /PostgreSQL/ }).first()],
   },
   {
     file: 'entry-project-machine',
     run: async (page, h) => {
       await newMenu(page, h, 'New project')
-      await dialog(page).getByRole('navigation', { name: 'Steps' }).getByRole('button', { name: /Machine/ }).click(); await h.wait(1500)
+      await dialog(page).getByRole('radio', { name: /docker/ }).scrollIntoViewIfNeeded(); await h.wait(1500)
     },
   },
   {
@@ -161,7 +161,7 @@ export default [
     run: async (page, h) => {
       await newMenu(page, h, 'New project')
       await dialog(page).getByRole('radio', { name: /PostgreSQL/ }).click(); await h.wait(1200)
-      await dialog(page).getByRole('navigation', { name: 'Steps' }).getByRole('button', { name: /Store/ }).click(); await h.wait(1200)
+      await dialog(page).getByText('Database URL', { exact: true }).scrollIntoViewIfNeeded(); await h.wait(1200)
     },
   },
   {
@@ -192,6 +192,20 @@ export default [
       await setup(page, h)
       await dialog(page).getByRole('button', { name: /^(Change|Choose)…$/ }).click(); await h.wait(2000)
       await maskHome(page)
+    },
+  },
+  {
+    // 390x844: the shell gives the dialog its full height; the form scrolls, the head and footer stay
+    file: 'entry-project-phone', size: '390x844',
+    run: async (page, h) => {
+      await h.center()
+      const sw = page.locator('[data-layerfs-view-switch]').first()
+      if (!(await sw.isVisible().catch(() => false))) await page.getByRole('button', { name: 'LayerFS Projects', exact: true }).click()
+      if ((await sw.getAttribute('aria-label')) !== 'Show DSH workspaces') { await sw.click(); await h.wait(2000) }
+      await page.getByRole('button', { name: 'New session or project' }).click()
+      await page.getByRole('menuitem', { name: 'New project' }).click()
+      await dialog(page).getByText('Save to', { exact: true }).waitFor({ timeout: 15000 })
+      await h.wait(1500)
     },
   },
 ]

@@ -3,9 +3,9 @@
  * they open), the open files as tabs, and the selected file read-only. Shared
  * by Storage's project page and the per-session LayerFS panel.
  */
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { FileTypeIcon, IconCloseOutlineRegular, IconSearchOutlineRegular, Input } from '@deepseek-ai/dsh-client-ui-primitives'
+import { FileTypeIcon, IconCloseOutlineRegular, IconFlatListOutlineRegular, IconSearchOutlineRegular, Input } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { removesMachine } from '../../shared/doctor.ts'
 import { filesApi } from './api.ts'
@@ -88,6 +88,11 @@ function FilesFrame({ api, project, t, branches, initialBranch, initialPin, init
   const [tabs, setTabs] = useState<string[]>(initialPath ? [initialPath] : [])
   const [active, setActive] = useState<string | undefined>(initialPath)
   const [query, setQuery] = useState('')
+  // At tablet and phone widths the folder tree is a drawer over the file, so the
+  // open file keeps the width; it opens on the row of the file in view.
+  const [treeOpen, setTreeOpen] = useState(false)
+  const treeId = useId()
+  const treeScroll = useRef<HTMLDivElement>(null)
   // Code, Blame or History stays chosen across files.
   const [mode, setMode] = useState<FileMode>('code')
   const openRef = useRef(open)
@@ -128,6 +133,7 @@ function FilesFrame({ api, project, t, branches, initialBranch, initialPin, init
   const openFile = (entry: FsEntry) => {
     setTabs((all) => (all.includes(entry.path) ? all : [...all, entry.path]))
     setActive(entry.path)
+    setTreeOpen(false)
   }
   const closeFile = (path: string) => {
     const next = tabs.filter((p) => p !== path)
@@ -135,12 +141,29 @@ function FilesFrame({ api, project, t, branches, initialBranch, initialPin, init
     if (active === path) setActive(next.at(-1))
   }
   const choose = (name: string) => { setRef(name); setPin(undefined); onBranchChange?.(name) }
+  // A drawer opened elsewhere in the tree comes back to the file on screen:
+  // the row is scrolled into the drawer, never the page.
+  useEffect(() => {
+    if (!treeOpen) return
+    const box = treeScroll.current
+    const row = box?.querySelector<HTMLElement>('[data-active]')
+    if (!box || !row) return
+    const r = row.getBoundingClientRect()
+    const b = box.getBoundingClientRect()
+    if (r.top < b.top || r.bottom > b.bottom) box.scrollTop += r.top - b.top - 8
+  }, [treeOpen, active, ref, at])
 
   return (
     <div className={clsx(css.frameWrap, className)}><div className={css.frame}>
-      <aside className={css.side} aria-label={t('files_tree')}>
+      <aside id={treeId} className={css.side} data-open={treeOpen || undefined} aria-label={t('files_tree')}
+        onKeyDown={(e) => { if (e.key === 'Escape' && treeOpen) { e.stopPropagation(); setTreeOpen(false) } }}>
         <div className={css.sideHead}>
-          {!savedOnly ? <BranchPicker branches={branches} value={ref} onChange={choose} t={t} /> : null}
+          <div className={css.sideTop}>
+            {!savedOnly ? <BranchPicker branches={branches} value={ref} onChange={choose} t={t} /> : null}
+            <button type="button" className={css.drawerClose} aria-label={t('files_close', { name: t('files_tree') })} onClick={() => setTreeOpen(false)}>
+              <IconCloseOutlineRegular size={16} />
+            </button>
+          </div>
           {more ? <button type="button" className={css.linkButton} onClick={more}>{t('files_moreBranches')}</button> : null}
           <p className={css.savedAt} title={at}>
             {t('files_saved', { id: shortId(at) })}
@@ -149,13 +172,18 @@ function FilesFrame({ api, project, t, branches, initialBranch, initialPin, init
           <Input className={css.find} icon={<IconSearchOutlineRegular size={14} />} placeholder={t('files_findPlaceholder')} aria-label={t('files_findPlaceholder')}
             value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape' && query) { e.preventDefault(); setQuery('') } }} />
         </div>
-        <div className={css.treeScroll}>
+        <div className={css.treeScroll} ref={treeScroll}>
           <FileTree dirs={dirs} open={open} nexts={nexts} selected={active} order={byKind} filter={query}
             onToggle={toggle} onOpen={openFile} onMore={load} labels={treeLabels(t)} />
         </div>
       </aside>
       <section className={css.main}>
-        <div className={css.tabs} role="tablist" aria-label={t('files_openFiles')}>
+        <div className={css.tabsRow}>
+          <button type="button" className={css.treeToggle} aria-label={t('files_tree')} title={t('files_tree')}
+            aria-expanded={treeOpen} aria-controls={treeId} onClick={() => setTreeOpen((v) => !v)}>
+            <IconFlatListOutlineRegular size={16} />
+          </button>
+          <div className={css.tabs} role="tablist" aria-label={t('files_openFiles')}>
           {tabs.map((p) => {
             const name = p.split('/').pop() || p
             const on = p === active
@@ -172,6 +200,7 @@ function FilesFrame({ api, project, t, branches, initialBranch, initialPin, init
             )
           })}
           {tabs.length === 0 ? <span className={css.tabsNote}>{t('files_readOnly')}</span> : null}
+          </div>
         </div>
         <div className={css.viewer}>
           {active

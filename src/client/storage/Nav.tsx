@@ -10,9 +10,9 @@
  * sideways without going back. Jump to lists every machine, Store, project,
  * Sandbox, bucket and available session with where it lives, filtered as you type.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { Button, IconChevronDownOutlineRegular, IconChevronLeftOutlineRegular, IconChevronRightOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, IconSettingsOutlineRegular, IconShieldOutlineRegular, Menu, MenuItemButton, Modal, ShortcutKeys, modalSelector } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChevronDownOutlineRegular, IconChevronLeftOutlineRegular, IconChevronRightOutlineRegular, IconEllipsisOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, IconSettingsOutlineRegular, IconShieldOutlineRegular, Menu, MenuItemButton, Modal, ShortcutKeys, modalSelector } from '@deepseek-ai/dsh-client-ui-primitives'
 import { StatusDot } from '../ui/StatusDot.tsx'
 import type { DoctorFinding } from '../../shared/doctor.ts'
 import { LogsPanelIcon } from '../logs/index.tsx'
@@ -124,6 +124,13 @@ const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigat
 export function NavBar({ t, history, crumbs, jump, sessions, onSession, jobs, findings, refreshing, onRefresh, add, onOpen }: NavBarProps): ReactNode {
   const [jumping, setJumping] = useState(false)
   const barRef = useRef<HTMLElement>(null)
+  const crumbListRef = useRef<HTMLOListElement | null>(null)
+  // A phone's breadcrumb scrolls sideways: keep the page showing in sight when
+  // the crumbs change (Home is current, or Logs, Doctor, a Store …).
+  useLayoutEffect(() => {
+    const list = crumbListRef.current
+    if (list) list.scrollLeft = list.scrollWidth
+  }, [crumbs])
   // ⌘K / Ctrl+K opens Jump to while this page shows and nothing modal is open over it.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -146,7 +153,7 @@ export function NavBar({ t, history, crumbs, jump, sessions, onSession, jobs, fi
           icon={<IconChevronRightOutlineRegular size={16} />} onClick={history.forward} />
       </span>
       <nav className={css.crumbs} aria-label={t('crumbsLabel')}>
-        <ol className={css.crumbList}>
+        <ol className={css.crumbList} ref={crumbListRef}>
           {crumbs.map((c, i) => (
             <li key={c.key} className={css.crumbItem}>
               {i > 0 ? <IconChevronRightOutlineRegular size={12} className={css.crumbSep} aria-hidden="true" /> : null}
@@ -162,17 +169,18 @@ export function NavBar({ t, history, crumbs, jump, sessions, onSession, jobs, fi
           <span className={css.jumpText}>{t('jumpTo')}</span>
           <ShortcutKeys keys={[isMac ? '⌘' : 'Ctrl', 'K']} className={css.jumpKeys} />
         </button>
-        <Button variant="ghost" size="sm" className={findings.length ? css.countButton : css.iconButton} icon={<IconShieldOutlineRegular size={15} />}
+        <Button variant="ghost" size="sm" className={findings.length ? clsx(css.countButton, css.secondaryTool) : clsx(css.iconButton, css.secondaryTool)} icon={<IconShieldOutlineRegular size={15} />}
           onClick={() => onOpen('health')} aria-label={t('navHealth')} title={findings.length ? t('navHealthFindings', { n: findings.length }) : t('navHealth')}>
           {findings.length ? <span className={css.toolCount} data-tone={findings.some((f) => f.severity === 'error') ? 'danger' : 'warning'}>{findings.length}</span> : null}
         </Button>
-        <Button variant="ghost" size="sm" className={css.iconButton} icon={<LogsPanelIcon size={15} />} onClick={() => onOpen('logs')} aria-label={t('navLogs')} title={t('navLogs')} />
-        <Button variant="ghost" size="sm" className={css.iconButton} icon={<IconSettingsOutlineRegular size={15} />} onClick={() => setupDialog.open()} aria-label={t('navSettings')} title={t('navSettings')} />
+        <Button variant="ghost" size="sm" className={clsx(css.iconButton, css.secondaryTool)} icon={<LogsPanelIcon size={15} />} onClick={() => onOpen('logs')} aria-label={t('navLogs')} title={t('navLogs')} />
+        <Button variant="ghost" size="sm" className={clsx(css.iconButton, css.secondaryTool)} icon={<IconSettingsOutlineRegular size={15} />} onClick={() => setupDialog.open()} aria-label={t('navSettings')} title={t('navSettings')} />
         {onRefresh ? (
-          <Button variant="ghost" size="sm" className={css.iconButton} aria-label={t('refresh')} title={t('refresh')} aria-busy={refreshing}
+          <Button variant="ghost" size="sm" className={clsx(css.iconButton, css.secondaryTool)} aria-label={t('refresh')} title={t('refresh')} aria-busy={refreshing}
             icon={refreshing ? <StatusDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={15} />} onClick={onRefresh} />
         ) : null}
         <AddMenu items={add} t={t} />
+        <NavMore t={t} findings={findings} refreshing={refreshing} onRefresh={onRefresh} onOpen={onOpen} jobs={running} />
       </span>
       {jumping ? <JumpDialog items={jump} sessions={sessions} onSession={(id) => { setJumping(false); onSession(id) }} t={t} onClose={() => setJumping(false)} onOpen={(id) => { setJumping(false); onOpen(id) }} /> : null}
     </header>
@@ -248,6 +256,43 @@ function Jobs({ jobs, t, onOpen }: { jobs: readonly StorageJob[], t: StorageT, o
             <span className={css.siblingName}>{j.store}</span>
             <span className={css.siblingMeta}>{`${doingWords(j, t)} · ${pct(j)}%`}</span>
           </span>
+        </MenuItemButton>
+      ))}
+    </Menu>
+  )
+}
+
+/** The bar's phone menu: Doctor, Logs, Settings, Refresh and every transfer behind one 44 px target. */
+function NavMore({ t, findings, refreshing, onRefresh, onOpen, jobs }: {
+  t: StorageT
+  findings: readonly DoctorFinding[]
+  refreshing: boolean
+  onRefresh?: (() => void) | undefined
+  onOpen: (id: TabId) => void
+  jobs: readonly StorageJob[]
+}): ReactNode {
+  const [open, setOpen] = useState(false)
+  const tone = findings.some((f) => f.severity === 'error') ? 'danger' : findings.length ? 'warning' : undefined
+  return (
+    <Menu open={open} onClose={() => setOpen(false)} portal autoFocus align="end" listClassName={css.moreList}
+      anchor={(
+        <Button variant="ghost" size="sm" className={clsx(css.iconButton, css.moreTool)} aria-label={t('navMore')} title={t('navMore')}
+          aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)} icon={<IconEllipsisOutlineRegular size={16} />}>
+          {tone ? <span className={css.moreDot} data-tone={tone} aria-hidden="true" /> : null}
+        </Button>
+      )}>
+      <MenuItemButton icon={<IconShieldOutlineRegular size={14} />} onSelect={() => { setOpen(false); onOpen('health') }}>
+        {findings.length ? t('navHealthFindings', { n: findings.length }) : t('navHealth')}
+      </MenuItemButton>
+      <MenuItemButton icon={<LogsPanelIcon size={14} />} onSelect={() => { setOpen(false); onOpen('logs') }}>{t('navLogs')}</MenuItemButton>
+      <MenuItemButton icon={<IconSettingsOutlineRegular size={14} />} onSelect={() => { setOpen(false); setupDialog.open() }}>{t('navSettings')}</MenuItemButton>
+      {onRefresh ? (
+        <MenuItemButton icon={<IconRefreshOutlineRegular size={14} />} disabled={refreshing} onSelect={() => { setOpen(false); onRefresh() }}>{t('refresh')}</MenuItemButton>
+      ) : null}
+      {jobs.map((j, i) => (
+        <MenuItemButton key={j.id} separatorBefore={i === 0} icon={<StatusDot state="ongoing" size={10} />}
+          onSelect={() => { setOpen(false); onOpen(`store:${j.store}`) }}>
+          {`${j.store} · ${doingWords(j, t)} · ${jobPercent(j)}%`}
         </MenuItemButton>
       ))}
     </Menu>

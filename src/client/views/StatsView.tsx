@@ -7,20 +7,21 @@
 import type { ReactNode } from 'react'
 import { openStorage } from '../projects/navigation.ts'
 import { ProjectStorage } from '../storage/ProjectStorage.tsx'
-import { Gate, useNoComposer, type ViewProps } from './FileViews.tsx'
+import { Gate, useNoComposer, ViewCrumb, type ViewProps } from './FileViews.tsx'
 import { useRootState } from './hooks.ts'
 import css from './views.module.css'
 
 export function StatsView(props: ViewProps): ReactNode {
   const { api, t, storageT, sessionId, sessions } = props
-  useNoComposer(props.hideComposer)
   const state = useRootState(api, sessionId, sessions)
+  useNoComposer(props.hideComposer, !!state.view?.binding)
   return (
     <Gate state={state} t={t}>
       {(_view, project) => (
         <div className={css.frame}>
+          <ViewCrumb label={t('tabStats')} t={t} />
           <div className={css.scroll}>
-            <ProjectStorage key={project} api={api} t={storageT} project={project} tick={state.tick}
+            <ProjectStorage key={project} api={api} t={storageT} project={project} tick={state.contentTick}
               hero={false} onOpenStore={(store) => openStorage(api, `store:${store}`)} />
           </div>
         </div>

@@ -12,6 +12,8 @@ import { unsavedCount } from './model.ts'
 import { ProjectFiles } from '../files/ProjectFiles.tsx'
 import { ProjectHistory } from '../files/ProjectHistory.tsx'
 import { parseFocus, useRootState, type SessionsSource, type SessionStateView, type ViewFocus } from './hooks.ts'
+import type { LiveStepsSource } from './live-step.ts'
+import { branchLabel } from './branch-label.ts'
 import type { Translate } from './locale.ts'
 import type { StorageT } from '../storage/locale.ts'
 import css from './views.module.css'
@@ -29,6 +31,8 @@ export interface ViewInjected {
   /** The Storage page's copy, for the views that mount its panels (Stats). */
   storageT: StorageT
   sessions: SessionsSource | undefined
+  /** The running assistant step's streamed text (client-only; absent without a live session feed). */
+  liveStep?: LiveStepsSource
   /** Hides the chat composer until the returned release runs. */
   hideComposer: () => () => void
 }
@@ -79,6 +83,17 @@ function useFocus(id: string, { viewRequest, completeViewRequest }: ViewOwner): 
   return focus
 }
 
+/** A phone's one-line "Files · this session": the strip collapses the tab into its More menu. */
+export function ViewCrumb({ label, t }: { label: string, t: Translate }): ReactNode {
+  return (
+    <span className={css.viewCrumb}>
+      <span className={css.viewCrumbName}>{label}</span>
+      <span className={css.crumbSep}>·</span>
+      <span>{t('sessionWorkspace')}</span>
+    </span>
+  )
+}
+
 function SessionLine({ view, sessionId, t }: { view: SessionStateView, sessionId: string, t: Translate }): ReactNode {
   const branch = view.binding?.branch
   // 2.0 `workspace status --detail`: `overlay { inode_count, entry_count }`; the changed entries, not the inodes
@@ -86,24 +101,19 @@ function SessionLine({ view, sessionId, t }: { view: SessionStateView, sessionId
   const active = view.binding?.state === 'bound'
   return (
     <div className={css.sessionLine}>
-      {branch ? <span className={css.branchChip} title={branch}><StatusDot state={active ? 'done' : 'idle'} size={8} />{branchWords(branch, sessionId, t)}</span> : null}
+      {branch ? <span className={css.branchChip} title={branch}><StatusDot state={active ? 'done' : 'idle'} size={8} />{branchLabel(sessionId, view.binding, t)}</span> : null}
       {active ? <span className={clsx(css.muted, pending > 0 && css.warn)}>{pending > 0 ? t('unsaved', { n: pending }) : t('unsavedNone')}</span> : null}
+      <ViewCrumb label={t('tabFiles')} t={t} />
     </div>
   )
 }
 
-/** The session's own branch in words (`dsh.<this session>[.rN]`); any other branch by name. */
-function branchWords(branch: string, sessionId: string, t: Translate): string {
-  const m = /^dsh\.([0-9a-f]+)(?:\.r(\d+))?$/.exec(branch)
-  // The host names it `dsh.<id without its session- prefix and dashes>` (sessions/service.ts branchOf).
-  if (!m || sessionId.replace(/^session-/, '').replace(/-/g, '') !== m[1]) return t('liveBranch', { branch })
-  return m[2] ? t('liveBranchRestore', { n: m[2] }) : t('liveBranchOwn')
-}
-
 export function FilesView(props: ViewProps): ReactNode {
   const { api, t, sessionId, sessions } = props
-  useNoComposer(props.hideComposer)
   const state = useRootState(api, sessionId, sessions)
+  // Hide the composer only once the session is confirmed to be in a project:
+  // a DSH pane in split view keeps it, as the audit Trajectory does.
+  useNoComposer(props.hideComposer, !!state.view?.binding)
   const [focus, n] = useFocus(FILES_VIEW, props)
   return (
     <Gate state={state} t={t}>
@@ -111,7 +121,7 @@ export function FilesView(props: ViewProps): ReactNode {
         <div className={css.frame}>
           <SessionLine view={view} sessionId={sessionId} t={t} />
           <div className={css.fill}>
-            <ProjectFiles key={`${project}:${n}`} api={api} project={project} t={t} tick={state.tick}
+            <ProjectFiles key={`${project}:${n}`} api={api} project={project} t={t} tick={state.contentTick}
               initialBranch={focus?.branch ?? view.binding.branch} initialPin={focus?.commit} initialPath={focus?.path} />
           </div>
         </div>
@@ -122,16 +132,17 @@ export function FilesView(props: ViewProps): ReactNode {
 
 export function HistoryView(props: ViewProps): ReactNode {
   const { api, t, sessionId, sessions, openView } = props
-  useNoComposer(props.hideComposer)
   const state = useRootState(api, sessionId, sessions)
+  useNoComposer(props.hideComposer, !!state.view?.binding)
   // The Trajectory tab opens a version here: `{branch, commit}`.
   const [focus, n] = useFocus(HISTORY_VIEW, props)
   return (
     <Gate state={state} t={t}>
       {(view, project) => (
         <div className={css.frame}>
+          <ViewCrumb label={t('tabHistory')} t={t} />
           <div className={css.fill}>
-            <ProjectHistory key={`${project}:${n}`} api={api} project={project} t={t} tick={state.tick}
+            <ProjectHistory key={`${project}:${n}`} api={api} project={project} t={t} tick={state.contentTick}
               initialBranch={focus?.branch ?? view.binding.branch} initialCommit={focus?.commit}
               onOpenFile={openView ? (branch, path, pin) => openView(FILES_VIEW, JSON.stringify({ branch, path, commit: pin })) : undefined} />
           </div>

@@ -174,10 +174,10 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
       title={name}
       badge={<MachineStateChip m={m} live={live} pending={pending} blocked={engine ? 'engine' : !!block} />}
       actions={(
-        <>
+        <span className={css.headActions}>
           {power}
           <MachineMenu m={m} pending={pending} run={run} onDialog={setDialog} />
-        </>
+        </span>
       )}
     />
   )

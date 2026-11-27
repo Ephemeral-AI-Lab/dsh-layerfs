@@ -5,7 +5,7 @@
  * place under the page's navigation bar (Back/Forward, breadcrumb with
  * switchers, Jump to, transfers, Health/Logs/Settings, Refresh, Add).
  */
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import type { LayerfsApi } from '../api.ts'
 import { NS as DOCTOR_NS } from '../doctor/locale.ts'
 import { LOGS_NS } from '../logs/index.tsx'
@@ -18,13 +18,63 @@ import { SETUP_MODAL_NS } from '../setup/index.tsx'
 import { NS as VIEWS_NS } from '../views/locale.ts'
 import { sessionsSource } from '../views/index.tsx'
 import { locales, NS } from './locale.ts'
+import { PREFETCH_IDLE_MS, prefetchHome } from './prefetch.ts'
 import { StoragePage, type StorageMainProps } from './StoragePage.tsx'
 
 /** The id shared by the sidebar entry and the main panel it opens. */
 export const PANEL_ID = 'layerfs-storage'
 
-function CenterSidebarIcon({ size }: { size?: number }): ReactNode {
-  return <LayerfsGlyph size={size ?? 16} />
+/** `requestIdleCallback` is not on every browser (and not in SSR); the timer alone still runs the prefetch. */
+type IdleWindow = { requestIdleCallback?: (cb: () => void, options?: { timeout?: number }) => number, cancelIdleCallback?: (id: number) => void }
+
+/**
+ * The sidebar's one LayerFS row. The row itself is DSH's button; this glyph
+ * sits inside it, which is enough to hear pointer intent. It also warms Home
+ * after the sidebar has sat idle for a moment, so a keyboard, programmatic or
+ * touch click finds the reads already in flight (DSH owns the row's focus, so
+ * there is no document listener here). Nothing is warmed while Center itself
+ * shows, and nothing runs before the host connection is up.
+ */
+function sidebarIcon(api: LayerfsApi): (props: { size?: number, active?: boolean }) => ReactNode {
+  return function CenterSidebarIcon({ size, active }: { size?: number, active?: boolean }): ReactNode {
+    const entry = useRef<HTMLSpanElement>(null)
+    useEffect(() => {
+      if (active) return
+      const span = entry.current
+      /** Warm once the row is actually on screen and the host is connected. */
+      const visibly = (): boolean => document.visibilityState === 'visible' && !!span && span.getClientRects().length > 0
+      const warm = (): void => { if (visibly()) void prefetchHome(api) }
+      // The room is up when the host event stream is; until then a send would
+      // wait in an admission slot. The connection event also covers the boot.
+      const off = api.onEvent('connection', (event) => {
+        if ((event.data as { connected?: boolean } | undefined)?.connected) schedule()
+      })
+      let timer: ReturnType<typeof setTimeout> | undefined
+      let idle: number | undefined
+      const idleWindow = globalThis as unknown as IdleWindow
+      const runIdle = (): void => { idle = undefined; warm() }
+      function schedule(): void {
+        if (timer !== undefined || idle !== undefined) return
+        timer = setTimeout(() => {
+          timer = undefined
+          if (!visibly()) return
+          if (typeof idleWindow.requestIdleCallback === 'function') idle = idleWindow.requestIdleCallback(runIdle, { timeout: 1000 })
+          else runIdle()
+        }, PREFETCH_IDLE_MS)
+      }
+      schedule()
+      return () => {
+        clearTimeout(timer)
+        if (idle !== undefined) idleWindow.cancelIdleCallback?.(idle)
+        off()
+      }
+    }, [api, active])
+    return (
+      <span ref={entry} data-layerfs-entry="" onPointerEnter={() => { if (!active) void prefetchHome(api) }}>
+        <LayerfsGlyph size={size ?? 16} />
+      </span>
+    )
+  }
 }
 
 function StorageMain(props: StorageMainProps): ReactNode {
@@ -77,5 +127,5 @@ export function registerStorage(ctx: any, api: LayerfsApi, machines: MachinesSha
     order: 7.5,
     label: () => t('panel'),
     locale: NS,
-  }, CenterSidebarIcon)), 'dsh-layerfs: LayerFS sidebar row')
+  }, sidebarIcon(api))), 'dsh-layerfs: LayerFS sidebar row')
 }

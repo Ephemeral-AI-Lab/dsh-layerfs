@@ -58,7 +58,7 @@ function NewMenu({ api, t, data, onError }: { api: LayerfsApi, t: ListT, data: S
         if (row) api.openProjectSession(row.key, undefined, row.projectId).then(data.reload, (e) => onError(t('openFailed', { message: String((e as Error)?.message ?? e) })))
       }
     }}
-    anchor={<Button variant="ghost" size="sm" icon={<IconPlusOutlineRegular size={16} />} aria-label={t('newSessionMenu')} title={t('newSessionMenu')}
+    anchor={<Button className={css.newMenu} variant="ghost" size="sm" icon={<IconPlusOutlineRegular size={16} />} aria-label={t('newSessionMenu')} title={t('newSessionMenu')}
       aria-haspopup="menu" aria-expanded={open} data-layerfs-new-menu="" onClick={() => setOpen((v) => !v)} />} />
 }
 
