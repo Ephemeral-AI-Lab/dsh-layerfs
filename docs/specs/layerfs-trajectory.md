@@ -104,16 +104,20 @@ A long session's log is read whole by today's parse: 754.8 ms for the measured
 47,132,322 B / 12,876-event log, plus 399.4 ms for its 40.7 MB
 `receipts.jsonl`, 92.7 ms to build the first page and 18.9 ms to page it
 (Node 24.22.2, this box). The first page is capped at 400 records and 250 KiB,
-so a cold read does not need either file whole. Decided 2026-11-26: option C,
+so a cold read does not need either file whole. The byte budget is hard: a page
+still over it with one record left (calls without a loaded tool call, DSH's own
+calls, checkpoints of the turns it covers) elides those, oldest first, and says
+so with `elided: true`; a cut call keeps `opsTotal`. Decided 2026-11-26: option C,
 the tail window — the smallest change that removes the log parse without a
 worker or a second parser. It is explicit that the first answer is a window.
 
 **When.** Only for a session DSH has **not** loaded whose log is at least
 `TAIL_LOG_BYTES` (8 MiB), with the split receipts layout (`receipts.jsonl`
-beside the log). A loaded session, a shorter log, or a legacy combined sidecar
-keeps the whole parse. When a half-migrated session has both, the split file
-wins for the whole path (`receiptsFor`) as well as for the window, so the two
-answers cannot diverge. Receipts are read, not the sidecar's `invocations`
+beside the log). A loaded session or a shorter log keeps the whole parse. A
+combined sidecar (receipts inside `layerfs.json`, the old layout, possibly
+half-converted by a crash) is converted once by the sidecar read that comes
+first, so the window and the whole path read the same `receipts.jsonl` and
+cannot diverge. Receipts are read, not the sidecar's `invocations`
 array, so the first page never parses the receipts file whole; the OBSERVATION
 row's counter comes from the sidecar metadata.
 
