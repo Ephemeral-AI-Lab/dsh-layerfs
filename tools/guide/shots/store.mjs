@@ -193,7 +193,12 @@ export default [
   {
     file: 'store-backups-dialog',
     run: async (page, h) => {
-      await homeStores(page, h)
+      // the backups badge is on a machine's Store cards (Home lists Stores as rows without it)
+      await h.center()
+      await page.locator('header[aria-label="Home navigation"]').getByRole('button', { name: 'Jump to' }).first().click()
+      await page.getByRole('combobox', { name: 'Jump to' }).fill('macos-host'); await h.wait(500)
+      await page.getByRole('option', { name: /^macos-host Host/ }).first().click(); await h.wait(1500)
+      await machineStores(page, h, 'macos-host')
       await card(page, 'guide-notes').getByRole('button', { name: /^Backups of guide-notes/ }).click()
       await dialog(page).waitFor()
       await h.wait(3000)

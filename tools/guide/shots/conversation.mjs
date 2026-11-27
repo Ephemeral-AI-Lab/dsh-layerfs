@@ -1,6 +1,6 @@
 // Shots for docs/guide/conversation.md: the guide fixture's project conversation and its LayerFS tabs.
 // Read only: nothing here sends a message, restores or saves.
-const SESSION = 'session-b103116f-da49-4cb7-a158-fdd38a0d450f'
+const SESSION = 'session-64678a65-777f-4a45-9d48-2a548a901691'
 
 /** Open the fixture conversation on one of its tabs. */
 async function open(page, h, tab, ready) {

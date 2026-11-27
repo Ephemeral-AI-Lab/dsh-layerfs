@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Screenshots for the UI guide (docs/guide), taken on a dev server.
-//   DSH_LAYERFS_DEV_DIR=<dev dir> node tools/guide/shoot.mjs tools/guide/shots/<page>.mjs [--only <file>] [--out docs/guide/img]
+//   DSH_LAYERFS_DEV_DIR=<dev dir> node tools/guide/shoot.mjs tools/guide/shots/<page>.mjs [--only <file>[,<file>…]] [--out docs/guide/img]
 //
 // A shot module exports `default` an array of shots (or `(h) => shots`):
 //   { file: 'store-overview',            // -> <out>/store-overview.png
@@ -25,7 +25,7 @@ const args = process.argv.slice(2)
 const flag = (name, fallback) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : fallback }
 const modulePath = args[0]?.startsWith('--') ? undefined : args[0]
 if (!modulePath) { console.error('usage: shoot.mjs <shots module> [--only <file>] [--out <dir>]'); process.exit(2) }
-const only = flag('--only')
+const only = flag('--only')?.split(',')
 const out = resolve(flag('--out', fileURLToPath(new URL('../../docs/guide/img', import.meta.url))))
 mkdirSync(out, { recursive: true })
 
@@ -105,7 +105,7 @@ try {
   const first = await pageFor('1440x900')
   const shots = typeof mod.default === 'function' ? await mod.default(helpers(first)) : mod.default
   for (const shot of shots) {
-    if (only && shot.file !== only) continue
+    if (only && !only.includes(shot.file)) continue
     const page = await pageFor(shot.size ?? '1440x900')
     const h = helpers(page)
     try {

@@ -145,7 +145,7 @@ export default [
     callouts: [
       (p) => homeTab(p, 'Buckets'),
       (p) => p.getByRole('button', { name: 'List bucket files' }),
-      (p) => p.getByRole('tabpanel').getByRole('button', { name: 'Add bucket' }),
+      (p) => p.getByRole('button', { name: 'Add bucket', exact: true }).first(),
       (p) => p.locator('[data-bucket="guide-backups"]'),
       (p) => p.getByRole('button', { name: 'More actions for guide-backups' }),
     ],

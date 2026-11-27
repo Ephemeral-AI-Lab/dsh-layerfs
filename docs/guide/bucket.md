@@ -74,7 +74,7 @@ bucket. Home's page is described in [home.md](home.md); the cards are described 
 
 | # | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|---|
-| 1 | View switch | **Stores** *n* · **Buckets** *n* | Click → that view | — (remembered in the browser) | only on the SQLite side |
+| 1 | **Buckets** tab | Home's **Buckets** *n* tab | Click → the bucket cards | — | |
 | 2 | Card head | The provider's mark, the name, a red dot when the bucket could not be listed or its record is broken, ⋯ | Name → the bucket page; ⋯ → **List files** / **List again**, **Open bucket** | `backup list` (read) on **List files** / **List again** | menu list action disabled while listing |
 | 3 | Line | Provider · **n Store files · size · Listed** *ago* | Hover a failure → LayerFS's sentence | the last `backup list` | **Not listed**, **Listing…**; a failure word in red |
 | 4 | File rows | Up to five: file, size, then the Store it backs up (name, date or state) or **Restore…** for a file not in this home; a running backup or restore into the bucket on top | File name → [Backup file page](#backup-file); Store name → Store page; **Restore…** → [Restore](#modals-opened-here) as a new Store | `backup restore` | **No Store files yet**; **Files unknown · Connect again…** / **List again**; **List to see Store files · List files**; **Listing…** |

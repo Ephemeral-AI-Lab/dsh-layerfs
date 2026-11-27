@@ -20,7 +20,7 @@ async function storeOpen(page, h) {
   // only when nothing was checked yet: one store doctor, read only
   if (await row(page, 'store', STORE).getByText('Not checked').count()) {
     await check.click()
-    await page.getByText('Not checked').first().waitFor({ state: 'detached', timeout: 60000 }).catch(() => {})
+    await row(page, 'store', STORE).getByText('Not checked').waitFor({ state: 'detached', timeout: 60000 }).catch(() => {})
     await h.wait(2000)
   }
   if ((await row(page, 'store', STORE).getAttribute('aria-expanded')) !== 'true') await row(page, 'store', STORE).click()

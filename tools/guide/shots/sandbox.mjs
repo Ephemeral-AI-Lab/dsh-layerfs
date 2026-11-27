@@ -32,6 +32,18 @@ async function workspaces(page, h, view) {
   }
   await h.wait(800)
 }
+/** The Terminals view with the guide's read-only command shown, run once when the pane has none yet. */
+async function terminals(page, h) {
+  await workspaces(page, h, 'terminals')
+  const ran = page.getByText('head -n 6 README.md').first()
+  if (!(await ran.isVisible().catch(() => false))) {
+    await page.locator('input[data-term-input]').fill('head -n 6 README.md')
+    await page.locator('input[data-term-input]').press('Enter')
+  }
+  await ran.waitFor()
+  await page.getByText('Neighborhood library').first().waitFor({ timeout: 20000 }).catch(() => {})
+  await h.wait(1000)
+}
 /** Open the Sandbox menu on the Overview. */
 async function menu(page, h) {
   await box(page, h); await tab(page, h, 'Overview', 2000)
@@ -86,8 +98,7 @@ export default [
     clip: (p) => p.getByRole('button', { name: 'Mount' }).locator('xpath=ancestor::form[1]'), pad: 16 },
   { file: 'sandbox-terminals',
     run: async (page, h) => {
-      await workspaces(page, h, 'terminals')
-      await page.getByText('head -n 6 README.md').first().waitFor()
+      await terminals(page, h)
     },
     callouts: [
       (p) => p.locator('[data-ws-view="terminals"]'),
@@ -100,8 +111,7 @@ export default [
     ] },
   { file: 'sandbox-terminal-pane',
     run: async (page, h) => {
-      await workspaces(page, h, 'terminals')
-      await page.getByText('head -n 6 README.md').first().waitFor()
+      await terminals(page, h)
     },
     clip: (p) => p.locator('input[data-term-input]').locator('xpath=ancestor::section[1]'), pad: 12 },
   { file: 'sandbox-commit',

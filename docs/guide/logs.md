@@ -16,6 +16,8 @@ page.
 
 ![The Logs page, numbered](img/logs-overview.png)
 
+*Shown with **Writes only** on, so the conversation's turn checkpoint stays on screen under the filters.*
+
 | # | Component | What it is |
 |---|---|---|
 | 1 | **Refresh** | Reads the log again from the top |
