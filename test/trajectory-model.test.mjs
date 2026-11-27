@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   checkpointKey, drawLaneMarks, checkpointVersion, compactNumber, durationParts, filterTurns, flattenRows, focusTarget, laneItems, loadedRecords, mergeOlder, opCommand,
-  opWrites, place, prettyArgs, recentTurns, recordMatches, selectionTurn, shownHostOp, thinLane, timeSpan, toolEntries,
+  opWrites, place, prettyArgs, rebaseOlder, recentTurns, recordMatches, selectionTurn, shownHostOp, thinLane, timeSpan, toolEntries,
 } from '../src/client/views/trajectory-model.ts'
 
 const T0 = 1_700_000_000_000
@@ -201,6 +201,26 @@ test('thinLane: a crowded lane keeps one mark per bin, preferring the selected i
 })
 
 
+test('thinLane: checkpoint ticks are never thinned away, however crowded the LayerFS lane is', () => {
+  const span = { start: 0, end: 10_000 }
+  // Thousands of LayerFS calls, a few refused, and a checkpoint per turn among them.
+  const calls = Array.from({ length: 5000 }, (_, i) => ({ key: `op${i}`, start: i * 2, end: i * 2, select: `r:${i}`, ...(i % 7 === 0 ? { tone: 'refused' } : {}) }))
+  const checkpoints = Array.from({ length: 40 }, (_, i) => ({ key: `cp${i + 1}:0`, start: i * 250 + 1, end: i * 250 + 1, select: `c:${i + 1}:0` }))
+  // A checkpoint outside the loaded turns (no row to select) sits in a crowded bin too.
+  checkpoints.push({ key: 'cp99:1', start: 4001, end: 4001, select: 'c:99:1', tone: 'created' })
+  const items = [...calls, ...checkpoints]
+  const marks = thinLane(items, span, null, 600)
+  const kept = marks.filter((m) => m.key.startsWith('cp')).map((m) => m.key)
+  assert.deepEqual(kept.sort(), checkpoints.map((c) => c.key).sort(), 'every checkpoint tick survives')
+  assert.ok(marks.every((m) => !m.key.startsWith('cp') || m.more === 0), 'a checkpoint stands for itself only')
+  assert.equal(marks.filter((m) => !m.key.startsWith('cp')).length, 600, 'the calls are still thinned to the bins')
+  assert.equal(marks.reduce((n, m) => n + 1 + m.more, 0), items.length, 'every item is counted once')
+  assert.ok(marks.every((m, i) => i === 0 || m.start >= marks[i - 1].start), 'marks stay in time order')
+  // And the drawn strip keeps them too (drawLaneMarks never collapses a checkpoint).
+  const drawn = drawLaneMarks(marks, span, 0.05, null)
+  assert.deepEqual(drawn.filter((m) => m.key.startsWith('cp')).map((m) => m.key).sort(), checkpoints.map((c) => c.key).sort())
+})
+
 test('drawLaneMarks: marks landing on each other draw once; a checkpoint always survives', () => {
   const span = { start: 0, end: 1000 }
   const at = (start, key, select, tone) => ({ start, end: start, key, select, tone, more: 0 })
@@ -359,6 +379,26 @@ test('mergeOlder keeps the older cursor while records remain, and never repeats 
   assert.equal(merged.turns.find((t) => t.turn === 2).records.length, 2, 'the already loaded record is not repeated')
   const again = mergeOlder(merged, more)
   assert.equal(again.turns.find((t) => t.turn === 2).records.length, 2)
+})
+
+test('rebaseOlder keeps the loaded older records under a new first page, by seq, and drops them across a gap', () => {
+  const rec = (seq, turn) => ({ kind: 'user', seq, turn, at: T0 + seq, source: 'user', text: `r${seq}` })
+  const t = (n, records) => ({ turn: n, at: T0 + n, records, orphanCalls: [], hostOps: [], checkpoints: [] })
+  const base = { ...answer, counts: { versionsCreated: 1, callsWithVersions: 1 } }
+  // What was on screen: an older page (seqs 1, 2) under the first page (seqs 5, 6).
+  const loaded = { ...base, revision: 'r1', recordTotal: 4, hasMore: true, olderBefore: 1, turns: [t(1, [rec(1, 1), rec(2, 1)]), t(2, [rec(5, 2), rec(6, 2)])] }
+  // The first page moved on: seq 5 left it, seq 7 joined.
+  const first = { ...base, revision: 'r2', recordTotal: 5, counts: { versionsCreated: 2, callsWithVersions: 2 }, hasMore: true, olderBefore: 6, turns: [t(2, [rec(6, 2), rec(7, 2)])] }
+  const rebased = rebaseOlder(loaded, first)
+  assert.deepEqual(rebased.turns.flatMap((turn) => turn.records.map((r) => r.seq)), [1, 2, 5, 6, 7], 'every record once, in log order')
+  assert.equal(rebased.revision, 'r2', 'the new first page\'s revision')
+  assert.equal(rebased.olderBefore, 1, 'the loaded cursor stays')
+  assert.equal(rebased.hasMore, true)
+  assert.deepEqual(rebased.counts, first.counts, 'a whole (non-windowed) first page keeps its newer totals')
+  assert.equal(rebased.recordTotal, 5)
+  // More than a page arrived: the new first page starts after every loaded record.
+  assert.equal(rebaseOlder(loaded, { ...first, olderBefore: 9, turns: [t(3, [rec(9, 3)])] }), null, 'a gap drops the older pages')
+  assert.equal(rebaseOlder(loaded, { ...first, hasMore: undefined, olderBefore: undefined }), null, 'a first page that reaches the start needs none')
 })
 
 const cpRow = (turn, at, kind = 'turn') => ({

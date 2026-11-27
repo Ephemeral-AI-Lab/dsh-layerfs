@@ -204,6 +204,17 @@ loaded records only, while the OBSERVATION row keeps counting the whole
 session. After the merge, the footer returns to "Load older records (n not
 loaded)" with the full counts.
 
+Loaded older pages stay while the session runs: each new first page (a poll,
+an event, a reconnect) is merged with the records already on screen that are
+older than its oldest record, by seq and never twice, and the next "Load older"
+continues from the last older cursor. They are dropped only when the session
+changes, or when the first page moved past every record on screen (more than a
+page landed between reads), where joining them would hide a gap. A refused
+older read says so beside the button ("Could not load older records", with
+LayerFS's words as its tip) and offers Retry; an inspect request that needs
+older pages stops at that refusal or after its page bound, and a later answer
+does not move the selection.
+
 ## 5. Limits
 
 - A call that only ran `workspace exec` made no version; its edits are saved

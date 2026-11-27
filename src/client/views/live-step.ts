@@ -266,39 +266,35 @@ export interface LiveStepSourceOptions {
   /** Test seam for the timer. */
   schedule?: (run: () => void, ms: number) => unknown
   cancel?: (token: unknown) => void
-  /** Test seam: whether frames may publish (a visible page without reduced motion). */
+  /** Test seam: whether frames may publish (a visible page). */
   visible?: () => boolean
-  /** Test seam for the visibility/reduced-motion listener. */
+  /** Test seam for the visibility listener. */
   listenVisible?: (onChange: () => void) => () => void
+  /** Test seam: whether the reader asked for reduced motion (frames then come {@link REDUCED_MOTION_FRAME_MS} apart). */
+  reducedMotion?: () => boolean
 }
 
+/**
+ * With `prefers-reduced-motion`, the running text still updates (it is content,
+ * and the step's end must reach the view) but at most once a second, so it does
+ * not scroll by as an animation. Only the caret's blink stops (the CSS does it).
+ */
+export const REDUCED_MOTION_FRAME_MS = 1000
+
 const documentVisible = (): boolean => typeof document === 'undefined' || document.visibilityState !== 'hidden'
-const reducedMotion = (): boolean => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+const prefersReducedMotion = (): boolean => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 
-/** Frames publish only on a visible page; reduced motion ignores streaming too (the log text stays). */
-const framesAllowed = (): boolean => documentVisible() && !reducedMotion()
-
-function listenFramesAllowed(onChange: () => void): () => void {
-  const offs: (() => void)[] = []
-  if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
-    document.addEventListener('visibilitychange', onChange)
-    offs.push(() => document.removeEventListener('visibilitychange', onChange))
-  }
-  if (typeof matchMedia === 'function') {
-    const query = matchMedia('(prefers-reduced-motion: reduce)')
-    if (typeof query.addEventListener === 'function') {
-      query.addEventListener('change', onChange)
-      offs.push(() => query.removeEventListener('change', onChange))
-    }
-  }
-  return () => { for (const off of offs) off() }
+function listenVisibility(onChange: () => void): () => void {
+  if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return () => {}
+  document.addEventListener('visibilitychange', onChange)
+  return () => document.removeEventListener('visibilitychange', onChange)
 }
 
 /**
  * Observe one session's event feed and publish the running step's text at most
- * `frameMs` apart. A hidden page (or one that asked for reduced motion)
+ * `frameMs` apart (at most once a second with reduced motion). A hidden page
  * accumulates no timers or renders: deltas are still folded (cheap, bounded)
- * and the latest state is published once when frames are allowed again.
+ * and the latest state is published once when the page is visible again.
  */
 export class LiveStepSource implements LiveStepsSource {
   private readonly events: LiveEventSource
@@ -307,10 +303,18 @@ export class LiveStepSource implements LiveStepsSource {
   private readonly cancelFn: (token: unknown) => void
   private readonly visible: () => boolean
   private readonly listenVisible: (onChange: () => void) => () => void
+  private readonly reducedMotion: () => boolean
 
   private state: LiveSteps = EMPTY_LIVE_STEPS
+  /**
+   * The window revision `state` was folded through; undefined before the first
+   * read and after the last listener left. The feed's revision goes up by one
+   * per published change, so a change that is not the next one (events while
+   * nobody listened, e.g. between a render's read and the effect's subscribe)
+   * refolds the whole window instead of applying only the latest delta.
+   */
+  private revision: number | undefined
   private readonly listeners = new Set<() => void>()
-  private started = false
   private offFeed: (() => void) | undefined
   private offVisible: (() => void) | undefined
   private timer: unknown
@@ -321,21 +325,26 @@ export class LiveStepSource implements LiveStepsSource {
     this.frameMs = options.frameMs ?? LIVE_FRAME_MS
     this.scheduleFn = options.schedule ?? ((run, ms) => setTimeout(run, ms))
     this.cancelFn = options.cancel ?? ((token) => clearTimeout(token as ReturnType<typeof setTimeout>))
-    this.visible = options.visible ?? framesAllowed
-    this.listenVisible = options.listenVisible ?? listenFramesAllowed
+    this.visible = options.visible ?? documentVisible
+    this.listenVisible = options.listenVisible ?? listenVisibility
+    this.reducedMotion = options.reducedMotion ?? prefersReducedMotion
   }
 
   getSnapshot = (): LiveSteps => {
-    this.ensure()
+    // Subscribed, the feed keeps the state current; otherwise read the window now.
+    if (!this.offFeed) this.sync()
     return this.state
   }
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener)
     if (this.listeners.size === 1) {
-      this.ensure()
+      const before = this.state
+      this.sync()
       this.offFeed = this.events.subscribe(this.onFeed)
       this.offVisible = this.listenVisible(this.onVisible)
+      // Chunks that arrived since the last read are on screen with the next frame.
+      if (this.state !== before) this.schedule()
     }
     let active = true
     return () => {
@@ -346,15 +355,22 @@ export class LiveStepSource implements LiveStepsSource {
     }
   }
 
-  private ensure(): void {
-    if (this.started) return
-    this.started = true
-    this.state = foldLiveEntries(this.events.getSnapshot().entries)
+  /** Fold the whole window when it moved since the state was folded. */
+  private sync(): void {
+    const window = this.events.getSnapshot()
+    if (window.revision === this.revision) return
+    this.state = foldLiveEntries(window.entries)
+    this.revision = window.revision
   }
 
   private onFeed = (): void => {
     const window = this.events.getSnapshot()
-    const next = applyLiveChange(this.state, window.change)
+    if (window.revision === this.revision) return
+    // Only the next change may be applied as a delta; a gap refolds the window.
+    const next = this.revision !== undefined && window.revision === this.revision + 1
+      ? applyLiveChange(this.state, window.change)
+      : foldLiveEntries(window.entries)
+    this.revision = window.revision
     if (next === this.state) return
     this.state = next
     this.schedule()
@@ -363,11 +379,12 @@ export class LiveStepSource implements LiveStepsSource {
   private schedule(): void {
     if (!this.visible()) { this.dirty = true; return }
     if (this.timer !== undefined) return
+    const ms = this.reducedMotion() ? Math.max(this.frameMs, REDUCED_MOTION_FRAME_MS) : this.frameMs
     this.timer = this.scheduleFn(() => {
       this.timer = undefined
       if (!this.visible()) { this.dirty = true; return }
       this.emit()
-    }, this.frameMs)
+    }, ms)
   }
 
   private emit(): void {
@@ -392,7 +409,7 @@ export class LiveStepSource implements LiveStepsSource {
     }
     this.dirty = false
     // A later subscriber re-reads the window: events during the gap were not folded.
-    this.started = false
+    this.revision = undefined
   }
 }
 

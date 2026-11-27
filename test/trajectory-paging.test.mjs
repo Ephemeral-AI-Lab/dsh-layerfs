@@ -223,3 +223,102 @@ test('a checkpoint tick outside the loaded turns opens History; a loaded one sti
   assert.equal(inspector?.props.inspected?.checkpoint.commit, loadedCommit, 'the loaded checkpoint is selected')
   view.unmount()
 })
+
+/** Waits out the view's event coalescing (REFRESH_MS), then lets the read land and its effects render. */
+const refreshed = async (ctx, view, sessionId) => {
+  ctx.emit('layerfs-operation', { sessionId })
+  await new Promise((resolve) => setTimeout(resolve, 1100))
+  await view.settle() // the tick starts the read
+  await view.settle() // the answer renders
+  return view.settle() // what its effects changed renders
+}
+
+test('loaded older pages stay while the running session\'s first page is read again', async () => {
+  const sessionId = 'session-paging-older-kept'
+  const pages = [
+    answerOf(sessionId, 'r1', [turn(3, [record(30, 3, 'newest')], { totalRecords: 2 })], { recordTotal: 3, hasMore: true, olderBefore: 30 }),
+    // The step's next record lands: a new first page, still starting at seq 30.
+    answerOf(sessionId, 'r2', [turn(3, [record(30, 3, 'newest'), record(31, 3, 'newer still')], { totalRecords: 3 })], { recordTotal: 4, hasMore: true, olderBefore: 30 }),
+    // More records: the first page's window moves past seq 30.
+    answerOf(sessionId, 'r3', [turn(3, [record(31, 3, 'newer still'), record(32, 3, 'third')], { totalRecords: 4 })], { recordTotal: 5, hasMore: true, olderBefore: 31 }),
+  ]
+  const older = answerOf(sessionId, 'r1', [turn(1, [record(2, 1, 'oldest')])], { recordTotal: 3 })
+  let next = 0
+  const ctx = fakeApi([(args) => args.before !== undefined ? older : pages[Math.min(next++, pages.length - 1)]])
+
+  const view = mount(ctx.api, sessionId)
+  byLabel(await view.settle(), 'Load older records').props.onClick()
+  let tree = await view.settle()
+  assert.deepEqual(recordedTexts(tree), ['oldest', 'newest'])
+
+  tree = await refreshed(ctx, view, sessionId)
+  assert.equal(next, 2, 'the first page was read again')
+  assert.deepEqual(recordedTexts(tree), ['oldest', 'newest', 'newer still'], 'the older page stays under the new first page')
+  assert.equal(byLabel(tree, 'Load older records'), undefined, 'the cursor stays the older page\'s (exhausted)')
+
+  tree = await refreshed(ctx, view, sessionId)
+  assert.equal(next, 3)
+  assert.deepEqual(recordedTexts(tree), ['oldest', 'newest', 'newer still', 'third'],
+    'a record that left the first page is kept from the page before; nothing repeats')
+  assert.equal(ctx.calls.filter((call) => call.args.before !== undefined).length, 1, 'no older page was read again')
+  view.unmount()
+})
+
+test('Chat\'s inspect gives up after its page bound, and a later answer does not move the selection', async () => {
+  const sessionId = 'session-paging-focus-bound'
+  const tool = { kind: 'tool', seq: 5000, turn: 3, at: 6000, callId: 'call-late', name: 'bash', summary: 'layerfs file list', ops: [] }
+  const first = answerOf(sessionId, 'r1', [turn(3, [record(4000, 3, 'newest turn')])], { hasMore: true, olderBefore: 4000 })
+  // The same call lands in a much later first page, after the search gave up.
+  const later = answerOf(sessionId, 'r2', [turn(3, [record(4000, 3, 'newest turn'), tool])], { hasMore: true, olderBefore: 4000 })
+  let late = false
+  /** Every older page has one more record and says there is still more. */
+  const olderPage = (before) => answerOf(sessionId, 'r1', [turn(1, [record(before - 1, 1, `old ${before - 1}`)])], { hasMore: true, olderBefore: before - 1 })
+  const ctx = fakeApi([(args) => args.before !== undefined ? olderPage(args.before) : late ? later : first])
+  const view = mount(ctx.api, sessionId, {
+    viewRequest: { view: 'trajectory', focus: 'call-late' },
+    completeViewRequest: () => {},
+  })
+  const olderReads = () => ctx.calls.filter((call) => call.args.before !== undefined).length
+  // Each settle lands one page and starts the next; stop once ten settles read nothing more.
+  for (let i = 0, quiet = 0; i < 300 && quiet < 10; i++) {
+    const before = olderReads()
+    await view.settle()
+    quiet = olderReads() === before ? quiet + 1 : 0
+  }
+  assert.equal(olderReads(), 40, 'the search read FOCUS_PAGES older pages, then stopped')
+
+  late = true
+  const tree = await refreshed(ctx, view, sessionId)
+  assert.ok(recordRows(tree).some((r) => r.seq === 5000), 'the later answer with the call is on screen')
+  const selected = M.elements(tree).find((e) => e.props?.h?.selected)
+  assert.equal(selected?.props.h.selected ?? null, null, 'the abandoned request does not select the call later')
+  assert.equal(olderReads(), 40, 'no more older pages were read')
+  view.unmount()
+})
+
+test('a refused "Load older records" says so beside the button, and Retry reads it again', async () => {
+  const sessionId = 'session-paging-older-refused'
+  const first = answerOf(sessionId, 'r1', [turn(3, [record(30, 3, 'newest')])], { recordTotal: 2, hasMore: true, olderBefore: 30 })
+  const older = answerOf(sessionId, 'r1', [turn(1, [record(2, 1, 'oldest')])], { recordTotal: 2 })
+  let refuse = true
+  const ctx = fakeApi([(args) => {
+    if (args.before === undefined) return first
+    if (refuse) throw Object.assign(new Error('the Store is busy'), { code: 'Busy' })
+    return older
+  }])
+  const view = mount(ctx.api, sessionId)
+  byLabel(await view.settle(), 'Load older records').props.onClick()
+  let tree = await view.settle()
+  const failure = M.elements(tree).find((e) => e.props?.title === M.locales.en.trajOlderFailed)
+  assert.ok(failure, 'the refusal is on screen')
+  assert.equal(failure.props.error?.message, 'the Store is busy', 'with LayerFS\'s words')
+  assert.equal(typeof failure.props.onRetry, 'function', 'and one Retry')
+  assert.ok(M.locales.zh.trajOlderFailed, 'the words are localized')
+
+  refuse = false
+  failure.props.onRetry()
+  tree = await view.settle()
+  assert.deepEqual(recordedTexts(tree), ['oldest', 'newest'], 'the retry loaded the page')
+  assert.equal(M.elements(tree).find((e) => e.props?.title === M.locales.en.trajOlderFailed), undefined, 'the refusal is gone')
+  view.unmount()
+})

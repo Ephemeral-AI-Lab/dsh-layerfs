@@ -224,6 +224,76 @@ test('20 chunks in one frame are one publication, and a hidden tab schedules not
   off()
 })
 
+test('chunks published between the render\'s read and the subscribe are folded, not lost', () => {
+  const feed = fakeFeed()
+  const scheduler = manualScheduler()
+  const source = new M.LiveStepSource(feed.source, {
+    frameMs: 0, schedule: scheduler.schedule, cancel: scheduler.cancel,
+    visible: () => true, listenVisible: () => () => {},
+  })
+  feed.publish(append(live('a1', 1, 1, 'Hel', 0, 1000)))
+  // useLiveSteps reads the snapshot during render ...
+  assert.equal(source.getSnapshot().current.text, 'Hel', 'the render folds the window')
+  // ... the feed moves before the effect subscribes (nobody is listening yet) ...
+  feed.publish(append(live('a1', 1, 1, 'lo', 0, 1001)))
+  feed.publish(append(live('a1', 1, 1, ' wor', 0, 1002)))
+  assert.equal(source.getSnapshot().current.text, 'Hello wor', 'the effect\'s read sees the chunks since the render')
+  let notifications = 0
+  const off = source.subscribe(() => { notifications++ })
+  // ... and the next delta applies on top of all of them.
+  feed.publish(append(live('a1', 1, 1, 'ld', 0, 1003)))
+  scheduler.flush()
+  assert.equal(notifications, 1)
+  assert.equal(source.getSnapshot().current.text, 'Hello world', 'no chunk between render and subscribe is lost')
+
+  // Changes while nobody listens (the last listener left) are read on the next subscribe.
+  off()
+  feed.publish(append(live('a1', 1, 1, '!', 0, 1004)))
+  feed.publish(append(live('a1', 1, 1, '?', 0, 1005)))
+  const again = source.subscribe(() => { notifications++ })
+  feed.publish(append(live('a1', 1, 1, '.', 0, 1006)))
+  scheduler.flush()
+  assert.equal(source.getSnapshot().current.text, 'Hello world!?.', 'a resubscribe reads the changes it missed')
+  again()
+})
+
+test('reduced motion still publishes the running text and the step\'s end, at most once a second', () => {
+  const had = Object.getOwnPropertyDescriptor(globalThis, 'matchMedia')
+  // The default seams: a reader who asked for reduced motion, on a visible page.
+  globalThis.matchMedia = (query) => ({
+    matches: query === '(prefers-reduced-motion: reduce)', media: query,
+    addEventListener() {}, removeEventListener() {},
+  })
+  try {
+    const feed = fakeFeed()
+    const delays = []
+    const scheduler = manualScheduler()
+    const source = new M.LiveStepSource(feed.source, {
+      frameMs: 100,
+      schedule: (run, ms) => { delays.push(ms); return scheduler.schedule(run) },
+      cancel: scheduler.cancel,
+    })
+    let notifications = 0
+    const off = source.subscribe(() => { notifications++ })
+    feed.publish(append(live('a1', 1, 1, 'Hello', 0, 1000)))
+    feed.publish(append(live('a1', 1, 1, ' world', 0, 1001)))
+    assert.equal(scheduler.pending, 1, 'one throttled frame is queued')
+    scheduler.flush()
+    assert.equal(notifications, 1, 'the content update is published')
+    assert.equal(source.getSnapshot().current.text, 'Hello world')
+    assert.ok(delays.every((ms) => ms >= 1000), `frames are throttled to once a second (${delays})`)
+
+    feed.publish(append(finalMessage(1, 1, 'Hello world.')))
+    scheduler.flush()
+    assert.equal(notifications, 2, 'the step\'s end reaches the view')
+    assert.equal(source.getSnapshot().current.running, false)
+    off()
+  } finally {
+    if (had) Object.defineProperty(globalThis, 'matchMedia', had)
+    else delete globalThis.matchMedia
+  }
+})
+
 // ----------------------------------------------------------------- the merge
 
 test('the merge places a live step before its tool calls and leaves the log record alone once it arrives', () => {
