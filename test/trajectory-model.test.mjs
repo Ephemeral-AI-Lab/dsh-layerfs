@@ -381,6 +381,12 @@ test('mergeOlder keeps the older cursor while records remain, and never repeats 
   assert.equal(again.turns.find((t) => t.turn === 2).records.length, 2)
 })
 
+test('mergeOlder keeps `elided` when either page left content out to fit its budget', () => {
+  assert.equal(mergeOlder(paged, olderPage).elided, undefined, 'neither page was cut')
+  assert.equal(mergeOlder({ ...paged, elided: true }, olderPage).elided, true, 'the newer page was cut')
+  assert.equal(mergeOlder(paged, { ...olderPage, elided: true }).elided, true, 'the older page was cut')
+})
+
 test('rebaseOlder keeps the loaded older records under a new first page, by seq, and drops them across a gap', () => {
   const rec = (seq, turn) => ({ kind: 'user', seq, turn, at: T0 + seq, source: 'user', text: `r${seq}` })
   const t = (n, records) => ({ turn: n, at: T0 + n, records, orphanCalls: [], hostOps: [], checkpoints: [] })

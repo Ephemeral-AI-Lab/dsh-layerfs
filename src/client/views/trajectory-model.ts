@@ -83,6 +83,8 @@ export function mergeOlder(answer: TrajectoryAnswer, older: TrajectoryAnswer): T
     // earlier turn is not in the window's receipts).
     merged.counts = older.counts
   }
+  // either page left content out to fit its byte budget: the merged view still lacks it
+  if (answer.elided || older.elided) merged.elided = true
   if (older.hasMore && older.olderBefore !== undefined) {
     merged.hasMore = true
     merged.olderBefore = older.olderBefore
