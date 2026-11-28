@@ -8,7 +8,7 @@
  */
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { Button, IconCheckOutlineRegular, IconChevronLeftOutlineRegular, IconCloseOutlineRegular, IconFolderOpenOutlineRegular, IconPlusOutlineRegular, IconSearchOutlineRegular, IconSettingsOutlineRegular, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconCheckOutlineRegular, IconChevronLeftOutlineRegular, IconCloseOutlineRegular, IconFolderOpenOutlineRegular, IconInfoOutlineRegular, IconPlusOutlineRegular, IconSearchOutlineRegular, IconSettingsOutlineRegular, Input, Modal, relativeTime } from '@deepseek-ai/dsh-client-ui-primitives'
 import { StatusDot } from '../../ui/StatusDot.tsx'
 import type { LayerfsApi } from '../../api.ts'
 import { useQuery } from '../../files/use-query.ts'
@@ -30,9 +30,11 @@ import { sidebarHidden } from '../recent.ts'
 import { formatSessionFailure, pgStoreFailure } from '../session-failure.ts'
 import { setupStateWord, type SetupT } from './locale.ts'
 import type { MachinePlatformInfo } from '../../machines/model.ts'
-import { createSteps, defaultMachine, machinesFor, needsStart, pgLoginProblem, pickable, resolveNewStoreName, stoppedOf, tileBlocks, lastUsedStore, defaultStoreChoice, type StoreChoice, type CreatePlan, type PgLogin, type PgLoginProblem, type Step, type StoreKind } from './model.ts'
+import { createSteps, defaultMachine, machinesFor, needsStart, pgLoginProblem, pickable, resolveNewStoreName, stoppedOf, tileBlocks, lastUsedStore, defaultStoreChoice, type StoreChoice, type CreatePlan, type PgLogin, type PgLoginProblem, type Step, type StoreKind, isRunning, type Machine, type TileBlock } from './model.ts'
 import { pgDefaultMachine, pgPlaceable } from '../../storage/model.ts'
-import { LocationPicker, StartFirst, Tick, type LocationWords } from './MachineTiles.tsx'
+import { StartFirst, type LocationWords } from './MachineTiles.tsx'
+import { capWith, ChoiceList, ChoiceTile, ListFoot, MachineGrid, machineOrder, machineTileParts, TILE_CAP, TileActions, TileGrid, type ListGroup } from './Tiles.tsx'
+import { bytes } from '../../files/format.ts'
 import { placeStore, runStep, startMachine } from './run.ts'
 import css from './dialog.module.css'
 import { isHostName } from '../../../shared/host-machine.ts'
@@ -76,29 +78,49 @@ export function ProjectDialog({ api, t, tl, request }: { api: LayerfsApi, t: Set
       : <Create api={api} t={t} startFromFolder={request.mode === 'import'} back={back} onBusy={setBusy} />
   const title = request.mode === 'configure' ? request.project.name ?? request.project.key.split('/')[1] ?? request.project.key
     : request.mode === 'pick' ? t('pickTitle') : request.mode === 'import' ? t('importTitle') : t('newTitle')
-  return <Modal open headless onClose={close} title={title} className={clsx(css.dialog, (request.mode === 'new' || request.mode === 'import') && css.narrow)}>
+  return <Modal open headless onClose={close} title={title} className={clsx(css.dialog, request.mode !== 'pick' && css.narrow)}>
     {body}
   </Modal>
 }
 
-/** The dialog's head: Back (when opened from the picker), the LayerFS mark, the title, a line under it, and Close. */
-function Head({ title, sub, t, back }: { title: string, sub: ReactNode, t: SetupT, back?: DialogRequest | undefined }): ReactNode {
+/** The dialog's head: Back (when opened from the picker), the LayerFS mark (or Back to the form, in a list view), the title, a line under it, and Close. */
+function Head({ title, sub, t, back, onBack, subTitle }: { title: string, sub: ReactNode, t: SetupT, back?: DialogRequest | undefined, onBack?: (() => void) | undefined, subTitle?: string | undefined }): ReactNode {
   return <header className={css.head}>
-    {back
+    {back && !onBack
       ? <button type="button" className={css.back} onClick={() => projectDialog.open(back)}>
         <IconChevronLeftOutlineRegular size={14} /><span>{t('backToProjects')}</span>
       </button>
       : null}
     <div className={css.headRow}>
-      <span className={css.headTile} aria-hidden="true"><LayerfsGlyph size={20} /></span>
+      {onBack
+        ? <Button type="button" variant="ghost" size="sm" className={css.headBack} icon={<IconChevronLeftOutlineRegular size={16} />} aria-label={t('back')} title={t('back')} onClick={onBack} />
+        : <span className={css.headTile} aria-hidden="true"><LayerfsGlyph size={18} /></span>}
       <span className={css.headText}>
         <h2 className={css.title}>{title}</h2>
-        <span className={css.sub}>{sub}</span>
+        <span className={css.sub} title={subTitle}>{sub}</span>
       </span>
       <Button variant="ghost" size="sm" className={css.close} icon={<IconCloseOutlineRegular size={16} />} aria-label={t('close')} title={t('close')}
         onClick={() => projectDialog.close()} />
     </div>
   </header>
+}
+
+/** A quiet line under a section: an icon and the words (`warn`: something to act on first). */
+function SectionNote({ children, tone }: { children: ReactNode, tone?: 'warn' | undefined }): ReactNode {
+  return <p className={css.sectionNote} data-tone={tone}><IconInfoOutlineRegular size={13} /><span>{children}</span></p>
+}
+
+/** "2 h ago" in the dialog's words. */
+function agoWords(at: number, t: SetupT): string {
+  const r = relativeTime(at < 1e12 ? at * 1000 : at, Date.now())
+  switch (r.unit) {
+    case 'minutes': return t('agoMinutes', { n: r.n })
+    case 'hours': return t('agoHours', { n: r.n })
+    case 'days': return t('agoDays', { n: r.n })
+    case 'months': return t('agoMonths', { n: r.n })
+    case 'years': return t('agoYears', { n: r.n })
+    default: return t('agoNow')
+  }
 }
 
 function Loading({ read, t }: { read: { error: unknown, reload: () => void }, t: SetupT }): ReactNode {
@@ -136,12 +158,8 @@ function Group({ label, hint, children }: { label: string, hint?: string | undef
 /** The tiles' words; `os` names the host machine (This Mac, unisolated; This computer, sandboxed; This PC). */
 const wordsOf = (t: SetupT, os?: string): LocationWords => ({ thisMac: t(os === 'linux' ? 'thisLinux' : os === 'windows' ? 'thisPc' : 'thisMac'), hostOs: os === 'linux' ? 'linux' : os === 'windows' || os === 'other' ? 'pc' : 'mac', running: t('running'), stopped: t('stopped'), default: t('default'), here: t('here'), blocked: t('machineBlocked'), engineDown: t('engineDown'), state: (s) => setupStateWord(s, t) })
 
-function NewMachineTile({ api, t }: { api: LayerfsApi, t: SetupT }): ReactNode {
-  return <button type="button" className={clsx(css.machine, css.newMachine)} onClick={() => { projectDialog.close(); openStorage(api, 'machines:new') }}>
-    <IconPlusOutlineRegular size={16} />
-    <span>{t('newMachine')}</span>
-  </button>
-}
+/** + New machine: Home's New machine page (the dialog closes). */
+const newMachine = (api: LayerfsApi) => () => { projectDialog.close(); openStorage(api, 'machines:new') }
 
 type StepState = { step: Step, state: 'pending' | 'running' | 'done' | 'failed' }
 
@@ -230,8 +248,6 @@ function pgMissing(problem: PgLoginProblem | 'url' | null, t: SetupT): string {
 }
 /** What the project starts from: nothing, or a copy of a folder on this computer. */
 type StartFrom = 'empty' | 'folder'
-/** Existing Stores shown before the list folds (the last-used first; the chosen one always shows). */
-const FOLD = 4
 /** The host machine in a summary line: This Mac, This PC or This computer, by the host's OS. */
 const hostWordKey = (os?: string): 'hostMac' | 'hostPc' | 'hostLinux' => (os === 'windows' ? 'hostPc' : os === 'macos' || os === undefined ? 'hostMac' : 'hostLinux')
 
@@ -254,6 +270,8 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const nameInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
   const details = useRef<HTMLDivElement>(null)
+  const storeSection = useRef<HTMLElement>(null)
+  const machineSection = useRef<HTMLElement>(null)
   const [name, setName] = useState('')
   // the name follows the folder until it is typed in
   const [nameTyped, setNameTyped] = useState(false)
@@ -264,10 +282,9 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const [pickerMissing, setPickerMissing] = useState(false)
   // null: the default (model.ts defaultStoreChoice), which follows the Stores and recent projects as they load
   const [choice, setChoice] = useState<StoreChoice | null>(null)
-  const [moveOpen, setMoveOpen] = useState(false)
-  const [showAll, setShowAll] = useState(false)
+  // All N Stores / All N machines open in place of the form
+  const [sub, setSub] = useState<'stores' | 'machines' | null>(null)
   const [attempted, setAttempted] = useState(false)
-  const [query, setQuery] = useState('')
   const [storeName, setStoreName] = useState<string | null>(null)
   const [url, setUrl] = useState('')
   const [pgUser, setPgUser] = useState('')
@@ -394,94 +411,72 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   }
 
   const choose = (next: StoreChoice) => {
-    setChoice(next); setStoreName(null); setPgChoice(null); setSqliteMachine(null); setMoveOpen(false)
-    // the row opens in place: bring what it asks into view
-    requestAnimationFrame(() => details.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))
+    setChoice(next); setStoreName(null); setPgChoice(null); setSqliteMachine(null)
+    // a new Store's panel opens under the tiles: bring it into view
+    if (next.kind !== 'existing') requestAnimationFrame(() => details.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))
   }
-  // Edit on a stopped Create, or a submit with something missing: the name or folder, else the chosen row's panel
+  // Edit on a stopped Create, or a submit with something missing: the name or folder, the Store, else the machine
   const edit = (part: Part) => {
     if (part === 0) { (importing && !source.trim() ? folderInput : nameInput).current?.focus(); return }
-    if (part === 2 && existing && kind === 'sqlite') setMoveOpen(true)
-    requestAnimationFrame(() => details.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))
+    requestAnimationFrame(() => (part === 1 ? details.current ?? storeSection.current : machineSection.current)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))
   }
-  const head = <Head title={importing ? t('importTitle') : t('newTitle')} sub={importing ? t('importSub') : t('newSub')} t={t} back={running ? undefined : back} />
+  const storeKey = existing?.name ?? chosenStoreName
+  const keyLine = slug ? <span className={css.mono}>{storeKey ? `${storeKey}/${slug}` : slug}</span> : importing ? t('importSub') : t('newSub')
+  const head = <Head title={importing ? t('importTitle') : t('newTitle')} sub={keyLine} t={t} back={running ? undefined : back} />
   // the default Store follows the recent projects: wait for them (or their failure) so it does not jump
   if (!data || (recent.data === undefined && !recent.error)) return <>{head}<div className={css.body}><Loading read={view} t={t} /></div></>
 
   const partTitles: Record<Part, string> = { 0: t('name'), 1: t('store'), 2: t('stepMachine') }
-  const q = query.trim().toLowerCase()
-  // the last-used Store first, then by name; a long list folds after FOLD rows (the chosen one always shows)
-  const ordered = [...stores].sort((a, b) => Number(b.name === last?.name) - Number(a.name === last?.name) || a.name.localeCompare(b.name))
-  const matched = ordered.filter((s) => !q || s.name.toLowerCase().includes(q) || (s.postgresql?.target ?? '').toLowerCase().includes(q))
-  const folding = !q && !showAll && matched.length > FOLD + 1
-  const listed = folding ? matched.filter((s, i) => i < FOLD || s.name === existing?.name) : matched
+  // the last-used Store first, then the most recently used, then by name
+  const usedAt = new Map<string, number>()
+  for (const r of recent.data?.projects ?? []) {
+    const s = r.project.split('/')[0] ?? ''
+    usedAt.set(s, Math.max(usedAt.get(s) ?? 0, r.lastActivity))
+  }
+  const ordered = [...stores].sort((a, b) => Number(b.name === last?.name) - Number(a.name === last?.name) || (usedAt.get(b.name) ?? 0) - (usedAt.get(a.name) ?? 0) || a.name.localeCompare(b.name))
+  // tiles hold usable Stores only (a broken one shows in All N Stores with its fix)
+  const tileStores = capWith(ordered.filter(storeUsable), TILE_CAP, (s) => s.name === existing?.name)
   const moving = kind === 'sqlite' && existing && existing.machine !== chosenSqlite
-  const where = existing ? existing.name : kind === 'sqlite' ? t('sumNewSqlite') : t('sumNewPg')
-  const isOn = (c: StoreChoice) => (c.kind === 'existing' ? existing?.name === c.store : !existing && picked.kind === c.kind)
   const fellBack = choice === null && auto.fellBack && last
+  const storeKindOf = (s: StoreRow): StoreKind => (s.kind === 'postgresql' ? 'postgresql' : 'sqlite')
+  const countWords = (s: StoreRow) => { const n = s.projectsCount ?? s.projects.length; return n === 1 ? t('oneProject') : t('projects', { n }) }
+  const storeNote = (s: StoreRow) => storeKindOf(s) === 'postgresql'
+    ? `${t('kindPgTitle')} · ${s.postgresql?.target ?? ''}`
+    : `${t('kindSqliteTitle')} · ${machineWord(s.machine ?? '')} · ${s.name === last?.name ? t('lastUsedNote') : countWords(s)}`
+  const mlist = kind === 'sqlite' ? machines : offered
+  const mvalue = kind === 'sqlite' ? chosenSqlite : chosenPg ?? ''
+  const setMachine = kind === 'sqlite' ? setSqliteMachine : setPgChoice
+  const mcurrent = kind === 'sqlite' ? existing?.machine ?? null : null
+  const mfallback = kind === 'sqlite' && !existing ? fallback : null
 
-  // what the chosen row needs, in place under it: the new Store's name and login, the machine, and anything to act on
-  const panel = <div ref={details} className={css.rowPanel}>
-    {creatingStore ? <Field label={t('storeName')} error={storeNameError} hint={storeConflictNotice ? null : t('storeNameHint')}>
-      <Input value={storeName ?? autoStoreName} className={css.mono} placeholder={autoStoreName || 'projects'} autoComplete="off" spellCheck={false}
-        onChange={(e) => setStoreName(e.target.value)} />
-    </Field> : null}
-    {storeConflictNotice ? <p className={css.storeConflictNotice} role="status">{t('storeNameAutoHint', { taken: slug, store: chosenStoreName })}</p> : null}
-    {creatingStore && kind === 'postgresql' ? <>
-      <Field label={t('url')} hint={t('urlHint')} error={urlError}>
-        <Input value={url} className={css.mono} placeholder="postgresql://db.internal:5432/app" autoComplete="off" spellCheck={false} onChange={(e) => setUrl(e.target.value)} />
-      </Field>
-      {linuxLocalhost ? <PgLocalhostNotice message={t('urlLocalhostWarn')} actionLabel={t('urlLocalhostUseIpv4')} onReplace={() => setUrl(replaceLocalhostWithIpv4(url))} /> : null}
-      <div className={css.pair}>
-        <Field label={t('user')} error={attempted && loginProblem === 'user' ? t('needUser') : null}>
-          <Input value={pgUser} className={css.mono} autoComplete="off" spellCheck={false} aria-label={t('user')} onChange={(e) => setPgUser(e.target.value)} />
-        </Field>
-        <Field label={t('password')} error={attempted && loginProblem === 'password' ? t('needPassword') : null}>
-          <Input value={pgPassword} className={css.mono} type="password" autoComplete="new-password" spellCheck={false} aria-label={t('password')} onChange={(e) => setPgPassword(e.target.value)} />
-        </Field>
-      </div>
-      <p className={css.hint}>{t('passwordHint')}</p>
-    </> : null}
-    {existing && kind === 'sqlite' && !moveOpen
-      ? <p className={css.hint}>{t('storeOn', { machine: machineWord(existing.machine ?? '') })}{' '}
-        <button type="button" className={css.inlineLink} onClick={() => setMoveOpen(true)}>{t('moveStore')}</button></p>
-      : <Group label={kind === 'sqlite' ? t('storeFileOn') : t('sessionRunsOn')} hint={kind === 'sqlite' ? (existing ? undefined : t('storeFileHint')) : t('runsOnPg')}>
-        {kind === 'sqlite'
-          ? <LocationPicker machines={machines} value={chosenSqlite} onChange={setSqliteMachine} words={words} label={t('storeFileOn')}
-            current={existing?.machine ?? null} fallback={fallback} blocks={blocks}>
-            <NewMachineTile api={api} t={t} />
-          </LocationPicker>
-          : <LocationPicker machines={offered} value={chosenPg ?? ''} onChange={setPgChoice} words={words} label={t('sessionRunsOn')}
-            current={null} blocks={blocks}>
-            <NewMachineTile api={api} t={t} />
-          </LocationPicker>}
-        {existing && kind === 'sqlite'
-          ? <button type="button" className={css.inlineLink} onClick={() => { setMoveOpen(false); setSqliteMachine(null) }}>{t('keepStore')}</button>
-          : null}
-      </Group>}
-    {willAttach ? <p className={css.hint}>{t('pgWillAttach', { machine: willAttach })}</p> : null}
-    {moving ? <p className={css.warn}>{t('moveWarn', { store: existing!.name, machine: machineWord(chosenSqlite), n: Math.max(0, (existing!.projectsCount ?? existing!.projects.length) ) })}</p> : null}
-    {offered.length === 0 ? <p className={css.notice}>{t('noMachines')}</p> : null}
-    {/* Create starts no machine: each stopped one it needs has its own Start here */}
-    <StartFirst names={stopped} words={startWords} start={(m) => startMachine(api, m)} onStarted={view.reload} />
-    {attempted && !ok[1] && existing ? <span className={css.error} role="alert">{t('pickStore')}</span> : null}
-  </div>
-
-  const storeRow = (c: StoreChoice, glyph: StoreKind | 'plus', main: ReactNode, note: ReactNode, extra?: { tag?: ReactNode, broken?: boolean, title?: string | undefined, fix?: ReactNode }) => {
-    const on = isOn(c)
-    return <div key={c.kind === 'existing' ? c.store : `@${c.kind}`} className={css.storeItem}>
-      <div className={clsx(css.storeRowWrap, on && css.storeRowOn, extra?.broken && css.storeRowDisabled)}>
-        <button type="button" role="radio" aria-checked={on} disabled={extra?.broken} className={css.storeRowBtn} title={extra?.title} onClick={() => choose(c)}>
-          <span className={css.rowMark} aria-hidden="true">{glyph === 'plus' ? <IconPlusOutlineRegular size={14} /> : <StoreKindGlyph kind={glyph} size={16} />}</span>
-          <span className={css.storeName}>{main}</span>
-          {extra?.tag ?? null}
-          <span className={css.storeNote}>{note}</span>
-          {on ? <IconCheckOutlineRegular size={14} className={css.storeCheck} /> : null}
-        </button>
-        {extra?.fix ?? null}
-      </div>
-      {on ? panel : null}
-    </div>
+  // All N Stores / All N machines: the whole list in place of the form; picking one goes back
+  if (sub && !running) {
+    const back = () => setSub(null)
+    if (sub === 'stores') {
+      const groups = new Map<string, ListGroup>()
+      for (const s of [...ordered].sort((a, b) => Number(b.name === last?.name) - Number(a.name === last?.name) || a.name.localeCompare(b.name))) {
+        const sKind = storeKindOf(s)
+        const label = sKind === 'postgresql' ? t('kindPgTitle') : machineWord(s.machine ?? '')
+        const fail = sKind === 'postgresql' ? formatSessionFailure(pgStoreFailure(s), null, t, s.name, s) : null
+        const broken = !storeUsable(s)
+        const g = groups.get(label) ?? { label, items: [] }
+        g.items.push({
+          key: s.name, mark: <StoreKindGlyph kind={sKind} size={15} />, name: s.name, search: `${s.machine ?? ''} ${s.postgresql?.target ?? ''}`,
+          note: fail ? fail.short : sKind === 'postgresql' ? s.postgresql?.target ?? '' : s.name === last?.name ? `${countWords(s)} · ${t('lastUsedNote')}` : countWords(s),
+          tone: fail ? 'warn' : undefined, title: fail?.message, selected: existing?.name === s.name, disabled: broken,
+          after: broken ? <Button type="button" variant="ghost" size="sm" onClick={() => { projectDialog.close(); openStorage(api, `store:${s.name}`) }}>{t('sfOpenStore')}</Button> : undefined,
+          onPick: () => { choose({ kind: 'existing', store: s.name }); back() },
+        })
+        groups.set(label, g)
+      }
+      return <>
+        <Head title={t('chooseStore')} sub={t('forProject', { name: slug || t('notNamed') })} t={t} onBack={back} />
+        <ChoiceList groups={[...groups.values()]} label={t('chooseStore')} placeholder={t('filterStoresList')} empty={t('noStoreMatch')} />
+        <ListFoot addLabel={t('newStore')} onAdd={() => { choose({ kind: picked.kind === 'pg' ? 'pg' : 'sqlite' }); back() }} backLabel={t('back')} onBack={back} />
+      </>
+    }
+    return <MachineListView t={t} api={api} machines={mlist} value={mvalue} current={mcurrent} fallback={mfallback} blocks={blocks} words={words}
+      sub={t('forProject', { name: slug || t('notNamed') })} onPick={(m) => { setMachine(m); back() }} onBack={back} />
   }
 
   return <form className={css.form} aria-busy={running}
@@ -509,44 +504,64 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
             <Input id={`${id}-name`} ref={nameInput} value={name} placeholder={t('namePlaceholder')} autoComplete="off" spellCheck={false} data-modal-autofocus="" onChange={(e) => { setName(e.target.value); setNameTyped(e.target.value.trim() !== '') }} />
           </Field>
 
-          <section className={css.field} aria-labelledby={`${id}-save`}>
-            <div className={css.saveHead}>
-              <h3 id={`${id}-save`} className={css.label}>{t('saveTo')}</h3>
-              {stores.length > FOLD + 1 ? <span className={css.saveFilter}>
-                <IconSearchOutlineRegular size={13} className={css.searchIcon} />
-                <input className={css.search} value={query} placeholder={t('filterStores', { n: stores.length })} aria-label={t('filterStores', { n: stores.length })}
-                  onChange={(e) => setQuery(e.target.value)} />
-              </span> : null}
-            </div>
-            {fellBack ? <p className={css.hint}>{t('lastFellBack', { store: last.name })}</p> : null}
-            <div className={css.storeList} role="radiogroup" aria-labelledby={`${id}-save`}>
-              {stores.length ? <div className={css.storeGroup}>{t('existingGroup')}</div> : null}
-              {listed.map((s) => {
-                const storeFail = s.kind === 'postgresql' ? formatSessionFailure(pgStoreFailure(s), null, t, s.name, s) : null
-                const broken = !storeUsable(s)
-                const count = s.projectsCount ?? s.projects.length
-                const sKind: StoreKind = s.kind === 'postgresql' ? 'postgresql' : 'sqlite'
-                return storeRow({ kind: 'existing', store: s.name }, sKind, s.name,
-                  <>{sKind === 'postgresql' ? `${t('kindPgTitle')} · ${s.postgresql?.target ?? ''}` : `${t('kindSqliteTitle')} · ${machineWord(s.machine ?? '')}`}{' · '}{count === 1 ? t('oneProject') : t('projects', { n: count })}</>,
-                  {
-                    tag: <>{s.name === last?.name ? <span className={css.lastUsed}>{t('lastUsed')}</span> : null}{storeFail ? <span className={clsx(css.storeStatusTag, broken ? css.storeStatusError : css.storeStatusWarn)}>{storeFail.short}</span> : null}</>,
-                    broken, title: storeFail?.message,
-                    fix: broken ? <Button type="button" variant="ghost" size="sm" className={css.storeFixBtn} onClick={() => { projectDialog.close(); openStorage(api, `store:${s.name}`) }}>{t('sfOpenStore')}</Button> : undefined,
-                  })
-              })}
-              {folding ? <button type="button" className={css.moreRow} onClick={() => setShowAll(true)}>{t('moreStores', { n: matched.length - listed.length })}</button>
-                : !q && showAll && matched.length > FOLD + 1 ? <button type="button" className={css.moreRow} onClick={() => setShowAll(false)}>{t('fewerStores')}</button> : null}
-              {stores.length && matched.length === 0 ? <p className={css.empty}>{t('noStoreMatch')}</p> : null}
-              <div className={css.storeGroup}>{t('newGroup')}</div>
-              {storeRow({ kind: 'sqlite' }, 'plus', t('newSqlite'), t('newSqliteNote'))}
-              {storeRow({ kind: 'pg' }, 'plus', t('connectPg'), t('newConnectionNote'))}
-            </div>
+          <section ref={storeSection} className={css.field} aria-labelledby={`${id}-store`}>
+            <h3 id={`${id}-store`} className={css.label}>{t('store')}</h3>
+            {fellBack ? <SectionNote>{t('lastFellBack', { store: last.name })}</SectionNote> : null}
+            {tileStores.length ? <TileGrid label={t('store')}>
+              {tileStores.map((s) => <ChoiceTile key={s.name} mark={<StoreKindGlyph kind={storeKindOf(s)} size={15} />} name={s.name} note={storeNote(s)}
+                selected={existing?.name === s.name} onSelect={() => choose({ kind: 'existing', store: s.name })} data={{ 'data-store': s.name }} />)}
+            </TileGrid> : null}
+            <TileActions all={stores.length > tileStores.length ? { label: t('allStores', { n: stores.length }), onClick: () => setSub('stores') } : null}
+              add={{ label: t('newStore'), selected: creatingStore, onClick: () => { if (!creatingStore) choose({ kind: 'sqlite' }) } }} />
+            {creatingStore ? <div ref={details} className={css.newStorePanel}>
+              <div className={css.kindSwitch} role="radiogroup" aria-label={t('storeKind')}>
+                {(['sqlite', 'pg'] as const).map((k) => <button key={k} type="button" role="radio" aria-checked={picked.kind === k} className={css.kindOpt}
+                  onClick={() => { if (picked.kind !== k) choose({ kind: k }) }}>
+                  <StoreKindGlyph kind={k === 'pg' ? 'postgresql' : 'sqlite'} size={13} />{k === 'pg' ? t('kindPgTitle') : t('kindSqliteTitle')}
+                </button>)}
+              </div>
+              <Field label={t('storeName')} error={storeNameError} hint={storeConflictNotice ? null : t('storeNameHint')}>
+                <Input value={storeName ?? autoStoreName} className={css.mono} placeholder={autoStoreName || 'projects'} autoComplete="off" spellCheck={false}
+                  onChange={(e) => setStoreName(e.target.value)} />
+              </Field>
+              {storeConflictNotice ? <p className={css.storeConflictNotice} role="status">{t('storeNameAutoHint', { taken: slug, store: chosenStoreName })}</p> : null}
+              {kind === 'postgresql' ? <>
+                <Field label={t('url')} hint={t('urlHint')} error={urlError}>
+                  <Input value={url} className={css.mono} placeholder="postgresql://db.internal:5432/app" autoComplete="off" spellCheck={false} onChange={(e) => setUrl(e.target.value)} />
+                </Field>
+                {linuxLocalhost ? <PgLocalhostNotice message={t('urlLocalhostWarn')} actionLabel={t('urlLocalhostUseIpv4')} onReplace={() => setUrl(replaceLocalhostWithIpv4(url))} /> : null}
+                <div className={css.pair}>
+                  <Field label={t('user')} error={attempted && loginProblem === 'user' ? t('needUser') : null}>
+                    <Input value={pgUser} className={css.mono} autoComplete="off" spellCheck={false} aria-label={t('user')} onChange={(e) => setPgUser(e.target.value)} />
+                  </Field>
+                  <Field label={t('password')} error={attempted && loginProblem === 'password' ? t('needPassword') : null}>
+                    <Input value={pgPassword} className={css.mono} type="password" autoComplete="new-password" spellCheck={false} aria-label={t('password')} onChange={(e) => setPgPassword(e.target.value)} />
+                  </Field>
+                </div>
+                <p className={css.hint}>{t('passwordHint')}</p>
+              </> : null}
+            </div> : null}
+            {attempted && !ok[1] && existing ? <span className={css.error} role="alert">{t('pickStore')}</span> : null}
+          </section>
+
+          <section ref={machineSection} className={css.field} aria-labelledby={`${id}-machine`}>
+            <h3 id={`${id}-machine`} className={css.label}>{kind === 'sqlite' ? t('stepMachine') : t('sessionRunsOn')}</h3>
+            <MachineGrid machines={mlist} value={mvalue} onChange={setMachine} words={words} label={kind === 'sqlite' ? t('stepMachine') : t('sessionRunsOn')}
+              current={mcurrent} fallback={mfallback} blocks={blocks}
+              allLabel={t('allMachines', { n: mlist.length })} onAll={() => setSub('machines')} newLabel={t('newMachine')} onNew={newMachine(api)} />
+            {moving
+              ? <SectionNote tone="warn">{t('moveWarn', { store: existing!.name, machine: machineWord(chosenSqlite), n: Math.max(0, existing!.projectsCount ?? existing!.projects.length) })}</SectionNote>
+              : willAttach ? <SectionNote>{t('pgWillAttach', { machine: willAttach })}</SectionNote>
+                : <SectionNote>{kind === 'sqlite' ? t('locationHint') : t('runsOnPg')}</SectionNote>}
+            {offered.length === 0 ? <p className={css.notice}>{t('noMachines')}</p> : null}
+            {/* Create starts no machine: each stopped one it needs has its own Start here */}
+            <StartFirst names={stopped} words={startWords} start={(m) => startMachine(api, m)} onStarted={view.reload} />
           </section>
         </div>
       </fieldset>
     </div>
     <footer className={css.foot}>
-      <span className={css.footNote}>{t('footLine', { name: slug || t('notNamed'), where })}</span>
+      <span />
       <div className={css.footActions}>
         <Button type="button" variant="outline" disabled={running} onClick={() => projectDialog.close()}>{t('cancel')}</Button>
         <Button type="submit" variant="primary" disabled={running || !data} aria-busy={running} icon={running ? <StatusDot state="ongoing" size={13} /> : undefined}>
@@ -557,16 +572,37 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   </form>
 }
 
+/** All N machines: every machine the section offers, grouped Running, Stopped and Can't run here; picking one goes back. */
+function MachineListView({ t, api, machines, value, current, fallback, blocks, words, sub, onPick, onBack }: {
+  t: SetupT, api: LayerfsApi, machines: readonly Machine[], value: string, current: string | null, fallback: string | null | undefined
+  blocks: ReadonlyMap<string, TileBlock>, words: LocationWords, sub: string, onPick: (machine: string) => void, onBack: () => void
+}): ReactNode {
+  const groups: ListGroup[] = [{ label: t('grpRunning'), items: [] }, { label: t('grpStopped'), items: [] }, { label: t('grpCantRun'), items: [] }]
+  for (const m of machineOrder(machines, current ?? fallback, blocks)) {
+    const badge = current ? (m.name === current ? words.here : null) : m.name === fallback ? words.default : null
+    const p = machineTileParts(m, words, blocks.get(m.name), badge, value === m.name)
+    const g = blocks.has(m.name) || m.state === 'broken' ? 2 : isRunning(m) ? 0 : 1
+    groups[g]!.items.push({ key: m.name, mark: p.mark, name: m.name, note: p.note, tone: p.tone, selected: value === m.name, disabled: p.disabled, search: m.platform ?? '', onPick: () => onPick(m.name) })
+  }
+  return <>
+    <Head title={t('chooseMachine')} sub={sub} t={t} onBack={onBack} />
+    <ChoiceList groups={groups} label={t('chooseMachine')} placeholder={t('filterMachines')} empty={t('noMachineMatch')} />
+    <ListFoot addLabel={t('newMachine')} onAdd={newMachine(api)} backLabel={t('back')} onBack={onBack} />
+  </>
+}
+
 // ---------- configure ----------
 
 /** Configure: the Store, where it runs (a SQLite Store moves; a PostgreSQL Store's sessions run there), and Hide from sidebar. */
 function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: SetupT, project: ProjectRef, back?: DialogRequest | undefined, onBusy: (busy: boolean) => void }): ReactNode {
   const view = useStorage(api)
   const platforms = usePlatforms(api)
+  const recent = useRecent(api)
   const [target, setTarget] = useState<string | null>(null)
   const [busy, setBusyState] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [hidden, setHidden] = useState(false)
+  const [sub, setSub] = useState(false)
   const name = project.name ?? project.key.split('/')[1] ?? project.key
   const storeName = project.store ?? project.key.split('/')[0] ?? ''
   const store: StoreRow | undefined = view.data?.stores.find((s) => s.name === storeName)
@@ -575,7 +611,14 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
     setBusy(label); setError(null)
     try { await work(); setTarget(null) } catch (e) { setError(messageOf(e)) } finally { setBusy(null); view.reload() }
   }
-  const head = <Head title={name} sub={<span className={css.mono}>{project.key}</span>} t={t} back={busy ? undefined : back} />
+  // the head's line: its sessions and when the last one ran (the key, until there is one)
+  const mine = (recent.data?.projects ?? []).filter((r) => (project.projectId && r.projectId === project.projectId) || r.project === project.key)
+  const sessions = mine.reduce((n, r) => n + r.sessionIds.length, 0)
+  const lastAt = mine.reduce((at, r) => Math.max(at, r.lastActivity), 0)
+  const headLine = sessions && lastAt
+    ? t('sessionsLast', { sessions: sessions === 1 ? t('oneSession') : t('sessions', { n: sessions }), ago: agoWords(lastAt, t) })
+    : <span className={css.mono}>{project.key}</span>
+  const head = <Head title={name} sub={headLine} subTitle={project.key} t={t} back={busy ? undefined : back} />
   const hide = hidden ? <span className={css.footNote}>{t('hidden')}</span>
     : <Button variant="ghost" size="sm" disabled={!!busy} onClick={() => { sidebarHidden.hide(project.projectId ?? project.key); setHidden(true) }}>{t('hide')}</Button>
   if (!view.data) return <>{head}<div className={css.body}><Loading read={view} t={t} /></div></>
@@ -595,39 +638,47 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
   const startWords = startWordsOf(t)
   const kindWords = pg ? t('kindPg') : t('kindSqlite')
   const pgFail = pg ? formatSessionFailure(pgStoreFailure(store), null, t, store.name, store) : null
-  const storeCard = <Group label={t('store')}>
+  const storeCard = <section className={css.field}>
+    <div className={css.labelRow}>
+      <h3 className={css.label}>{t('store')}</h3>
+      <button type="button" className={css.labelLink} onClick={() => { projectDialog.close(); openStorage(api, `store:${store.name}`) }}>{t('sfOpenStore')}</button>
+    </div>
     <div className={css.storeCard}>
-      <span className={css.kindMark}><StoreKindGlyph kind={store.kind} size={20} /></span>
+      <span className={css.tileMark} aria-hidden="true"><StoreKindGlyph kind={store.kind} size={18} /></span>
       <span className={css.kindText}>
         <span className={css.storeCardHead}>
           <span className={css.kindName}>{store.name}</span>
           {pg && pgFail ? <span className={clsx(css.storeStatusTag, store.state === 'broken' ? css.storeStatusError : css.storeStatusWarn)}>{pgFail.short}</span>
             : pg && store.state === 'ready' ? <span className={css.storeStatusReady}>{t('pgReadyBadge')}</span> : null}
         </span>
-        <span className={css.kindBlurb}>{[kindWords, pg ? store.postgresql?.target : null, others === 1 ? t('sharedOne') : others ? t('shared', { n: others }) : t('alone')].filter(Boolean).join(' · ')}</span>
+        <span className={css.kindBlurb}>{[kindWords, pg ? store.postgresql?.target : null, store.size ? bytes(store.size.bytes) : null, others === 1 ? t('sharedOne') : others ? t('shared', { n: others }) : t('alone')].filter(Boolean).join(' · ')}</span>
       </span>
-      <Button type="button" variant="outline" size="sm" className={css.openStoreBtn}
-        onClick={() => { projectDialog.close(); openStorage(api, `store:${store.name}`) }}>{t('sfOpenStore')}</Button>
     </div>
     {pgFail ? <p className={clsx(css.pgStoreNotice, store.state === 'broken' && css.pgStoreNoticeError)} role="alert">{pgFail.message}</p> : null}
-  </Group>
+  </section>
 
   const words = wordsOf(t, view.data?.computer?.os)
   if (!pg) {
     const current = store.machine ?? ''
     const chosen = target ?? current
+    if (sub && !busy) {
+      return <MachineListView t={t} api={api} machines={machines} value={chosen} current={current} fallback={null} blocks={blocks} words={words}
+        sub={name} onPick={(m) => { setTarget(m === current ? null : m); setSub(false) }} onBack={() => setSub(false)} />
+    }
     return <>{head}
       <div className={css.body}><div className={css.fields}>
         {storeCard}
-        <Group label={t('stepMachine')} hint={t('locationHint')}>
-          <LocationPicker machines={machines} value={chosen} onChange={setTarget} words={words} label={t('stepMachine')} current={current} disabled={!!busy} blocks={blocks}>
-            <NewMachineTile api={api} t={t} />
-          </LocationPicker>
-        </Group>
-        {chosen !== current ? <p className={css.warn}>{t('moveWarn', { store: store.name, machine: chosen, n: others })}</p> : null}
-        {/* moving starts no machine: each stopped one it needs has its own Start here */}
-        {chosen !== current ? <StartFirst names={stoppedOf([current, chosen], view.data)} words={startWords} start={(m) => startMachine(api, m)} onStarted={view.reload} /> : null}
-        {error ? <p className={css.error} role="alert">{error}</p> : null}
+        <section className={css.field}>
+          <h3 className={css.label}>{t('stepMachine')}</h3>
+          <MachineGrid machines={machines} value={chosen} onChange={(m) => setTarget(m === current ? null : m)} words={words} label={t('stepMachine')} current={current}
+            disabled={!!busy} blocks={blocks} allLabel={t('allMachines', { n: machines.length })} onAll={() => setSub(true)} newLabel={t('newMachine')} onNew={newMachine(api)} />
+          {chosen !== current
+            ? <SectionNote tone="warn">{t('moveWarn', { store: store.name, machine: isHostName(chosen) ? t(hostWordKey(view.data.computer?.os)) : chosen, n: others })}</SectionNote>
+            : <SectionNote>{t('locationHint')}</SectionNote>}
+          {/* moving starts no machine: each stopped one it needs has its own Start here */}
+          {chosen !== current ? <StartFirst names={stoppedOf([current, chosen], view.data)} words={startWords} start={(m) => startMachine(api, m)} onStarted={view.reload} /> : null}
+          {error ? <p className={css.error} role="alert">{error}</p> : null}
+        </section>
       </div></div>
       <footer className={css.foot}>
         {hide}

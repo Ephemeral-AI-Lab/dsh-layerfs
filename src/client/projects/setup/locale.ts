@@ -35,7 +35,7 @@ const en = {
   user: 'User', password: 'Password', passwordHint: 'Saved by this computer for this Store: the password goes to LayerFS on stdin and is never shown again.',
   runsOn: 'Runs on', locationHint: 'Where the Store file lives. Its projects’ sessions run there.', runsOnPg: 'Where this session runs. It changes nothing for the Store: each session picks its own machine.',
   newMachine: 'New machine', noMachines: 'No machine can run this kind of Store. Add one in Home.',
-  default: 'Default', thisMac: 'This Mac, unisolated', thisLinux: 'This computer, sandboxed', thisPc: 'This PC', running: 'Running', stopped: 'Stopped', stateReady: 'Ready', stateBusy: 'Busy', stateBlocked: 'Blocked', stateBroken: 'Broken', stateUnknown: 'Unknown', stoppedFirst: 'Stopped · {machine}', startNamed: 'Start {machine}', here: 'Here now',
+  default: 'Default', thisMac: 'This Mac, unisolated', thisLinux: 'This computer, sandboxed', thisPc: 'This PC', running: 'Running', stopped: 'Stopped', stateReady: 'Ready', stateBusy: 'Busy', stateBlocked: 'Blocked', stateBroken: 'Broken', stateUnknown: 'Unknown', stoppedFirst: 'Stopped · {machine}', startNamed: 'Start {machine}', here: 'Store is here',
   working: 'Working…',
   moveWarn: 'Moves the whole Store {store} to {machine}: its {n} other projects run there too. Refused while any of them has a Sandbox.',
   create: 'Create and open', import: 'Import and open', creating: 'Creating…',
@@ -62,6 +62,10 @@ const en = {
  
   storeFileOn: 'Store file on', storeFileHint: 'This project’s sessions run there too.', sessionRunsOn: 'This session runs on',
   saveTo: 'Save to', fromFolderBtn: 'From folder…', startEmpty: 'Start empty', moreStores: '{n} more Stores', fewerStores: 'Show fewer', storeOn: 'On {machine}.', moveStore: 'Move to another machine…', keepStore: 'Keep it there', footLine: '{name} → {where}', notNamed: 'Not named yet', filterStores: 'Filter {n} Stores',
+  allStores: 'All {n} Stores', allMachines: 'All {n} machines', chooseStore: 'Choose a Store', chooseMachine: 'Choose a machine', forProject: 'For {name}', back: 'Back',
+  filterStoresList: 'Filter by name, machine or address', filterMachines: 'Filter machines', noMachineMatch: 'No machine matches.',
+  grpRunning: 'Running', grpStopped: 'Stopped', grpCantRun: 'Can’t run here now', storeKind: 'Kind of Store', lastUsedNote: 'last used',
+  sessionsLast: '{sessions} · last one {ago}', agoNow: 'just now', agoMinutes: '{n} min ago', agoHours: '{n} h ago', agoDays: '{n} d ago', agoMonths: '{n} mo ago', agoYears: '{n} y ago',
 }
 
 const zh: typeof en = {
@@ -96,7 +100,7 @@ const zh: typeof en = {
   user: '用户', password: '密码', passwordHint: '由这台电脑为此 Store 保存：密码经标准输入交给 LayerFS，之后不再显示。',
   runsOn: '运行于', locationHint: '存储文件所在的位置，其中项目的会话也在那里运行。', runsOnPg: '此会话运行的位置。不会改变 Store：每个会话各自选择机器。',
   newMachine: '新建机器', noMachines: '没有机器能运行这类存储。请在“主页”中添加。',
-  default: '默认', thisMac: '本机，无隔离', thisLinux: '这台电脑，沙箱隔离', thisPc: '这台 PC', running: '运行中', stopped: '已停止', stateReady: '就绪', stateBusy: '忙碌', stateBlocked: '受阻', stateBroken: '损坏', stateUnknown: '未知', stoppedFirst: '已停止 · {machine}', startNamed: '启动 {machine}', here: '当前位置',
+  default: '默认', thisMac: '本机，无隔离', thisLinux: '这台电脑，沙箱隔离', thisPc: '这台 PC', running: '运行中', stopped: '已停止', stateReady: '就绪', stateBusy: '忙碌', stateBlocked: '受阻', stateBroken: '损坏', stateUnknown: '未知', stoppedFirst: '已停止 · {machine}', startNamed: '启动 {machine}', here: '存储在这里',
   working: '处理中…',
   moveWarn: '会把整个存储 {store} 移到 {machine}：其中另外 {n} 个项目也会在那里运行。任一项目有 Sandbox 时会被拒绝。',
   create: '创建并打开', import: '导入并打开', creating: '正在创建…',
@@ -123,6 +127,10 @@ const zh: typeof en = {
  
   storeFileOn: '存储文件放在', storeFileHint: '这个项目的会话也在那里运行。', sessionRunsOn: '这次会话运行于',
   saveTo: '保存到', fromFolderBtn: '从文件夹…', startEmpty: '改为空项目', moreStores: '其他 {n} 个存储', fewerStores: '收起', storeOn: '位于 {machine}。', moveStore: '移到其他机器…', keepStore: '留在原处', footLine: '{name} → {where}', notNamed: '尚未命名', filterStores: '筛选 {n} 个存储',
+  allStores: '全部 {n} 个存储', allMachines: '全部 {n} 台机器', chooseStore: '选择存储', chooseMachine: '选择机器', forProject: '用于 {name}', back: '返回',
+  filterStoresList: '按名称、机器或地址筛选', filterMachines: '筛选机器', noMachineMatch: '没有匹配的机器。',
+  grpRunning: '运行中', grpStopped: '已停止', grpCantRun: '目前无法在此运行', storeKind: '存储类型', lastUsedNote: '上次使用',
+  sessionsLast: '{sessions} · 最近一次 {ago}', agoNow: '刚刚', agoMinutes: '{n} 分钟前', agoHours: '{n} 小时前', agoDays: '{n} 天前', agoMonths: '{n} 个月前', agoYears: '{n} 年前',
 }
 
 export const locales = { en, zh }

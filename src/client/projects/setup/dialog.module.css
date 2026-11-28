@@ -309,18 +309,6 @@
   margin-left: auto;
 }
 
-.kindMark {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: var(--dsw-radius-sm);
-  border: 0.5px solid var(--dsw-alias-border-l2);
-  background: var(--dsw-alias-bg-layer-1);
-}
-
 .kindText {
   display: flex;
   flex-direction: column;
@@ -352,113 +340,12 @@
   line-height: 18px;
 }
 
-/* Existing Stores: a search and rows in one bordered list; the step pane scrolls, the list does not. */
-.storeList {
-  border: 0.5px solid var(--dsw-alias-border-l3);
-  border-radius: var(--dsw-radius-md);
-  margin-top: -8px;
-}
-
-.storeSearch {
-  position: sticky;
-  top: -4px;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
-  border-radius: var(--dsw-radius-md) var(--dsw-radius-md) 0 0;
-  background: var(--dsw-alias-bg-layer-2);
-}
-
-.storeSearch .search {
-  height: 36px;
-  font-size: 13px;
-}
-
-.storeRowOn.storeRowOn {
-  background: color-mix(in oklab, var(--dsw-alias-state-business-primary) 7%, var(--dsw-alias-bg-layer-2));
-}
-
 .storeName {
   font-weight: 500;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.storeNote {
-  flex: 1 1 0;
-  min-width: 0;
-  text-align: right;
-  overflow: visible;
-  text-overflow: clip;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  font-size: 12px;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.storeCheck {
-  flex: none;
-  color: var(--dsw-alias-state-business-primary);
-}
-
-.storeRowWrap {
-  display: flex;
-  align-items: center;
-  border-top: 0.5px solid var(--dsw-alias-border-l2);
-}
-
-[role='radiogroup'] > .storeRowWrap:first-child {
-  border-top: 0;
-}
-
-[role='radiogroup'] > .storeRowWrap:last-child {
-  border-radius: 0 0 var(--dsw-radius-md) var(--dsw-radius-md);
-}
-
-.storeRowBtn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-  min-width: 0;
-  min-height: 40px;
-  padding: 8px 12px;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.storeRowBtn:focus-visible {
-  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color);
-  outline-offset: -2px;
-}
-
-.storeRowBtn:disabled {
-  cursor: default;
-}
-
-@media (hover: hover) {
-  .storeRowWrap:not(.storeRowDisabled):hover {
-    background: var(--dsw-alias-interactive-bg-hover);
-  }
-}
-
-.storeRowDisabled .storeName,
-.storeRowDisabled .storeNote {
-  color: var(--dsw-alias-label-secondary);
-}
-
-.storeFixBtn {
-  flex: none;
-  margin-inline-end: 8px;
 }
 
 .storeStatusTag,
@@ -502,11 +389,6 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-}
-
-.openStoreBtn {
-  margin-left: auto;
-  flex: none;
 }
 
 .pgStoreNotice {
@@ -646,16 +528,6 @@
   white-space: nowrap;
   color: var(--dsw-alias-state-business-primary);
   background: color-mix(in oklab, var(--dsw-alias-state-business-primary) 10%, transparent);
-}
-
-.newMachine.newMachine {
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  border: 1px dashed var(--dsw-alias-border-l3);
-  background: transparent;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 12px;
 }
 
 /* ---------- create progress ---------- */
@@ -984,20 +856,6 @@
   color: var(--lf-tone-danger-fg);
 }
 
-/* ---------- create: a name and one Save to list; the chosen row opens in place ---------- */
-.lastUsed {
-  flex: none;
-  padding: 1px 6px;
-  border-radius: 999px;
-  corner-shape: round;
-  font-size: 12px;
-  line-height: 16px;
-  font-weight: 500;
-  white-space: nowrap;
-  color: var(--dsw-alias-label-secondary);
-  background: var(--dsw-alias-bg-layer-1);
-}
-
 .inlineLink {
   padding: 0;
   border: 0;
@@ -1012,34 +870,6 @@
   outline-offset: 2px;
 }
 
-.storeGroup {
-  padding: 8px 12px 4px;
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-[role='radiogroup'] > .storeGroup:first-child,
-.storeGroup + .storeItem > .storeRowWrap {
-  border-top: 0;
-}
-
-.storeItem + .storeGroup,
-.moreRow + .storeGroup {
-  border-top: 0.5px solid var(--dsw-alias-border-l2);
-}
-
-/* a row of the Save to list and, when chosen, its panel */
-.storeItem {
-  display: flex;
-  flex-direction: column;
-}
-
-.storeList.storeList {
-  margin-top: 0;
-  overflow: hidden;
-}
-
 .rowMark {
   display: inline-flex;
   align-items: center;
@@ -1050,18 +880,6 @@
   border-radius: var(--dsw-radius-sm);
   border: 0.5px solid var(--dsw-alias-border-l2);
   color: var(--dsw-alias-label-secondary);
-}
-
-.rowPanel {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 4px 12px 14px 42px;
-  background: color-mix(in oklab, var(--dsw-alias-state-business-primary) 7%, var(--dsw-alias-bg-layer-2));
-}
-
-.rowPanel .hint {
-  margin: 0;
 }
 
 .moreRow {
@@ -1088,29 +906,6 @@
 .moreRow:focus-visible {
   outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color);
   outline-offset: -2px;
-}
-
-.saveHead {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 28px;
-}
-
-.saveFilter {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-inline-start: auto;
-  width: min(200px, 50%);
-  padding: 0 8px;
-  border: 0.5px solid var(--dsw-alias-border-l2);
-  border-radius: var(--dsw-radius-md);
-}
-
-.saveFilter .search {
-  height: 28px;
-  font-size: 12px;
 }
 
 .footNote {
@@ -1175,15 +970,404 @@
     height: var(--lfs-tap, 44px);
   }
 
-  .saveFilter,
-  .saveFilter .search {
-    height: var(--lfs-tap, 44px);
-  }
-
   .inlineLink {
     display: inline-flex;
     align-items: center;
     min-height: var(--lfs-tap, 44px);
     vertical-align: middle;
   }
+}
+
+/* ---------- tiles (Store and Machine): two columns, one outline, one check ---------- */
+/* New project and project settings: 560px wide, at most 80% of the window tall (the middle scrolls). */
+.dialog.narrow {
+  max-height: min(80vh, 100%);
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+  padding: 10px 12px;
+  box-sizing: border-box;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-2);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+}
+
+.tile:focus-visible,
+.ghostCell:focus-visible,
+.listRowBtn:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color);
+  outline-offset: 1px;
+}
+
+.tile:disabled {
+  cursor: default;
+  background: var(--dsw-alias-bg-layer-1);
+  border-color: var(--dsw-alias-border-l2);
+}
+
+.tile:disabled .tileName {
+  color: var(--dsw-alias-label-secondary);
+}
+
+@media (hover: hover) {
+  .tile:hover:not(:disabled):not(.tileOn) {
+    border-color: var(--dsw-alias-border-l4);
+  }
+  .ghostCell:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+    color: var(--dsw-alias-label-primary);
+  }
+  .listRowBtn:hover:not(:disabled) {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+.tileOn.tileOn {
+  border-color: var(--dsw-alias-state-business-primary);
+  box-shadow: inset 0 0 0 0.5px var(--dsw-alias-state-business-primary);
+}
+
+.tileTop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tileMark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.tileName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.tileCheck {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  corner-shape: round;
+  background: var(--dsw-alias-state-business-primary);
+  color: var(--dsw-alias-label-primary-inverted);
+}
+
+.tileNote {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.tileNote[data-tone='warn'],
+.listNote[data-tone='warn'] {
+  color: var(--lf-tone-warning-fg);
+}
+
+/* All N… and + New…: quiet cells, half the row each */
+.tileActions {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.ghostCell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  margin: 0;
+  padding: 0 12px;
+  border: 0.5px solid transparent;
+  border-radius: var(--dsw-radius-md);
+  background: color-mix(in oklab, var(--dsw-alias-label-primary) 4%, transparent);
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.ghostCell > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ghostOn.ghostOn {
+  border-color: var(--dsw-alias-state-business-primary);
+  box-shadow: inset 0 0 0 0.5px var(--dsw-alias-state-business-primary);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+}
+
+.ghostOn .tileCheck {
+  position: absolute;
+  right: 10px;
+}
+
+/* a quiet line under a section: an icon and the words (a move, what a Store attach does) */
+.sectionNote {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.sectionNote > svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.sectionNote[data-tone='warn'] > svg {
+  color: var(--lf-tone-warning-fg);
+}
+
+.labelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 16px;
+}
+
+.labelLink {
+  margin: -2px -6px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-state-business-primary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .labelLink:hover { background: var(--dsw-alias-interactive-bg-hover); }
+}
+
+/* the new Store's kind: two small choices */
+.kindSwitch {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 2px;
+  gap: 2px;
+  border-radius: var(--dsw-radius-md);
+  background: color-mix(in oklab, var(--dsw-alias-label-primary) 4%, transparent);
+}
+
+.kindOpt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.kindOpt[aria-checked='true'] {
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  box-shadow: var(--dsw-elevation-1, 0 0 0 0.5px var(--dsw-alias-border-l3));
+}
+
+.kindOpt:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color);
+}
+
+.newStorePanel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+}
+
+/* the head's Back in a list view, where the mark would be */
+.headBack {
+  flex: none;
+}
+
+/* ---------- the whole list (All N…), in place of the form ---------- */
+.listView {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.listFilter {
+  position: relative;
+  flex: none;
+  margin: 12px 20px 4px;
+}
+
+.listFilterIcon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--dsw-alias-label-tertiary);
+  pointer-events: none;
+}
+
+.listFilterInput {
+  width: 100%;
+  box-sizing: border-box;
+  height: 32px;
+  padding: 0 10px 0 30px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+}
+
+.listFilterInput:focus {
+  outline: none;
+  border-color: var(--dsw-alias-state-business-primary);
+}
+
+.listBody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 14px 16px;
+}
+
+.listGroup {
+  display: flex;
+  flex-direction: column;
+}
+
+.listGroupLabel {
+  margin: 0;
+  padding: 12px 6px 4px;
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.listRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--dsw-radius-sm);
+}
+
+.listRowOn {
+  background: color-mix(in oklab, var(--dsw-alias-state-business-primary) 7%, transparent);
+}
+
+.listRowBtn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  margin: 0;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.listRowOn .listRowBtn {
+  background: transparent;
+}
+
+.listRowBtn:disabled {
+  cursor: default;
+}
+
+.listRowBtn:disabled .listName {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.listName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.listNote {
+  flex: none;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.listCheck {
+  flex: none;
+  color: var(--dsw-alias-state-business-primary);
 }
