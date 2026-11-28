@@ -1,6 +1,6 @@
 // The `http` operation's router: dispatch, Connect's status mapping and
 // bodies over a fake lfs, and a live pass over the real pinned CLI against a
-// private temporary LAYERFS_HOME.
+// private temporary LayerFS root (LAYERFS_ROOT).
 //   node --test test/routes.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -696,7 +696,7 @@ test('live: machines, store create, project init, list/get, branches, fs, file',
   const root = tmpRoot('dshrt-')
   const home = join(root, 'home')
   // a 2.0 CLI makes no home on a read: `home init` first, as Set up LayerFS does
-  execFileSync(pin.cli, ['home', 'init'], { env: { ...process.env, LAYERFS_HOME: home }, timeout: 30_000 })
+  execFileSync(pin.cli, ['home', 'init'], { env: { ...process.env, LAYERFS_ROOT: root }, timeout: 30_000 })
   const src = join(root, 'src')
   mkdirSync(join(src, 'lib'), { recursive: true })
   writeFileSync(join(src, 'README.md'), '# hello\nworld\n')
@@ -722,7 +722,7 @@ test('live: machines, store create, project init, list/get, branches, fs, file',
   context.after(async () => {
     await http('POST', `/api/projects/${key}/close-sandboxes`, { force: true }).catch(() => {})
     await groups.projects.close()
-    execFileSync(pin.cli, ['machine', 'stop', 'macos-host'], { env: { ...process.env, LAYERFS_HOME: home }, timeout: 30_000 })
+    execFileSync(pin.cli, ['machine', 'stop', 'macos-host'], { env: { ...process.env, LAYERFS_ROOT: root }, timeout: 30_000 })
     rmSync(root, { recursive: true, force: true })
   })
   const machines = await ok('GET', '/api/machines')
@@ -770,7 +770,7 @@ const sandboxSkip = !pin ? liveSkipReason() : !sandboxHost && 'needs Docker and 
 
 test('live: a Sandbox, a forked side Branch mounted in it, its status, unmount and close', { skip: sandboxSkip, timeout: 600_000 }, async (context) => {
   const root = tmpRoot('dshsb-'), home = join(root, 'home'), src = join(root, 'src')
-  const env = { ...process.env, LAYERFS_HOME: home, ...(pin.bundle ? { LAYERFS_BUNDLE: pin.bundle } : {}) }
+  const env = { ...process.env, LAYERFS_ROOT: root, ...(pin.bundle ? { LAYERFS_BUNDLE: pin.bundle } : {}) }
   const savedBundle = process.env.LAYERFS_BUNDLE
   if (pin.bundle) process.env.LAYERFS_BUNDLE = pin.bundle
   const lfs = R.cli.client({ cli: pin.cli, home, bundle: pin.bundle })

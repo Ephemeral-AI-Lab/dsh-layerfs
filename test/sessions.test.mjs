@@ -1308,7 +1308,7 @@ test('a session\'s host reads fold into its sidecar; a tool read and a write kee
     workspace: { status: traced('workspace.status', () => ({ changes_count: 0 }), tags) },
   }
   const ctx = new Context()
-  ctx.provide('layerfs', { state: join(dir, 'plugin'), projectSessionHome: join(dir, 'project-home'), home: join(dir, 'layerfs-home'), lfs })
+  ctx.provide('layerfs', { state: join(dir, 'plugin'), projectSessionHome: join(dir, 'project-home'), home: join(dir, 'layerfs', 'home'), lfs })
   const fork = ctx.plugin(S.persistence, { root: join(dir, 'normal') })
   const header = (id) => ({ version: 4, id, createdAt: 1, cwd: '/scratch', isSeeded: false })
   const binding = (id) => ({ sessionId: id, kind: 'project', project: 'store/app', machine: 'vm', anchor: '/anchor', scratch: '/scratch',

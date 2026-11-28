@@ -24,12 +24,12 @@ import { pinned, liveSkipReason } from './routes-helper.mjs'
 const root = fileURLToPath(new URL('..', import.meta.url))
 const pin = pinned()
 
-/** The pinned CLI's call table, read with a throwaway LAYERFS_HOME (never ~/.layerfs). */
+/** The pinned CLI's call table, read with a throwaway LAYERFS_ROOT (never ~/.layerfs). */
 function pinnedHelp() {
-  const home = mkdtempSync(join(tmpdir(), 'dsh-call-table-'))
+  const lfsRoot = mkdtempSync(join(tmpdir(), 'dsh-call-table-'))
   try {
-    return JSON.parse(execFileSync(pin.cli, ['help', '--json'], { env: { ...process.env, LAYERFS_HOME: home }, encoding: 'utf8', timeout: 15000 }))
-  } finally { rmSync(home, { recursive: true, force: true }) }
+    return JSON.parse(execFileSync(pin.cli, ['help', '--json'], { env: { ...process.env, LAYERFS_ROOT: lfsRoot }, encoding: 'utf8', timeout: 15000 }))
+  } finally { rmSync(lfsRoot, { recursive: true, force: true }) }
 }
 
 // ---------------------------------------------------------------- source scanning

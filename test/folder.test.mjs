@@ -35,14 +35,19 @@ function machine() {
   return { dir, dshHome, folder: join(dir, 'lfs'), env: { DSH_HOME: dshHome }, done: () => rmSync(dir, { recursive: true, force: true }) }
 }
 
-test('folder: config, then DSH_LAYERFS_FOLDER, then the pointer, then ~/.layerfs', () => {
+test('folder: config, then DSH_LAYERFS_FOLDER, then LAYERFS_ROOT, then the pointer, then ~/.layerfs', () => {
   const m = machine()
   const savedHome = process.env.HOME
   try {
     const viaConfig = F.resolveFolder({ folder: join(m.dir, 'a') }, { ...m.env, DSH_LAYERFS_FOLDER: join(m.dir, 'b') })
     assert.deepEqual([viaConfig.folder, viaConfig.folderSource], [join(m.dir, 'a'), 'config'])
-    const viaEnv = F.resolveFolder({}, { ...m.env, DSH_LAYERFS_FOLDER: join(m.dir, 'b') })
+    const viaEnv = F.resolveFolder({}, { ...m.env, DSH_LAYERFS_FOLDER: join(m.dir, 'b'), LAYERFS_ROOT: join(m.dir, 'r') })
     assert.deepEqual([viaEnv.folder, viaEnv.folderSource], [join(m.dir, 'b'), 'env'])
+    // LayerFS's own root variable names the folder after DSH_LAYERFS_FOLDER, before the pointer
+    F.writeJson(F.pointerPath(m.dshHome), { folder: join(m.dir, 'c') })
+    const viaRoot = F.resolveFolder({}, { ...m.env, LAYERFS_ROOT: join(m.dir, 'r') })
+    assert.deepEqual([viaRoot.folder, viaRoot.folderSource, viaRoot.home], [join(m.dir, 'r'), 'env', join(m.dir, 'r', 'home')])
+    assert.equal(F.resolveFolder({}, { ...m.env, LAYERFS_ROOT: 'relative/r' }).folderSource, 'pointer', 'a relative root is ignored')
     // the setup modal's pointer, $DSH_HOME/layerfs.json
     assert.equal(F.pointerPath(m.dshHome), join(m.dshHome, 'layerfs.json'))
     F.writeJson(F.pointerPath(m.dshHome), { folder: join(m.dir, 'c') })
@@ -62,20 +67,44 @@ test('folder: config, then DSH_LAYERFS_FOLDER, then the pointer, then ~/.layerfs
   }
 })
 
-test('home: config, DSH_LAYERFS_HOME, LAYERFS_HOME, else <folder>/home once set up there, else the folder itself', () => {
+test('home: found in the folder by LayerFS\'s rule (the folder while it holds layerfs.json, else <folder>/home); no home override', () => {
   const m = machine()
   try {
     const env = { ...m.env, DSH_LAYERFS_FOLDER: m.folder }
-    assert.equal(F.resolveFolder({ home: join(m.dir, 'h1') }, { ...env, DSH_LAYERFS_HOME: join(m.dir, 'h2'), LAYERFS_HOME: join(m.dir, 'h3') }).home, join(m.dir, 'h1'))
-    assert.equal(F.resolveFolder({}, { ...env, DSH_LAYERFS_HOME: join(m.dir, 'h2'), LAYERFS_HOME: join(m.dir, 'h3') }).home, join(m.dir, 'h2'))
-    assert.equal(F.resolveFolder({}, { ...env, LAYERFS_HOME: join(m.dir, 'h3') }).home, join(m.dir, 'h3'))
-    // a legacy home: the folder is the home while LayerFS defaults to ~/.layerfs (§3)
-    assert.equal(F.resolveFolder({}, env).home, m.folder)
-    // an empty home/ is not a home
-    mkdirSync(join(m.folder, 'home'), { recursive: true })
-    assert.equal(F.resolveFolder({}, env).home, m.folder)
-    writeFileSync(join(m.folder, 'home', 'layerfs.json'), '{}')
+    // the home overrides are gone: a config `home`, DSH_LAYERFS_HOME and LAYERFS_HOME are ignored
+    assert.equal(F.resolveFolder({ home: join(m.dir, 'h1') }, { ...env, DSH_LAYERFS_HOME: join(m.dir, 'h2'), LAYERFS_HOME: join(m.dir, 'h3') }).home, join(m.folder, 'home'))
+    // a new folder, or one with an empty home/: <folder>/home
     assert.equal(F.resolveFolder({}, env).home, join(m.folder, 'home'))
+    mkdirSync(join(m.folder, 'home'), { recursive: true })
+    assert.equal(F.resolveFolder({}, env).home, join(m.folder, 'home'))
+    // a home made before the root layout: the folder itself while it holds layerfs.json
+    writeFileSync(join(m.folder, 'layerfs.json'), '{}')
+    assert.equal(F.resolveFolder({}, env).home, m.folder)
+  } finally { m.done() }
+})
+
+test('homeIn / rootOf: the home in a root and the root (LAYERFS_ROOT) for a home, inverse of each other', () => {
+  const m = machine()
+  try {
+    const root = m.folder
+    // no layerfs.json in the root: <root>/home, whether or not it exists yet
+    assert.equal(F.homeIn(root), join(root, 'home'))
+    assert.equal(F.rootOf(join(root, 'home')), root)
+    mkdirSync(join(root, 'home'), { recursive: true })
+    writeFileSync(join(root, 'home', 'layerfs.json'), '{}')
+    // a home folder holding layerfs.json is a root of its own: LayerFS finds it there
+    assert.equal(F.homeIn(join(root, 'home')), join(root, 'home'))
+    assert.equal(F.rootOf(join(root, 'home')), join(root, 'home'))
+    // a legacy home at the root: the root is the home and its own root
+    const legacy = join(m.dir, 'legacy')
+    put(join(legacy, 'layerfs.json'), '{}')
+    assert.equal(F.homeIn(legacy), legacy)
+    assert.equal(F.rootOf(legacy), legacy)
+    // a home not named `home` without layerfs.json names itself: LayerFS would look in <it>/home
+    assert.equal(F.rootOf(join(m.dir, 'elsewhere')), join(m.dir, 'elsewhere'))
+    // round trip for a new root
+    const fresh = join(m.dir, 'fresh')
+    assert.equal(F.rootOf(F.homeIn(fresh)), fresh)
   } finally { m.done() }
 })
 

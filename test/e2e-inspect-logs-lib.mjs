@@ -5,8 +5,10 @@
 // The SAME scripts run against the stand-in CLI and against a real build; only
 // the environment differs:
 //
-//   DSH_LAYERFS_DEV_DIR    the side server's dev dir (url.txt, layerfs-home/, state/)   required
-//   DSH_LAYERFS_HOME       the LayerFS home that server uses, when it is not <dev dir>/layerfs-home
+//   DSH_LAYERFS_DEV_DIR    the side server's dev dir (url.txt, layerfs/, state/)         required
+//   DSH_LAYERFS_FOLDER     the LayerFS folder (LayerFS's root, LAYERFS_ROOT) that server uses, when
+//                          it is not <dev dir>/layerfs; the home is found in it: the folder while it
+//                          holds layerfs.json, else <folder>/home
 //   DSH_LAYERFS_CLI        the CLI that server pins                                      required
 //   INSPECT_MACHINE        the machine whose page is opened (default `macos-host`)
 //   INSPECT_MACHINE_TITLE  its title in "Jump to" (default: its name)
@@ -36,7 +38,7 @@
 //
 // Every row also fails on: a console or page error; a page request that
 // answered 4xx/5xx (a log read the page itself dropped, `Cancelled`, is not
-// one); and a new line in <dev dir>/layerfs-home/trace/calls.jsonl or a new
+// one); and a new line in <dev dir>/layerfs/home/trace/calls.jsonl or a new
 // record in <dev dir>/layerfs/dsh/trace/outputs/ that comes from a log,
 // files or machine stats read. Other reads of the page (store list, machine status, sandbox
 // get) do add lines there; they are told apart by argv and tag.
@@ -53,6 +55,10 @@ export const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const devDir = process.env.DSH_LAYERFS_DEV_DIR
 if (!devDir || !process.env.DSH_LAYERFS_CLI) { console.error('e2e-inspect-logs: set DSH_LAYERFS_DEV_DIR and DSH_LAYERFS_CLI (the side server\'s dev dir and pinned CLI)'); process.exit(2) }
 const machine = process.env.INSPECT_MACHINE || 'macos-host'
+/** The server's LayerFS folder: the root CLIs run here are given as LAYERFS_ROOT. */
+export const lfsRoot = process.env.DSH_LAYERFS_FOLDER || join(devDir, 'layerfs')
+/** The home LayerFS finds in that root (src/host/folder.ts homeIn). */
+export const lfsHome = existsSync(join(lfsRoot, 'layerfs.json')) ? lfsRoot : join(lfsRoot, 'home')
 const standin = process.env.INSPECT_STANDIN_DIR || null
 export const cfg = {
   devDir,
@@ -174,7 +180,7 @@ export const spawnMark = () => (spawns() ?? []).length
 
 // ---------------------------------------------------------------- the call log and the saved outputs
 
-const callsFile = join(process.env.DSH_LAYERFS_HOME || join(devDir, 'layerfs-home'), 'trace', 'calls.jsonl')
+const callsFile = join(lfsHome, 'trace', 'calls.jsonl')
 const outputsDir = join(devDir, 'layerfs', 'dsh', 'trace', 'outputs')
 const callLines = () => { try { return readFileSync(callsFile, 'utf8').split('\n').filter(Boolean) } catch { return [] } }
 const outputNames = () => { try { return readdirSync(outputsDir) } catch { return [] } }

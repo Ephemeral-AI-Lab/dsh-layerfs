@@ -1,13 +1,17 @@
 // The environment the live suites need, once: a directory on a filesystem LayerFS
 // can create a Store on, and the pinned CLI without a managed wrapper that pins
-// LAYERFS_HOME. A test that makes a real Store creates its case under tmpRoot();
+// LAYERFS_ROOT. A test that makes a real Store creates its case under tmpRoot();
 // a live test uses liveCli() and skips with liveSkipReason() when no CLI can be
 // pointed at a private home.
 //
 // Why: /tmp is an overlay (or tmpfs) here and SQLite's locks do not carry between
 // kernels there (`store create` refuses `Unsupported`), while the managed
-// agent-bin/layerfs wrapper exports a fixed LAYERFS_HOME, so a test that sets
-// LAYERFS_HOME to its own folder would talk to the user's home instead.
+// `<state>/bin/layerfs` wrapper exports a fixed LAYERFS_ROOT, so a test that sets
+// LAYERFS_ROOT to its own folder would talk to the user's home instead.
+//
+// A private home: make a root (`root = tmpRoot()`), run the CLI with
+// `LAYERFS_ROOT: root` and hand dsh-layerfs `home: join(root, 'home')`, the home
+// LayerFS finds in a root without layerfs.json (folder.ts `rootOf` maps it back).
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, statfsSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
@@ -39,15 +43,15 @@ export function tmpRoot(prefix = 'dsh-test-') {
   return mkdtempSync(join(storeBase(), prefix))
 }
 
-/** Whether `cli` honours the LAYERFS_HOME given to it (a managed wrapper does not). */
-function obeysHome(cli, home) {
+/** Whether `cli` honours the LAYERFS_ROOT given to it (a managed wrapper or a CLI older than LAYERFS_ROOT does not). */
+function obeysRoot(cli, root) {
   const run = spawnSync(cli, ['home', 'get'], {
     encoding: 'utf8', timeout: 30_000,
-    env: { ...process.env, LAYERFS_HOME: home },
+    env: { ...process.env, LAYERFS_ROOT: root },
   })
   try {
     const answer = JSON.parse(run.stdout)
-    return answer?.home === home
+    return answer?.home === join(root, 'home')
   } catch { return false }
 }
 
@@ -74,11 +78,11 @@ export function liveCli() {
   if (resolved !== undefined) return resolved
   const selected = runtimePin()
   if (!selected?.cli || !existsSync(selected.cli)) return (resolved = null)
-  // A path that does not exist: an obedient CLI echoes it back, a wrapper pins its own home.
+  // A root that does not exist: an obedient CLI names <probe>/home, a wrapper pins its own home.
   const probe = join(storeBase(), `probe-${process.pid}-${Date.now()}`)
-  if (obeysHome(selected.cli, probe)) return (resolved = selected)
+  if (obeysRoot(selected.cli, probe)) return (resolved = selected)
   for (const path of candidates(selected)) {
-    if (!obeysHome(path, probe)) continue
+    if (!obeysRoot(path, probe)) continue
     const daemon = join(dirname(path), 'layerfs-daemon')
     let bundle = selected.bundle
     if (!bundle) {
@@ -96,5 +100,5 @@ export function liveSkipReason() {
   const selected = runtimePin()
   if (!selected?.cli) return 'no pinned LayerFS CLI (set DSH_LAYERFS_CLI or install a runtime in ~/.layerfs/runtime)'
   if (!existsSync(selected.cli)) return `the selected LayerFS CLI does not exist (${selected.cli})`
-  return 'the selected CLI pins LAYERFS_HOME (set DSH_LAYERFS_TEST_CLI to an unpinned CLI)'
+  return 'the selected CLI does not honour LAYERFS_ROOT: a managed wrapper or a CLI older than LAYERFS_ROOT (set DSH_LAYERFS_TEST_CLI to an unpinned current CLI)'
 }

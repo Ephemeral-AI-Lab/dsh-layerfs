@@ -124,15 +124,18 @@ test('managed CLI is a bash script: tag, stdin, streams, exit and raw outputs', 
   const dir = mkdtempSync(join(root, 'native-'))
   const cli = join(dir, 'fake.mjs')
   // Echo stdin and the tag; `fail` refuses (125 + a refusal frame on stderr), `exit3` exits 3 (a streamed command's code).
-  writeFileSync(cli, `#!/usr/bin/env node\nlet input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{console.log(JSON.stringify({commit:'${id}',tag:process.env.LAYERFS_LOGS_TAG??null,input,home:process.env.LAYERFS_HOME}));process.stderr.write('note\\n');if(process.argv.includes('fail')){process.stderr.write(JSON.stringify({error:'Busy',message:'busy'})+'\\n');process.exitCode=125}else if(process.argv.includes('exit3'))process.exitCode=3})`, { mode: 0o700 })
+  writeFileSync(cli, `#!/usr/bin/env node\nlet input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{console.log(JSON.stringify({commit:'${id}',tag:process.env.LAYERFS_LOGS_TAG??null,input,root:process.env.LAYERFS_ROOT??null,home:process.env.LAYERFS_HOME??null}));process.stderr.write('note\\n');if(process.argv.includes('fail')){process.stderr.write(JSON.stringify({error:'Busy',message:'busy'})+'\\n');process.exitCode=125}else if(process.argv.includes('exit3'))process.exitCode=3})`, { mode: 0o700 })
   const command = managedCli({ root: dir, cli, home: join(dir, 'home'), outputs: join(dir, 'trace', 'outputs') })
   assert.match(readFileSync(command, 'utf8'), /^#!\/bin\/bash\n/, 'no node per call')
+  // the wrapper names LayerFS's root (the home's parent: <root>/home), never LAYERFS_HOME
+  assert.ok(readFileSync(command, 'utf8').split('\n').includes(`export LAYERFS_ROOT='${dir}'`), 'exports the root')
+  assert.doesNotMatch(readFileSync(command, 'utf8'), /LAYERFS_HOME/)
   assert.doesNotMatch(readFileSync(command, 'utf8'), />\(|<\(|\/dev\/fd/, "no process substitution: DSH's command sandbox denies /dev/fd")
   const env = { DSH_LAYERFS_TRACE_CONTEXT: traceEnvironment({ origin: 'tool', sessionId: 'session-1f2e', project: 'p', scope: 'abcd1234' }), LAYERFS_LOGS_TAG: 'inherited' }
   const ok = await run(command, ['file', 'write', 'p', 'b', '/x'], env, 'hello\n')
   assert.equal(ok.code, 0); assert.equal(ok.stderr, 'note\n')
   const answer = JSON.parse(ok.stdout)
-  assert.match(answer.tag, /^dsh:session-1f2e:abcd1234\.[0-9a-f]{32}$/); assert.equal(answer.input, 'hello\n'); assert.equal(answer.home, join(dir, 'home'))
+  assert.match(answer.tag, /^dsh:session-1f2e:abcd1234\.[0-9a-f]{32}$/); assert.equal(answer.input, 'hello\n'); assert.equal(answer.root, dir); assert.equal(answer.home, null)
   await new Promise(resolve => setTimeout(resolve, 100)) // the tee processes finish after the CLI
   const outputs = join(dir, 'trace', 'outputs')
   const raw = readOutput(outputs, answer.tag)

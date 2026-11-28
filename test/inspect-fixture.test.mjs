@@ -19,7 +19,7 @@ function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-inspect-fixture-'))
   mkdirSync(join(dir, 'machine')); mkdirSync(join(dir, 'sandbox')); mkdirSync(join(dir, 'home'))
   const run = (args, { timeout = 20000 } = {}) => {
-    const r = spawnSync(process.execPath, [shim, ...args], { encoding: 'utf8', timeout, maxBuffer: 1 << 26, env: { ...process.env, LFS_REAL_CLI: pin?.cli ?? '/usr/bin/false', LFS_INSPECT_DIR: dir, LAYERFS_HOME: join(dir, 'home') } })
+    const r = spawnSync(process.execPath, [shim, ...args], { encoding: 'utf8', timeout, maxBuffer: 1 << 26, env: { ...process.env, LFS_REAL_CLI: pin?.cli ?? '/usr/bin/false', LFS_INSPECT_DIR: dir, LAYERFS_ROOT: dir } })
     let out = null, err = null
     try { out = JSON.parse(r.stdout) } catch { /* not JSON */ }
     try { err = JSON.parse(r.stderr.trim().split('\n').at(-1)) } catch { /* not JSON */ }

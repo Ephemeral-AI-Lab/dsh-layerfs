@@ -2,7 +2,7 @@
 // store, backup, project, branch, commit, file, sandbox, workspace and the six doctors) is in
 // the pinned CLI's `help --json`, with the options, `--with` sections, `--progress` and
 // `--full` it passes, and every flag in a raw argv (presets, simulations) is one the call takes.
-// Runs DSH_LAYERFS_CS20_CLI or the dev runtime pin with a throwaway LAYERFS_HOME.
+// Runs DSH_LAYERFS_CS20_CLI or the dev runtime pin with a throwaway LayerFS root (LAYERFS_ROOT).
 //
 // The installed 2.0.0 CLI (ed911896) predates the Store attach/detach contract
 // (docs/specs/store-home-rows.md): it advertises neither store.attach nor
@@ -26,15 +26,15 @@ const root = fileURLToPath(new URL('..', import.meta.url))
 const CLI = process.env.DSH_LAYERFS_CS20_CLI ?? liveCli()?.cli
 const skip = CLI && existsSync(CLI) ? false : (liveSkipReason() || `no 2.0 CLI ${CLI ?? 'selected'}`)
 
-/** The pinned table, read once in a home of its own. */
+/** The pinned table, read once in a root of its own. */
 function table() {
-  const home = tmpRoot('dsh-cs20-home-')
+  const lfsRoot = tmpRoot('dsh-cs20-root-')
   try {
-    const text = execFileSync(CLI, ['help', '--json'], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, LAYERFS_HOME: home } })
+    const text = execFileSync(CLI, ['help', '--json'], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, LAYERFS_ROOT: lfsRoot } })
     const help = JSON.parse(text)
     const calls = new Map(help.calls.map((c) => [`${c.family}.${c.call}`, c]))
     return { help, calls }
-  } finally { rmSync(home, { recursive: true, force: true }) }
+  } finally { rmSync(lfsRoot, { recursive: true, force: true }) }
 }
 
 /** Every production source file (src/), as text. */
@@ -298,7 +298,7 @@ test('the Storage card\'s size and Compact send `store get --detail --with stats
     const home = join(dir, 'home'), log = join(dir, 'argv.log'), wrapper = join(dir, 'layerfs')
     writeFileSync(wrapper, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nexec '${CLI}' "$@"\n`)
     chmodSync(wrapper, 0o755)
-    const env = { ...process.env, LAYERFS_HOME: home }
+    const env = { ...process.env, LAYERFS_ROOT: dir }
     execFileSync(CLI, ['home', 'init'], { env, timeout: 30_000 })
     execFileSync(CLI, ['store', 'create', 's1'], { env, timeout: 30_000 })
     await build({
@@ -409,7 +409,7 @@ test('no option is given twice: the seam joins --with, and no raw argv repeats a
   const dir = tmpRoot('dsh-cs20-repeat-')
   try {
     const home = join(dir, 'home')
-    const env = { ...process.env, LAYERFS_HOME: home }
+    const env = { ...process.env, LAYERFS_ROOT: dir }
     execFileSync(CLI, ['home', 'init'], { env, timeout: 30_000 })
     // the rule exists in this pin: a repeated --detail is exit 2
     let status = 0
@@ -460,7 +460,7 @@ test('the table\'s required options are the pairs the call sites send; the seam 
   const dir = tmpRoot('dsh-cs20-required-')
   try {
     const home = join(dir, 'home')
-    execFileSync(CLI, ['home', 'init'], { env: { ...process.env, LAYERFS_HOME: home }, timeout: 30_000 })
+    execFileSync(CLI, ['home', 'init'], { env: { ...process.env, LAYERFS_ROOT: dir }, timeout: 30_000 })
     const { lfs, sent } = await recordingClient(dir, home)
     await assert.rejects(lfs.backup.connect('b', 'https://example.invalid', { secret_key: 's' }), (e) => e.code === 'InvalidInput' && /access_key is required/.test(e.message))
     assert.deepEqual(sent().filter((l) => /^backup connect/.test(l)), [], 'nothing spawned')
@@ -487,7 +487,7 @@ test('machine answers: an unreadable record is listed broken/failed and not prob
   const dir = tmpRoot('dsh-cs20-machines-')
   try {
     const home = join(dir, 'home')
-    const env = { ...process.env, LAYERFS_HOME: home }
+    const env = { ...process.env, LAYERFS_ROOT: dir }
     execFileSync(CLI, ['home', 'init'], { env, timeout: 30_000 })
     mkdirSync(join(home, 'machine', 'bad'), { recursive: true })
     writeFileSync(join(home, 'machine', 'bad', 'record.json'), '{not json')
@@ -515,7 +515,7 @@ test('CUT old state: each refusal\'s fix is the page\'s one action; exec env is 
   const dir = tmpRoot('dsh-cs20-cut-')
   try {
     const home = join(dir, 'home')
-    const env = { ...process.env, LAYERFS_HOME: home }
+    const env = { ...process.env, LAYERFS_ROOT: dir }
     execFileSync(CLI, ['home', 'init'], { env, timeout: 30_000 })
     const record = (kind, name, value) => {
       mkdirSync(join(home, kind, name), { recursive: true, mode: 0o700 })

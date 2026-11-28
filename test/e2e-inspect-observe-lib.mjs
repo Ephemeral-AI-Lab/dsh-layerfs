@@ -28,7 +28,7 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { NotRun, T, cfg, editor, home, probe, setup, sleep } from './e2e-inspect-files-lib.mjs'
+import { NotRun, T, cfg, editor, home, lfsRoot, probe, setup, sleep } from './e2e-inspect-files-lib.mjs'
 
 export * from './e2e-inspect-files-lib.mjs'
 
@@ -198,7 +198,7 @@ export const statsDriver = {
 
 /** The CLI's answer to a read, run directly on the private home (never through the host: no call-log line of the host's). */
 export function cli(...args) {
-  const env = { ...process.env, LAYERFS_HOME: home }
+  const env = { ...process.env, LAYERFS_ROOT: lfsRoot }
   if (process.env.DSH_LAYERFS_BUNDLE) env.LAYERFS_BUNDLE = process.env.DSH_LAYERFS_BUNDLE
   if (standin) env.LFS_INSPECT_DIR = standin
   const r = spawnSync(cfg.cli, args, { env, encoding: 'utf8', timeout: 30000, maxBuffer: 1 << 26 })

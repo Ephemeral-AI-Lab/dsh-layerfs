@@ -11,7 +11,7 @@
 //   workspaces[].running [{ exec_id, started (epoch ms), tag, program }], oldest first: the
 //                        commands that went through THIS wrapper as `workspace exec`
 //                        and have not ended, whoever ran them (the host, or a second
-//                        client that runs the same CLI path with the same LAYERFS_HOME);
+//                        client that runs the same CLI path with the same LAYERFS_ROOT);
 //                        `tag` is the call's LAYERFS_LOGS_TAG, `program` the command's
 //                        first word, `exec_id` the call's --exec-id (else one made here)
 //   workspaces[].overlay_bytes   the size of <run folder>/overlay/<namespace>.sqlite, taken

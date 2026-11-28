@@ -37,7 +37,7 @@ const MUTATING = new Set([
   'project.init', 'project.delete', 'project.export', 'project.hide_path',
   'machine.start', 'machine.stop', 'machine.create', 'machine.remove', 'machine.update', 'machine.load_image', 'machine.prune',
   'backup.create', 'backup.restore', 'backup.connect', 'backup.disconnect',
-  'home.clear_log', 'home.init',
+  'home.clear_log', 'home.init', 'home.move',
 ])
 /** The read calls (cli.ts READS plus workspace.status and home.log): anything else a GET makes is suspect too. */
 const READS = new Set(['list', 'get', 'status', 'log', 'images', 'stats', 'read', 'stat', 'glob', 'grep', 'blame', 'diff', 'history', 'doctor'])
@@ -418,7 +418,7 @@ function fakeCli(dir) {
   const cli = join(dir, 'fake-layerfs.cjs'), log = join(dir, 'fake-layerfs.log')
   const required = ['project.init', 'project.list', 'project.get', 'project.export', 'branch.fork', 'branch.list', 'commit.list', 'commit.diff',
     'file.read', 'file.list', 'file.apply', 'sandbox.create', 'sandbox.list', 'sandbox.get', 'sandbox.remove', 'workspace.mount', 'workspace.commit', 'workspace.status',
-    'workspace.unmount', 'workspace.exec', 'workspace.cancel', 'machine.list', 'machine.get', 'store.list', 'store.create', 'store.get', 'home.get', 'home.log', 'home.clear_log', 'home.init', 'home.doctor']
+    'workspace.unmount', 'workspace.exec', 'workspace.cancel', 'machine.list', 'machine.get', 'store.list', 'store.create', 'store.get', 'home.get', 'home.log', 'home.clear_log', 'home.init', 'home.move', 'home.doctor']
   const entry = (k) => ({ family: k.split('.')[0], call: k.split('.')[1], args: [], options: [], ...(k === 'home.get' ? { form: { with: { platforms: {}, tree: {} } } } : {}) })
   const help = { calls: required.map(entry), commands: [], switches: [] }
   writeFileSync(cli, `#!/usr/bin/env node

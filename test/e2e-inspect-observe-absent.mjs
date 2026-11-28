@@ -11,13 +11,13 @@
 // Environment and what every row also checks: test/e2e-inspect-logs-lib.mjs.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { NotRun, cfg, editor, jump, main, probe, requestsTo, shot, sleep } from './e2e-inspect-logs-lib.mjs'
+import { NotRun, cfg, editor, jump, lfsHome, main, probe, requestsTo, shot, sleep } from './e2e-inspect-logs-lib.mjs'
 
 const enc = encodeURIComponent
 const bar = (page) => page.locator('header[aria-label="Center navigation"]')
 const NEW_PARTS = '[data-disk], [data-resources], [data-worker-line], [data-stats-cpus], [data-stats-memory], [data-stats-disk], [data-stats-worker], [data-stats-at], [data-stats-live], [data-stats-stores], [data-stats-stale], [data-not-observed], [data-here-down], [data-here-unknown], [data-live], [data-daemon-process], [data-sandbox-usage], [data-leftovers], [data-leftover]'
 const parts = (page) => page.evaluate((sel) => { const root = [...document.querySelectorAll('[data-storage-page]')].find((e) => e.offsetParent); return { n: root.querySelectorAll(sel).length, text: root.innerText, all: root.textContent } }, NEW_PARTS)
-const callsFile = join(process.env.DSH_LAYERFS_HOME || join(cfg.devDir, 'layerfs-home'), 'trace', 'calls.jsonl')
+const callsFile = join(lfsHome, 'trace', 'calls.jsonl')
 const callLines = () => { try { return readFileSync(callsFile, 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l) } catch { return {} } }) } catch { return [] } }
 
 await main('e2e-inspect-observe-absent', async ({ run, page }) => {

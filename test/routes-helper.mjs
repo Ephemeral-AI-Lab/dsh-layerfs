@@ -54,7 +54,7 @@ export function testHost({ lfs, root, home, secrets = join(root, 'secrets'), job
   }
 }
 
-/** The pinned CLI/daemon (DSH_LAYERFS_*, else the newest runtime in ~/.layerfs), unpinned from a wrapper that fixes LAYERFS_HOME, or null. */
+/** The pinned CLI/daemon (DSH_LAYERFS_*, else the newest runtime in ~/.layerfs), unpinned from a wrapper that fixes LAYERFS_ROOT, or null. */
 export function pinned() {
   return liveCli()
 }

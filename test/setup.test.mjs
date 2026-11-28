@@ -107,16 +107,20 @@ function fakeCli(dir, { homeGetFails = false, slowGetMs = 0, recorded = null }) 
   const required = ['project.init', 'project.list', 'project.get', 'project.export', 'branch.fork', 'branch.list', 'commit.list', 'commit.diff',
     'file.read', 'file.list', 'file.apply', 'sandbox.create', 'sandbox.list', 'sandbox.get', 'sandbox.remove',
     'workspace.mount', 'workspace.commit', 'workspace.status', 'workspace.unmount', 'workspace.exec', 'workspace.cancel',
-    'machine.list', 'store.list', 'store.get', 'store.create', 'machine.get', 'machine.update', 'home.get', 'home.log', 'home.clear_log', 'home.init']
+    'machine.list', 'store.list', 'store.get', 'store.create', 'machine.get', 'machine.update', 'home.get', 'home.log', 'home.clear_log', 'home.init', 'home.move']
   const calls = required.map((n) => ({ family: n.split('.')[0], call: n.split('.')[1], args: n === 'machine.get' || n === 'machine.update' ? [{ name: 'name', kind: 'text' }] : [], options: [], ...(n === 'home.get' ? { form: { with: { platforms: {}, tree: {} } } } : {}) }))
   const cli = join(dir, 'layerfs')
   writeFileSync(cli, `#!/usr/bin/env node
 const fs = require('fs'), path = require('path')
-const argv = process.argv.slice(2), home = process.env.LAYERFS_HOME
+// LayerFS's rule: the home in LAYERFS_ROOT is the root while it holds layerfs.json, else <root>/home
+// (discovery runs help/--version without one; anything else without one fails here, never ~/.layerfs)
+const argv = process.argv.slice(2), root = process.env.LAYERFS_ROOT
+const home = root ? (fs.existsSync(path.join(root, 'layerfs.json')) ? root : path.join(root, 'home')) : null
 fs.appendFileSync(${JSON.stringify(log)}, argv.filter((a) => a !== '--').join(' ') + '\\n')
 const say = (v) => { process.stdout.write(JSON.stringify(v) + '\\n'); process.exit(0) }
 if (argv[0] === '--version') say({ version: '9.9.9', commit: '${A}', dirty: false, features: [] })
 if (argv[0] === 'help') say({ calls: ${JSON.stringify(calls)}, commands: [], switches: [] })
+if (!home) { process.stderr.write('fake layerfs: no LAYERFS_ROOT\\n'); process.exit(2) }
 const file = path.join(home, 'layerfs.json')
 const st = fs.existsSync(file) ? (JSON.parse(fs.readFileSync(file, 'utf8')).layout === 2 ? 'outdated' : 'current') : 'missing'
 const older = { error: 'Unsupported', message: home + ' is the home of an older LayerFS; this build does not convert it: move it aside and make a new home', fix: 'mv ' + home + ' ' + home + '.old && layerfs home init' }
@@ -136,17 +140,18 @@ say({})
 
 async function withService(opts, run) {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-setup-gate-'))
-  const keys = ['DSH_HOME', 'DSH_LAYERFS_HOME', 'LAYERFS_HOME', 'DSH_LAYERFS_CLI', 'DSH_LAYERFS_DAEMON', 'DSH_LAYERFS_BUNDLE', 'LAYERFS_BUNDLE', 'DSH_LAYERFS_FOLDER', 'DSH_LAYERFS_STATE']
+  const keys = ['DSH_HOME', 'LAYERFS_ROOT', 'DSH_LAYERFS_CLI', 'DSH_LAYERFS_DAEMON', 'DSH_LAYERFS_BUNDLE', 'LAYERFS_BUNDLE', 'DSH_LAYERFS_FOLDER', 'DSH_LAYERFS_STATE']
   const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]))
   try {
     for (const k of keys) delete process.env[k]
     process.env.DSH_HOME = join(dir, 'dsh')
-    // the plugin state goes to a temp LayerFS folder, never the real ~/.layerfs
+    // the LayerFS folder (LayerFS's root) is a temp one, never the real ~/.layerfs;
+    // the home is found in it: <folder>/home
     process.env.DSH_LAYERFS_FOLDER = join(dir, 'folder')
-    const home = join(dir, 'home')
+    const home = join(dir, 'folder', 'home')
     if (opts.layout2) { mkdirSync(home, { recursive: true, mode: 0o700 }); writeFileSync(join(home, 'layerfs.json'), JSON.stringify({ layout: 2 })) }
     const fake = fakeCli(dir, opts)
-    const s = new H.LayerfsService(new H.Context(), { cli: fake.cli, home, ...(opts.daemon ? { daemon: opts.daemon } : {}) })
+    const s = new H.LayerfsService(new H.Context(), { cli: fake.cli, ...(opts.daemon ? { daemon: opts.daemon } : {}) })
     await run({ s, home, fake })
   } finally {
     for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v }
@@ -247,12 +252,13 @@ test('a service built in a test writes no pin lease until the plugin starts it',
   const f = runtimeFixture()
   const saved = process.env.DSH_HOME, pinned = process.env.DSH_LAYERFS_CLI, folder = process.env.DSH_LAYERFS_FOLDER
   try {
-    process.env.DSH_HOME = join(f.dir, 'dsh')
-    process.env.DSH_LAYERFS_FOLDER = join(f.dir, 'folder')
+    process.env.DSH_HOME = join(f.dir, 'dsh-home')
+    // the folder is the fixture's root: its home is f.home (<folder>/home)
+    process.env.DSH_LAYERFS_FOLDER = f.dir
     // the newest runtime in the home is the pin only when no CLI is named (a test run may name the pinned one)
     delete process.env.DSH_LAYERFS_CLI
     const one = H.installRuntime(f.home, '1.0.0', { cli: join(f.src, 'layerfs'), daemon: null, bundle: null })
-    const s = new H.LayerfsService(new H.Context(), { home: f.home })
+    const s = new H.LayerfsService(new H.Context(), {})
     assert.equal(s.cli, one.cli)
     assert.ok(!existsSync(join(f.home, 'runtime', one.id, 'pins')), 'no lease before startSetup')
   } finally {

@@ -16,13 +16,15 @@ test('the cache home is passed as XDG_CACHE_HOME, and left alone when unset', { 
   const { execute, managedCli } = await import(pathToFileURL(join(directory, 'cli.mjs')))
   const binary = join(directory, 'fake-cli.mjs'), cache = join(directory, 'cache'), home = join(directory, 'home')
   mkdirSync(cache); mkdirSync(home)
-  writeFileSync(binary, `#!/usr/bin/env node\nconsole.log(JSON.stringify({ xdg: process.env.XDG_CACHE_HOME ?? null, home: process.env.LAYERFS_HOME }))\n`, { mode: 0o700 })
+  writeFileSync(binary, `#!/usr/bin/env node\nconsole.log(JSON.stringify({ xdg: process.env.XDG_CACHE_HOME ?? null, root: process.env.LAYERFS_ROOT ?? null }))\n`, { mode: 0o700 })
 
-  assert.deepEqual(await execute({ cli: binary, home, cacheHome: cache }, ['machine', 'list'], {}), { xdg: cache, home })
-  assert.deepEqual(await execute({ cli: binary, home }, ['machine', 'list'], { env: { XDG_CACHE_HOME: '/host/cache' } }), { xdg: '/host/cache', home }, 'unset: the host value passes through')
+  // the CLI gets the home's root (LAYERFS_ROOT): <directory>/home lives in <directory>
+  const root = directory
+  assert.deepEqual(await execute({ cli: binary, home, cacheHome: cache }, ['machine', 'list'], {}), { xdg: cache, root })
+  assert.deepEqual(await execute({ cli: binary, home }, ['machine', 'list'], { env: { XDG_CACHE_HOME: '/host/cache' } }), { xdg: '/host/cache', root }, 'unset: the host value passes through')
 
   const managed = managedCli({ root: join(directory, 'root'), cli: binary, home, cacheHome: cache })
   const run = spawnSync(managed, ['machine', 'list'], { encoding: 'utf8', env: { ...process.env, XDG_CACHE_HOME: '/host/cache' } })
   assert.equal(run.status, 0, run.stderr)
-  assert.deepEqual(JSON.parse(run.stdout), { xdg: cache, home })
+  assert.deepEqual(JSON.parse(run.stdout), { xdg: cache, root })
 })

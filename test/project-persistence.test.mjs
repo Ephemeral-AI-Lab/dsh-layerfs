@@ -21,7 +21,7 @@ async function fixture(branches = ['main']) {
   // One project whose branches hold its UUID (`dsh.project.<uuid>`) once claimed.
   // 2.0 long forms: a project row, Branch rows keyed by `branch` (listed by prefix), a ready Store
   const info = (key) => ({ project: key, store: key.split('/')[0], engine: 'sqlite', machine: 'macos-host', created_at: '1970-01-01T00:00:00.100Z' })
-  ctx.provide('layerfs', { state: join(dir, 'plugin'), projectSessionHome: join(dir, 'project-home'), home: join(dir, 'layerfs-home'), lfs: {
+  ctx.provide('layerfs', { state: join(dir, 'plugin'), projectSessionHome: join(dir, 'project-home'), home: join(dir, 'layerfs', 'home'), lfs: {
     project: { list: async () => ({ items: [info('store/project')] }), get: async (key) => info(key) },
     branch: { list: async (_, o = {}) => ({ items: branches.filter((name) => !o.prefix || name.startsWith(o.prefix)).map((branch) => ({ branch })) }), fork: async (_, name) => { if (!branches.includes(name)) branches.push(name); return { commit: `32${'a'.repeat(64)}` } } },
     store: { get: async () => ({ state: 'ready' }) },

@@ -17,7 +17,7 @@ const WRITES = new Set([
   'sandbox.create', 'sandbox.remove',
   'workspace.mount', 'workspace.exec', 'workspace.cancel', 'workspace.commit', 'workspace.unmount',
   'machine.start', 'machine.stop', 'machine.create', 'machine.remove', 'machine.update', 'machine.load_image', 'machine.prune',
-  'home.init', 'home.clear_log',
+  'home.init', 'home.clear_log', 'home.move',
   'store.create', 'store.connect', 'store.attach', 'store.detach', 'store.move', 'store.remove', 'store.compact', 'store.upgrade', 'store.disconnect', 'store.repair_mount_holders',
   'store.save_auth', 'store.remove_auth', 'store.update',
   'backup.connect', 'backup.disconnect', 'backup.create', 'backup.restore',
@@ -32,9 +32,9 @@ test('family-only reads are not writes', () => {
 })
 
 test('every pinned CLI call is classified as its kind', { skip: !pinned() && liveSkipReason() }, () => {
-  const home = mkdtempSync(join(tmpdir(), 'lfs-classify-'))
-  const help = JSON.parse(execFileSync(pinned().cli, ['help', '--json'], { env: { ...process.env, LAYERFS_HOME: home }, encoding: 'utf8', timeout: 15000 }))
-  rmSync(home, { recursive: true, force: true })
+  const root = mkdtempSync(join(tmpdir(), 'lfs-classify-'))
+  const help = JSON.parse(execFileSync(pinned().cli, ['help', '--json'], { env: { ...process.env, LAYERFS_ROOT: root }, encoding: 'utf8', timeout: 15000 }))
+  rmSync(root, { recursive: true, force: true })
   // home.leftovers and home.prune are removed by LayerFS (spec v20, LO); a pin from before LO still lists them
   const calls = new Set(help.calls.map((c) => `${c.family}.${c.call}`).filter((call) => call !== 'home.leftovers' && call !== 'home.prune'))
   assert.ok(calls.size > 40, `found ${calls.size} calls in help --json`)

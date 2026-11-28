@@ -5,7 +5,8 @@
 #   inspect-hook-real.sh <action> <machine|sandbox> <name> [args…]
 #
 # Environment:
-#   LAYERFS_HOME     the private LayerFS home the side server uses        required
+#   LAYERFS_ROOT     the private LayerFS folder (root) the side server uses  required; its home is the
+#                    root while it holds layerfs.json, else <root>/home (LayerFS's rule)
 #   HOOK_FAULT_DIR   the folder of test/fixtures/cli-fault-shim.mjs ($LFS_INSPECT_DIR), when the side
 #                    server's CLI is that shim. Without it every hang / refuse / deadline action is
 #                    exit 3 (NOT_RUN).
@@ -30,15 +31,16 @@
 # exit 0 done; exit 3 cannot here (stdout says why); anything else failed.
 set -u
 action=${1:?action}; kind=${2:?machine|sandbox}; name=${3:?name}; shift 3
-: "${LAYERFS_HOME:?LAYERFS_HOME is not set}"
+: "${LAYERFS_ROOT:?LAYERFS_ROOT is not set}"
+if [ -f "$LAYERFS_ROOT/layerfs.json" ]; then home=$LAYERFS_ROOT; else home=$LAYERFS_ROOT/home; fi
 cannot() { echo "$*"; [ -n "${HOOK_LOG:-}" ] && echo "$(date -u +%FT%TZ) $action $kind $name: NOT_RUN ($*)" >> "$HOOK_LOG"; exit 3; }
 did() { [ -n "${HOOK_LOG:-}" ] && echo "$(date -u +%FT%TZ) $action $kind $name $*" >> "$HOOK_LOG"; exit 0; }
 rec() { python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get(sys.argv[2],""))' "$1" "$2" 2>/dev/null; }
-id8=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["id"][:8])' "$LAYERFS_HOME/layerfs.json") || exit 1
+id8=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["id"][:8])' "$home/layerfs.json") || exit 1
 
-if [ "$kind" = machine ]; then machine=$name; else machine=$(rec "$LAYERFS_HOME/sandbox/$name/record.json" machine); fi
-platform=$(rec "$LAYERFS_HOME/machine/$machine/record.json" platform)
-vm=$(rec "$LAYERFS_HOME/machine/$machine/record.json" vm_name)
+if [ "$kind" = machine ]; then machine=$name; else machine=$(rec "$home/sandbox/$name/record.json" machine); fi
+platform=$(rec "$home/machine/$machine/record.json" platform)
+vm=$(rec "$home/machine/$machine/record.json" vm_name)
 case "$machine" in macos-host|linux-host) platform=host;; esac
 # run a root shell script on the machine's side, stdin passed
 side() {
@@ -50,7 +52,7 @@ side() {
     *) echo "machine $machine: platform '$platform' is not one this hook reaches" >&2; return 2;;
   esac
 }
-root=/layerfs/data; [ "$platform" = host ] && root=$LAYERFS_HOME
+root=/layerfs/data; [ "$platform" = host ] && root=$home
 if [ "$kind" = machine ]; then log=$root/log/worker.log; old=$root/log/worker.1.log
 else run=$root/machine/$machine/run/layerfs-$id8-$name; [ -d "$run" ] || [ "$platform" != host ] || run=$root/machine/$machine/run/lfs-$id8-$name; log=$run/daemon.log; old=$run/daemon.1.log; fi
 lines() { node -e 'const [tag,from,n]=[process.argv[1],Number(process.argv[2]),Number(process.argv[3])];let s="";for(let i=from;i<from+n;i++)s+=`${new Date(Date.UTC(2026,10,16,10,0,0)+i*1000).toISOString()} INFO ${tag} ${String(i).padStart(6,"0")} served\n`;process.stdout.write(s)' "$@"; }

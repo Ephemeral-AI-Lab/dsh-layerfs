@@ -19,7 +19,7 @@
 // Environment and what every row also checks: test/e2e-inspect-logs-lib.mjs.
 import { execFile, spawn, spawnSync } from 'node:child_process'
 import {
-  NotRun, cfg, driver, editor, files, filesSpawns, filesState, forgetPlace, goPath, jump, lfs, main, newTag, offered, openLog, pane, rowOf, seqsOf, shot, showFiles,
+  NotRun, cfg, driver, editor, files, filesSpawns, filesState, forgetPlace, goPath, jump, lfs, lfsRoot, main, newTag, offered, openLog, pane, rowOf, seqsOf, shot, showFiles,
   sleep, spawnMark, spawns, spawnsSince, switchView, tabs, targets, toggle, under, waitFiles, waitPane,
 } from './e2e-inspect-files-lib.mjs'
 
@@ -171,7 +171,7 @@ await main('e2e-inspect-real', async ({ run, page }) => {
     if (!huge) throw new NotRun('INSPECT_HUGE_FOLDER is not set')
     const m = targets.machine
     const real = process.env.LFS_REAL_CLI || cfg.cli
-    const env = { ...process.env, LAYERFS_HOME: process.env.DSH_LAYERFS_HOME || process.env.LAYERFS_HOME }
+    const env = { ...process.env, LAYERFS_ROOT: lfsRoot }
     const tally = { ok: 0, Busy: 0, other: 0 }
     let words = null
     const one = () => new Promise((resolve) => execFile(real, ['machine', 'files', m.name, huge, '--limit', '1000'], { env, maxBuffer: 1 << 26, timeout: 20000 }, (error, _out, err) => {

@@ -10,7 +10,7 @@
 // `dsh-layerfs`, and the skill loads with its reference pages beside it.
 import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
-import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { openDev, runTurn } from '../tools/e2e-lib.mjs'
 
@@ -29,6 +29,9 @@ const http = async (method, path, body) => {
   if (r.status < 200 || r.status >= 300) throw new Error(`${method} ${path}: ${r.status} ${JSON.stringify(r.body)}`)
   return r.body
 }
+/** The server's LayerFS home: in its folder (<dev>/layerfs), the folder while it holds layerfs.json, else <folder>/home. */
+const lfsRoot = process.env.DSH_LAYERFS_FOLDER ?? join(dev, 'layerfs')
+const lfsHome = existsSync(join(lfsRoot, 'layerfs.json')) ? lfsRoot : join(lfsRoot, 'home')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const until = async (what, fn, ms = 30000) => {
   const end = Date.now() + ms
@@ -40,8 +43,8 @@ const grep = (dir, needle, out = []) => {
   let entries = []
   try { entries = readdirSync(dir) } catch { return out }
   for (const entry of entries) {
-    if (entry === 'node_modules' || entry === 'layerfs-home') continue
     const path = join(dir, entry)
+    if (entry === 'node_modules' || path === lfsHome) continue
     let stat; try { stat = lstatSync(path) } catch { continue }
     if (stat.isSymbolicLink()) continue
     if (stat.isDirectory()) grep(path, needle, out)

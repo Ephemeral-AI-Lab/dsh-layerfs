@@ -259,7 +259,7 @@ test('ensureHostDaemon retries after a failed record and caches a success', { sk
   const daemon = join(f.dir, 'layerfs-daemon'); writeFileSync(daemon, '')
   process.env.FAKE_UPDATE_FAILS = '1'
   t.after(() => { delete process.env.FAKE_UPDATE_FAILS })
-  const service = new C.LayerfsService(new C.Context(), { cli: f.cli, daemon, home: f.home, folder: join(f.dir, 'folder'), state: join(f.dir, 'root') })
+  const service = new C.LayerfsService(new C.Context(), { cli: f.cli, daemon, folder: f.dir, state: join(f.dir, 'root') })
   const updates = () => f.log().filter((argv) => argv[0] === 'machine' && argv[1] === 'update').length
   await service.ensureHostDaemon()
   assert.equal(updates(), 1)

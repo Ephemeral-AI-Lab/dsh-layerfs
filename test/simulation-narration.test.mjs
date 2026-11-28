@@ -91,8 +91,8 @@ test('text said during a wait streams before the reply settles', async () => {
 })
 
 test('commands read as typed with minimal quoting and stay byte-exact', () => {
-  assert.equal(renderSimulationCommand({ key: 'fork' }, ['branch', 'fork', 'sim-store/proj', 'feat-x', 'main'], '/home/u/.dsh/layerfs/agent-bin/layerfs'), '/home/u/.dsh/layerfs/agent-bin/layerfs branch fork sim-store/proj feat-x main')
-  assert.equal(renderSimulationCommand({ key: 'fork' }, ['branch', 'fork', 'p/q', 'x', 'main'], '/My Home/agent-bin/layerfs'), "'/My Home/agent-bin/layerfs' branch fork p/q x main")
+  assert.equal(renderSimulationCommand({ key: 'fork' }, ['branch', 'fork', 'sim-store/proj', 'feat-x', 'main'], '/home/u/.layerfs/dsh/bin/layerfs'), '/home/u/.layerfs/dsh/bin/layerfs branch fork sim-store/proj feat-x main')
+  assert.equal(renderSimulationCommand({ key: 'fork' }, ['branch', 'fork', 'p/q', 'x', 'main'], '/My Home/bin/layerfs'), "'/My Home/bin/layerfs' branch fork p/q x main")
   const fork = renderSimulationCommand({ key: 'fork' }, ['branch', 'fork', 'sim-store/proj', 'feat-x', 'main'])
   assert.equal(fork, '"$DSH_LAYERFS_CLI" branch fork sim-store/proj feat-x main')
   assert.equal(SIMULATION_CLI, '"$DSH_LAYERFS_CLI"')
@@ -147,7 +147,7 @@ function fixture({ receipts = {}, actions, tasks, agents, agentId = null, waitTa
   const plan = { steps, tasks: tasks ?? [], agents: [script, ...(agents ?? [])] }
   const calls = []
   const run = { plan, directory: scratch, bindings: new Map(), journal: { receipts, records: [] }, execution: { waitTasks, waitSteps: async () => {}, validateCommand: () => {}, execute: async (key, context, executor, signal) => { calls.push(key); return executor(steps.find(step => step.key === key).argv, steps.find(step => step.key === key), signal) } } }
-  const runtime = new SimulationRuntime({ layerfs: { agentCli: () => '/plugin/agent-bin/layerfs' } })
+  const runtime = new SimulationRuntime({ layerfs: { agentCli: () => '/plugin/bin/layerfs' } })
   const binding = { script, run, sessionId: 'session', rootSessionId: 'session', state: 'running', turn: 0, controller: new AbortController() }
   runtime.bindings.set('session', binding)
   return { runtime, binding, run, calls, options: { sessionId: 'session', model: 'main-script', messages: [] } }
@@ -159,11 +159,11 @@ test('a task narrates its intent in the message that issues its first tool, and 
   const reply = await f.runtime.next(f.options)
   assert.equal(reply.text, "Forking `release-1` from `main`. I'll revise `docs/spec.md` on `release-1`. Then I'll publish `release-1` to main.")
   assert.equal(reply.calls.length, 1)
-  assert.deepEqual(reply.calls[0].arguments, { description: 'Fork release-1 from main', command: '/plugin/agent-bin/layerfs branch fork p/q release-1 main' })
+  assert.deepEqual(reply.calls[0].arguments, { description: 'Fork release-1 from main', command: '/plugin/bin/layerfs branch fork p/q release-1 main' })
   const id = reply.calls[0].id
   const ok = { isError: false, value: { kind: 'foreground', exitCode: 0, aborted: false, timedOut: false, stdout: { text: '{"kind":"Forked"}\n', truncated: false } } }
   const agent = { id: 'session' }
-  await assert.rejects(f.runtime.executeTool({ agent, callId: id, name: 'bash', arguments: { command: "'/plugin/agent-bin/layerfs' 'branch' 'fork' 'p/q' 'release-1' 'main'" }, signal: new AbortController().signal }, async () => ok), /differs from the authorized/)
+  await assert.rejects(f.runtime.executeTool({ agent, callId: id, name: 'bash', arguments: { command: "'/plugin/bin/layerfs' 'branch' 'fork' 'p/q' 'release-1' 'main'" }, signal: new AbortController().signal }, async () => ok), /differs from the authorized/)
   assert.equal(await f.runtime.executeTool({ agent, callId: id, name: 'bash', arguments: reply.calls[0].arguments, signal: new AbortController().signal }, async () => ok), ok)
   assert.deepEqual(f.calls, ['fork'])
   // The next request issues the write without repeating the narration.

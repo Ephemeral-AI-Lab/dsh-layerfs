@@ -39,12 +39,12 @@
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync, symlinkSync, writeFileSync, writeSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { NotRun, cfg, editor, jump, probe, sleep } from './e2e-inspect-logs-lib.mjs'
+import { NotRun, cfg, editor, jump, lfsHome, lfsRoot, probe, sleep } from './e2e-inspect-logs-lib.mjs'
 
 export * from './e2e-inspect-logs-lib.mjs'
 
 const standin = cfg.standin
-export const home = process.env.DSH_LAYERFS_HOME || join(cfg.devDir, 'layerfs-home')
+export const home = lfsHome
 const title = (name) => (name === 'macos-host' ? name : name.charAt(0).toUpperCase() + name.slice(1))
 /** The four targets a row can use; `name` null when the environment names none. */
 export const T = {
@@ -267,7 +267,7 @@ export const filesDriver = {
  * Returns the child (its `exit` ends when the command does).
  */
 export function secondClient(ws, command, { tag = null, execId = null } = {}) {
-  const env = { ...process.env, LAYERFS_HOME: home }
+  const env = { ...process.env, LAYERFS_ROOT: lfsRoot }
   if (process.env.DSH_LAYERFS_BUNDLE) env.LAYERFS_BUNDLE = process.env.DSH_LAYERFS_BUNDLE
   if (tag) env.LAYERFS_LOGS_TAG = tag; else delete env.LAYERFS_LOGS_TAG
   if (standin) Object.assign(env, { LFS_INSPECT_DIR: standin })
@@ -276,7 +276,7 @@ export function secondClient(ws, command, { tag = null, execId = null } = {}) {
 
 /** The pinned CLI's answer to a read, run directly on the private home (setup and checks, outside any row's mark). */
 export function lfs(...args) {
-  const env = { ...process.env, LAYERFS_HOME: home }
+  const env = { ...process.env, LAYERFS_ROOT: lfsRoot }
   if (process.env.DSH_LAYERFS_BUNDLE) env.LAYERFS_BUNDLE = process.env.DSH_LAYERFS_BUNDLE
   return JSON.parse(execFileSync(cfg.cli, args, { env, encoding: 'utf8', timeout: 30000, maxBuffer: 1 << 26 }))
 }

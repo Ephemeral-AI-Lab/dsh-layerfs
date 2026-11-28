@@ -1,6 +1,6 @@
 // Presets (src/host/presets): admission, request-ID reconciliation, restart
 // recovery, the router's exclusive guard, script paging, and a live reset of a
-// private temporary LAYERFS_HOME over the real pinned CLI.
+// private temporary LayerFS root (LAYERFS_ROOT) over the real pinned CLI.
 //   node --test test/presets.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -216,8 +216,8 @@ const pin = pinned()
 
 test('live: Build cleanup still removes data from a private home', { skip: !pin && liveSkipReason(), timeout: 300_000 }, async () => {
   const base = tmpRoot('lfsp-')
-  const home = join(base, 'h'), state = join(base, 'presets')
-  const env = { ...process.env, LAYERFS_HOME: home }
+  const home = join(base, 'home'), state = join(base, 'presets')
+  const env = { ...process.env, LAYERFS_ROOT: base }
   const cli = (...argv) => JSON.parse(execFileSync(pin.cli, argv, { env, encoding: 'utf8' }))
   try {
     // a 2.0 CLI makes no home on a read: `home init` first

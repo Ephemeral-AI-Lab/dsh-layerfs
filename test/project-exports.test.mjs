@@ -1,6 +1,6 @@
 // Project exports to a folder (src/host/routes/project-exports.ts): admission,
 // naming, the pinned version, progress, stop at each stage, and a live pass
-// over the real pinned CLI against a private temporary LAYERFS_HOME.
+// over the real pinned CLI against a private temporary LayerFS root (LAYERFS_ROOT).
 //   node --test test/project-exports.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -232,7 +232,7 @@ const pin = pinned()
 test('live: export main, a Branch Commit, and stop a running export', { skip: !pin && liveSkipReason(), timeout: 300_000 }, async (context) => {
   const root = tmpRoot('dshx-')
   const home = join(root, 'home')
-  const env = { ...process.env, LAYERFS_HOME: home }
+  const env = { ...process.env, LAYERFS_ROOT: root }
   const run = (...args) => execFileSync(pin.cli, args, { env, timeout: 120_000 }).toString()
   run('home', 'init')
   const src = join(root, 'src')

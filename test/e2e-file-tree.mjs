@@ -21,7 +21,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDev } from '../tools/e2e-lib.mjs'
-import { diff, formatDiff, privateHome, snapshot } from '../tools/lfs-check.mjs'
+import { diff, formatDiff, homeIn, privateRoot, snapshot } from '../tools/lfs-check.mjs'
 
 const argv = process.argv.slice(2)
 const opt = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback }
@@ -37,8 +37,8 @@ const fail = (message) => { failures.push(message); console.error(`FAIL ${messag
 const check = (ok, message) => { if (!ok) fail(message) }
 
 // ---------------------------------------------------------------- seed (once)
-const home = privateHome(devDir)
-const lfs = (...args) => JSON.parse(execFileSync(cli, args, { env: { ...process.env, LAYERFS_HOME: home }, encoding: 'utf8', timeout: 60_000 }))
+const root = privateRoot(devDir), home = homeIn(root)
+const lfs = (...args) => JSON.parse(execFileSync(cli, args, { env: { ...process.env, LAYERFS_ROOT: root }, encoding: 'utf8', timeout: 60_000 }))
 const seeded = (lfs('project', 'list').items ?? []).some((p) => p.project === `${STORE}/${PROJECT}`)
 if (!seeded) {
   const src = mkdtempSync(join(tmpdir(), 'dsh-e2e-tree-'))

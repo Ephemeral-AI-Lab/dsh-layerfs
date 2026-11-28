@@ -6,13 +6,15 @@
 //
 //   node tools/lfs-check.mjs [<dev dir>] [--save <file>] [--diff <before.json>] [--json]
 //
-// <dev dir> defaults to $DSH_LAYERFS_DEV_DIR, else .dev. The home is
-// <dev dir>/layerfs-home (never ~/.layerfs); the pinned CLI is $DSH_LAYERFS_CLI,
-// else the newest runtime installed in ~/.layerfs (scripts/runtime-pin.mjs, read only).
+// <dev dir> defaults to $DSH_LAYERFS_DEV_DIR, else .dev. The LayerFS folder (LayerFS's
+// root, passed as LAYERFS_ROOT) is <dev dir>/layerfs, the one scripts/dev.mjs gives the
+// server, and the home is found in it: <dev dir>/layerfs/home (never ~/.layerfs). The
+// pinned CLI is $DSH_LAYERFS_CLI, else the newest runtime installed in ~/.layerfs
+// (scripts/runtime-pin.mjs, read only).
 // Every CLI call made here is a read (`list`, `get`, `doctor`) without a `dsh` tag, so
 // none of them counts as one of the dev server's calls.
 //
-// snapshot(devDir) → { at, home, machines, stores, projects, sandboxes, workspaces, branches,
+// snapshot(devDir) → { at, root, home, machines, stores, projects, sandboxes, workspaces, branches,
 //   mounts, doctor, daemonLogs, calls, errors }
 // diff(before, after) → { failures: [{ kind, message }], notes: [{ kind, message }] }
 import { execFileSync } from 'node:child_process'
@@ -23,6 +25,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { runtimePin } from '../scripts/runtime-pin.mjs'
 import { isDshTag, isWrite } from '../src/shared/logs.ts'
 import { lineOfItem } from '../src/host/logs/source.ts'
+import { homeIn } from '../src/host/folder.ts'
 
 /** A call-log line is a write unless the Logs page counts it as a read (one rule for both). */
 export const isWriteCall = (argv) => isWrite((argv ?? []).map(String))
@@ -36,23 +39,29 @@ const LOG_ERROR = /\bpanic(?:ked)?\b|\bERROR\b|\bFATAL\b|\bAbort(?:ed)?\b/
  */
 const LOG_NOTED = [{ re: /^ConnectionFailure \{/, kind: 'ConnectionFailure' }]
 
-/** The pinned CLI the dev server uses (env, else newest installed runtime; never with the private home's LAYERFS_HOME). */
+/** The pinned CLI the dev server uses (env, else newest installed runtime in ~/.layerfs; never in a private root named by LAYERFS_ROOT). */
 export function pinnedCli(env = process.env) {
   if (env.DSH_LAYERFS_CLI) return env.DSH_LAYERFS_CLI
-  const { LAYERFS_HOME: _ignored, ...rest } = env
+  const { LAYERFS_ROOT: _ignored, ...rest } = env
   const pin = runtimePin(rest)
   if (!pin) throw new Error('lfs-check: no LayerFS CLI (set DSH_LAYERFS_CLI)')
   return pin.cli
 }
 
-/** The private home of a dev dir; refuses the user's home. */
-export function privateHome(devDir) {
-  const home = resolve(devDir, 'layerfs-home')
+/** The home LayerFS finds in a root: the root itself while it holds layerfs.json, else `<root>/home`. */
+export { homeIn }
+
+/** The private LayerFS root (the folder, LAYERFS_ROOT) of a dev dir, `<dev dir>/layerfs`; refuses the user's ~/.layerfs. */
+export function privateRoot(devDir) {
+  const root = resolve(devDir, 'layerfs')
   const user = resolve(homedir(), '.layerfs')
   const real = (p) => { try { return realpathSync(p) } catch { return p } }
-  if (real(home) === real(user) || real(home).startsWith(`${real(user)}/`)) throw new Error(`lfs-check: refusing the user's LayerFS home ${user}`)
-  return home
+  if (real(root) === real(user) || real(root).startsWith(`${real(user)}/`)) throw new Error(`lfs-check: refusing the user's LayerFS folder ${user}`)
+  return root
 }
+
+/** The private home of a dev dir (found in {@link privateRoot}); refuses the user's home. */
+export const privateHome = (devDir) => homeIn(privateRoot(devDir))
 
 /** Files named like logs under the home, skipping Workspace mount trees. */
 function daemonLogFiles(home, mounted) {
@@ -110,10 +119,10 @@ function listAll(run, args) {
  * @param opts.sandboxDetail - `sandbox get` each Sandbox for its Workspaces (default true, at most 40).
  */
 export async function snapshot(devDir, { cli = pinnedCli(), sandboxDetail = true } = {}) {
-  const home = privateHome(devDir)
+  const root = privateRoot(devDir), home = homeIn(root)
   if (!existsSync(home)) throw new Error(`lfs-check: no LayerFS home at ${home}`)
   const errors = []
-  const env = { ...process.env, LAYERFS_HOME: home }
+  const env = { ...process.env, LAYERFS_ROOT: root }
   delete env.LAYERFS_LOGS_TAG
   const run = (args) => {
     try {
@@ -157,7 +166,7 @@ export async function snapshot(devDir, { cli = pinnedCli(), sandboxDetail = true
   const daemonLogs = {}
   for (const file of daemonLogFiles(home, mountPoints)) daemonLogs[file] = scanLog(file)
   const calls = { at: Date.now() }
-  return { at: Date.now(), home, cli, machines, stores, projects, sandboxes, workspaces, branches, mounts, doctor, daemonLogs, calls, errors }
+  return { at: Date.now(), root, home, cli, machines, stores, projects, sandboxes, workspaces, branches, mounts, doctor, daemonLogs, calls, errors }
 }
 
 /**
@@ -166,7 +175,7 @@ export async function snapshot(devDir, { cli = pinnedCli(), sandboxDetail = true
  * `before.calls.at` to `after.calls.at`. `home log` is quiet: reading it adds no line.
  */
 export function callsSince(before, after) {
-  const env = { ...process.env, LAYERFS_HOME: after.home }
+  const env = { ...process.env, LAYERFS_ROOT: after.root }
   delete env.LAYERFS_LOGS_TAG
   const from = before.calls?.at ?? 0, to = after.calls?.at ?? Date.now()
   const out = []

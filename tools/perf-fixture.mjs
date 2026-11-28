@@ -26,6 +26,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { runtimePin } from '../scripts/runtime-pin.mjs'
+import { homeIn, rootOf } from '../src/host/folder.ts'
 import { baseProjectHistorySteps, stepEffect } from '../src/host/presets/recipe/recipe.js'
 import { HOST_MACHINE, sourceFiles } from '../src/host/presets/recipe/presets.js'
 
@@ -45,10 +46,10 @@ export function realCli() {
   return cli
 }
 
-/** Run one CLI call on `home`; JSON stdout. */
+/** Run one CLI call on `home` (the CLI is given its root, LAYERFS_ROOT); JSON stdout. */
 function lfsAsync(cli, home, argv, input) {
   return new Promise((resolve, reject) => {
-    const child = spawn(cli, argv, { env: { ...process.env, LAYERFS_HOME: home }, stdio: ['pipe', 'pipe', 'pipe'] })
+    const child = spawn(cli, argv, { env: { ...process.env, LAYERFS_ROOT: rootOf(home) }, stdio: ['pipe', 'pipe', 'pipe'] })
     let out = '', err = ''
     child.stdout.on('data', (d) => { out += d })
     child.stderr.on('data', (d) => { err += d })
@@ -193,7 +194,8 @@ export async function buildHome({ tier, dir = join(root, `.dev-perf-${tier}`), f
 async function buildServer({ tier, force }) {
   const { openDev, runTurn } = await import('./e2e-lib.mjs')
   const dev = process.env.DSH_LAYERFS_DEV_DIR ?? join(root, '.dev')
-  const home = process.env.DSH_LAYERFS_HOME ?? join(dev, 'layerfs-home')
+  // the server's LayerFS folder (LayerFS's root) and the home found in it: <dev>/layerfs/home
+  const home = homeIn(process.env.DSH_LAYERFS_FOLDER ?? join(dev, 'layerfs'))
   const manifestPath = join(dev, `fixture-${tier}.json`)
   const cli = realCli()
   const cliCommit = JSON.parse(spawnSync(cli, ['--version', '--json'], { encoding: 'utf8' }).stdout).commit

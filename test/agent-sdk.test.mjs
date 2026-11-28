@@ -31,10 +31,13 @@ export const table = [
 export const seen = globalThis.__seen = [];
 let closed = 0;
 export function close() { closed++; globalThis.__closed = closed; return 1 }
-export function client({ home }) {
+export function client(options = {}) {
+  // as @layerfs/node since LAYERFS_ROOT: a root, never a home
+  if ('home' in options) throw new LayerFSError('InvalidInput', 'client: unknown option "home"; name the root', null);
+  const { root } = options;
   const made = {};
   for (const spec of table) (made[spec.family] ??= {})[spec.call] = async (...given) => {
-    seen.push({ call: spec.family + '.' + spec.call, given, home, env: { home: process.env.LAYERFS_HOME, addon: process.env.LAYERFS_NATIVE } });
+    seen.push({ call: spec.family + '.' + spec.call, given, root, env: { root: process.env.LAYERFS_ROOT, home: process.env.LAYERFS_HOME ?? null, addon: process.env.LAYERFS_NATIVE } });
     const options = given.at(-1) && typeof given.at(-1) === 'object' ? given.at(-1) : {};
     for (const key of Object.keys(options)) if (!['start_line', 'message', 'stream', 'stdout', 'log_tag'].includes(key)) throw new LayerFSError('InvalidInput', spec.family + '.' + spec.call + ': unknown option "' + key + '"', null);
     if (given[2] === '/missing') throw new LayerFSError('NoSuchPath', '/missing does not exist', { path: '/missing' });
@@ -75,20 +78,28 @@ test('findSdk answers an install only for its own commit', () => {
   assert.equal(S.findSdk(null, commit), null)
 })
 
-test('the module binds the home and addon and exposes the six families only', () => {
+test('the module binds the root of the home and the addon and exposes the six families only', () => {
   const dir = install(mkdtempSync(join(root, 'bind-'))), base = mkdtempSync(join(root, 'r-'))
-  const file = S.managedSdk({ root: base, sdk: S.findSdk(dir, commit), home: '/home/lfs', outputs: join(base, 'trace', 'outputs') })
+  // the home LayerFS finds in a root without layerfs.json: <root>/home, so the root is its parent
+  const lfsRoot = join(base, 'lfs'), home = join(lfsRoot, 'home')
+  const file = S.managedSdk({ root: base, sdk: S.findSdk(dir, commit), home, outputs: join(base, 'trace', 'outputs') })
   assert.equal(file, join(base, 'bin', 'sdk.mjs'))
   const out = run(file, `const r = await m.default.file.read('s/p', 'work', '/a.js'); console.log(JSON.stringify({ r, keys: Object.keys(m.default).sort(), store: 'store' in m.default, seen: globalThis.__seen, table: m.table.map((t) => t.family) }))`)
   assert.deepEqual(out.r, { kind: 'ok', text: 'hi' })
   assert.equal(out.store, false)
   assert.deepEqual(out.table, ['file', 'file', 'workspace'])
-  assert.equal(out.seen[0].home, '/home/lfs')
-  assert.equal(out.seen[0].env.home, '/home/lfs')
+  assert.equal(out.seen[0].root, lfsRoot)
+  assert.equal(out.seen[0].env.root, lfsRoot)
+  assert.equal(out.seen[0].env.home, null, 'no LAYERFS_HOME: LayerFS no longer reads it')
   assert.equal(out.seen[0].env.addon, join(dir, 'layerfs.node'))
+  // a home holding layerfs.json is a root of its own
+  const legacy = join(base, 'legacy-home')
+  mkdirSync(legacy); writeFileSync(join(legacy, 'layerfs.json'), '{}')
+  const again = S.managedSdk({ root: mkdtempSync(join(root, 'r-')), sdk: S.findSdk(dir, commit), home: legacy })
+  assert.equal(run(again, `await m.default.file.read('s/p', 'work', '/a.js'); console.log(JSON.stringify(globalThis.__seen[0].root))`), legacy)
   // Rewriting the same options keeps the file as it is.
   const before = S.sdkDigest(file)
-  S.managedSdk({ root: base, sdk: S.findSdk(dir, commit), home: '/home/lfs', outputs: join(base, 'trace', 'outputs') })
+  S.managedSdk({ root: base, sdk: S.findSdk(dir, commit), home, outputs: join(base, 'trace', 'outputs') })
   assert.equal(S.sdkDigest(file), before)
 })
 

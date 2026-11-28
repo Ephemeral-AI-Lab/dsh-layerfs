@@ -1,5 +1,6 @@
 // The two homes (docs/specs/homes.md, placed by docs/specs/layerfs-folder.md):
-// LAYERFS_HOME holds LayerFS's records, its runtime (runtime/<version>-<sha>/)
+// the LayerFS home (found in the LayerFS folder, LayerFS's root: LAYERFS_ROOT)
+// holds LayerFS's records, its runtime (runtime/<version>-<sha>/)
 // and secrets (secret/); the LayerFS folder's dsh/ holds dsh-layerfs's own state.
 //   node --test test/homes.test.mjs
 import { test } from 'node:test'
@@ -83,42 +84,42 @@ test('runtime install: a different daemon or bundle for the same CLI is refused,
   } finally { f.done() }
 })
 
-test('service defaults: the LayerFS home is the LayerFS folder (or its home/) and apart from DSH_HOME; secrets in <home>/secret; plugin state in <folder>/dsh', () => {
+test('service defaults: the LayerFS home is <folder>/home (or the folder itself while it holds layerfs.json) and apart from DSH_HOME; secrets in <home>/secret; plugin state in <folder>/dsh', () => {
   const f = fixture()
-  const keys = ['DSH_HOME', 'DSH_LAYERFS_HOME', 'LAYERFS_HOME', 'DSH_LAYERFS_CLI', 'DSH_LAYERFS_SESSION_HOME', 'DSH_LAYERFS_SECRETS', 'DSH_LAYERFS_FOLDER', 'DSH_LAYERFS_STATE']
+  const keys = ['DSH_HOME', 'LAYERFS_ROOT', 'DSH_LAYERFS_CLI', 'DSH_LAYERFS_SESSION_HOME', 'DSH_LAYERFS_SECRETS', 'DSH_LAYERFS_FOLDER', 'DSH_LAYERFS_STATE']
   const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]))
   try {
     for (const k of keys) delete process.env[k]
     process.env.DSH_HOME = join(f.dir, 'dsh')
     // never the real ~/.layerfs: the folder is a temp one (docs/specs/layerfs-folder.md §3)
-    const folder = join(f.dir, 'folder')
+    const folder = join(f.dir, 'folder'), home = join(folder, 'home')
     process.env.DSH_LAYERFS_FOLDER = folder
-    process.env.LAYERFS_HOME = f.home
     const s = new H.LayerfsService(new H.Context(), {})
-    assert.equal(s.home, f.home)
+    assert.equal(s.home, home)
+    assert.ok(!s.home.startsWith(process.env.DSH_HOME))
     assert.equal(s.folder, folder)
     assert.equal(s.state, join(folder, 'dsh'))
-    assert.equal(s.secrets, join(f.home, 'secret'))
+    assert.equal(s.secrets, join(home, 'secret'))
     assert.equal(s.projectSessionHome, join(folder, 'dsh', 'sessions'))
     assert.equal(s.outputs, join(folder, 'dsh', 'trace', 'outputs'))
     assert.equal(JSON.parse(readFileSync(join(folder, 'dsh', 'dsh.json'), 'utf8')).owner, join(f.dir, 'dsh'))
     assert.equal(s.cli, null)
     // nothing pinned: the newest runtime installed in the home
-    const a = H.installRuntime(f.home, '2.0.0', { cli: join(f.src, 'layerfs'), daemon: join(f.src, 'layerfs-daemon'), bundle: join(f.src, 'bundle', 'linux-aarch64') })
+    const a = H.installRuntime(home, '2.0.0', { cli: join(f.src, 'layerfs'), daemon: join(f.src, 'layerfs-daemon'), bundle: join(f.src, 'bundle', 'linux-aarch64') })
     const t = new H.LayerfsService(new H.Context(), {})
     assert.deepEqual([t.cli, t.daemon, t.bundle], [a.cli, a.daemon, a.bundle])
     // an explicit pin still wins
     const u = new H.LayerfsService(new H.Context(), { cli: join(f.src, 'layerfs') })
     assert.equal(u.cli, join(f.src, 'layerfs'))
-    // without LAYERFS_HOME the home is the folder itself, never under DSH_HOME
-    delete process.env.LAYERFS_HOME
-    const v = new H.LayerfsService(new H.Context(), {})
-    assert.equal(v.home, folder)
-    assert.ok(!v.home.startsWith(process.env.DSH_HOME))
-    // ... or <folder>/home once a home is set up there
-    mkdirSync(join(folder, 'home'), { recursive: true })
-    writeFileSync(join(folder, 'home', 'layerfs.json'), '{}')
-    assert.equal(new H.LayerfsService(new H.Context(), {}).home, join(folder, 'home'))
+    // a home made before the root layout: the folder itself while it holds layerfs.json
+    writeFileSync(join(folder, 'layerfs.json'), '{}')
+    assert.equal(new H.LayerfsService(new H.Context(), {}).home, folder)
+    // LAYERFS_ROOT names the folder when DSH_LAYERFS_FOLDER does not
+    const other = join(f.dir, 'other')
+    delete process.env.DSH_LAYERFS_FOLDER
+    process.env.LAYERFS_ROOT = other
+    const w = new H.LayerfsService(new H.Context(), {})
+    assert.deepEqual([w.folder, w.home], [other, join(other, 'home')])
   } finally {
     for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v }
     f.done()
@@ -222,12 +223,12 @@ test('runtime cleanup: removes nothing when a fact is missing, and never a symli
 
 test('runtime cleanup: the service keeps its pin and what machine.list names; an unreadable machine list removes nothing', async () => {
   const f = fixture()
-  const saved = { DSH_HOME: process.env.DSH_HOME, DSH_LAYERFS_HOME: process.env.DSH_LAYERFS_HOME, LAYERFS_HOME: process.env.LAYERFS_HOME, DSH_LAYERFS_CLI: process.env.DSH_LAYERFS_CLI, DSH_LAYERFS_DAEMON: process.env.DSH_LAYERFS_DAEMON, DSH_LAYERFS_BUNDLE: process.env.DSH_LAYERFS_BUNDLE, LAYERFS_BUNDLE: process.env.LAYERFS_BUNDLE, DSH_LAYERFS_FOLDER: process.env.DSH_LAYERFS_FOLDER, DSH_LAYERFS_STATE: process.env.DSH_LAYERFS_STATE }
+  const saved = { DSH_HOME: process.env.DSH_HOME, LAYERFS_ROOT: process.env.LAYERFS_ROOT, DSH_LAYERFS_CLI: process.env.DSH_LAYERFS_CLI, DSH_LAYERFS_DAEMON: process.env.DSH_LAYERFS_DAEMON, DSH_LAYERFS_BUNDLE: process.env.DSH_LAYERFS_BUNDLE, LAYERFS_BUNDLE: process.env.LAYERFS_BUNDLE, DSH_LAYERFS_FOLDER: process.env.DSH_LAYERFS_FOLDER, DSH_LAYERFS_STATE: process.env.DSH_LAYERFS_STATE }
   try {
     for (const k of Object.keys(saved)) delete process.env[k]
-    process.env.DSH_HOME = join(f.dir, 'dsh')
-    process.env.DSH_LAYERFS_FOLDER = join(f.dir, 'folder')
-    process.env.LAYERFS_HOME = f.home
+    process.env.DSH_HOME = join(f.dir, 'dsh-home')
+    // the folder is the fixture's root: its home is f.home (<folder>/home)
+    process.env.DSH_LAYERFS_FOLDER = f.dir
     const r = runtimes(f.home, 7)
     // pinned through the config: the oldest runtime
     const s = new H.LayerfsService(new H.Context(), { cli: r[0].cli, daemon: r[0].daemon, bundle: r[0].bundle })
