@@ -172,8 +172,9 @@ function LayerfsSection({ api, s, t }: { api: LayerfsApi, s: SetupStatus, t: Set
     ? <>{r.version ? t('runtimeLine', { version: r.version }) : t('runtimeUnnamed')}{r.commit ? <span className={css.commit}>{short(r.commit)}</span> : null}</>
     : t('runtimeTitle')
   return (
-    <div className={css.rows}>
+    <div className={css.blocks}>
       <FolderRow api={api} s={s} t={t} />
+      <div className={css.block} data-block="build">
       <Row data="build" wide tile={<LayerfsGlyph size={16} />} title={title} line={line} lineWarn={b.state !== 'ready'} state={b.state === 'ready' ? '' : t(b.word)} warn={b.state !== 'ready'}
         action={changing ? null : <Button variant="outline" size="sm" onClick={() => setChanging('pick')}>{r.cli ? t('changeVersion') : t('choose')}</Button>} />
       {s.daemonRecordable ? <RecordDaemon api={api} t={t} /> : null}
@@ -189,6 +190,7 @@ function LayerfsSection({ api, s, t }: { api: LayerfsApi, s: SetupStatus, t: Set
           {details ? <Pieces s={s} t={t} /> : null}
         </div>
       ) : null}
+      </div>
     </div>
   )
 }
@@ -203,6 +205,8 @@ function FolderRow({ api, s, t }: { api: LayerfsApi, s: SetupStatus, t: SetupMod
   const f = s.folder
   const [error, setError] = useState<unknown>(null)
   const [changing, setChanging] = useState(false)
+  // home/ and dsh/ start folded away, like the build's Details
+  const [contents, setContents] = useState(false)
   const open = () => { setError(null); api.op('setup.open', { which: 'folder' }).catch((e: unknown) => setError(e)) }
   const did = lately(s)
   const word = f.state === 'current' ? (did === 'created' ? t('sumFolderCreated') : t('stateReady'))
@@ -217,9 +221,15 @@ function FolderRow({ api, s, t }: { api: LayerfsApi, s: SetupStatus, t: SetupMod
     </>
   )
   return (
-    <>
+    <div className={css.block} data-block="folder">
       <Row data="folder" wide tile={<IconFolderCloseRegular size={16} />} title={t('folderTitle')} line={<span title={f.root}>{tildePath(f.root, f.userHome)}</span>} lineMono state={f.state === 'current' && did !== 'created' ? '' : word} warn={f.state !== 'current'} action={actions} />
-      <FolderTree api={api} s={s} t={t} onError={setError} />
+      <div className={css.details} data-row="folder-contents">
+        <button type="button" className={css.detailsToggle} aria-expanded={contents} onClick={() => setContents(!contents)}>
+          {contents ? <IconChevronDownOutlineRegular size={12} /> : <IconChevronRightOutlineRegular size={12} />}
+          {t('folderContents')}
+        </button>
+        {contents ? <FolderTree api={api} s={s} t={t} onError={setError} /> : null}
+      </div>
       {locked ? <p className={css.rowNote}>{t(f.rootSource === 'env' ? 'folderSetByEnv' : 'folderSetByConfig')}</p> : null}
       {f.dsh.taken ? <p className={css.rowNote}>{t('folderDshTaken', { taken: f.dsh.taken })}</p> : null}
       {f.next ? <p className={css.rowNote} data-warn="">{t('folderNext', { next: f.next })}</p> : null}
@@ -239,7 +249,7 @@ function FolderRow({ api, s, t }: { api: LayerfsApi, s: SetupStatus, t: SetupMod
           <CopyLine text={`chmod 700 '${f.path}'`} copyLabel={t('copy')} copiedLabel={t('copied')} />
         </div>
       ) : null}
-    </>
+    </div>
   )
 }
 

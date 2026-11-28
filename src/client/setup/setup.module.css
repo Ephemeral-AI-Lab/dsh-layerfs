@@ -390,6 +390,29 @@
 
 .rowWide .rowAction { gap: 8px; }
 
+/* the LayerFS section's two blocks (the folder, the build): a head row, then what
+   belongs to it inset at the row's text, 8px apart; a hairline between blocks */
+.blocks {
+  display: flex;
+  flex-direction: column;
+}
+
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 0;
+}
+
+.block:first-child { padding-top: 4px; }
+.block:last-child { padding-bottom: 0; }
+.block + .block { border-top: 0.5px solid var(--dsw-alias-border-l2); }
+.block > .row { padding: 0; }
+.block > :is(.noteBlock, [role='alert']) { margin: 0 0 0 44px; }
+
+/* the formats line and its Details toggle read as one note */
+.block > .rowNote[data-formats] + .details { margin-top: -4px; }
+
 /* the folder row's tree: a hairline panel under its text, one line per home, each opening to the folders it holds */
 .tree,
 .treeGroup {
@@ -399,7 +422,6 @@
 }
 
 .tree {
-  margin: -4px 0 12px 44px;
   border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: var(--dsw-radius-md);
   background: var(--dsw-alias-bg-layer-1);
@@ -412,11 +434,11 @@
 
 .treeLine {
   display: grid;
-  grid-template-columns: 16px 18px max-content minmax(0, 1fr) max-content max-content;
+  grid-template-columns: 16px 18px max-content minmax(0, max-content) max-content minmax(max-content, 1fr);
   align-items: center;
   gap: 10px;
   min-height: 40px;
-  padding: 0 6px 0 10px;
+  padding: 0 12px;
   font-size: 12px;
   line-height: 18px;
   color: var(--dsw-alias-label-secondary);
@@ -474,7 +496,7 @@
 
 .treeMeta {
   display: inline-flex;
-  justify-content: flex-end;
+  justify-self: end;
 }
 
 .treeChips {
@@ -506,7 +528,8 @@
 
 .treeActions {
   display: inline-flex;
-  gap: 2px;
+  gap: 0;
+  margin-inline-start: -4px;
 }
 
 .treeButton { color: var(--dsw-alias-label-secondary); }

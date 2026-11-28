@@ -113,13 +113,13 @@ function TreeLine({ name, icon, line, meta, warn, path, chevron, onActivate, onO
       <span className={css.treeIcon} aria-hidden="true">{icon}</span>
       <span className={css.treeName}>{name}</span>
       <span className={css.treeText} data-warn={warn || undefined}>{line}</span>
-      <span className={css.treeMeta}>{meta}</span>
       <span className={css.treeActions}>
         <Button variant="ghost" size="sm" className={css.treeButton} aria-label={copied ? t('copied') : t('copyPath')} title={copied ? t('copied') : t('copyPath')}
           icon={copied ? <IconCheckOutlineRegular size={14} /> : <IconCopyOutlineRegular size={14} />} onClick={copy} />
         <Button variant="ghost" size="sm" className={css.treeButton} aria-label={t('openFolder')} title={t('openFolder')}
           icon={<IconFolderOpenOutlineRegular size={14} />} onClick={onOpen} />
       </span>
+      <span className={css.treeMeta}>{meta}</span>
     </div>
   )
 }
