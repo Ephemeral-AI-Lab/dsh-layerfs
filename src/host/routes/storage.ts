@@ -58,7 +58,7 @@
  */
 import { READ_TIMEOUT_MS } from '../layerfs/cli.ts'
 import { randomUUID } from 'node:crypto'
-import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, rmdirSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, renameSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { COMPACT_STEPS, JobStore, UPGRADE_STEPS, failureOutcome, inspectJob, transferSummary, upgradeOutcome, type StorageJob } from './jobs.ts'
 import { killGroup } from './project-exports.ts'
@@ -204,28 +204,6 @@ export function pgWhere(url: unknown): { server: string, database: string | null
 }
 
 /**
- * An earlier build kept storage state in `<home>/dsh-layerfs/`, named after this
- * plugin. Move it to the client-neutral folders (`job/`, `stat/`) once: what
- * already exists there wins and the old copy is dropped (job history and
- * statistics are rebuilt or regrow), so the old folder always goes. Never throws. Called when the routes start, never
- * from the service constructor (which must not touch the home).
- */
-export function moveLegacyStorageState(home: string, jobDir: string, statDir: string): void {
-  const legacy = join(home, 'dsh-layerfs')
-  if (!existsSync(legacy)) return
-  const moves: [string, string][] = [['storage-jobs.json', jobDir], ['doctor-jobs.json', jobDir], ['storage-observations', statDir], ['project-storage', statDir]]
-  for (const [name, dir] of moves) {
-    try {
-      if (!existsSync(join(legacy, name))) continue
-      if (existsSync(join(dir, name))) { rmSync(join(legacy, name), { recursive: true, force: true }); continue }
-      mkdirSync(dir, { recursive: true, mode: 0o700 })
-      renameSync(join(legacy, name), join(dir, name))
-    } catch {}
-  }
-  try { rmdirSync(legacy) } catch {}
-}
-
-/**
  * One `store list --detail --with stats` item -> StoreRow: the six-state
  * `state` with its companions, its projects (the first 20 names and the
  * count), its size, its backup links, and (PostgreSQL) its saved connection
@@ -305,7 +283,6 @@ export class Storage {
    */
   constructor(private readonly host: RouteHost, private readonly kill: (pid: number, signal: NodeJS.Signals) => void = killGroup) {
     // the job and stat folders in the LayerFS home, all owner-only (LayerFS requires 0700; a home made here is too)
-    moveLegacyStorageState(host.home, host.jobs, host.stats)
     for (const dir of [host.jobs, host.stats, join(host.stats, 'storage-observations'), join(host.stats, 'project-storage')]) {
       mkdirSync(dir, { recursive: true, mode: 0o700 })
       chmodSync(dir, 0o700)

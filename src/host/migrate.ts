@@ -22,9 +22,9 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, cpSync } from 'node:fs'
 import { join } from 'node:path'
 import { compactInvocations, RECEIPT_META } from './layerfs/tracing.ts'
-import { dshRecordPath, readDshRecord, writeJson } from './folder.ts'
+import { dshRecordPath, LAYOUT, readDshRecord, writeJson } from './folder.ts'
 
-export const LAYOUT = 2
+export { LAYOUT }
 const SCRATCH_PROJECT = 'dsh-scratch/scratch'
 
 const readJson = (path: string): any => { try { return JSON.parse(readFileSync(path, 'utf8')) } catch { return undefined } }
@@ -37,7 +37,7 @@ export interface MigrateReport { sessions: number, combined: number, scratch: nu
 /** Bring `state` to {@link LAYOUT}; a no-op once dsh.json records it. Throws on a failed step (nothing is marked done). */
 export function migrateLayout(state: string, log: (message: string) => void = () => {}): MigrateReport | null {
   const record: any = readDshRecord(state)
-  if (!record || record.layout >= LAYOUT) return null
+  if (!record || (record.layout ?? 1) >= LAYOUT) return null
   const report: MigrateReport = { sessions: 0, combined: 0, scratch: 0, dropped: [] }
   const store = join(state, 'sessions', 'store')
   for (const cwd of dirs(store)) for (const id of dirs(join(store, cwd))) {
@@ -155,7 +155,7 @@ interface Registry {
 export async function retireOldFolder(state: string, registry: Registry, scratch: () => Promise<{ workspaceId: string }>, attach: (workspaceId: string, sessionId: string) => Promise<void>, log: (message: string) => void = () => {}): Promise<void> {
   const record: any = readDshRecord(state)
   const old: string | undefined = record?.migratedFrom
-  if (!record || record.layout < LAYOUT || !old) return
+  if (!record || (record.layout ?? 1) < LAYOUT || !old) return
   const stale = registry.list().filter((w) => under(w.path, old))
   const orphans = stale.filter((w) => w.path === join(old, 'scratch')).flatMap((w) => w.sessionIds.map(String))
   if (orphans.length) {

@@ -136,8 +136,6 @@ export class SandboxCommands {
   private readonly live = new Map<string, Run>()
   /** Each Workspace's log as read or written, keyed by ws. */
   private readonly loaded = new Map<string, CommandEntry[]>()
-  /** Sandboxes whose v1 log has been looked for. */
-  private readonly migrated = new Set<string>()
 
   constructor(private readonly host: RouteHost) {}
 
@@ -174,48 +172,10 @@ export class SandboxCommands {
     }
   }
 
-  /** Splits a v1 `<sandbox>.json` into Workspace logs, once per Sandbox. */
-  private migrate(sandbox: string): void {
-    if (this.migrated.has(sandbox)) return
-    const v1 = join(this.base(), `${sandbox}.json`)
-    let old: CommandEntry[]
-    try {
-      const parsed = JSON.parse(readFileSync(v1, 'utf8'))
-      old = Array.isArray(parsed?.commands) ? parsed.commands as CommandEntry[] : []
-    } catch (error: any) {
-      if (error?.code === 'ENOENT') { this.migrated.add(sandbox); return }
-      if (!(error instanceof SyntaxError)) throw error
-      old = []
-    }
-    try {
-      const byWs = new Map<string, CommandEntry[]>()
-      for (const c of old) {
-        if (typeof c?.ws !== 'string' || typeof c?.id !== 'string') continue
-        try { if (sandboxOfWs(c.ws) !== sandbox) continue } catch { continue }
-        const list = byWs.get(c.ws)
-        if (list) list.push(c)
-        else byWs.set(c.ws, [c])
-      }
-      for (const [ws, commands] of byWs) {
-        const have = this.load(ws)
-        const ids = new Set(have.map((c) => c.id))
-        const merged = [...have, ...commands.filter((c) => !ids.has(c.id))].sort(newestFirst).slice(0, KEEP)
-        this.put(ws, merged)
-        this.loaded.delete(ws)
-      }
-      rmSync(v1, { force: true })
-      this.migrated.add(sandbox)
-    } catch (error: any) {
-      // left for the next read
-      this.host.log(`sandbox-commands ${sandbox}: v1 log not migrated: ${error?.message ?? error}`)
-    }
-  }
-
   /** A Workspace's log, newest first (cached; entries normalized). */
   private read(ws: string): CommandEntry[] {
     let all = this.loaded.get(ws)
     if (all) return all
-    this.migrate(sandboxOfWs(ws))
     all = this.load(ws)
     for (const c of all) {
       // a command this host was running when it stopped: its outcome is not known here
@@ -254,7 +214,6 @@ export class SandboxCommands {
   /** The Sandbox's commands across its Workspaces, newest first, at most {@link KEEP}. */
   list(sandbox: string): { items: CommandEntry[] } {
     const dir = this.dir(sandbox)
-    this.migrate(sandbox)
     const workspaces = new Set<string>()
     for (const ws of this.loaded.keys()) if (sandboxOfWs(ws) === sandbox) workspaces.add(ws)
     let names: string[] = []
@@ -371,14 +330,12 @@ export class SandboxCommands {
     this.host.emit('sandbox-command', { type: 'sandbox-command', sandbox, ws, id: null, state: 'unmounted' })
   }
 
-  /** After a successful close: drops the Sandbox's logs (v2 folder and any v1 file). */
+  /** After a successful close: drops the Sandbox's logs. */
   closed(sandbox: string): void {
     if (!SAFE_NAME.test(sandbox)) return
     for (const ws of [...this.loaded.keys()]) if (sandboxOfWs(ws) === sandbox) this.loaded.delete(ws)
-    this.migrated.delete(sandbox)
     try {
       rmSync(this.dir(sandbox), { recursive: true, force: true })
-      rmSync(join(this.base(), `${sandbox}.json`), { force: true })
     } catch (error: any) { this.host.log(`sandbox-commands ${sandbox}: ${error?.message ?? error}`) }
   }
 

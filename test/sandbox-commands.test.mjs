@@ -211,27 +211,6 @@ test('binary output: a NUL or over 10% U+FFFD empties the text but keeps the byt
   assert.equal(few.stdout.length, 101)
 })
 
-test('a v1 Sandbox log is split into Workspace files on first read, then removed', () => {
-  const { h, jobs } = host(done)
-  const entry = (id, ws, startedAt, extra = {}) => ({ id, ws, sandbox: 'sb7', command: id, state: 'exited', startedAt, finishedAt: startedAt + 1, exitCode: 0, stdout: 'o', stderr: '', stdoutBytes: 1, stderrBytes: 0, error: null, ...extra })
-  mkdirSync(join(jobs, 'sandbox-commands'), { recursive: true })
-  const v1 = join(jobs, 'sandbox-commands', 'sb7.json')
-  writeFileSync(v1, JSON.stringify({ version: 1, commands: [
-    entry('c4', 'sb7:b', 40, { state: 'running' }), entry('c3', 'sb7:a', 30), entry('c2', 'sb7:b', 20, { stdout: 'x\0y' }), entry('c1', 'sb7:a', 10), entry('c0', 'other:a', 5),
-  ] }))
-  const c = new M.SandboxCommands(h)
-  const a = c.listWorkspace('sb7:a').items
-  assert.deepEqual(a.map((e) => e.id), ['c3', 'c1'])
-  assert.equal(a[0].stdoutBinary, false)
-  assert.equal(existsSync(v1), false)
-  const b = JSON.parse(readFileSync(wsFile(jobs, 'sb7:b'), 'utf8'))
-  assert.deepEqual([b.version, b.ws, b.commands.map((e) => e.id)], [2, 'sb7:b', ['c4', 'c2']])
-  const [c4, c2] = c.listWorkspace('sb7:b').items
-  assert.equal(c4.state, 'unknown')
-  assert.deepEqual([c2.stdoutBinary, c2.stdout], [true, ''])
-  assert.deepEqual(new M.SandboxCommands(h).list('sb7').items.map((e) => e.id), ['c4', 'c3', 'c2', 'c1'])
-})
-
 test('routes: start, list both ways, cancel, commit', async () => {
   const { h, calls } = host(async (ws, command) => command === 'hang' ? new Promise(() => {}) : { exit_code: 0 })
   const g = groups(h)
@@ -287,13 +266,12 @@ test('routes: unmount refuses a running command unless forced, passes options an
   assert.deepEqual(calls.at(-1), ['unmount', 'sb8:b', {}])
 })
 
-test('routes: removing a Sandbox (sandbox remove) removes its command logs, v1 file included', async () => {
+test('routes: removing a Sandbox (sandbox remove) removes its command logs', async () => {
   const { h, calls, jobs } = host(done)
   const g = groups(h)
   await call(g, 'POST', '/api/workspaces/sb9:a/commands', { command: 'ls' })
   await call(g, 'POST', '/api/workspaces/sb9:b/commands', { command: 'ls' })
   await settle()
-  writeFileSync(join(jobs, 'sandbox-commands', 'sb9.json'), '{"version":1,"commands":[]}')
   const dir = join(jobs, 'sandbox-commands', 'sb9')
   assert.equal(readdirSync(dir).length, 2)
   // a refused removal keeps them
@@ -304,6 +282,5 @@ test('routes: removing a Sandbox (sandbox remove) removes its command logs, v1 f
   assert.deepEqual(await call(g, 'DELETE', '/api/sandboxes/sb9?force=1'), { ok: true, outcome: 'removed', sandbox: 'sb9', unmounted: [] })
   assert.deepEqual(calls.at(-1), ['remove', 'sb9', { detail: true, force: true }])
   assert.equal(existsSync(dir), false)
-  assert.equal(existsSync(join(jobs, 'sandbox-commands', 'sb9.json')), false)
   assert.deepEqual((await call(g, 'GET', '/api/sandboxes/sb9/commands')).items, [])
 })

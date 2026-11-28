@@ -41,10 +41,6 @@ export interface LayerfsConfig {
   folder?: string
   /** The DSH x LayerFS home, this install's plugin state; else DSH_LAYERFS_STATE, else `<folder>/dsh`. */
   state?: string
-  /** Older name of `state`: an older build's state there is moved into the new layout in place. */
-  root?: string
-  /** Older project-session home override: read once as a migration source. */
-  projectSessionHome?: string
   /** Absolute pinned `layerfs` CLI; else runtime.json, else DSH_LAYERFS_CLI, else the newest runtime installed in the home. */
   cli?: string
   /** Absolute matching `layerfs-daemon` (the macOS host machine, `macos-host`). */
@@ -184,8 +180,8 @@ export interface SetupStatus {
     readonly rootSource: 'config' | 'env' | 'pointer' | 'default'
     /** A folder chosen in the setup modal that takes effect after a restart, or null. */
     readonly next: string | null
-    /** The DSH x LayerFS home: its path, `<root>/dsh` when another DeepSeek Harness owns it, where it moved from. */
-    readonly dsh: { readonly path: string, readonly taken: string | null, readonly movedFrom: string | null }
+    /** The DSH x LayerFS home: its path, and `<root>/dsh` when another DeepSeek Harness owns that one. */
+    readonly dsh: { readonly path: string, readonly taken: string | null }
   }
   readonly pieces: { readonly cli: Piece | null, readonly daemon: Piece | null, readonly bundle: Piece | null }
   /** A home that is not ready, in LayerFS's words (`home get` `message` and `fix`). */
@@ -274,8 +270,6 @@ export class LayerfsService extends Service {
   readonly stateTaken: string | null
   /** This install's id (64 hex): Sandbox names and the runtime pin lease. */
   readonly install: string
-  /** Where an older build's state was moved from, when it was. */
-  readonly migratedFrom: string | null
   /** `$DSH_HOME/layerfs.json`: the folder chosen in the setup modal. */
   readonly pointer: string
   /** The stand-in call log, `<state>/trace/calls.jsonl` (docs/specs/layerfs-logs.md §3). */
@@ -318,14 +312,13 @@ export class LayerfsService extends Service {
 
   constructor(ctx: Context, private readonly config: LayerfsConfig = {}) {
     super(ctx, 'layerfs')
-    const where = resolveFolder(config, process.env, (message) => ctx.logger('layerfs').info(message))
+    const where = resolveFolder(config, process.env)
     migrateLayout(where.state, (message) => ctx.logger('layerfs').info(message))
     this.folder = where.folder
     this.folderSource = where.folderSource
     this.state = where.state
     this.stateTaken = where.stateTaken
     this.install = where.install
-    this.migratedFrom = where.migratedFrom
     this.pointer = where.pointer
     this.callLog = join(this.state, 'trace', 'calls.jsonl')
     this.projectSessionHome = join(this.state, 'sessions')
@@ -632,7 +625,7 @@ export class LayerfsService extends Service {
         path: this.home, state, layout: got?.layout ?? null, mode: got?.mode ?? null, modeOk: modeOk(got?.mode), did: this.homeDid,
         ...(got && got.state !== 'ready' ? { message: got.message ?? null, fix: got.fix ?? null } : {}),
         root: this.folder, rootSource: this.folderSource, next: this.nextFolder(),
-        dsh: { path: this.state, taken: this.stateTaken, movedFrom: this.migratedFrom },
+        dsh: { path: this.state, taken: this.stateTaken },
       },
       pieces: { cli, daemon, bundle },
       // a home that is not ready: LayerFS's sentence and its fix (2.0 has no warnings list; `home doctor` reports the rest)

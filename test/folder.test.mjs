@@ -86,20 +86,18 @@ test('state: <folder>/dsh with a dsh.json naming its owner and install; config a
     const first = F.resolveFolder({}, env)
     assert.equal(first.state, join(m.folder, 'dsh'))
     assert.equal(first.stateTaken, null)
-    assert.equal(first.migratedFrom, null)
     const record = json(join(m.folder, 'dsh', 'dsh.json'))
-    assert.deepEqual([record.version, record.owner, record.install], [1, m.dshHome, sha(join(m.folder, 'dsh'))])
+    assert.deepEqual([record.version, record.owner, record.install, record.layout], [1, m.dshHome, sha(join(m.folder, 'dsh')), F.LAYOUT])
     assert.equal(first.install, record.install)
     assert.match(first.install, /^[0-9a-f]{64}$/)
     // read back, not rewritten: the install id is stable
     assert.equal(F.resolveFolder({}, env).install, first.install)
     assert.deepEqual(F.readDshRecord(first.state), record)
-    // explicit state wins: config state, then the older config root, then DSH_LAYERFS_STATE
-    const s = join(m.dir, 's'), r = join(m.dir, 'r'), e = join(m.dir, 'e')
-    assert.equal(F.resolveFolder({ state: s, root: r }, { ...env, DSH_LAYERFS_STATE: e }).state, s)
-    assert.equal(F.resolveFolder({ root: r }, { ...env, DSH_LAYERFS_STATE: e }).state, r)
+    // explicit state wins: config state, then DSH_LAYERFS_STATE
+    const s = join(m.dir, 's'), e = join(m.dir, 'e')
+    assert.equal(F.resolveFolder({ state: s }, { ...env, DSH_LAYERFS_STATE: e }).state, s)
     assert.equal(F.resolveFolder({}, { ...env, DSH_LAYERFS_STATE: e }).state, e)
-    for (const dir of [s, r, e]) assert.equal(json(join(dir, 'dsh.json')).owner, m.dshHome)
+    for (const dir of [s, e]) assert.equal(json(join(dir, 'dsh.json')).owner, m.dshHome)
   } finally { m.done() }
 })
 
@@ -149,86 +147,6 @@ function oldState(old) {
   put(join(ps, 'projects', stale, 'sessions', '--cwd--', 'session-1', 'session.v4.jsonl'), '{"stale":true}\n')
   return { key, ps }
 }
-
-test('migration: an older $DSH_HOME/layerfs moves into <folder>/dsh in the new layout, then is set aside', () => {
-  const m = machine()
-  try {
-    const old = join(m.dshHome, 'layerfs')
-    oldState(old)
-    const logs = []
-    const env = { ...m.env, DSH_LAYERFS_FOLDER: m.folder }
-    const got = F.resolveFolder({}, env, (line) => logs.push(line))
-    const state = join(m.folder, 'dsh')
-    assert.equal(got.state, state)
-    assert.equal(got.migratedFrom, old)
-    // §5.2: dsh.json last, keeping the install id the old folder had
-    const record = json(join(state, 'dsh.json'))
-    assert.deepEqual([record.owner, record.install, record.migratedFrom], [m.dshHome, sha(old), old])
-    assert.ok(record.migratedAt)
-    assert.equal(got.install, sha(old))
-    // §5.1: plugin state
-    assert.deepEqual(json(join(state, 'sessions', 'state.json')), { sessions: { 'session-1': { project: 'st/app' } } })
-    assert.deepEqual(json(join(state, 'runtime.json')), { cli: '/pinned/layerfs' })
-    assert.equal(readFileSync(join(state, 'simulations', 'run-1', 'run.json'), 'utf8'), '{"run":1}')
-    assert.equal(readFileSync(join(state, 'trace', 'outputs', 'abc.json'), 'utf8'), '{"out":1}')
-    assert.equal(existsSync(join(state, 'trace', 'calls.jsonl')), false, 'only trace/outputs is copied')
-    assert.equal(existsSync(join(state, 'store-machines.json')), false, 'dropped')
-    // the project-session indexes and backups
-    assert.ok(json(join(state, 'sessions', 'owners.json')).sessions['session-1'])
-    assert.ok(existsSync(join(state, 'sessions', 'deleted.json')))
-    assert.deepEqual(json(join(state, 'sessions', 'projects.json')), { 'pid-1': { key: 'st/app' } })
-    assert.equal(readFileSync(join(state, 'sessions', 'backups', 'b1', 'session.v4.jsonl'), 'utf8'), '{"backup":1}\n')
-    // each owned session into the one store, its LayerFS files in layerfs/
-    const moved = join(state, 'sessions', 'store', '--cwd--', 'session-1')
-    assert.equal(readFileSync(join(moved, 'session.v4.jsonl'), 'utf8'), '{"version":4,"id":"session-1"}\n', 'the owned copy, not the stale one')
-    assert.equal(json(join(moved, 'layerfs', 'binding.json')).project, 'st/app')
-    assert.equal(readFileSync(join(moved, 'layerfs', 'calls.jsonl'), 'utf8'), '{"id":"r1"}\n')
-    assert.deepEqual(readdirSync(moved).sort(), ['layerfs', 'session.v4.jsonl'], 'no layerfs.json, receipts.jsonl or .bak beside the log')
-    assert.ok(existsSync(join(state, 'sessions', 'store', '--cwd--', 'session-2', 'session.v4.jsonl')))
-    assert.deepEqual(readdirSync(join(state, 'sessions', 'store', '--cwd--')).sort(), ['session-1', 'session-2'])
-    // §5.3: the copied entries are set aside; scratch/ and projects/ stay where they are
-    const left = readdirSync(old).sort()
-    for (const name of ['sessions.json', 'runtime.json', 'simulations', 'trace', 'project-sessions', 'store-machines.json']) {
-      assert.ok(left.includes(`${name}.moved`), `${name}.moved in ${left}`)
-      assert.ok(!left.includes(name), `${name} renamed`)
-    }
-    assert.equal(readFileSync(join(old, 'scratch', 'README.md'), 'utf8'), '# Scratch\n')
-    assert.equal(readFileSync(join(old, 'projects', 'st', 'app', 'sessions', 'session-1', 'work.txt'), 'utf8'), 'scratch work')
-    assert.match(readFileSync(join(old, 'MOVED.txt'), 'utf8'), new RegExp(`moved to ${state.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
-    assert.ok(logs.some((line) => /2 project sessions/.test(line)), logs.join('\n'))
-    // once: the next start reads dsh.json and moves nothing again
-    const again = F.resolveFolder({}, env)
-    assert.equal(again.install, sha(old))
-    assert.equal(again.migratedFrom, old)
-    assert.ok(!readdirSync(old).some((name) => name.endsWith('.moved.moved')))
-  } finally { m.done() }
-})
-
-test('migration: a configured root is the old folder and is converted in place; $DSH_HOME/layerfs is not taken then', () => {
-  const m = machine()
-  try {
-    const rootDir = join(m.dir, 'configured-root')
-    oldState(rootDir)
-    const env = { ...m.env, DSH_LAYERFS_FOLDER: m.folder }
-    const got = F.resolveFolder({ root: rootDir }, env)
-    assert.equal(got.state, rootDir)
-    assert.equal(got.migratedFrom, rootDir)
-    assert.equal(got.install, sha(rootDir))
-    assert.ok(existsSync(join(rootDir, 'sessions', 'state.json')))
-    assert.ok(existsSync(join(rootDir, 'sessions', 'store', '--cwd--', 'session-1', 'layerfs', 'binding.json')))
-    assert.ok(existsSync(join(rootDir, 'runtime.json')), 'an entry already where it belongs stays')
-    assert.ok(existsSync(join(rootDir, 'sessions.json.moved')))
-    // A fresh configured root with an older $DSH_HOME/layerfs beside it: that folder is not this install's.
-    const legacy = join(m.dshHome, 'layerfs')
-    oldState(legacy)
-    const fresh = join(m.dir, 'fresh-root')
-    const other = F.resolveFolder({ root: fresh }, env)
-    assert.equal(other.state, fresh)
-    assert.equal(other.migratedFrom, null)
-    assert.ok(existsSync(join(legacy, 'sessions.json')), 'the other folder is left alone')
-    assert.equal(existsSync(join(legacy, 'MOVED.txt')), false)
-  } finally { m.done() }
-})
 
 test('relayout puts a session folder\'s LayerFS files into layerfs/ and never overwrites newer ones', () => {
   const m = machine()

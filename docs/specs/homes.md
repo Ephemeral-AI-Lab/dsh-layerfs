@@ -156,39 +156,17 @@ switching homes never carries one home's state into another:
   They are named for what they hold, never for a client, so any service using
   the home reads and writes the same files.
 - **Presets state** is in `<home>/preset/`: the ownership manifest names the
-  home it built in, so it lives in that home. An earlier build kept it in
-  `$DSH_HOME/layerfs/presets/homes/<digest of the home's path>/`; on first start
-  that folder is moved into the home and the absolute state path it recorded
-  (the manifest's `state`, source paths in the step journal) is rewritten. The
-  older flat `$DSH_HOME/layerfs/presets/` files are not consulted. Build and
-  Reset act only through LayerFS calls, so `preset/` survives a Reset.
-- An earlier build used `<home>/dsh-layerfs/`. On startup its files are moved
-  into `job/` and `stat/` (a file already there wins) and the empty folder is
-  removed.
+  home it built in, so it lives in that home. Build and Reset act only through
+  LayerFS calls, so `preset/` survives a Reset.
 - Limit: the job tables are rewritten whole by the host that owns the job, so
   two DSH servers using one home at the same time can drop each other's job
   history (never Stores, projects or backups). One server per home is the
   supported setup.
-- Files left under `$DSH_HOME/layerfs` by earlier versions (`buckets.json`,
-  `storage-jobs.json`, `doctor-jobs.json`, `storage-observations/`,
-  `project-storage/`) belonged to whichever home was in use then; they are no
-  longer read.
 
 ## 6. dsh-layerfs state
 
 Superseded by `layerfs-folder.md`: the plugin's state is the DSH x LayerFS home
-`~/.layerfs/dsh` (an older `$DSH_HOME/layerfs` is moved there once). The rest of
-this section describes the layout before that.
-
-- `root` (default `$DSH_HOME/layerfs`) holds the plugin's state for this install:
-  the runtime pin, session bindings, scratch and legacy anchors.
-- Project conversation logs default to `<root>/project-sessions`
-  (`projectSessionHome`, or `DSH_LAYERFS_SESSION_HOME`). They are DSH-format logs
-  and belong with DSH. They are not the only copy: each project session is
-  mirrored into the LayerFS session store and imported again on a local miss.
-- The previous default, `~/.layerfs/dsh`, would now sit inside the LayerFS home
-  and is no longer used. Logs already there are not moved automatically; point
-  `DSH_LAYERFS_SESSION_HOME` at it, or move it, to keep them.
+`~/.layerfs/dsh`.
 
 ## 7. What LayerFS has to adopt
 

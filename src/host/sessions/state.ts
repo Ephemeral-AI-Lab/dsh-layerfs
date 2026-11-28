@@ -1,8 +1,7 @@
 /**
- * The sessions area's durable state: `<root>/sessions.json`.
+ * The sessions area's durable state: `<state>/sessions/state.json`.
  *
- *   projects[key]     a LayerFS project this DSH knows (its anchor dir; a DSH
- *                     workspace id only when a legacy project workspace held it)
+ *   projects[key]     a LayerFS project this DSH knows (its anchor: the Scratch folder)
  *   sessions[id]      one DSH session's binding to its Branch, Sandbox, Workspace mount and scratch folder
  *   checkpoints[id]   the session's trajectory checkpoints, oldest first
  *   mirror[id]        how much of the session log the LayerFS session store holds
@@ -15,7 +14,6 @@ import type { SessionFailure } from '../../shared/pg-failure.ts'
 export interface ProjectWorkspace {
   readonly project: string
   readonly anchor: string
-  workspaceId?: string
   readonly createdAt: number
 }
 
@@ -124,8 +122,6 @@ export interface Mirror {
 
 export interface SessionsState {
   version: 1
-  /** The "LayerFS Projects" group workspace at `<root>/projects`, once ensured. */
-  group?: { workspaceId: string }
   projects: Record<string, ProjectWorkspace>
   sessions: Record<string, Binding>
   checkpoints: Record<string, Checkpoint[]>

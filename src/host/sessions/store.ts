@@ -519,7 +519,6 @@ export class SessionStore {
       }
     }
     const anchor = this.sessions.ensureAnchor(project)
-    const list = workspaceId ?? this.sessions.recordedWorkspace(project)
     let events: any[] = []
     let header = manifest.header
     let inheritedEventCount = manifest.inheritedEventCount ?? 0
@@ -608,7 +607,7 @@ export class SessionStore {
     })
     // The stored row is local now: the next list reads its log and sidecar, not the archive row.
     this.invalidateDiscovery(project)
-    await this.sessions.attach(list, sessionId)
+    await this.sessions.attach(workspaceId, sessionId)
     return { sessionId, imported: true }
   }
 

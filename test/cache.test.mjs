@@ -554,7 +554,7 @@ test('no GET route makes a mutating LayerFS call, with or without a projectId', 
   const { cli, log } = fakeCli(f.dir)
   f.lfs.spec.cli = cli
   f.lfs.spec.home = home
-  const presetState = presetStateFor(join(f.dir, 'root'), home)
+  const presetState = presetStateFor(home)
   f.groups.presets = new PresetManager({
     spec: () => ({ cli, home, state: presetState, daemon: null }),
     busy: () => [], boundSessions: () => [], dshProjects: () => [], forgetProject: async () => {},

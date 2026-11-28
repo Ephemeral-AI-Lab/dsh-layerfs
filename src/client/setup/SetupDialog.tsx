@@ -232,7 +232,6 @@ function FolderRow({ api, s, t }: { api: LayerfsApi, s: SetupStatus, t: SetupMod
       </dl>
       {locked ? <p className={css.rowNote}>{t(f.rootSource === 'env' ? 'folderSetByEnv' : 'folderSetByConfig')}</p> : null}
       {f.dsh.taken ? <p className={css.rowNote}>{t('folderDshTaken', { taken: f.dsh.taken })}</p> : null}
-      {f.dsh.movedFrom ? <p className={css.rowNote}>{t('folderDshMoved', { from: f.dsh.movedFrom })}</p> : null}
       {f.next ? <p className={css.rowNote} data-warn="">{t('folderNext', { next: f.next })}</p> : null}
       {changing ? <FolderPicker api={api} t={t} current={f.next ?? f.root} onDone={() => setChanging(false)} /> : null}
       {error != null ? <p className={dialog.error} role="alert">{t('openFolderFailed', { message: messageOf(error) })}</p> : null}

@@ -44,7 +44,6 @@ if (pin) {
 env.DSH_LAYERFS_FOLDER ??= join(dev, 'layerfs')
 env.DSH_LAYERFS_HOME ??= join(dev, 'layerfs-home')
 // Only read once, to move an older dev dir's project sessions into <dev>/layerfs/dsh/sessions.
-env.DSH_LAYERFS_SESSION_HOME ??= join(dev, 'project-sessions')
 
 const bin = join(root, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
 

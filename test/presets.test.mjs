@@ -24,7 +24,7 @@ await build({
 })
 const { PresetManager } = await import(pathToFileURL(join(out, 'presets.mjs')).href)
 const { REQUIRED_CALLS } = await import(pathToFileURL(join(out, 'cli.mjs')).href)
-const { presetStateFor, legacyPresetState } = await import(pathToFileURL(join(out, 'stateDir.mjs')).href)
+const { presetStateFor } = await import(pathToFileURL(join(out, 'stateDir.mjs')).href)
 const R = await loadRoutes()
 
 function fakeHost({ cli = '/nonexistent/layerfs', home, state, sessions = [], projects = [], busy = [], conversations = [] } = {}) {
@@ -378,30 +378,6 @@ test('live: the selected legacy CLI is rejected before Reset reaches its private
   } finally { rmSync(fixture.base, { recursive: true, force: true }) }
 })
 
-test('presets state: each home keeps it in <home>/preset; an earlier <root>/presets/homes/<digest> moves in with its recorded paths rewritten', () => {
-  const base = mkdtempSync(join(tmpdir(), 'dsh-preset-state-'))
-  try {
-    const pluginRoot = join(base, 'root'), oldHome = join(base, 'old-home'), newHome = join(base, 'new-home')
-    for (const [dir, id] of [[oldHome, 'a'.repeat(32)], [newHome, 'b'.repeat(32)]]) { mkdirSync(dir, { recursive: true }); writeFileSync(join(dir, 'layerfs.json'), JSON.stringify({ id })) }
-    // a fresh home: its own folder inside it, named for no client
-    assert.equal(presetStateFor(pluginRoot, newHome), join(newHome, 'preset'))
-    // an earlier build's per-home folder moves into the home
-    const legacy = legacyPresetState(pluginRoot, oldHome)
-    mkdirSync(join(legacy, 'demo-sources', 'st', 'p'), { recursive: true })
-    const real = realpathSync(legacy)
-    writeFileSync(join(legacy, 'demo-fixtures.json'), JSON.stringify({ homeId: 'a'.repeat(32), state: real }))
-    writeFileSync(join(legacy, 'demo-steps.ndjson'), JSON.stringify({ argv: ['init', `${real}/demo-sources/st/p`] }) + '\n')
-    const target = presetStateFor(pluginRoot, oldHome)
-    assert.equal(target, join(oldHome, 'preset'))
-    assert.ok(!existsSync(legacy))
-    assert.equal(statSync(target).mode & 0o777, 0o700)
-    const to = realpathSync(target)
-    assert.equal(JSON.parse(readFileSync(join(target, 'demo-fixtures.json'), 'utf8')).state, to)
-    assert.equal(JSON.parse(readFileSync(join(target, 'demo-steps.ndjson'), 'utf8')).argv[1], `${to}/demo-sources/st/p`)
-    assert.ok(existsSync(join(target, 'demo-sources', 'st', 'p')))
-    // stable afterwards; the flat <root>/presets files are never consulted
-    mkdirSync(join(pluginRoot, 'presets'), { recursive: true })
-    writeFileSync(join(pluginRoot, 'presets', 'demo-fixtures.json'), JSON.stringify({ homeId: 'a'.repeat(32) }))
-    assert.equal(presetStateFor(pluginRoot, oldHome), target)
-  } finally { rmSync(base, { recursive: true, force: true }) }
+test('presets state: each home keeps it in <home>/preset, named for no client', () => {
+  assert.equal(presetStateFor('/x/home'), join('/x/home', 'preset'))
 })

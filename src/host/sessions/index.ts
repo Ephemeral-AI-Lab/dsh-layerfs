@@ -975,32 +975,6 @@ export function apply(ctx: Context): void {
         return { place: sessions.placeOfId(id) }
       },
       'sessions.scratchOptions': () => ({ workspaces: ctx.workspaceRegistry.list().map((w) => ({ workspaceId: String(w.id), title: w.title, path: w.path })) }),
-      // Retire only generated legacy registrations. Registry deletion preserves
-      // directories, logs, and project bindings; recorded anchor identities stay
-      // available to migrate old conversation headers when they are resumed.
-      'sessions.retireLegacyWorkspaces': async (args: any) => {
-        const state = sessions.state.read()
-        const root = `${ctx.layerfs.migratedFrom ?? ctx.layerfs.state}/projects`
-        const candidates = ctx.workspaceRegistry.list().flatMap((workspace) => {
-          const entry = Object.values(state.projects).find((p) => p.anchor === workspace.path)
-          if (workspace.path !== root && (!entry || !workspace.path.startsWith(`${root}/`))) return []
-          const unknown = workspace.sessionIds.filter((id) => !entry?.project && !sessions.placeOfId(String(id))?.project)
-          return [{ workspaceId: String(workspace.id), title: workspace.title, path: workspace.path,
-            project: entry?.project ?? null, sessions: [...workspace.sessionIds],
-            unplacedSessions: unknown, retired: false }]
-        })
-        const before = new Map<string, boolean>()
-        if (args?.apply === true) for (const candidate of candidates) {
-          for (const id of candidate.sessions) before.set(String(id), !!await localPersistence(ctx)?.stat(String(id)))
-          // Unplaced conversations in the old root group become ordinary
-          // Ungrouped sessions. Deleting a registration never deletes its logs.
-          candidate.retired = await ctx.workspaceRegistry.delete(candidate.workspaceId as never)
-        }
-        if (candidates.some((c) => c.retired)) ctx.layerfs.emit('layerfs-workspaces-changed', {})
-        const preservedSessions = []
-        for (const [sessionId, localBefore] of before) preservedSessions.push({ sessionId, localBefore, localAfter: !!await localPersistence(ctx)?.stat(sessionId) })
-        return { candidates, preservedSessions }
-      },
       'session.mirror': async (args: any) => { await store.mirror(need(args, 'sessionId')); return { ok: true } },
       'checkpoints.create': async (args: any) => {
         const id = need(args, 'sessionId')

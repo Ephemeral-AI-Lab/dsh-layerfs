@@ -96,7 +96,7 @@ export function apply(ctx: Context): void {
   const groups = createGroups(host, () => ctx.layerfs.status())
   const sessions = () => ctx.get('layerfsSessions' as never) as any
   // each LayerFS home has its own presets state: a manifest names the home it built in
-  const presetState = presetStateFor(ctx.layerfs.migratedFrom ?? ctx.layerfs.state, ctx.layerfs.home)
+  const presetState = presetStateFor(ctx.layerfs.home)
   const presets = new PresetManager({
     spec: () => {
       const { cli, home, bundle, cacheHome, callLog, gate } = ctx.layerfs.lfs.spec

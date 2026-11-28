@@ -107,7 +107,7 @@ into the one 3080 server. That is expected; coordinate instead of competing for 
   - `session-persistence.ts` the `layerfs-session-persistence` row (`lib/session-persistence.js`):
     owner routing over one stock JSONL backend at `<state>/sessions/store`, unpacked project logs,
     additive `layerfs/binding.json` + `layerfs/calls.jsonl` beside each log, validated migration, and imports on a local miss
-  - `folder.ts` the LayerFS folder, home and state resolution, and the one-time move of an older `$DSH_HOME/layerfs`
+  - `folder.ts` the LayerFS folder, home and state resolution (`dsh.json` with the install id and `layout`)
   - `layerfs/tracing.ts` execution-scoped receipts: one receipt id and log tag
     (`LAYERFS_LOGS_TAG=dsh:<sessionId>:<receiptId>`) per call, SDK receipts, the managed
     `bin/layerfs` wrapper (node with the stand-in; a bash script with LayerFS's native

@@ -562,26 +562,6 @@ test('storage state lives in the LayerFS home: jobs are kept in client-neutral <
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
-test('storage state: an earlier <home>/dsh-layerfs is moved into job/ and stat/ when the routes start; what is there wins, the old folder goes', () => {
-  const root = mkdtempSync(join(tmpdir(), 'dsh-routes-root-'))
-  const home = join(root, 'home'), legacy = join(home, 'dsh-layerfs')
-  try {
-    mkdirSync(join(legacy, 'project-storage'), { recursive: true })
-    writeFileSync(join(legacy, 'doctor-jobs.json'), '[]')
-    writeFileSync(join(legacy, 'project-storage', 'a.json'), '{}')
-    mkdirSync(join(home, 'job'), { recursive: true })
-    writeFileSync(join(home, 'job', 'storage-jobs.json'), '[]')
-    writeFileSync(join(legacy, 'storage-jobs.json'), '[{"old":1}]')
-    const { lfs } = fakeLfs(base)
-    R.createGroups(testHost({ lfs, root, home, discovery }).host, async () => ({ ok: true }))
-    assert.equal(readFileSync(join(home, 'job', 'doctor-jobs.json'), 'utf8'), '[]')
-    assert.equal(readFileSync(join(home, 'stat', 'project-storage', 'a.json'), 'utf8'), '{}')
-    assert.equal(readFileSync(join(home, 'job', 'storage-jobs.json'), 'utf8'), '[]')
-    for (const d of ['job', 'stat', 'stat/project-storage', 'stat/storage-observations']) assert.equal(statSync(join(home, d)).mode & 0o777, 0o700, d)
-    assert.ok(!existsSync(legacy))
-  } finally { rmSync(root, { recursive: true, force: true }) }
-})
-
 test('storage jobs: a move runs as a job with storage-job events; one job per Store', async () => {
   let finish
   const { http, events, root } = fakeGroups({

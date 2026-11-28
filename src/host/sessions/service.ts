@@ -3,7 +3,7 @@
  * local folder as scratch. Normal sessions retain stock DSH behavior.
  *
  * Explicit bindings, pending choices, and durable persistence ownership select
- * the project; recorded legacy anchors are supported for migration only.
+ * the project.
  * Host-machine and remote projects both use scratch as the local working directory.
  * Subagents share their parent's project execution context and scratch folder.
  * Conversation forks start project files from the matching saved checkpoint.
@@ -231,7 +231,7 @@ export class LayerfsSessions extends Service {
   /**
    * The parent of a project session's default scratch folder: the Scratch
    * folder `<state>/scratch` for every project (docs/specs/layerfs-folder.md
-   * §4). Bindings made before it keep the anchor they recorded.
+   * §4).
    */
   anchorOf(project: string): string {
     const [store, name] = project.split('/')
@@ -260,11 +260,6 @@ export class LayerfsSessions extends Service {
     this.writeAnchor(anchor, SCRATCH_README)
     this.state.update((s) => { s.projects[project] ??= { project, anchor, createdAt: Date.now() } })
     return anchor
-  }
-
-  /** The anchor a recorded project entry points at, once workspaces held them. */
-  recordedWorkspace(project: string): string | undefined {
-    return this.state.read().projects[project]?.workspaceId
   }
 
   /** List a session (an imported one) under a DSH workspace. Never throws. */
@@ -315,7 +310,6 @@ export class LayerfsSessions extends Service {
     this.writeAnchor(anchor, SCRATCH_README)
     const workspace = await this.ctx.workspaceRegistry.create(anchor, 'Scratch')
     if (workspace.title !== 'Scratch') await workspace.setTitle('Scratch')
-    await this.retitleMovedScratch()
     return { workspaceId: String(workspace.id), anchor }
   }
 
@@ -340,16 +334,6 @@ export class LayerfsSessions extends Service {
     })()
     try { await this.scratchReady } catch (error) { this.scratchReady = undefined; throw error }
     return key
-  }
-
-  /** The Scratch workspace an older build registered (`<old state>/scratch`) is titled so it is not taken for this one. */
-  private async retitleMovedScratch(): Promise<void> {
-    const from = this.ctx.layerfs.migratedFrom
-    if (!from) return
-    const old = join(from, 'scratch')
-    for (const workspace of this.ctx.workspaceRegistry?.list?.() ?? []) {
-      if (workspace.path === old && workspace.title === 'Scratch') await workspace.setTitle('Scratch (before the move)').catch(() => {})
-    }
   }
 
   /**

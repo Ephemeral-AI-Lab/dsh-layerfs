@@ -24,7 +24,7 @@ only file this plugin adds there is the pointer `$DSH_HOME/layerfs.json`.
 ├── layerfs.json  machine/  store/  …      the LayerFS home, while LayerFS defaults to ~/.layerfs (§3)
 │   (or home/ once LayerFS's default moves there)
 └── dsh/                                   DSH x LayerFS home
-    ├── dsh.json                           { version, owner: DSH_HOME, install, migratedFrom?, migratedAt? }
+    ├── dsh.json                           { version, owner: DSH_HOME, install, layout: 2 }
     ├── runtime.json                       runtime pin (the setup modal's picker)
     ├── scratch/                           the Scratch workspace
     │   └── session-<uuid>/                a project session's default scratch folder
@@ -33,7 +33,6 @@ only file this plugin adds there is the pointer `$DSH_HOME/layerfs.json`.
     │   ├── owners.json                    session → project
     │   ├── deleted.json                   sessions deleted on purpose
     │   ├── projects.json                  known projects by id
-    │   ├── backups/                       copies kept by log migrations
     │   └── store/                         the stock JSONL store's root (nothing else may live here)
     │       └── <cwd-key>/session-<uuid>/
     │           ├── session.v4.jsonl       DSH's log
@@ -43,8 +42,7 @@ only file this plugin adds there is the pointer `$DSH_HOME/layerfs.json`.
     │               └── calls.jsonl        one line per LayerFS call (tool call → call → versions)
     ├── simulations/<run-id>/              team runs; simulations/scratch/ their agents' folder
     ├── trace/
-    │   ├── outputs/<sha1(tag)>.json       call outputs, keyed by the call's tag; raw/ shell tees
-    │   └── calls.jsonl                    the stand-in call log (only for a CLI without native logs)
+    │   └── outputs/<sha1(tag)>.json       call outputs, keyed by the call's tag; raw/ shell tees
     ├── bin/                               layerfs wrapper, layerfs.mjs, sdk.mjs (regenerated)
     └── tmp/                               sources/, archive-imports/ (short-lived)
 
@@ -66,7 +64,7 @@ $DSH_HOME/layerfs.json                     pointer: { "folder": "<path>" }
   `<folder>/dsh`. A `dsh/` owned by another DSH_HOME (`dsh.json` `owner`) is
   never shared: that install uses `<folder>/dsh-<8 hex of its DSH_HOME>`.
 - `install` (in dsh.json) names this install in Sandbox names and the runtime
-  pin lease. A migrated install keeps the id its old folder had.
+  pin lease.
 
 ## 4. Sessions
 
@@ -85,24 +83,14 @@ $DSH_HOME/layerfs.json                     pointer: { "folder": "<path>" }
   session, the agent wrapper only knows the tag, and the agent sandbox may write
   outputs but never beside a conversation log.
 
-## 5. Migration
+## 5. Layout version
 
-At service start, before anything reads state, when `dsh.json` is missing and
-the old folder (`$DSH_HOME/layerfs`, or config `root`) holds state:
-
-1. Copy (APFS clone where possible): runtime.json, sessions.json →
-   sessions/state.json, simulations, the project-session indexes,
-   migration-backups → sessions/backups, trace/outputs, and each owned session
-   `project-sessions/projects/<owner>/sessions/<cwd>/<id>` →
-   `sessions/store/<cwd>/<id>`, with `layerfs.json` → `layerfs/binding.json` and
-   `receipts.jsonl` → `layerfs/calls.jsonl`.
-2. Write `dsh.json` last (owner, the old install id, migratedFrom).
-3. Rename the copied entries in the old folder to `<name>.moved` and write
-   `MOVED.txt`. The old `scratch/` and `projects/` stay where they are: running
-   and past sessions, and DSH's workspace registry, name them by path.
-
-Dropped: store-machines.json, images/, the flat presets files (homes.md §5),
-`.bak` files.
+`dsh.json` `layout` is the layout above (2). Only that layout is read: there is
+no code for older ones (the flat `$DSH_HOME/layerfs` folder, `layerfs.json` /
+`receipts.jsonl` beside a log, calls kept inside the binding, the Scratch
+project, per-project anchor workspaces). Installs that had them were converted
+once, and the old folder removed, by a one-shot migrator that has since been
+deleted.
 
 ## 6. Setup modal
 
@@ -123,5 +111,4 @@ after a restart.
 - LayerFS: move its default home to `~/.layerfs/home` (with a fallback to a
   legacy `~/.layerfs`), and a supported way to move a home (host Sandboxes
   stopped, daemon path, run owner files and pins rewritten).
-- Retire the stand-in call log once every supported CLI has native logs.
 - Merge owners.json and deleted.json into one index.
