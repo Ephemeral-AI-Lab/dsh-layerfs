@@ -22,29 +22,72 @@
   --pt-chevron: max(20px, var(--lfs-tap-track, 0px));
   --pt-menu: max(40px, var(--lfs-tap-track, 0px));
   display: grid;
+  /* Project, then four stacked figure columns (Activity, Updated, History, Size) */
   grid-template-columns:
-    var(--pt-chevron) minmax(220px, 3fr) 64px 72px minmax(84px, auto) minmax(72px, auto)
-    minmax(60px, auto) minmax(60px, auto) minmax(80px, auto) var(--pt-menu);
-  column-gap: 16px;
+    var(--pt-chevron) minmax(220px, 2.2fr) repeat(3, minmax(96px, 0.8fr)) minmax(72px, 0.6fr) var(--pt-menu);
+  column-gap: 20px;
 }
 
+/* Home adds Where: the Store over the machine it runs on. */
 .table[data-store-column] {
   grid-template-columns:
-    var(--pt-chevron) minmax(168px, 1.5fr) minmax(116px, 1.15fr) minmax(104px, 1fr) repeat(7, minmax(72px, 0.65fr)) var(--pt-menu);
+    var(--pt-chevron) minmax(190px, 1.6fr) minmax(140px, 1.2fr) repeat(3, minmax(92px, 0.75fr)) minmax(68px, 0.55fr) var(--pt-menu);
 }
 
-/* The machine its Store runs on (Home), "+N" for a PostgreSQL Store attached to more. */
-.colMachine {
+/* A two-line cell: the value, and a smaller detail under it. */
+.stack {
   display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  min-width: 0;
+}
+
+.num.stack {
+  align-items: flex-end;
+}
+
+.colWhere {
+  align-items: flex-start;
+}
+
+.sub {
+  display: inline-flex;
   align-items: center;
   gap: 4px;
+  max-width: 100%;
   min-width: 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.sub .store {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .moreMachines {
   flex: none;
   font-size: 12px;
   color: var(--dsw-alias-label-tertiary);
+}
+
+/* A value still being read: a quiet bar, not a dash that reads as "none". */
+.pending {
+  display: inline-block;
+  height: 8px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 7%, transparent);
+  animation: pt-pending 1.6s var(--ds-ease-in-out) infinite;
+}
+
+@keyframes pt-pending {
+  50% { opacity: 0.5; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pending { animation: none; }
 }
 
 .group {
@@ -271,9 +314,9 @@
   background: var(--dsw-alias-label-tertiary);
 }
 
-.colWhen,
-.colSession {
-  font-size: 12px;
+.colActivity,
+.colUpdated,
+.colHistory {
   white-space: nowrap;
 }
 
@@ -372,14 +415,6 @@
   color: var(--dsw-alias-label-secondary);
 }
 
-.colSessions,
-.colSandboxes {
-  display: flex;
-  justify-content: flex-end;
-  font-variant-numeric: tabular-nums;
-  text-align: end;
-  white-space: nowrap;
-}
 
 .actions {
   display: flex;
@@ -581,33 +616,29 @@
   }
 }
 
-/* Narrow: Commits, Branches and Last commit go first, then the Store and Size. */
+/* Narrow: every column stays, with tighter tracks. */
 @container (max-width: 1080px) {
   .table {
-    grid-template-columns: var(--pt-chevron) minmax(180px, 3fr) 64px 72px minmax(84px, auto) minmax(80px, auto) var(--pt-menu);
+    grid-template-columns: var(--pt-chevron) minmax(170px, 2fr) repeat(3, minmax(84px, 0.8fr)) minmax(64px, 0.6fr) var(--pt-menu);
+    column-gap: 14px;
   }
 
   .table[data-store-column] {
-    grid-template-columns: var(--pt-chevron) minmax(150px, 1.5fr) minmax(110px, 1.15fr) minmax(96px, 0.9fr) repeat(4, minmax(72px, 0.65fr)) var(--pt-menu);
-  }
-
-  .colCommits,
-  .colBranches,
-  .colWhen {
-    display: none;
+    grid-template-columns: var(--pt-chevron) minmax(150px, 1.5fr) minmax(112px, 1.1fr) repeat(3, minmax(84px, 0.75fr)) minmax(60px, 0.55fr) var(--pt-menu);
+    column-gap: 14px;
   }
 }
 
-/* Small tablet: Store and Size leave the row; the rest keep six columns. */
+/* Small tablet: Where, History and Size leave the row; Activity and Updated stay. */
 @container (max-width: 780px) {
   .table,
   .table[data-store-column] {
-    grid-template-columns: var(--pt-chevron) minmax(0, 1fr) 64px 72px minmax(84px, auto) max(28px, var(--lfs-tap-track, 0px));
+    grid-template-columns: var(--pt-chevron) minmax(0, 1fr) minmax(84px, auto) minmax(84px, auto) max(28px, var(--lfs-tap-track, 0px));
   }
 
   .colSize,
-  .colStore,
-  .colMachine {
+  .colWhere,
+  .colHistory {
     display: none;
   }
 }
@@ -704,15 +735,11 @@
     display: none;
   }
 
-  .colSession,
-  .colWhen,
-  .colCommits,
-  .colBranches,
+  .colActivity,
+  .colUpdated,
+  .colHistory,
   .colSize,
-  .colStore,
-  .colMachine,
-  .colSessions,
-  .colSandboxes {
+  .colWhere {
     display: none;
   }
 

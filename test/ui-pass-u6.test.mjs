@@ -112,7 +112,7 @@ test('FAIL 6: at phone width the project table is a card (the name keeps the roo
   assert.ok(phone.length > 30, 'a phone rule')
   assert.match(phone, /grid-template-columns: var\(--lfs-tap, 44px\) minmax\(0, 1fr\) var\(--lfs-tap, 44px\)/)
   assert.match(phone, /\.head \{\s*display: none;/)
-  assert.match(phone, /\.colSession,[\s\S]*?\.colSessions,[\s\S]*?\.colSandboxes \{\s*display: none;/)
+  assert.match(phone, /\.colActivity,[\s\S]*?\.colUpdated,[\s\S]*?\.colWhere \{\s*display: none;/)
   assert.match(phone, /\.name,[\s\S]*?flex: 1 1 auto;/)
   assert.match(css, /\.head > \[role='columnheader'\] \{[^}]*text-overflow: ellipsis/)
 })
