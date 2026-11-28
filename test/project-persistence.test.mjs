@@ -32,6 +32,20 @@ async function fixture(branches = ['main']) {
 }
 const header = (id) => ({ version: 4, id, createdAt: 123, cwd: '/original/local/folder', isSeeded: false })
 
+test('a session placed after its log was written keeps the stock log until migrateProject moves it', async () => {
+  const f = await fixture()
+  try {
+    const session = await f.p.create(header('placed-late'))
+    await session.flush()
+    f.ctx.provide('layerfsSessions', { state: { read: () => ({ sessions: {}, pending: { 'placed-late': { project: 'store/project' } } }) } })
+    assert.match((await f.p.stat('placed-late')).location.path, /\/normal\//)
+    await f.p.migrateProject('placed-late', 'store/project')
+    assert.match((await f.p.stat('placed-late')).location.path, /\/project-home\//)
+    assert.deepEqual((await session.read()).events, [])
+    await session.close()
+  } finally { await f.close() }
+})
+
 test('project ownership routes unpacked native logs, normal sessions stay stock, owner survives restart', async () => {
   const f = await fixture()
   try {

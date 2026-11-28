@@ -463,6 +463,10 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     const state = this.sessions?.state.read()
     const project = state?.sessions[id]?.project ?? state?.pending[id]?.project ?? (header?.parentSession ? this.owners.sessions[header.parentSession]?.project : undefined)
     if (project) {
+      // Placed after its log was first written (a fork, a session chosen into a
+      // project): the log stays in the stock store until migrateProject has
+      // copied and validated it; no route is published before then.
+      if (await this.stock.stat(id)) return this.stock
       const row = await this.catalog.resolve(project)
       const next = { project, key: row.projectId, identity: row.identity! }
       this.setOwner(id, next)
