@@ -139,7 +139,7 @@
   color: var(--lf-tone-danger-fg);
 }
 
-/* Trailing actions: ⚙ and + are transparent at rest and pulled over the title's
+/* Trailing actions: ⚙, Remove and + are transparent at rest and pulled over the title's
    end (--hidden), so they take no title width yet stay clickable and in the
    accessibility tree; hover or keyboard focus shows them and gives them room.
    Start, when a machine is stopped, always shows. */
@@ -149,6 +149,10 @@
 
 .projectRow[data-actions='1'] {
   --hidden: 26px;
+}
+
+.projectRow[data-actions='3'] {
+  --hidden: 76px;
 }
 
 .rowActions {

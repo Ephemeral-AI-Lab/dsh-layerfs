@@ -1719,34 +1719,46 @@ export class LayerfsSessions extends Service {
   }
 
   /**
-   * Delete the conversations of one project that is gone from this LayerFS
-   * home (the sidebar's Remove on a Removed row): every conversation routed,
-   * bound or pending to that address, or carrying that project identity.
-   * Refused while LayerFS still answers for any of those addresses, so a live
-   * (or recreated) project's conversations are never removed this way. The
-   * deletion itself is {@link deleteProjectConversations}'s.
+   * Delete one project's conversations on this DSH (the sidebar's Remove):
+   * every conversation routed, bound or pending to it. With a project identity
+   * a conversation belongs by that identity (a renamed project's old address
+   * included), and by address only when it records no identity, so a
+   * different project that reused the address keeps its conversations. The
+   * project itself (files, Branches, Store) is not touched; the deletion is
+   * {@link deleteProjectConversations}'s.
    * @returns the deleted session ids.
    */
-  async deleteRemovedProjectConversations(project: string, projectId?: string): Promise<string[]> {
+  async deleteConversationsOfProject(project: string, projectId?: string): Promise<string[]> {
     const persistence = this.ctx.get?.('sessionPersistence' as never) as any
     const state = this.state.read()
     const found = new Map<string, string>()
-    const mine = (id: string, key: string | null | undefined) => key === project || (!!projectId && persistence?.projectIdOf?.(id) === projectId)
+    const mine = (id: string, key: string) => {
+      const recorded = projectId ? persistence?.projectIdOf?.(id) as string | undefined : undefined
+      return recorded ? recorded === projectId : key === project
+    }
     for (const id of persistence?.ownedSessionIds?.() ?? []) {
       const key = persistence.ownerOf?.(id)?.project
       if (key && mine(id, key)) found.set(id, key)
     }
     for (const b of Object.values(state.sessions)) if (b.project && (b.kind === 'project' || b.kind === 'shared') && mine(b.sessionId, b.project)) found.set(b.sessionId, b.project)
     for (const [id, p] of Object.entries(state.pending)) if (p.project && mine(id, p.project)) found.set(id, p.project)
-    for (const key of new Set([project, ...found.values()])) {
-      let live = true
-      try { await this.lfs.project.get(key) } catch (error: any) {
-        if (error?.code !== 'NotFound') throw error
-        live = false
-      }
-      if (live) throw new CliError('InvalidInput', `LayerFS still has project ${key}: only a removed project's conversations can be removed here`)
-    }
     return this.deleteConversations([...found].map(([id, key]) => ({ id, project: key })).sort((a, b) => a.id.localeCompare(b.id)))
+  }
+
+  /**
+   * Delete one project conversation on this DSH (a conversation row's Delete),
+   * as {@link deleteProjectConversations} does. A conversation that is not a
+   * LayerFS project's is refused: DSH's own conversations are DSH's to delete.
+   * @returns the deleted session ids (this one).
+   */
+  async deleteConversation(id: string): Promise<string[]> {
+    const persistence = this.ctx.get?.('sessionPersistence' as never) as any
+    const state = this.state.read()
+    const binding = state.sessions[id]
+    const project = (binding && (binding.kind === 'project' || binding.kind === 'shared') ? binding.project : undefined)
+      ?? state.pending[id]?.project ?? persistence?.ownerOf?.(id)?.project as string | undefined
+    if (!project) throw new CliError('NotFound', `Conversation ${id} is not a LayerFS project conversation on this DSH`)
+    return this.deleteConversations([{ id, project }])
   }
 
   private async deleteConversations(targets: readonly { id: string, project: string }[]): Promise<string[]> {
