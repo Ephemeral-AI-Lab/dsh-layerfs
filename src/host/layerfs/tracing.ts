@@ -14,6 +14,7 @@ import { isWrite, operationOf, type CallLine, type CallOutput, type SimulationSt
 import { makeReceipt, renderCall, savedFields } from './call-words.ts'
 import { RAW_DIR } from './call-output.ts'
 import { displayKind, RECEIPT_META_FIELD, receiptAggregateLines, versionEffect, type ReceiptMeta } from '../../shared/trajectory.ts'
+import { rootOf } from '../folder.ts'
 export { receiptAggregateLines, RECEIPT_META_FIELD, type ReadCount, type ReceiptMeta } from '../../shared/trajectory.ts'
 
 export interface VersionLink { kind: 'Commit' | 'Layer'; id: string; effect: 'created' | 'unchanged' | 'referenced' }
@@ -531,7 +532,7 @@ export function nativeWrapper(o: { cli: string, home: string, bundle: string | n
     '#!/bin/bash',
     '# dsh-layerfs managed LayerFS CLI. Generated; do not edit.',
     'umask 077',
-    `export LAYERFS_HOME=${shellQuote(o.home)}`,
+    `export LAYERFS_ROOT=${shellQuote(rootOf(o.home))}`,
     ...(o.bundle ? [`export LAYERFS_BUNDLE=${shellQuote(o.bundle)}`] : []),
     ...(o.cacheHome ? [`export XDG_CACHE_HOME=${shellQuote(o.cacheHome)}`] : []),
     'unset LAYERFS_LOGS_TAG',

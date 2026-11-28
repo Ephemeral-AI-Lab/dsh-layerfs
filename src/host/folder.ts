@@ -6,13 +6,11 @@
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, isAbsolute, join } from 'node:path'
+import { basename, dirname, isAbsolute, join } from 'node:path'
 
 export interface FolderConfig {
-  /** The LayerFS folder; default the pointer, else `~/.layerfs`. */
+  /** The LayerFS folder (LayerFS's root, `LAYERFS_ROOT`); default the pointer, else `~/.layerfs`. */
   folder?: string
-  /** The LayerFS home; default `<folder>/home` when set up there, else `<folder>`. */
-  home?: string
   /** The DSH x LayerFS home; default `<folder>/dsh`. */
   state?: string
 }
@@ -71,11 +69,11 @@ export function resolveFolder(config: FolderConfig = {}, env: NodeJS.ProcessEnv 
   const pointed = abs(readJson(pointer)?.folder)
   if (abs(config.folder)) { folder = abs(config.folder)!; folderSource = 'config' }
   else if (abs(env.DSH_LAYERFS_FOLDER)) { folder = abs(env.DSH_LAYERFS_FOLDER)!; folderSource = 'env' }
+  else if (abs(env.LAYERFS_ROOT)) { folder = abs(env.LAYERFS_ROOT)!; folderSource = 'env' }
   else if (pointed) { folder = pointed; folderSource = 'pointer' }
   else { folder = join(homedir(), '.layerfs'); folderSource = 'default' }
 
-  const home = abs(config.home) ?? abs(env.DSH_LAYERFS_HOME) ?? abs(env.LAYERFS_HOME)
-    ?? (existsSync(join(folder, 'home', 'layerfs.json')) ? join(folder, 'home') : folder)
+  const home = homeIn(folder)
 
   const explicit = abs(config.state) ?? abs(env.DSH_LAYERFS_STATE)
   let state = explicit ?? join(folder, 'dsh')
@@ -93,6 +91,15 @@ export function resolveFolder(config: FolderConfig = {}, env: NodeJS.ProcessEnv 
   }
   return { folder, folderSource, home, state, stateTaken, install: record.install, pointer }
 }
+
+/**
+ * The LayerFS home in a root, by LayerFS's own rule: the root itself while it
+ * holds `layerfs.json` (a home made before the root layout), else `<root>/home`.
+ */
+export const homeIn = (root: string): string => existsSync(join(root, 'layerfs.json')) ? root : join(root, 'home')
+
+/** The root whose home is `home` ({@link homeIn} inverted): what LAYERFS_ROOT names for it. */
+export const rootOf = (home: string): string => !existsSync(join(home, 'layerfs.json')) && basename(home) === 'home' ? dirname(home) : home
 
 /** The folder named by a pointer write: an absolute folder that exists or can be made. */
 export function checkFolder(path: unknown): string {

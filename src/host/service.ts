@@ -54,8 +54,6 @@ export interface LayerfsConfig {
    * DSH_LAYERFS_CACHE_HOME, else the host's own XDG_CACHE_HOME (else `~/.cache`).
    */
   cacheHome?: string
-  /** LAYERFS_HOME, LayerFS's own and independent of DSH; else DSH_LAYERFS_HOME, else LAYERFS_HOME, else `<folder>/home` when set up there, else `<folder>`. */
-  home?: string
   /**
    * Where keys and passwords entered in the panel are saved (owner-only files,
    * passed to LayerFS as `file:` references); default `<home>/secret`, or

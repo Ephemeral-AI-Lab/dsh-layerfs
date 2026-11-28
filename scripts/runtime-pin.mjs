@@ -1,6 +1,7 @@
 // The LayerFS build dev servers and live tests use when DSH_LAYERFS_CLI is unset:
-// the newest runtime installed in the user's LayerFS home (`$LAYERFS_HOME`, else
-// ~/.layerfs), the folder the app installs and pins builds into. Its binaries are
+// the newest runtime installed in the user's LayerFS home (found in `$LAYERFS_ROOT`,
+// else ~/.layerfs: the root itself while it holds layerfs.json, else <root>/home),
+// the folder the app installs and pins builds into. Its binaries are
 // only read; dev servers and tests still run on a private LayerFS home.
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -9,7 +10,9 @@ import { join } from 'node:path'
 /** `{ cli, daemon, bundle }` from env, else the newest installed runtime, else null. */
 export function runtimePin(env = process.env) {
   if (env.DSH_LAYERFS_CLI) return { cli: env.DSH_LAYERFS_CLI, daemon: env.DSH_LAYERFS_DAEMON ?? null, bundle: env.DSH_LAYERFS_BUNDLE ?? null }
-  const root = join(env.LAYERFS_HOME ?? join(homedir(), '.layerfs'), 'runtime')
+  const layerfsRoot = env.LAYERFS_ROOT || join(homedir(), '.layerfs')
+  const home = existsSync(join(layerfsRoot, 'layerfs.json')) ? layerfsRoot : join(layerfsRoot, 'home')
+  const root = join(home, 'runtime')
   let names = []
   try { names = readdirSync(root) } catch { return null }
   const found = names.filter((id) => !id.includes('.tmp-') && existsSync(join(root, id, 'bin', 'layerfs'))).map((id) => {

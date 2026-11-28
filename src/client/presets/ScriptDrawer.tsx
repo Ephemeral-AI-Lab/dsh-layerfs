@@ -27,7 +27,8 @@ function planText(script: PresetScript, commands: PresetScriptCommand[]): string
     '# This is a dependency plan, not a standalone shell script. Independent branch lanes can overlap;',
     '# each write/publish pair finishes before the next write on its branch.',
     '# <commit:step-key> is replaced at runtime by the immutable commit ID from that step\'s successful receipt.',
-    `export LAYERFS_HOME=${quote(String(script.configuration.home ?? ''))}`,
+    // A built preset's home holds layerfs.json, so as a root it is its own home.
+    `export LAYERFS_ROOT=${quote(String(script.configuration.home ?? ''))}`,
   ]
   const cli = script.configuration.cli
   if (typeof cli === 'string' && cli.lastIndexOf('/') > 0) lines.push(`export PATH=${quote(cli.slice(0, cli.lastIndexOf('/')))}:"$PATH"`)

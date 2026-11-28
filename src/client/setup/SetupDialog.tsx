@@ -276,7 +276,7 @@ function FolderPicker({ api, t, current, onDone }: { api: LayerfsApi, t: SetupMo
 /** Details: one table, a piece per row (its word and path), then the terminal line; LayerFS's notes when it has any. */
 function Pieces({ s, t }: { s: SetupStatus, t: SetupModalT }): ReactNode {
   const r = s.runtime, p = s.pieces
-  const terminal = r.cli ? [`LAYERFS_HOME='${s.folder.path}'`, ...(r.bundle ? [`LAYERFS_BUNDLE='${r.bundle}'`] : []), `'${r.cli}'`].join(' ') : null
+  const terminal = r.cli ? [`LAYERFS_ROOT='${s.folder.root}'`, ...(r.bundle ? [`LAYERFS_BUNDLE='${r.bundle}'`] : []), `'${r.cli}'`].join(' ') : null
   return (
     <div className={css.detailsBody}>
       {r.error ? <p className={dialog.error} role="alert">{t('runtimeError', { code: r.error.code, message: r.error.message })}</p> : null}

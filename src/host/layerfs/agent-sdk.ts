@@ -22,6 +22,7 @@ import { pathToFileURL } from 'node:url'
 import { OUTPUT_MAX } from '../../shared/logs.ts'
 import { makeReceipt } from './call-words.ts'
 import { DEFAULT_BOUNDS, outputName, outputRecord, outputSink, writeOutput, type OutputBounds } from './call-output.ts'
+import { rootOf } from '../folder.ts'
 
 /** The families `$DSH_LAYERFS_SDK` exposes. */
 export const SDK_FAMILIES = ['project', 'branch', 'commit', 'file', 'sandbox', 'workspace'] as const
@@ -64,7 +65,7 @@ export function managedSdk(options: ManagedSdkOptions): string {
   const file = join(options.root, 'bin', 'sdk.mjs')
   const config = {
     entry: pathToFileURL(options.sdk.entry).href, addon: options.sdk.addon, commit: options.sdk.commit,
-    home: options.home, bundle: options.bundle ?? null, cacheHome: options.cacheHome ?? null,
+    root: rootOf(options.home), bundle: options.bundle ?? null, cacheHome: options.cacheHome ?? null,
     outputs: options.outputs ?? null, families: SDK_FAMILIES,
     max: OUTPUT_MAX, bounds: options.outputBounds ?? DEFAULT_BOUNDS,
   }
@@ -98,15 +99,15 @@ export const sdkDigest = (file: string): string => createHash('sha256').update(r
 // The module body. Self-contained: it runs in the agent's own Node process.
 const BODY = String.raw`
 if (Number(process.versions.node.split('.')[0]) < 22) throw new Error('The LayerFS Node SDK needs Node 22 or later; this is Node ' + process.versions.node);
-// The library reads its home, bundle and addon from the environment.
-process.env.LAYERFS_HOME = config.home;
+// The library reads its root (the home is found in it), bundle and addon from the environment.
+process.env.LAYERFS_ROOT = config.root;
 process.env.LAYERFS_NATIVE = config.addon;
 if (config.bundle) process.env.LAYERFS_BUNDLE = config.bundle;
 if (config.cacheHome) process.env.XDG_CACHE_HOME = config.cacheHome;
 delete process.env.LAYERFS_LOGS_TAG;
 const sdk = await import(config.entry);
 const LayerFSError = sdk.LayerFSError;
-const inner = sdk.client({ home: config.home });
+const inner = sdk.client({ root: config.root });
 let identity; try { identity = JSON.parse(process.env.DSH_LAYERFS_TRACE_CONTEXT || 'null') } catch {}
 const isPlain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value) && !ArrayBuffer.isView(value);
 // JSON for records: bigints as numbers' text, bytes by size (never their whole content).

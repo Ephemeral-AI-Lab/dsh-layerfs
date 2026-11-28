@@ -30,6 +30,7 @@ import { traceInvocation } from './tracing.ts'
 import { loggable, renderCall } from './call-words.ts'
 import { outputRecord, outputSink, saveOutput, type OutputSink } from './call-output.ts'
 import { hostTag, OUTPUT_MAX, parseSimTag, simTag } from '../../shared/logs.ts'
+import { rootOf } from '../folder.ts'
 
 /** How a call failed: `refusal` = LayerFS answered a refusal; others are transport outcomes. */
 export type Transport = 'refusal' | 'transport-unknown' | 'unavailable' | 'usage-incompatible'
@@ -91,7 +92,7 @@ export function progressOf(frame: unknown): ProgressEvent | null {
 export interface CliSpec {
   /** Absolute pinned `layerfs` binary. */
   readonly cli: string
-  /** Absolute LAYERFS_HOME. */
+  /** Absolute LayerFS home; the CLI gets its root (`LAYERFS_ROOT`, {@link rootOf}). */
   readonly home: string
   /** Optional folder scope. */
   readonly scope?: { readonly project: string, readonly folder: string, readonly branch?: string }
@@ -171,6 +172,10 @@ export const REQUIRED_CALLS = [
   'workspace.mount', 'workspace.commit', 'workspace.status', 'workspace.unmount', 'workspace.exec', 'workspace.cancel',
   'store.list', 'store.get', 'store.create',
   'home.get', 'home.init', 'home.log', 'home.clear_log', 'machine.list', 'machine.get',
+  // Not called here: its presence marks a CLI that finds its home in LAYERFS_ROOT
+  // (layerfs f83bc8cd8b). An older CLI reads only LAYERFS_HOME and would fall back
+  // to ~/.layerfs, the user's home, whatever this host names.
+  'home.move',
 ] as const
 
 /** `--with` values a required call must list (2.0 `form.with`). */
@@ -538,7 +543,7 @@ function executeRaw(spec: CliSpec, argv: readonly string[], options: ExecuteOpti
     // `child.kill` signals that group for every holder (shutdown, simulation cancel).
     const child = spawn(spec.cli, [...argv], {
       shell: false, stdio: ['pipe', 'pipe', 'pipe'], detached: true,
-      env: { ...tagged(options), ...(spec.home ? { LAYERFS_HOME: spec.home } : {}), ...(spec.bundle ? { LAYERFS_BUNDLE: spec.bundle } : {}), ...(spec.cacheHome ? { XDG_CACHE_HOME: spec.cacheHome } : {}), LAYERFS_PROGRESS_JSON: '1' },
+      env: { ...tagged(options), ...(spec.home ? { LAYERFS_ROOT: rootOf(spec.home) } : {}), ...(spec.bundle ? { LAYERFS_BUNDLE: spec.bundle } : {}), ...(spec.cacheHome ? { XDG_CACHE_HOME: spec.cacheHome } : {}), LAYERFS_PROGRESS_JSON: '1' },
     })
     const kill = child.kill.bind(child)
     child.kill = ((signal: NodeJS.Signals | number = 'SIGTERM') => signalGroup(child, kill, signal as NodeJS.Signals)) as typeof child.kill
