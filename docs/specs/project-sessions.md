@@ -25,16 +25,15 @@ LayerFS Project                 DSH Workspace
 - DSH locks the composer of a session that belongs to no workspace. A project
   session waiting for its first turn therefore stays listed in the workspace it
   was opened in, also across restarts (the startup pass puts it back if it was
-  taken out); once it has run it leaves the folder workspaces. If a project
-  session is in none anyway, the New Session row keeps DSH's own "Choose
-  workspace" chip instead of the scratch selector.
+  taken out); once it has run it leaves the folder workspaces. One that cannot be
+  put back is replaced (below, section 2).
 - Both types reuse DSH's conversation runtime and log format. They differ in
   ownership, persistence routing, execution context, and LayerFS annotations.
 - Choose the owner before the first turn. Changing the project, or switching
   between project and normal mode after work begins, creates a new session.
   Moving existing history would require a separate explicit migration operation.
 
-## 2. A selected workspace becomes scratch in project mode
+## 2. Scratch in project mode
 
 Ownership and the selected local folder are independent:
 
@@ -43,9 +42,16 @@ Ownership and the selected local folder are independent:
 | Normal | DSH workspace | Ordinary working files |
 | Project | LayerFS project | Scratch: temporary files, downloads, local outputs |
 
-Users can select any available local workspace/folder, including an existing DSH
-workspace, for a project session. Do not require a generated per-session scratch
-folder. An optional default may be offered when no folder has been selected.
+By default a project session gets a new scratch folder of its own, made with its
+first message (`<state>/scratch/<session>`): the New Session row reads
+"Scratch: new folder", never the folder DSH opened the session in. Users can
+instead select any available local workspace/folder, including an existing DSH
+workspace.
+
+A project session never asks for a DSH workspace. One that has not run and is in
+none (its folder is gone) is replaced by a fresh session in the same project and
+archived. It stays on the `layerfs` preset: another pick before the first turn is
+moved back.
 
 The scratch designation applies to the session, not globally to the folder.
 The same folder can remain the working folder of normal sessions. Scratch does

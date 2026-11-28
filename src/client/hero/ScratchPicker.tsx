@@ -39,7 +39,8 @@ export function ScratchPicker({ sessionId, scratch, api, t }: { sessionId: strin
       setPath(scratch ?? ''); setDialog(true)
     }
   }
-  const label = scratch ? scratch.replace(/\/$/, '').split('/').pop() || scratch : t('scratchChoose')
+  // no folder yet: the session gets a new one of its own at its first message
+  const label = scratch ? scratch.replace(/\/$/, '').split('/').pop() || scratch : t('scratchNew')
   const current = scratch ? rows?.find((row) => trimSlash(row.path) === trimSlash(scratch))?.workspaceId : undefined
   const folders: MenuEntry[] = listError ? [{ type: 'label', id: '@failed', text: listError }]
     : rows === null ? [{ type: 'label', id: '@loading', text: t('scratchLoading') }]
@@ -57,7 +58,7 @@ export function ScratchPicker({ sessionId, scratch, api, t }: { sessionId: strin
         else if (id === '@path') { setOpen(false); setError(null); setPath(scratch ?? ''); setDialog(true) }
         else void choose({ workspaceId: id })
       }}
-      anchor={<button type="button" className={clsx(css.chip, css.folderChip)} disabled={busy} aria-haspopup="menu" aria-expanded={open} aria-label={t('scratchAria', { folder: label })} title={scratch ?? t('scratchHint')}
+      anchor={<button type="button" className={clsx(css.chip, css.folderChip)} disabled={busy} aria-haspopup="menu" aria-expanded={open} aria-label={t('scratchAria', { folder: label })} title={scratch ?? t('scratchNewHint')}
         onClick={() => {
           setOpen((value) => !value)
           setListError(null)

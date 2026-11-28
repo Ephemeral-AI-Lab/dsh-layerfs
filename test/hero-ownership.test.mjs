@@ -87,6 +87,24 @@ test('a project session in no workspace leaves DSH its own workspace chip: no sc
   assert.ok(chipOf(tree, fill(EN_DICT.chipAria, { project: 'app' })), 'the project chip stays')
 })
 
+test('a draft in no workspace is replaced by a fresh one in the project; a started session never is', async () => {
+  const run = async (sessionId, draft) => {
+    const calls = []
+    const p = props({ state: 'project', project: 'st/app', projectId: 'pid', ...(draft ? { draft: true } : {}) })
+    p.sessionId = sessionId
+    p.api.sessionUnlisted = () => true
+    p.api.onWorkspaces = () => () => {}
+    p.api.openProjectSession = async (...args) => { calls.push(['open', ...args]); return { sessionId: `${sessionId}-new` } }
+    const op = p.api.op
+    p.api.op = async (name, args) => { if (name === 'sessions.archive') calls.push([name, args]); return op(name, args) }
+    await M.mount(M.HeroProjectControl, p).settle()
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+    return calls
+  }
+  assert.deepEqual(await run('old-draft', true), [['open', 'st/app', undefined, 'pid'], ['sessions.archive', { sessionId: 'old-draft' }]])
+  assert.deepEqual(await run('has-history', false), [])
+})
+
 test('notProject: the chip says No project', async () => {
   const view = M.mount(M.HeroProjectControl, props({ state: 'notProject' }))
   const tree = await view.settle()

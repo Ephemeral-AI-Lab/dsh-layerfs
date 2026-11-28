@@ -455,7 +455,7 @@ export class LayerfsSessions extends Service {
    * row mark. A live session is asked for its place; one that is only
    * persisted answers from its recorded binding or its pending choice.
    */
-  placeOfId(sessionId: string): { project: string | null, scratch?: string } | null {
+  placeOfId(sessionId: string): { project: string | null, scratch?: string, draft?: boolean } | null {
     const persisted = this.binding(sessionId)
     const session = this.ctx.sessions.get(sessionId as never) as any
     if (!session) {
@@ -463,12 +463,16 @@ export class LayerfsSessions extends Service {
       if (persisted) return { project: persisted.project ?? null, ...(persisted.project ? { scratch: persisted.scratch } : {}) }
       const pending = this.state.read().pending[sessionId]?.project
       const owner = (this.ctx.get?.('sessionPersistence' as never) as any)?.ownerOf?.(sessionId)
-      return pending || owner?.project ? { project: pending ?? owner.project } : null
+      return pending || owner?.project ? { project: pending ?? owner.project, ...(pending ? { draft: true } : {}) } : null
     }
     const place = this.placeOf(session)
     if (place.kind === 'shared') return { project: this.binding(place.parent)?.project ?? null }
     if (place.kind === 'folder') return { project: null }
-    return { project: place.project, scratch: persisted?.scratch ?? this.ctx.workingDirectory?.get?.(session) ?? session.header?.cwd }
+    // Only a recorded or picked folder: a session that has not run has none yet
+    // (its own new one is made at the first message), whatever folder DSH opened it in.
+    const waiting = this.state.read().pending[sessionId]
+    // `draft`: placed but never run, so the New Session row may replace it.
+    return { project: place.project, scratch: persisted?.scratch ?? waiting?.scratch, ...(waiting && !persisted && isFresh({ session }) ? { draft: true } : {}) }
   }
 
   // ------------------------------------------------------------- binding
@@ -731,6 +735,11 @@ export class LayerfsSessions extends Service {
     try { await presets.select(agent, 'layerfs') } catch (error: any) {
       this.ctx.logger('layerfs').warn('session %s: layerfs preset not applied: %s', String(agent.id), error?.message ?? error)
     }
+  }
+
+  /** A project session that has not run stays on the `layerfs` preset: another pick (DSH's New Session re-applies the default) is moved back. */
+  async keepProjectPreset(agent: any): Promise<void> {
+    if (agent?.session && this.placeOf(agent.session).kind === 'project') await this.selectPreset(agent)
   }
 
   /**

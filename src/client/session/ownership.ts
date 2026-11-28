@@ -26,6 +26,8 @@ export interface OwnershipEntry {
   readonly projectId?: string
   /** The project session's local scratch folder, when a project is known. */
   readonly scratch?: string
+  /** A project session that has not run yet. */
+  readonly draft?: boolean
   /** Why the last read failed; only present after a failed read. */
   readonly error?: unknown
 }
@@ -36,13 +38,13 @@ export const OWNERSHIP_COALESCE_MS = 500
 export const OWNERSHIP_MAX_IDS = 200
 
 /** One batch answer's value: a project, or `null` for a plain session. */
-export interface OwnershipPlace { readonly project: string, readonly projectId?: string, readonly scratch?: string }
+export interface OwnershipPlace { readonly project: string, readonly projectId?: string, readonly scratch?: string, readonly draft?: boolean }
 
 const UNKNOWN: OwnershipEntry = Object.freeze({ state: 'unknown' })
 const NOT_PROJECT: OwnershipEntry = Object.freeze({ state: 'notProject' })
 
 const same = (a: OwnershipEntry, b: OwnershipEntry): boolean =>
-  a.state === b.state && a.project === b.project && a.projectId === b.projectId && a.scratch === b.scratch && a.error === b.error
+  a.state === b.state && a.project === b.project && a.projectId === b.projectId && a.scratch === b.scratch && a.draft === b.draft && a.error === b.error
 
 export class OwnershipStore {
   private readonly entries = new Map<string, OwnershipEntry>()
@@ -137,6 +139,7 @@ export class OwnershipStore {
           project: place.project,
           ...(place.projectId ? { projectId: place.projectId } : {}),
           ...(place.scratch ? { scratch: place.scratch } : {}),
+          ...(place.draft ? { draft: true } : {}),
         } : NOT_PROJECT) || changed
       }
     } catch (error) {

@@ -113,7 +113,7 @@ test('choose: a session placed in a project binds there; cleared placement is a 
   // The same session in the same folder now works in the project — no workspace change;
   // its scratch parent is the Scratch folder (docs/specs/layerfs-folder.md §4).
   assert.deepEqual(s.placeOf(sess), { kind: 'project', project: 'st/app', anchor: `${root}/scratch` })
-  assert.deepEqual(s.placeOfId('n'), { project: 'st/app' })
+  assert.deepEqual(s.placeOfId('n'), { project: 'st/app', draft: true })
   // An unknown project never reaches the pending record.
   await assert.rejects(s.choose('n', 'gone/x'), (e) => e.code === 'NoSuchProject')
   assert.equal(state().pending.n?.project, 'st/app')
@@ -263,6 +263,27 @@ test('the layerfs preset is refused without a project: a blank folder session mo
   await s.enforceFolderPreset(blank)
   await s.enforceFolderPreset({ id: 'r', session: session('r', { cwd: '/Users/me/repo' }, ran) })
   assert.deepEqual(selected, ['standard', 'compiler'])
+})
+
+test('a project draft keeps the layerfs preset and has no scratch folder until one is picked', async () => {
+  const { s, state } = sessions()
+  const selected = []
+  s.ctx.get = (name) => (name === 'agentPresets' ? { select: async (_a, id) => { selected.push(id); return id } } : undefined)
+  const draft = session('d', { cwd: '/Users/me/opened-here' })
+  const agent = { id: 'd', session: draft }
+  await s.keepProjectPreset(agent)
+  assert.deepEqual(selected, [], 'a folder session keeps the pick')
+  state().pending.d = { project: 'st/app' }
+  await s.keepProjectPreset(agent)
+  assert.deepEqual(selected, ['layerfs'])
+  await s.keepProjectPreset({ id: 'd', session: session('d', { cwd: '/x' }, ran) })
+  assert.deepEqual(selected, ['layerfs'], 'a started session is left alone')
+  s.ctx.sessions.get = () => draft
+  assert.deepEqual(s.placeOfId('d'), { project: 'st/app', scratch: undefined, draft: true }, 'never the folder DSH opened it in')
+  state().pending.d.scratch = '/Users/me/picked'
+  assert.deepEqual(s.placeOfId('d'), { project: 'st/app', scratch: '/Users/me/picked', draft: true })
+  s.ctx.sessions.get = () => session('d', { cwd: '/x' }, ran)
+  assert.equal(s.placeOfId('d').draft, undefined, 'once it has run it is no draft')
 })
 
 test('ensureBound lets a folder session run untouched (stock DSH)', async () => {
@@ -1623,7 +1644,7 @@ test('sessions.places: a second batch in the window reuses project ids, and ids 
 })
 
 test('sessions.places: one read-only batch over placeOfId and projectIdOf; bad ids and oversize batches are refused', () => {
-  const places = { live: { project: 'st/app', scratch: '/scratch' }, folder: { project: null }, gone: null }
+  const places = { live: { project: 'st/app', scratch: '/scratch', draft: true }, folder: { project: null }, gone: null }
   const projectIds = { live: 'pid-1' }
   const ops = {}
   const ctx = {
@@ -1641,7 +1662,7 @@ test('sessions.places: one read-only batch over placeOfId and projectIdOf; bad i
   S.applySessionsIndex(ctx)
   assert.deepEqual(ops['sessions.places']({ sessionIds: ['live', 'folder', 'gone', 'live'] }), {
     places: {
-      live: { project: 'st/app', projectId: 'pid-1', scratch: '/scratch' },
+      live: { project: 'st/app', projectId: 'pid-1', scratch: '/scratch', draft: true },
       folder: null,
       gone: null,
     },

@@ -123,7 +123,7 @@ try {
   await must('sessions.choose', { sessionId: placed.sessionId, project: null })
   assert.equal((await must('session.place', { sessionId: placed.sessionId })).place.project, null)
   await must('sessions.choose', { sessionId: placed.sessionId, project })
-  assert.equal((await must('session.place', { sessionId: placed.sessionId })).place.scratch, owningWorkspace.path, 'normal mode restores the original workspace folder')
+  assert.equal((await must('session.place', { sessionId: placed.sessionId })).place.scratch, undefined, 'back in the project it has no folder yet: a new one at the first message')
   await must('sessions.scratch', { sessionId: placed.sessionId, cwd: scratch })
   const t1 = await runTurn(page, { message: `${projectCommand('echo one > one.txt')}\nbash: echo note > scratch-note.txt`, newSession: false })
   assert.ok(t1.ok, `turn 1: ${t1.error}`)

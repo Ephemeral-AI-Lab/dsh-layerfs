@@ -44,6 +44,10 @@ export class Imports {
 
 interface Place { projectId?: string, project: string | null, scratch?: string }
 
+/** Sessions this page has already replaced, and the ones it made doing so: neither is replaced again. */
+const replaced = new Set<string>()
+const REPLACE_AFTER = 800
+
 /**
  * A new session's default place that names a project the catalog lists as
  * removed (or replaced): it is not offered as the default (B2 #7); the session
@@ -183,6 +187,26 @@ export function HeroProjectControl({ sessionId, api, t, imports, ownership, retr
   const watch = useCallback((changed: () => void) => api.onWorkspaces?.(changed) ?? (() => {}), [api])
   const unlisted = useSyncExternalStore(watch, () => api.sessionUnlisted?.(sessionId) ?? false)
   const project = !!place?.project && !unlisted
+  // Project mode never asks for a folder. A never-started session DSH lists in no
+  // workspace (left from a folder that is gone) gives way to a fresh one in the
+  // same project and is archived; picking a workspace instead would drop the project.
+  useEffect(() => {
+    const key = place?.project
+    // only the host's word that it never ran: a session with history is never archived here
+    if (!unlisted || !key || ownership.state !== 'project' || !ownership.draft || replaced.has(sessionId)) return
+    // the list can lag a session just made: replace only one that stays unlisted
+    const timer = setTimeout(() => {
+      if (!api.sessionUnlisted?.(sessionId)) return
+      replaced.add(sessionId)
+      void (async () => {
+        const made = await api.openProjectSession(key, undefined, place?.projectId)
+        replaced.add(made.sessionId)
+        await api.op('sessions.archive', { sessionId })
+      })().catch((e) => setError(t('switchFailed', { message: messageOf(e) })))
+    }, REPLACE_AFTER)
+    return () => clearTimeout(timer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unlisted, place?.project, ownership.draft, sessionId])
   useEffect(() => {
     // DSH's order in both modes, the project control right after the preset:
     // folder · preset · project (hero.module.css). Native folder selection

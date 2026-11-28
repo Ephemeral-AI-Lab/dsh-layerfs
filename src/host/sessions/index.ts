@@ -255,12 +255,13 @@ export function apply(ctx: Context): void {
       return undefined
     })
 
-    // No project, no `layerfs` preset: a pick from the New Session row's preset
-    // chip is moved back off it (DSH offers no per-session roster filter).
+    // A project session runs `layerfs` and only it does: a pick from the New
+    // Session row's preset chip (or DSH re-applying its default) that puts a
+    // blank session on the wrong side of that rule is moved back (DSH offers no
+    // per-session roster filter).
     ctx.on('agent-preset/selected' as any, (sessionId: any, preset: string) => {
-      if (preset !== 'layerfs') return
       const agent = (ctx.get('agents' as never) as any)?.get?.(sessionId)
-      if (agent) queueMicrotask(() => { void sessions.enforceFolderPreset(agent).catch(() => {}) })
+      if (agent) queueMicrotask(() => { void (preset === 'layerfs' ? sessions.enforceFolderPreset(agent) : sessions.keepProjectPreset(agent)).catch(() => {}) })
     })
 
     ctx.on('agent/pre-step', async (payload: any, next: () => Promise<any>) => {
@@ -928,7 +929,7 @@ export function apply(ctx: Context): void {
         // route names has no place and is answered null without a per-id read.
         const owned = !allKnown && typeof persistence?.ownedSessionIds === 'function'
           ? new Set<string>(persistence.ownedSessionIds()) : undefined
-        const places: Record<string, { project: string, projectId?: string, scratch?: string } | null> = {}
+        const places: Record<string, { project: string, projectId?: string, scratch?: string, draft?: boolean } | null> = {}
         for (const id of values) {
           if (owned && !known.has(id) && !owned.has(id)) { places[id] = null; continue }
           const place = sessions.placeOfId(id)
@@ -936,7 +937,7 @@ export function apply(ctx: Context): void {
           // The project id is local routing metadata; a second batch inside the
           // service's window reuses it instead of re-reading the owner index per id.
           const projectId = typeof sessions.projectIdFor === 'function' ? sessions.projectIdFor(id) : persistence?.projectIdOf?.(id) as string | undefined
-          places[id] = { project: place.project, ...(projectId ? { projectId } : {}), ...(place.scratch ? { scratch: place.scratch } : {}) }
+          places[id] = { project: place.project, ...(projectId ? { projectId } : {}), ...(place.scratch ? { scratch: place.scratch } : {}), ...(place.draft ? { draft: true } : {}) }
         }
         return { places }
       },
