@@ -4,7 +4,7 @@
  * start.
  */
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 
@@ -93,20 +93,6 @@ export function resolveFolder(config: FolderConfig = {}, env: NodeJS.ProcessEnv 
   }
   return { folder, folderSource, home, state, stateTaken, install: record.install, pointer }
 }
-
-/** Put a session folder's LayerFS files into `layerfs/` (binding.json, calls.jsonl); drop `.bak` leftovers. */
-export function relayout(dir: string): void {
-  const lfs = join(dir, 'layerfs')
-  const pairs: Array<[string, string]> = [['layerfs.json', 'binding.json'], ['receipts.jsonl', 'calls.jsonl']]
-  for (const [from, to] of pairs) {
-    if (!existsSync(join(dir, from)) || existsSync(join(lfs, to))) continue
-    mkdirSync(lfs, { recursive: true })
-    renameSync(join(dir, from), join(lfs, to))
-  }
-  for (const name of safeList(dir)) if (name.startsWith('layerfs.json.') && name.endsWith('.bak') || name === 'layerfs.json.bak') rmSync(join(dir, name), { force: true })
-}
-
-const safeList = (dir: string): string[] => { try { return readdirSync(dir) } catch { return [] } }
 
 /** The folder named by a pointer write: an absolute folder that exists or can be made. */
 export function checkFolder(path: unknown): string {

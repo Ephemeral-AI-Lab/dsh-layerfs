@@ -193,14 +193,12 @@ export type MachineSupports = readonly string[]
 export interface StorageView {
   machines: { name: string, platform: string, state: string | null, supports: MachineSupports | null, reason?: string | null }[]
   /** This computer (the host machine). */
-  computer?: { os: 'macos' | 'linux' | 'windows' | 'other', name: string | null, arch: string }
+  computer: { os: 'macos' | 'linux' | 'windows' | 'other', name: string | null, arch: string }
   stores: StoreRow[]
   buckets: BucketRow[]
   /** Whether the home tree read succeeded and includes unlinked buckets. */
   bucketInventoryComplete?: boolean
   jobs: StorageJob[]
-  /** Whether the selected LayerFS runtime has store.compact; absent from an older host. */
-  compact?: boolean
   /** Whether the selected LayerFS runtime has store.upgrade (#804); absent or false: no Upgrade… anywhere. */
   upgrade?: boolean
   /** Whether Store rows carry `format` (`--with format`). */

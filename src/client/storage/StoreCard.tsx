@@ -23,8 +23,8 @@ export interface StoreActions {
   backup: () => void
   backupPick?: ((bucket: string) => void) | undefined
   backupTo: (link: StoreBackupLink) => void
-  /** Confirm, then compact the Store; absent when the selected LayerFS runtime has no store.compact. */
-  compact?: (() => void) | undefined
+  /** Confirm, then compact the Store. */
+  compact: () => void
   /** The Upgrade dialog (old and new formats, one Upgrade button); absent when the runtime has no store.upgrade (#804). The menu offers it only for a Store whose format names it. */
   upgrade?: (() => void) | undefined
   /** Cancel a running upgrade; its CLI's reply decides how it ends. */
@@ -77,7 +77,7 @@ export function StoreMenu({ store: s, on, t, runningJob, onOpen, withRestore }: 
     <MoreMenu label={t('storeActions', { name: s.name })}>
       {(close) => {
         const run = (fn: () => void) => () => { close(); fn() }
-        const compact = on.compact ? <MenuItemButton disabled={compactBlocked !== null} disabledReason={compactBlocked ?? undefined} onSelect={run(on.compact)}>{t('compactStore')}</MenuItemButton> : null
+        const compact = <MenuItemButton disabled={compactBlocked !== null} disabledReason={compactBlocked ?? undefined} onSelect={run(on.compact)}>{t('compactStore')}</MenuItemButton>
         // an older-format Store (#804): offered when its format or fix names store upgrade, never while a job holds it
         const upgradeBlocked = runningJob || s.job ? t('storeNeedsOpFinish') : null
         const upgrade = on.upgrade && canUpgrade(s, { upgrade: true }) ? <MenuItemButton disabled={upgradeBlocked !== null} disabledReason={upgradeBlocked ?? undefined} onSelect={run(on.upgrade)}>{t('upgradeStore')}</MenuItemButton> : null

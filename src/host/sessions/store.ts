@@ -634,7 +634,7 @@ export class SessionStore {
     return run
   }
 
-  /** Sync every project this DSH has a workspace for (the Scratch project included). Never throws. */
+  /** Sync every project this DSH has a workspace for. Never throws. */
   async syncAll(): Promise<void> {
     for (const project of Object.keys(this.sessions.state.read().projects)) {
       await this.sync(project).catch((error: any) => this.ctx.logger('layerfs').warn('session store: sync %s: %s', project, error?.message ?? error))

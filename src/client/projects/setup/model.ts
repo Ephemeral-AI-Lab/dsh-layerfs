@@ -32,7 +32,7 @@ export function machinesFor(view: Pick<StorageView, 'machines'> | undefined, kin
  */
 export interface TileBlock { startable: boolean }
 
-/** The machines that cannot run here now, by name; empty while the platforms are not read (an older host). */
+/** The machines that cannot run here now, by name; empty while the platforms are not read. */
 export function tileBlocks(
   machines: readonly Pick<Machine, 'name' | 'platform'>[],
   platforms: readonly Pick<MachinePlatformInfo, 'platform' | 'ready' | 'missing' | 'socket' | 'candidates'>[] | undefined,

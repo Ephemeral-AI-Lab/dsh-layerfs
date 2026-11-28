@@ -5,8 +5,8 @@
  * restore and `.resume.<hex>` when a conversation imported from the saved
  * archive continues (`branchOf` and `resumeFromArchive` in
  * src/host/sessions/service.ts). Both faces derive the same words from here:
- * the host annotates `session.state` and `sessions.list` with these fields, and
- * the client falls back to `describeBranch` when an older host has none.
+ * the host annotates `session.state` and `sessions.list` with these fields
+ * (`branchFields`), and the client reads them as given.
  */
 
 export type BranchKind = 'own' | 'restore' | 'resume' | 'other'

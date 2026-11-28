@@ -102,7 +102,7 @@ const machine = (platform, state) => ({
   cpus: 4, memory: 8 * 2 ** 30, disk: 40 * 2 ** 30, stores: [], sandboxes: [],
 })
 const machinesView = (m, extra = {}) => ({
-  available: true, layerfs: '2.0.0', machines: [m], platforms: [], stores: [], postgresql: [], sandboxes: [],
+  available: true, computer: { os: 'macos', name: null, arch: 'arm64' }, layerfs: '2.0.0', machines: [m], platforms: [], stores: [], postgresql: [], sandboxes: [],
   live: {}, features: { inspect: { machineFiles: true, machineLog: true } }, ...extra,
 })
 

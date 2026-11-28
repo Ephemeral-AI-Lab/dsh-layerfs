@@ -57,8 +57,8 @@ export function useStorage(api: LayerfsApi) {
 
 /**
  * `GET /api/platforms`: whether each platform can run here now, so a machine
- * whose platform is not ready (Docker not answering) shows blocked. Refused
- * or absent (an older host): nothing is blocked, as before.
+ * whose platform is not ready (Docker not answering) shows blocked. Refused:
+ * nothing is blocked.
  */
 export function usePlatforms(api: LayerfsApi) {
   const read = useQuery(() => api.call<{ host: string, platforms: MachinePlatformInfo[] }>('GET', '/api/platforms').then((v) => v.platforms, () => undefined), [api], { cache: 'GET /api/platforms' })
@@ -302,7 +302,6 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const id = useId()
   const view = useStorage(api)
   const recent = useRecent(api)
-  const scratch = useQuery(() => api.op<{ scratchKey?: string | null }>('projects.catalog').catch(() => ({ scratchKey: null })), [api])
   const pane = useRef<HTMLDivElement>(null)
   const nameInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
@@ -334,10 +333,9 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const [shown, setShown] = useState<CreatePlan | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [failure, setFailure] = useState<Failure | null>(null)
-  const scratchStore = scratch.data?.scratchKey?.split('/')[0]
   const data = view.data
   const platforms = usePlatforms(api)
-  const stores = (data?.stores ?? []).filter((s) => s.name !== scratchStore)
+  const stores = data?.stores ?? []
   const last = lastUsedStore(recent.data?.projects ?? [], stores)
   const auto = defaultStoreChoice(last, storeUsable)
   const picked = choice ?? auto.choice
@@ -914,7 +912,7 @@ function Pick({ api, t, tl }: { api: LayerfsApi, t: SetupT, tl: ListT }): ReactN
     return out
   }, [recent.data])
   const q = query.trim().toLowerCase()
-  const rows = (data.catalog.data?.rows ?? []).filter((p) => p.key !== data.scratchKey)
+  const rows = data.catalog.data?.rows ?? []
   const items = rows.filter((p) => !q || nameOf(p).toLowerCase().includes(q) || storeOf(p).toLowerCase().includes(q)).map(data.item)
   const sessionsOf = (p: ProjectRow) => counts.get(p.projectId ?? '') ?? counts.get(p.key) ?? 0
   // Projects that can run first, most used first, then by name.

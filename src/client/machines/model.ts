@@ -209,7 +209,7 @@ export interface Computer {
 
 export interface AvailableView {
   available: true
-  computer?: Computer
+  computer: Computer
   readErrors?: Record<string, { error: { code: string, message: string }, at: number }>
   layerfs: string | null
   /** Absent from an older host: everything is offered and LayerFS refuses what it lacks. */

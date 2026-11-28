@@ -94,14 +94,14 @@ export function ViewCrumb({ label, t }: { label: string, t: Translate }): ReactN
   )
 }
 
-function SessionLine({ view, sessionId, t }: { view: SessionStateView, sessionId: string, t: Translate }): ReactNode {
+function SessionLine({ view, t }: { view: SessionStateView, t: Translate }): ReactNode {
   const branch = view.binding?.branch
   // 2.0 `workspace status --detail`: `overlay { inode_count, entry_count }`; the changed entries, not the inodes
   const pending = unsavedCount(view.status?.overlay)
   const active = view.binding?.state === 'bound'
   return (
     <div className={css.sessionLine}>
-      {branch ? <span className={css.branchChip} title={branch}><StatusDot state={active ? 'done' : 'idle'} size={8} />{branchLabel(sessionId, view.binding, t)}</span> : null}
+      {branch ? <span className={css.branchChip} title={branch}><StatusDot state={active ? 'done' : 'idle'} size={8} />{branchLabel(view.binding, t)}</span> : null}
       {active ? <span className={clsx(css.muted, pending > 0 && css.warn)}>{pending > 0 ? t('unsaved', { n: pending }) : t('unsavedNone')}</span> : null}
       <ViewCrumb label={t('tabFiles')} t={t} />
     </div>
@@ -119,7 +119,7 @@ export function FilesView(props: ViewProps): ReactNode {
     <Gate state={state} t={t}>
       {(view, project) => (
         <div className={css.frame}>
-          <SessionLine view={view} sessionId={sessionId} t={t} />
+          <SessionLine view={view} t={t} />
           <div className={css.fill}>
             <ProjectFiles key={`${project}:${n}`} api={api} project={project} t={t} tick={state.contentTick}
               initialBranch={focus?.branch ?? view.binding.branch} initialPin={focus?.commit} initialPath={focus?.path} />

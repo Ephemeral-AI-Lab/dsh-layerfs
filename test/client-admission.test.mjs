@@ -226,9 +226,9 @@ test('the boot catalog op shares while in flight too', async (t) => {
   const two = api.op('projects.catalog', undefined, { share: true })
   await flush()
   assert.equal(state.calls.length, 1)
-  state.held.shift().settle(true, { rows: [], scratchKey: null })
-  assert.deepEqual(await one, { rows: [], scratchKey: null })
-  assert.deepEqual(await two, { rows: [], scratchKey: null })
+  state.held.shift().settle(true, { rows: [] })
+  assert.deepEqual(await one, { rows: [] })
+  assert.deepEqual(await two, { rows: [] })
 })
 
 // ---------------------------------------------------------------- shared recent answers

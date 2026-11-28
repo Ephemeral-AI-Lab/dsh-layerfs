@@ -148,23 +148,6 @@ function oldState(old) {
   return { key, ps }
 }
 
-test('relayout puts a session folder\'s LayerFS files into layerfs/ and never overwrites newer ones', () => {
-  const m = machine()
-  try {
-    const dir = join(m.dir, 'session')
-    put(join(dir, 'layerfs.json'), '{"old":true}')
-    put(join(dir, 'receipts.jsonl'), '{"id":"r1"}\n')
-    put(join(dir, 'layerfs.json.bak'), 'x')
-    F.relayout(dir)
-    assert.deepEqual(readdirSync(dir).sort(), ['layerfs'])
-    assert.deepEqual(readdirSync(join(dir, 'layerfs')).sort(), ['binding.json', 'calls.jsonl'])
-    // an old file appearing next to newer ones is left where it is
-    put(join(dir, 'layerfs.json'), '{"older":true}')
-    F.relayout(dir)
-    assert.equal(readFileSync(join(dir, 'layerfs', 'binding.json'), 'utf8'), '{"old":true}')
-  } finally { m.done() }
-})
-
 test('checkFolder accepts an absolute folder and refuses anything else', () => {
   const m = machine()
   try {

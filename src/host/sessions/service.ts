@@ -17,7 +17,7 @@ import type {} from '@deepseek-ai/dsh-workspace'
 import type {} from '@deepseek-ai/dsh-working-directory'
 import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-agent'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { CliError, pages, sandboxWorkspaces, type Lfs } from '../layerfs/cli.ts'
@@ -135,8 +135,6 @@ export interface SessionView {
   readonly binding: ViewBinding | null
   readonly checkpoints: readonly Checkpoint[]
   readonly project: string | null
-  /** The session works in the Scratch project (it has no project of its own). */
-  readonly scratchProject: boolean
   readonly status: unknown
   readonly mirror: unknown
   readonly execution?: { state: 'inactive' | 'activating' | 'active' | 'interrupted', available: boolean, reason?: string, projectId?: string }
@@ -180,7 +178,6 @@ export class LayerfsSessions extends Service {
   readonly state: JsonFile<SessionsState>
   /** One operation at a time per session (bind, checkpoint, restore). */
   private readonly lanes = new Map<string, Promise<unknown>>()
-  private scratchReady: Promise<void> | undefined
   /** The LayerFS session store, while the sessions area is up (the persistence row imports through it). */
   store: SessionStore | undefined
   /** Last observed health of each Store a project conversation uses (read-only polling). */
@@ -240,9 +237,6 @@ export class LayerfsSessions extends Service {
   }
 
   get scratchAnchor(): string { return join(this.ctx.layerfs.state, 'scratch') }
-
-  /** Whether `project` is the Scratch project. */
-  isScratch(project: string | undefined): boolean { return project === this.ctx.layerfs.scratchProject }
 
   private writeAnchor(dir: string, text: string): void {
     mkdirSync(dir, { recursive: true })
@@ -311,29 +305,6 @@ export class LayerfsSessions extends Service {
     const workspace = await this.ctx.workspaceRegistry.create(anchor, 'Scratch')
     if (workspace.title !== 'Scratch') await workspace.setTitle('Scratch')
     return { workspaceId: String(workspace.id), anchor }
-  }
-
-  /** Make the Scratch project (a SQLite Store on the host machine, initialized empty) when it does not exist. */
-  async ensureScratchProject(): Promise<string> {
-    const key = this.ctx.layerfs.scratchProject
-    this.scratchReady ??= (async () => {
-      try { await this.lfs.project.get(key); return } catch (error: any) {
-        if (error?.code !== 'NotFound') throw error
-      }
-      await this.ctx.layerfs.ensureHostDaemon()
-      await this.lfs.store.create(key.split('/')[0]).catch((error: any) => { if (!exists(error)) throw error })
-      const sources = join(this.ctx.layerfs.state, 'tmp', 'sources')
-      mkdirSync(sources, { recursive: true, mode: 0o700 })
-      const empty = mkdtempSync(join(sources, 'scratch-'))
-      try {
-        await this.lfs.project.init(key, empty).catch((error: any) => { if (!exists(error)) throw error })
-      } finally {
-        rmSync(empty, { recursive: true, force: true })
-      }
-      this.ctx.layerfs.emit('storage-changed', { store: key.split('/')[0] })
-    })()
-    try { await this.scratchReady } catch (error) { this.scratchReady = undefined; throw error }
-    return key
   }
 
   /**
@@ -1061,7 +1032,6 @@ export class LayerfsSessions extends Service {
     const sessionId = String(agent.id)
     const held = this.ctx.layerfs.exclusive?.()
     if (held) throw new CliError('ConnectBusy', held)
-    if (this.isScratch(project)) await this.ensureScratchProject()
     const header = agent.session.header
     let existing = this.binding(sessionId)
     const persistence = this.ctx.get?.('sessionPersistence' as never) as any
@@ -1933,7 +1903,6 @@ export class LayerfsSessions extends Service {
       checkpoints: effective ? this.checkpoints(effective.sessionId).length ? this.checkpoints(effective.sessionId) : archivedCheckpoints : [],
       project,
       execution: project ? { state: effective?.executionState ?? (effective?.state === 'bound' ? 'active' : effective?.state === 'failed' ? 'interrupted' : 'inactive'), available, reason, projectId: persistence?.projectIdOf?.(sessionId) } : undefined,
-      scratchProject: this.isScratch(effective?.project),
       status,
       mirror,
       archive: project ? {

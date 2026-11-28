@@ -37,6 +37,7 @@ function fakeApi() {
     call: async (method, path, body, options) => {
       calls.push({ kind: 'call', method, path, options })
       if (path.startsWith('/api/machines')) return { available: false, machines: [], sandboxes: [] }
+      if (path === '/api/sandbox-creates') return { creations: [] }
       return {}
     },
     op: async (name, args, options) => {

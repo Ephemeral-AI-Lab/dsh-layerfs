@@ -146,7 +146,7 @@ into the one 3080 server. That is expected; coordinate instead of competing for 
 
 - Build: `node scripts/build.mjs` (both faces). Typecheck: `npx tsc -p tsconfig.json`.
 - Tests: `node --test test/*.test.mjs` (`routes.test.mjs` incl. a live pinned-CLI case;
-  `sessions.test.mjs` placeOf, Scratch project, pre-step guarantee, persistence row).
+  `sessions.test.mjs` placeOf, pre-step guarantee, persistence row).
 - Side server (for verification before merging into 3080, see above):
   `node scripts/dev.mjs [--port N]` with `DSH_LAYERFS_DEV_DIR=<abs dir>`
   for a private DSH_HOME + LayerFS home (default `.dev/`, port 3091). It installs

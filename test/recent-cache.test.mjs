@@ -74,7 +74,7 @@ function harness(state, records) {
   }
   const s = Object.create(S.LayerfsSessions.prototype)
   Object.defineProperty(s, 'ctx', { value: {
-    layerfs: { state: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, ensureHostDaemon: async () => {} },
+    layerfs: { state: '/lfs-root', lfs: {}, emit() {}, ensureHostDaemon: async () => {} },
     sessions: { get: () => undefined },
     logger: () => ({ warn() {}, info() {} }),
   } })
@@ -84,7 +84,7 @@ function harness(state, records) {
   Object.defineProperty(s, 'serverChecked', { value: new Map() })
   const ops = {}
   const ctx = {
-    layerfs: { state: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
+    layerfs: { state: '/lfs-root', lfs: {}, emit() {}, callLog: {} },
     layerfsSessions: s,
     layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
     plugin() {},

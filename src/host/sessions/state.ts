@@ -20,7 +20,7 @@ export interface ProjectWorkspace {
 /** How one session is bound. */
 export interface Binding {
   readonly sessionId: string
-  /** `project`: its own LayerFS Workspace + scratch folder (in its project or the Scratch project); `shared`: a subagent using its parent's. */
+  /** `project`: its own LayerFS Workspace + scratch folder; `shared`: a subagent using its parent's. */
   readonly kind: 'project' | 'shared'
   project?: string
   branch?: string

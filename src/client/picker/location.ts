@@ -22,11 +22,11 @@ export function slugify(text: string): string {
 
 /**
  * The Stores of a `/api/storage` view a project can be made in from this host:
- * SQLite Stores on the host machine, then PostgreSQL Stores; never the Scratch Store.
+ * SQLite Stores on the host machine, then PostgreSQL Stores.
  */
-export function locationsOf(view: any, scratchStore?: string | null): Location[] {
+export function locationsOf(view: any): Location[] {
   const stores: any[] = Array.isArray(view?.stores) ? view.stores : []
-  const usable = stores.filter((s) => s?.name && s.name !== scratchStore)
+  const usable = stores.filter((s) => s?.name)
   const sqlite = usable.filter((s) => (s.kind ?? 'sqlite') !== 'postgresql' && isHostName(s.machine))
     .map((s): Location => ({ store: String(s.name), kind: 'sqlite', server: null, attached: [] }))
   const pg = usable.filter((s) => s.kind === 'postgresql')

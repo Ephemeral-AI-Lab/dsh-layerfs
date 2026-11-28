@@ -34,9 +34,9 @@ export interface ProjectInitJob {
 export const NAME = /^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/
 export const messageOf = (e: unknown) => String((e as any)?.message ?? e)
 
-/** Projects and the Scratch project's key. */
-export async function listProjects(api: LayerfsApi, options?: HostCallOptions): Promise<{ rows: ProjectRow[], scratchKey: string | null }> {
-  return api.op<{ rows: ProjectRow[], scratchKey: string | null }>('projects.catalog', undefined, options)
+/** The project catalog. */
+export async function listProjects(api: LayerfsApi, options?: HostCallOptions): Promise<{ rows: ProjectRow[] }> {
+  return api.op<{ rows: ProjectRow[] }>('projects.catalog', undefined, options)
 }
 
 /** The machine a project's SQLite Store lives on when it is not this host (its Sandboxes run there), else null. */
@@ -66,10 +66,9 @@ const basename = (path: string) => path.replace(/\/+$/, '').split('/').pop() ?? 
  * `onStarted` receives the running Init job and the project key; a throw shows under the form.
  * With `dialog` the form renders inside a DSH `Modal` whose footer holds Cancel and the submit.
  */
-export function NewProjectForm({ api, t, scratchKey, withSource, optionalSource = false, initialSource, onBack, backLabel, onStarted, dialog }: {
+export function NewProjectForm({ api, t, withSource, optionalSource = false, initialSource, onBack, backLabel, onStarted, dialog }: {
   api: LayerfsApi
   t: Translate
-  scratchKey: string | null
   withSource: boolean
   optionalSource?: boolean
   initialSource?: string
@@ -89,19 +88,18 @@ export function NewProjectForm({ api, t, scratchKey, withSource, optionalSource 
   const [pickerMissing, setPickerMissing] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const scratchStore = scratchKey?.split('/')[0]
 
   // A failed read is not "no Stores": only a successful empty answer makes a new Store.
   const loadStores = useCallback(() => {
     setLocations(null)
     setStoresError(null)
     api.call<any>('GET', '/api/storage', undefined, { share: true }).then((view) => {
-      const found = locationsOf(view, scratchStore)
+      const found = locationsOf(view)
       setLocations(found)
       setFreshStore(defaultStoreName(view))
       setStore((current) => current || preferredStore(found, lastStore()))
     }, (e) => setStoresError(messageOf(e)))
-  }, [api, scratchStore])
+  }, [api])
   useEffect(loadStores, [loadStores])
 
   const fresh = locations !== null && locations.length === 0
