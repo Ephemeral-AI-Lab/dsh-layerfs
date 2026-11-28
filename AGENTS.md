@@ -110,12 +110,11 @@ into the one 3080 server. That is expected; coordinate instead of competing for 
   - `folder.ts` the LayerFS folder, home and state resolution (`dsh.json` with the install id and `layout`)
   - `layerfs/tracing.ts` execution-scoped receipts: one receipt id and log tag
     (`LAYERFS_LOGS_TAG=dsh:<sessionId>:<receiptId>`) per call, SDK receipts, the managed
-    `bin/layerfs` wrapper (node with the stand-in; a bash script with LayerFS's native
-    log, outputs teed to `trace/outputs/raw/`), receipts rebuilt from tagged call log lines (no spool);
+    `bin/layerfs` wrapper (a bash script; LayerFS writes the call log line, outputs teed to
+    `<state>/trace/outputs/raw/`), receipts rebuilt from tagged `home log` lines (no spool);
     `workspace.exec` never gets checkpoint links
-  - `layerfs/call-log.ts` the call log stand-in `<root>/trace/calls.jsonl` (LayerFS #659
-    lines: render, redact, append, rotate, list, reset) while the pinned CLI has no `logs` family
-  - `logs/` `logs.list` / `logs.reset` ops on the native log or the stand-in (`source.ts`),
+  - `layerfs/call-words.ts` a call's rendered words and saved fields (receipts, outputs)
+  - `logs/` `logs.list` / `logs.reset` ops on LayerFS's `home log` / `home clear-log` (`source.ts`),
     lines labelled with session, turn and checkpoint (`Checkpoint.receipt`), `logs` event
   - `presets/` Presets: `manager.ts` (`/api/demo-presets…` on the `http` op, admission,
     durable jobs in `<root>/presets/`), `driver.ts`, and LayerFS Connect's runner/recipe
@@ -234,4 +233,4 @@ run events arrive many times a second. Every view follows these:
   at a named Commit never changes.
 - **Host side:** polling reads go through the SDK client's kept answers (`KEPT_READS` in
   `src/host/layerfs/cli.ts`), and no request handler re-reads or re-parses a whole file
-  per call (see the call log's incremental parse in `src/host/layerfs/call-log.ts`).
+  per call.

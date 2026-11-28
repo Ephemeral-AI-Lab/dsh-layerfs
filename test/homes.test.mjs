@@ -100,7 +100,7 @@ test('service defaults: the LayerFS home is the LayerFS folder (or its home/) an
     assert.equal(s.state, join(folder, 'dsh'))
     assert.equal(s.secrets, join(f.home, 'secret'))
     assert.equal(s.projectSessionHome, join(folder, 'dsh', 'sessions'))
-    assert.equal(s.callLog, join(folder, 'dsh', 'trace', 'calls.jsonl'))
+    assert.equal(s.outputs, join(folder, 'dsh', 'trace', 'outputs'))
     assert.equal(JSON.parse(readFileSync(join(folder, 'dsh', 'dsh.json'), 'utf8')).owner, join(f.dir, 'dsh'))
     assert.equal(s.cli, null)
     // nothing pinned: the newest runtime installed in the home

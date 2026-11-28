@@ -76,9 +76,9 @@ $DSH_HOME/layerfs.json                     pointer: { "folder": "<path>" }
 - A project session's scratch folder is a new `scratch/session-<uuid>/` unless
   the user picks a folder (`sessions.selectScratch`); a picked folder is never
   cleared. The project is never inferred from a folder path.
-- LayerFS's per-session files sit in `layerfs/` beside the log, with the same
-  formats as before (`binding.json` was `layerfs.json`, `calls.jsonl` was
-  `receipts.jsonl`). The project archive format is unchanged.
+- LayerFS's per-session files sit in `layerfs/` beside the log: `binding.json`
+  (metadata only) and `calls.jsonl` (one line per recorded call). The project
+  archive format is unchanged.
 - Call outputs stay in one tag-keyed folder: host and team-run calls have no
   session, the agent wrapper only knows the tag, and the agent sandbox may write
   outputs but never beside a conversation log.

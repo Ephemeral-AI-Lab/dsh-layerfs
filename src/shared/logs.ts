@@ -101,14 +101,14 @@ export interface LogsListAnswer {
   partial?: boolean
   /** Lines that did not parse. */
   skipped: number
-  /** `layerfs`: the pinned CLI's native log (every client of the home); `plugin`: this plugin's stand-in. */
-  source: 'layerfs' | 'plugin'
+  /** `layerfs`: the pinned CLI's own call log (every client of the home), the only source. */
+  source: 'layerfs'
 }
 
 /** `logs.project {project, sandboxes?, limit?}`: one project's calls, newest first. */
 export interface LogsProjectAnswer {
   lines: LabeledLine[]
-  source: 'layerfs' | 'plugin'
+  source: 'layerfs'
   /** Lines read to find them. */
   scanned: number
   /** True when older lines were left unread. */

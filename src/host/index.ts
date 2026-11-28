@@ -9,7 +9,7 @@
  *   service.ts      ctx.layerfs: pinned CLI/daemon, LAYERFS_HOME, state, events
  *   routes/         Connect's host HTTP API as the `http` operation (Machines, Storage, projects)
  *   sessions/       session binding, scratch folders, checkpoints, session store
- *   logs/           the LayerFS call log (native or the stand-in) labelled with sessions
+ *   logs/           LayerFS's own call log labelled with sessions
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { LayerfsRemote } from './remote.ts'

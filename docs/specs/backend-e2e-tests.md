@@ -34,7 +34,7 @@ Every suite runs on a private home and a side server (`scripts/dev.mjs` with
 | Signal | Source | Deterministic? |
 |---|---|---|
 | CLI spawns per action | count shim (§3.1) | yes: the primary budget |
-| CLI call durations, outcome | call log `{at, ms, argv, outcome, tag}` (`src/host/layerfs/call-log.ts`), read through the `logs.list` op (`since`, `outcome`, `tag` prefix `dsh:-:` for host calls) | durations no; counts and outcomes yes |
+| CLI call durations, outcome | LayerFS call log `{at, ms, argv, outcome, tag}` (`home log`), read through the `logs.list` op (`since`, `outcome`, `tag` prefix `dsh:-:` for host calls) | durations no; counts and outcomes yes |
 | Host requests from the page | wrap `window.__dshLayerfs.call` and `.op` (`src/client/index.tsx`, enabled by the `dsh-layerfs:debug` flag `tools/e2e-lib.mjs` sets); `call` uses `op` internally (`src/client/api.ts`), so wrap both | yes (count, status, transport) |
 | Long tasks, TTFC | `PerformanceObserver('longtask')` via `addInitScript`; panel click → content selector | no: trend only |
 | LayerFS state | `layerfs sandbox list`, `store list`, `doctor`, `mount`, the host daemon log under the private home | yes |

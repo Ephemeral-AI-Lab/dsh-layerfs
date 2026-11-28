@@ -1,14 +1,11 @@
 # LayerFS Logs page and checkpoint binding
 
-> **Status:** Implemented in both modes: native LayerFS lines when the pinned
-> CLI has the `logs` family (`layerfs_v2_0_0` from `4c08032`, PR #665), else
-> the plugin stand-in. In native mode the agent's `layerfs` is a bash script
-> (§6a), not node. Depends on LayerFS
-> [#659](https://github.com/Ephemeral-AI-Lab/layerfs/issues/659) (spec in
-> [layerfs#660](https://github.com/Ephemeral-AI-Lab/layerfs/pull/660),
-> `core/docs/issues/659/README.md`) for the native call log; until a pinned
-> CLI has it, a plugin stand-in writes the same lines. Written 2026-11-12 from
-> read-only studies of this repository.
+> **Status:** Implemented on LayerFS's own call log (`home log` /
+> `home clear-log`, [#659](https://github.com/Ephemeral-AI-Lab/layerfs/issues/659)),
+> which the pinned CLI must have (it is a required call). The plugin stand-in
+> this spec also describes (`<state>/trace/calls.jsonl`, the node wrapper) was
+> removed on 2026-11-29; sections that describe it are history. Written
+> 2026-11-12 from read-only studies of this repository.
 
 ## 1. Outcome
 

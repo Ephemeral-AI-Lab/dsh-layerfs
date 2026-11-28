@@ -252,12 +252,11 @@ ID is made before the call, the child gets the tag, and the receipt is recorded
 from the returned result, preserving the SDK-facing operation identity.
 
 CLI calls receive the correlation context from the DSH tool execution through
-the managed CLI entry point (`agent-bin/layerfs`): `DSH_LAYERFS_TRACE_CONTEXT`
+the managed CLI entry point (`<state>/bin/layerfs`): `DSH_LAYERFS_TRACE_CONTEXT`
 stays per shell and names the tool call's receipt-ID prefix (`scope`); the
 wrapper makes a receipt ID per invocation and sets the tag for its child. The
-recording channel is the call log: LayerFS's own (#659) when the pinned CLI has
-the `logs` family, else the plugin's stand-in, whose line the wrapper appends
-itself. After each tool call (and again when the turn stops, for calls still
+recording channel is LayerFS's own call log (#659), which the pinned CLI must
+have. After each tool call (and again when the turn stops, for calls still
 running when their tool call returned) the host builds that call's receipts from
 lines tagged `dsh:<sessionId>:<scope>.…` since the call started, deduped by
 receipt ID. A line yields versions from its `kind` and `commit`/`layer`

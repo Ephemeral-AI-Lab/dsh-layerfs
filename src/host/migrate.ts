@@ -21,7 +21,7 @@
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, cpSync } from 'node:fs'
 import { join } from 'node:path'
-import { compactInvocations, RECEIPT_META } from './layerfs/tracing.ts'
+import { compactInvocations, foldRead, RECEIPT_META, receiptDisposition } from './layerfs/tracing.ts'
 import { dshRecordPath, LAYOUT, readDshRecord, writeJson } from './folder.ts'
 
 export { LAYOUT }
@@ -111,7 +111,15 @@ function sessionFolder(dir: string): boolean {
   if (!binding || (!Array.isArray(binding.invocations) && binding[RECEIPT_META]?.foldedThrough === undefined)) return false
   const callsPath = join(lfs, 'calls.jsonl')
   if (Array.isArray(binding.invocations)) {
-    const folded = compactInvocations(binding[RECEIPT_META], binding.invocations)
+    // Successful read-only calls the host made fold into the counter, as the current policy records them.
+    let meta = binding[RECEIPT_META]
+    const kept: any[] = []
+    for (const row of binding.invocations) {
+      if (!row || typeof row !== 'object' || Array.isArray(row)) continue
+      if (typeof row.operation === 'string' && receiptDisposition(row, 'host') === 'aggregate') meta = foldRead(meta, { operation: row.operation, at: Number.isFinite(row.at) ? row.at : Date.now(), outcome: 'success' })
+      else kept.push(row)
+    }
+    const folded = compactInvocations(meta, kept)
     const existing = existsSync(callsPath) ? readFileSync(callsPath, 'utf8').split('\n').filter(Boolean) : []
     const ids = new Set(existing.map((line) => { try { return JSON.parse(line)?.id } catch { return undefined } }).filter(Boolean))
     const lines = [...folded.invocations.filter((row) => !row?.id || !ids.has(row.id)).map((row) => JSON.stringify(row)), ...existing]

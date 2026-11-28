@@ -1,12 +1,11 @@
 /**
  * Where call log lines come from (docs/specs/layerfs-logs.md §3): the pinned
  * CLI's own call log through `home log` / `home clear-log` (LayerFS 2.0; every
- * client of the LayerFS home) when it has them, else this plugin's stand-in
- * file. LayerFS's file is only read through the CLI.
+ * client of the LayerFS home; discovery refuses a CLI without them). LayerFS's
+ * file is only read through the CLI.
  */
-import { isWrite, parseTag, type CallClient, type CallLine, type LogsListArgs, type LogsListAnswer, type LogsResetAnswer } from '../../shared/logs.ts'
-import { listCalls, matches, projectOf, resetCalls as resetStandIn } from '../layerfs/call-log.ts'
-import { clearOutputs, outputsDir } from '../layerfs/call-output.ts'
+import { isWrite, operationOf, parseTag, type CallClient, type CallLine, type LogsListArgs, type LogsListAnswer, type LogsResetAnswer } from '../../shared/logs.ts'
+import { clearOutputs } from '../layerfs/call-output.ts'
 import type { LayerfsService } from '../service.ts'
 
 export type CallPage = Omit<LogsListAnswer, 'lines'> & { lines: CallLine[] }
@@ -21,6 +20,29 @@ export function listArgs(raw: any): LogsListArgs {
   if (Number.isFinite(raw?.since)) args.since = Math.floor(raw.since)
   if (raw?.writes === true) args.writes = true
   return args
+}
+
+/** The project a line names: the first `<store>/<name>` word after family and call. */
+export function projectOf(argv: readonly string[]): string | undefined {
+  return argv.slice(2).find((word) => /^[A-Za-z0-9][\w.-]*\/[A-Za-z0-9][\w.-]*$/.test(word))
+}
+
+/** Whether a line passes the `LogsListArgs` filters (`project`: case-insensitive substring). */
+export function matches(line: CallLine, args: LogsListArgs): boolean {
+  if (args.op) {
+    const op = args.op.replaceAll('-', '_')
+    if (op.includes('.') ? operationOf(line.argv) !== op : line.argv[0] !== op) return false
+  }
+  if (args.project) {
+    const project = projectOf(line.argv)
+    if (!project || !project.toLowerCase().includes(args.project.toLowerCase())) return false
+  }
+  if (args.client && line.client !== args.client) return false
+  if (args.tag && !(args.tag.endsWith(':') ? line.tag?.startsWith(args.tag) : line.tag === args.tag)) return false
+  if (args.outcome && line.outcome !== args.outcome) return false
+  if (typeof args.since === 'number' && line.at < args.since) return false
+  if (args.writes && !isWrite(line.argv)) return false
+  return true
 }
 
 /**
@@ -81,7 +103,7 @@ function readFilteredCursor(cursor: string | undefined): { native?: string, skip
 }
 
 /**
- * One page of lines, newest first, from whichever source is active.
+ * One page of lines, newest first, from LayerFS's own call log.
  *
  * A local filter (`writes`, or a filter the pinned CLI's `home log` has no
  * option for) cannot be pushed into the CLI. It is applied to native pages of
@@ -94,7 +116,6 @@ function readFilteredCursor(cursor: string | undefined): { native?: string, skip
  * repeat.
  */
 export async function readCalls(layerfs: LayerfsService, args: LogsListArgs): Promise<CallPage> {
-  if (!(await layerfs.nativeLogs())) return { ...listCalls(layerfs.callLog, args), source: 'plugin' }
   const entry = (await layerfs.discovery()).calls.find((c) => c.family === 'home' && c.call === 'log')
   const accepted = new Set(entry?.options.map((o) => o.name) ?? [])
   const limit = args.limit ?? 100
@@ -175,15 +196,10 @@ export async function readCalls(layerfs: LayerfsService, args: LogsListArgs): Pr
   return { lines, ...(next ? { next } : {}), has_more: !!next, ...(partial ? { partial: true } : {}), skipped, source: 'layerfs' }
 }
 
-/** Clears the active source (`home clear-log`, else the stand-in); the stored outputs (`trace/outputs/`) go too, in both modes. */
+/** Clears LayerFS's call log (`home clear-log`); the stored outputs (`trace/outputs/`) go too. */
 export async function resetCalls(layerfs: LayerfsService): Promise<LogsResetAnswer> {
-  if (!(await layerfs.nativeLogs())) {
-    const answer = resetStandIn(layerfs.callLog)
-    clearOutputs(outputsDir(layerfs.callLog))
-    return answer
-  }
   const answer = await layerfs.lfs.home.clear_log({ detail: true })
-  clearOutputs(outputsDir(layerfs.callLog))
+  clearOutputs(layerfs.outputs)
   return { removed: Number(answer?.line_count ?? 0) }
 }
 
@@ -212,10 +228,10 @@ export const PROJECT_SCAN = 10_000
  * @param limit - lines returned at most (the newest).
  * @param scan - lines read at most.
  */
-export async function projectCalls(layerfs: LayerfsService, project: string, known: readonly string[], limit = 500, scan = PROJECT_SCAN): Promise<{ lines: CallLine[], source: 'layerfs' | 'plugin', scanned: number, has_more: boolean }> {
+export async function projectCalls(layerfs: LayerfsService, project: string, known: readonly string[], limit = 500, scan = PROJECT_SCAN): Promise<{ lines: CallLine[], source: 'layerfs', scanned: number, has_more: boolean }> {
   const sandboxes = new Set(known)
   const lines: CallLine[] = []
-  let cursor: string | undefined, scanned = 0, has_more = false, source: 'layerfs' | 'plugin' = 'plugin'
+  let cursor: string | undefined, scanned = 0, has_more = false
   const sandboxOf = (argv: readonly string[]) => {
     if (argv[0] !== 'workspace' && argv[0] !== 'sandbox') return undefined
     const first = argv[2]
@@ -226,7 +242,6 @@ export async function projectCalls(layerfs: LayerfsService, project: string, kno
   const candidates: { line: CallLine, sandbox?: string }[] = []
   while (scanned < scan) {
     const page = await readCalls(layerfs, { limit: Math.min(1000, scan - scanned), ...(cursor ? { cursor } : {}) })
-    source = page.source
     scanned += page.lines.length
     for (const line of page.lines) {
       const argv = line.argv
@@ -244,5 +259,5 @@ export async function projectCalls(layerfs: LayerfsService, project: string, kno
     lines.push(c.line)
     if (lines.length >= limit) break
   }
-  return { lines, source, scanned, has_more }
+  return { lines, source: 'layerfs', scanned, has_more }
 }

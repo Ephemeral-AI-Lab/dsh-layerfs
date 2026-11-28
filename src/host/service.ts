@@ -8,8 +8,9 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync,
 import { spawn } from 'node:child_process'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
-import { boolOptions, CliError, client, discover, execute, hasNativeLogs, knownIdentity, knownNativeLogs, plain, uninitialized, type Discovery, type Lfs } from './layerfs/cli.ts'
+import { CliError, client, discover, knownIdentity, plain, uninitialized, type Discovery, type Lfs } from './layerfs/cli.ts'
 import { managedCli } from './layerfs/tracing.ts'
+import { outputsDir } from './layerfs/call-output.ts'
 import { checkFolder, resolveFolder, writeJson, type FolderSource } from './folder.ts'
 import { migrateLayout } from './migrate.ts'
 import { HOST_MACHINE, isHostMachine, machineRows } from './layerfs/machine-records.ts'
@@ -158,8 +159,6 @@ export type SetupNeed = 'runtime' | 'folder' | 'build'
 export interface SetupStatus {
   readonly at: number
   readonly runtime: RuntimeStatus
-  /** The pinned CLI has `home init` and `home get`; false: an older runtime (today's behaviour). */
-  readonly homeCalls: boolean
   readonly folder: {
     readonly path: string
     readonly state: HomeState
@@ -203,8 +202,6 @@ export interface InstalledView {
   readonly version: string | null
   readonly commit: string | null
   readonly dirty: boolean | null
-  /** Its CLI has `home init` / `home get`. */
-  readonly homeCalls: boolean
   readonly pieces: { readonly daemon: Piece | null, readonly bundle: Piece | null }
   /** An SDK built from its commit is installed (scripts/install-sdk.mjs). */
   readonly sdk: boolean
@@ -218,7 +215,6 @@ export interface InstalledView {
 const failedDiscovery = new Map<string, string>()
 
 const mixedAllowed = (): boolean => process.env.DSH_LAYERFS_ALLOW_MIXED === '1'
-const hasCall = (d: Discovery, name: string): boolean => d.calls.some((c) => `${c.family}.${c.call}` === name)
 
 /** A piece of the runtime at `path` with its build `stamp`, judged against the CLI's build. */
 function pieceOf(path: string | null, stamp: BuildStamp | null, cli: BuildStamp | null): Piece | null {
@@ -269,8 +265,8 @@ export class LayerfsService extends Service {
   readonly install: string
   /** `$DSH_HOME/layerfs.json`: the folder chosen in the setup modal. */
   readonly pointer: string
-  /** The stand-in call log, `<state>/trace/calls.jsonl` (docs/specs/layerfs-logs.md §3). */
-  readonly callLog: string
+  /** `<state>/trace/outputs`: what calls made through DSH printed (docs/specs/layerfs-logs.md "Outputs"). */
+  readonly outputs: string
   readonly projectSessionHome: string
   readonly home: string
   /** The folder entered keys and passwords are saved in (see LayerfsConfig.secrets). */
@@ -316,7 +312,7 @@ export class LayerfsService extends Service {
     this.stateTaken = where.stateTaken
     this.install = where.install
     this.pointer = where.pointer
-    this.callLog = join(this.state, 'trace', 'calls.jsonl')
+    this.outputs = outputsDir(this.state)
     this.projectSessionHome = join(this.state, 'sessions')
     this.home = where.home
     this.secrets = abs(config.secrets) ?? abs(process.env.DSH_LAYERFS_SECRETS) ?? join(this.home, 'secret')
@@ -399,14 +395,14 @@ export class LayerfsService extends Service {
     this.hostDaemonRecorded = undefined
     // this host's lease on the runtime folder it pins, so no host's cleanup removes it (only once the plugin runs: never from a test)
     if (this.started) leasePin(this.home, this.state, cli, this.install)
-    // Discover the CLI (identity, call log kind) now, so the first agent shell already gets $DSH_LAYERFS_SDK.
-    if (cli) void hasNativeLogs(cli)
+    // Discover the CLI now, so the first agent shell already gets $DSH_LAYERFS_SDK.
+    if (cli) void discover({ cli }).catch(() => {})
   }
 
   /** The SDK over the pinned CLI. Throws `CliUnavailable` when nothing is pinned. */
   get lfs(): Lfs {
     if (!this.pin.cli) throw new CliError('CliUnavailable', 'No LayerFS runtime is chosen yet. Open Set up LayerFS in Center, or set DSH_LAYERFS_CLI.', null, 'unavailable')
-    return this.sdk ??= client({ cli: this.pin.cli, home: this.home, bundle: this.pin.bundle, cacheHome: this.pin.cacheHome, callLog: this.callLog, gate: (call) => this.gate(call) })
+    return this.sdk ??= client({ cli: this.pin.cli, home: this.home, bundle: this.pin.bundle, cacheHome: this.pin.cacheHome, outputs: this.outputs, gate: (call) => this.gate(call) })
   }
 
   /** The gate's refusal for a folder this LayerFS can't use as it is. */
@@ -444,49 +440,34 @@ export class LayerfsService extends Service {
 
   /**
    * The folder's state from `home get` (one read shared by every caller).
-   * A CLI with the home family whose `home get` fails leaves it `unknown`
-   * (the gate refuses; nothing writes it by accident); an older CLI says
-   * only whether `layerfs.json` is there. Never throws.
+   * A failed `home get` leaves it `unknown` (the gate refuses; nothing writes
+   * it by accident). Never throws.
    */
   private learnHome(): Promise<void> {
     return this.homeLearn ??= (async () => {
       const generation = this.homeGeneration
       let state: HomeState | null = null
       try {
-        if (await this.homeCalls()) {
-          try { state = homeStateOf((await this.lfs.home.get({ detail: true })) as HomeGet) } catch { state = 'unknown' }
-        } else state = existsSync(join(this.home, 'layerfs.json')) ? 'current' : 'missing'
+        await this.discovery()
+        try { state = homeStateOf((await this.lfs.home.get({ detail: true })) as HomeGet) } catch { state = 'unknown' }
       } catch { /* discovery failed: no call can run anyway */ } finally { this.homeLearn = null }
       if (generation === this.homeGeneration && this.homeState === null) this.homeState = state
     })()
   }
 
-  /** Whether the pinned CLI has `home init` and `home get`. */
-  private async homeCalls(): Promise<boolean> {
-    const d = await this.discovery()
-    return hasCall(d, 'home.get') && hasCall(d, 'home.init')
-  }
-
   /**
    * Sets a missing LayerFS folder up, once at a time: `home get` first (an
-   * older LayerFS's folder is left alone), then `home init`; an
-   * older CLI runs one `machine list` (outside the SDK's shared and kept
-   * reads, which a gated poll may hold), which creates it as before.
+   * older LayerFS's folder is left alone), then `home init`.
    */
   private ensureHome(): Promise<void> {
     return this.homeInit ??= (async () => {
       try {
-        if (await this.homeCalls()) {
-          const got: HomeGet = await this.lfs.home.get({ detail: true })
-          this.homeState = homeStateOf(got)
-          if (this.homeState !== 'missing') return
-          // 2.0 long form: `outcome` created | unchanged
-          const did = await this.lfs.home.init({ detail: true })
-          this.homeDid = { created: did?.outcome === 'created', at: Date.now() }
-        } else if (!existsSync(join(this.home, 'layerfs.json'))) {
-          await execute(this.lfs.spec, ['machine', 'list', '--'], { read: true, gated: true, timeout: 30_000 })
-          this.homeDid = { created: existsSync(join(this.home, 'layerfs.json')), at: Date.now() }
-        } else return
+        const got: HomeGet = await this.lfs.home.get({ detail: true })
+        this.homeState = homeStateOf(got)
+        if (this.homeState !== 'missing') return
+        // 2.0 long form: `outcome` created | unchanged
+        const did = await this.lfs.home.init({ detail: true })
+        this.homeDid = { created: did?.outcome === 'created', at: Date.now() }
         this.homeGeneration++
         this.homeState = existsSync(join(this.home, 'layerfs.json')) ? 'current' : this.homeState
         this.ctx.logger('layerfs').info('LayerFS folder %s set up', this.home)
@@ -502,7 +483,6 @@ export class LayerfsService extends Service {
    * running read the folder before: it is waited for and a fresh one answers.
    */
   async initHome(): Promise<SetupStatus> {
-    if (!(await this.homeCalls())) throw new CliError('Unsupported', 'This LayerFS runtime has no `home init`; choose a newer runtime')
     const did = await this.lfs.home.init({ detail: true })
     this.homeDid = { created: did?.outcome === 'created', at: Date.now() }
     this.homeGeneration++
@@ -579,18 +559,15 @@ export class LayerfsService extends Service {
     this.rescan()
     this.armWatch()
     const runtime = await this.status()
-    let homeCalls = false, got: HomeGet | null = null, error: SetupStatus['error'] = null
+    let got: HomeGet | null = null, error: SetupStatus['error'] = null
     if (runtime.ok) {
       try {
-        homeCalls = await this.homeCalls()
-        if (homeCalls) {
-          got = await this.lfs.home.get({ detail: true })
-          if (homeStateOf(got) === 'missing') { await this.ensureHome(); got = await this.lfs.home.get({ detail: true }) }
-        } else if (!existsSync(join(this.home, 'layerfs.json'))) await this.ensureHome()
+        got = await this.lfs.home.get({ detail: true })
+        if (homeStateOf(got) === 'missing') { await this.ensureHome(); got = await this.lfs.home.get({ detail: true }) }
       } catch (e: any) { error = { code: e?.code ?? 'Failed', message: String(e?.message ?? e) } }
     }
-    // never `current` from layerfs.json alone when the CLI could have said: a failed `home get` is unknown
-    const state: HomeState = got ? homeStateOf(got) : (homeCalls || (runtime.ok && error) ? 'unknown' : existsSync(join(this.home, 'layerfs.json')) ? 'current' : 'missing')
+    // never `current` from layerfs.json alone: a failed `home get` is unknown
+    const state: HomeState = got ? homeStateOf(got) : runtime.ok ? 'unknown' : existsSync(join(this.home, 'layerfs.json')) ? 'current' : 'missing'
     // a conversion, set up or pin change meanwhile: this answer is stale (setup() reads again)
     if (generation === this.homeGeneration) this.homeState = runtime.ok ? state : null
     const identity = runtime.ok && this.pin.cli ? knownIdentity(this.pin.cli) : null
@@ -612,7 +589,7 @@ export class LayerfsService extends Service {
     // development may run mixed builds on purpose: then it is a note, not a need
     if (runtime.ok && !mixedAllowed() && [bundle, daemon].some((p) => p?.verdict === 'other')) needs.push('build')
     const answer: SetupStatus = {
-      at: Date.now(), runtime, homeCalls,
+      at: Date.now(), runtime,
       folder: {
         path: this.home, state, layout: got?.layout ?? null, mode: got?.mode ?? null, modeOk: modeOk(got?.mode), did: this.homeDid,
         ...(got && got.state !== 'ready' ? { message: got.message ?? null, fix: got.fix ?? null } : {}),
@@ -644,7 +621,6 @@ export class LayerfsService extends Service {
       return {
         id: r.id, cli: r.cli, daemon: r.daemon, bundle: r.bundle, at: r.at,
         version: d?.identity.version ?? null, commit: stamp?.commit ?? null, dirty: stamp?.dirty ?? null,
-        homeCalls: !!d && hasCall(d, 'home.get') && hasCall(d, 'home.init'),
         pieces: {
           daemon: process.platform === 'darwin' ? (pieceOf(r.daemon, daemonStamp(r.daemon), stamp) ?? { path: null, commit: null, dirty: null, verdict: 'missing' }) : null,
           bundle: pieceOf(r.bundle, bundleStamp(r.bundle), stamp) ?? { path: null, commit: null, dirty: null, verdict: 'missing' },
@@ -668,19 +644,17 @@ export class LayerfsService extends Service {
   }
 
   /**
-   * `<root>/agent-bin/layerfs`, the managed CLI agent shells run (rewritten when
-   * the pin or the call log source changes), or null when nothing is pinned.
+   * `<state>/bin/layerfs`, the managed CLI agent shells run (rewritten when
+   * the pin changes), or null when nothing is pinned.
    */
   agentCli(): string | null {
     const cli = this.pin.cli
     if (!cli) return null
-    const native = knownNativeLogs(cli)
-    if (native === undefined) void hasNativeLogs(cli)
-    return managedCli({ root: this.state, cli, home: this.home, bundle: this.pin.bundle, cacheHome: this.pin.cacheHome, callLog: this.callLog, native: native ?? false, bools: boolOptions(cli) })
+    return managedCli({ root: this.state, cli, home: this.home, bundle: this.pin.bundle, cacheHome: this.pin.cacheHome, outputs: this.outputs })
   }
 
   /**
-   * `<root>/agent-bin/sdk.mjs`, the LayerFS Node SDK agent shells import as
+   * `<state>/bin/sdk.mjs`, the LayerFS Node SDK agent shells import as
    * `$DSH_LAYERFS_SDK`, or null when no SDK built from the pinned CLI's commit is
    * installed (`DSH_LAYERFS_SDK_DIR`, else `.layerfs-sdk/<commit>/` in this
    * package; `scripts/install-sdk.mjs`) or the CLI is not discovered yet.
@@ -692,19 +666,13 @@ export class LayerfsService extends Service {
     if (!commit) { void discover({ cli }).catch(() => {}); return null }
     const sdk = findSdk(this.sdkDir(), commit)
     if (!sdk) return null
-    // As agentCli: until the call log kind is known, the stand-in log (the SDK falls back on its own).
-    const native = knownNativeLogs(cli)
-    if (native === undefined) void hasNativeLogs(cli)
-    return managedSdk({ root: this.state, sdk, home: this.home, bundle: this.pin.bundle, cacheHome: this.pin.cacheHome, callLog: this.callLog, native: native ?? false, bools: boolOptions(cli) })
+    return managedSdk({ root: this.state, sdk, home: this.home, bundle: this.pin.bundle, cacheHome: this.pin.cacheHome, outputs: this.outputs })
   }
 
   /** Where Node SDK installs are looked for (`<dir>/<commit>/`, or `<dir>` itself): `DSH_LAYERFS_SDK_DIR`, else `.layerfs-sdk/` in this package. */
   private sdkDir(): string {
     return process.env.DSH_LAYERFS_SDK_DIR || join(packageRoot(), '.layerfs-sdk')
   }
-
-  /** Whether the pinned CLI keeps LayerFS's own call log (else the plugin's stand-in). */
-  async nativeLogs(): Promise<boolean> { return !!this.pin.cli && await hasNativeLogs(this.pin.cli) }
 
   /** The pinned CLI path, if any. */
   get cli(): string | null { return this.pin.cli }

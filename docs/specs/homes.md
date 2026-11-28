@@ -47,18 +47,8 @@ LAYERFS_HOME  (default ~/.layerfs)       LayerFS's
 
 DSH_HOME                                 DSH's
   sessions/                              normal DSH sessions (stock)
-  layerfs/                               dsh-layerfs, this DSH install only
-    runtime.json                         the pinned CLI, daemon and bundle (paths into the home's runtime/), and the machine image cache
-    sessions.json                        session bindings and placements
-    trace/                               (0700) the call log stand-in, while the pinned CLI has no
-      calls.jsonl  calls.1.jsonl  calls.lock   `logs` family (docs/specs/layerfs-logs.md §3): LayerFS
-                                         #659 lines (0600) for calls made through DSH, rotated at 16 MiB
-      outputs/<sha256>.json              (0700/0600) what each call made through DSH printed, in both
-                                         modes (docs/specs/layerfs-logs.md §6a): 64 KiB per stream,
-                                         at most 2000 files / 64 MiB, cleared by the Logs page's Reset
-    agent-bin/layerfs  agent-bin/layerfs.mjs   the managed CLI agent shells run (tags calls, writes stand-in lines)
-    project-sessions/projects/<id>/sessions/<sid>/   project conversation logs (§6)
-    scratch/  projects/  project-sources/
+  layerfs.json                           pointer to the LayerFS folder; dsh-layerfs's own state is
+                                         the DSH x LayerFS home ~/.layerfs/dsh (layerfs-folder.md)
 ```
 
 The LayerFS home's folders are owner-only (0700): LayerFS's `doctor` reports

@@ -99,8 +99,8 @@ export function apply(ctx: Context): void {
   const presetState = presetStateFor(ctx.layerfs.home)
   const presets = new PresetManager({
     spec: () => {
-      const { cli, home, bundle, cacheHome, callLog, gate } = ctx.layerfs.lfs.spec
-      return { cli, home, bundle, cacheHome, callLog, gate, daemon: ctx.layerfs.daemon, state: presetState }
+      const { cli, home, bundle, cacheHome, outputs, gate } = ctx.layerfs.lfs.spec
+      return { cli, home, bundle, cacheHome, outputs, gate, daemon: ctx.layerfs.daemon, state: presetState }
     },
     busy: () => [
       ...(groups.storage.busy() ? ['a storage job'] : []),

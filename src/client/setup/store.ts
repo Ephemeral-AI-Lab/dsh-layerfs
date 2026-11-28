@@ -41,7 +41,6 @@ export interface SetupStatus {
     readonly sdkDir: string | null
     readonly error: { readonly code: string, readonly message: string } | null
   }
-  readonly homeCalls: boolean
   readonly folder: {
     readonly path: string
     readonly state: HomeState
@@ -78,7 +77,6 @@ export interface InstalledRuntime {
   readonly version: string | null
   readonly commit: string | null
   readonly dirty: boolean | null
-  readonly homeCalls: boolean
   readonly pieces: { readonly daemon: Piece | null, readonly bundle: Piece | null }
   readonly sdk: boolean
   readonly active: boolean

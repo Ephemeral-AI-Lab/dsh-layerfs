@@ -114,8 +114,7 @@ Inputs (ask me for any that are missing, and don't guess them):
 9. **Verify on the running app:**
    - Runtime status shows commit `$TIP`.
    - A `layerfs file stat` through the agent wrapper
-     (`$DSH_HOME/layerfs/agent-bin/layerfs`, which becomes a `#!/bin/bash` script after
-     the first agent shell) succeeds against a docker Store.
+     (`~/.layerfs/dsh/bin/layerfs`, a `#!/bin/bash` script) succeeds against a docker Store.
    - No call is refused as "of another build".
    - Logs shows lines with source `layerfs`.
 

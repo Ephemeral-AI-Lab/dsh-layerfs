@@ -1,17 +1,17 @@
 /**
  * What a call printed (docs/specs/layerfs-logs.md "Outputs"): one JSON file per
- * call this plugin made with a `dsh:` tag, in `$DSH_HOME/layerfs/trace/outputs/`
+ * call this plugin made with a `dsh:` tag, in `<state>/trace/outputs/`
  * (directory 0700, files 0600), named by a hash of the tag and holding a
  * {@link CallOutput}. LayerFS's own call log never stores output; this store is
  * local to this machine, bounded, and cleared by Reset.
  *
  * `outputSink`, `outputRecord`, `outputName` and `writeOutput` are
  * self-contained (no imports, no module references) because the managed
- * `agent-bin/layerfs` wrapper embeds their source.
+ * `bin/sdk.mjs` module embeds their source.
  */
 import { createHash } from 'node:crypto'
 import * as fs from 'node:fs'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { isDshTag, OUTPUT_MAX, TAG_MAX, type CallOutput, type LogsOutputAnswer } from '../../shared/logs.ts'
 
 /** Store bounds: at most this many files and bytes, oldest pruned first. */
@@ -134,8 +134,8 @@ export function writeOutput(fsm: any, dir: string, name: string, record: object,
 
 export const DEFAULT_BOUNDS: OutputBounds = { files: OUTPUT_FILES, bytes: OUTPUT_BYTES, every: PRUNE_EVERY }
 
-/** `<root>/trace/outputs`, next to the stand-in call log `<root>/trace/calls.jsonl`. */
-export const outputsDir = (callLog: string): string => join(dirname(callLog), 'outputs')
+/** `<state>/trace/outputs`: the plugin state's call outputs. */
+export const outputsDir = (state: string): string => join(state, 'trace', 'outputs')
 
 /** Whether a tag may name a stored output: a `dsh:` tag of at most 128 bytes, no control characters. */
 export function validOutputTag(tag: unknown): tag is string {
@@ -148,12 +148,12 @@ export function saveOutput(dir: string, record: CallOutput, bounds: OutputBounds
   return validOutputTag(record.tag) && writeOutput(fs, dir, outputName(createHash, record.tag), record, bounds)
 }
 
-/** Whether a tag has a stored output (a record, or a native-mode call's raw files). */
+/** Whether a tag has a stored output (a record, or a shell call's raw files). */
 export function hasOutput(dir: string, tag: string | undefined): boolean {
   return validOutputTag(tag) && (fs.existsSync(join(dir, outputName(createHash, tag))) || fs.existsSync(`${rawBase(dir, tag)}.out`))
 }
 
-/** `logs.output {tag}`: the stored record, else the raw files of a native-mode shell call, else `{ missing: true }`. */
+/** `logs.output {tag}`: the stored record, else the raw files of an agent shell call, else `{ missing: true }`. */
 export function readOutput(dir: string, tag: string): LogsOutputAnswer {
   try {
     const record = JSON.parse(fs.readFileSync(join(dir, outputName(createHash, tag)), 'utf8'))
@@ -162,11 +162,10 @@ export function readOutput(dir: string, tag: string): LogsOutputAnswer {
   return readRaw(dir, tag) ?? { missing: true }
 }
 
-// ------------------------------------------------- raw outputs (native mode)
+// ------------------------------------------------------------ raw outputs
 
 /**
- * With LayerFS's own call log the agent's `layerfs` is a bash script, not node
- * (`managedCli`): it tees the CLI's stdout and stderr to `<dir>/raw/<tag>.out`
+ * The agent's `layerfs` is a bash script, not node (`managedCli`): it tees the CLI's stdout and stderr to `<dir>/raw/<tag>.out`
  * and `.err` and writes the exit code to `.exit` when the call ends, the tag
  * with every character outside `[A-Za-z0-9._-]` as `_`. `readOutput` reads
  * those files until `compactRaw` turns a finished call into its record.

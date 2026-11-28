@@ -106,8 +106,6 @@ export interface ReceiptMeta {
   cap: number
   /** `dropped > 0`. */
   truncated: boolean
-  /** The newest legacy receipt a migration folded (crash-retry watermark). */
-  foldedThrough?: string
 }
 
 /**
@@ -436,12 +434,12 @@ export interface TrajectoryDetail {
 }
 
 /**
- * The call log's `kind` vocabulary (docs/specs/layerfs-logs.md §4): the pinned
- * CLI names a save's result in lower case (`committed`, `unchanged`, `forked`,
- * …; its `home log --detail` reports it as `outcome`), while the plugin's
- * stand-in wrote the same word capitalized (`Committed`, `UpToDate`, `Forked`,
- * …). The families are the same, so every reader normalizes before comparing
- * and displays {@link displayKind}'s canonical word.
+ * The `kind` vocabulary (docs/specs/layerfs-logs.md §4): the pinned CLI names a
+ * save's result in lower case (`committed`, `unchanged`, `forked`, …; its
+ * `home log --detail` reports it as `outcome`), while receipts keep the
+ * capitalized display word (`Committed`, `UpToDate`, `Forked`, …). The
+ * families are the same, so every reader normalizes before comparing and
+ * displays {@link displayKind}'s canonical word.
  *
  * Normalization: camel-case is split, then case is dropped and separators
  * (`-`, `_`, spaces) become one `-`; `uptodate`/`nochanges` fold to the same

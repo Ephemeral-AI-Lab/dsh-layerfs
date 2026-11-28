@@ -51,8 +51,7 @@ import { existsSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { CliError, pages } from '../layerfs/cli.ts'
-import { notifyCallLog } from '../layerfs/call-log.ts'
-import { outputsDir, readOutput } from '../layerfs/call-output.ts'
+import { readOutput } from '../layerfs/call-output.ts'
 import { exitOfOutput, fastForwardOfOutput, RECEIPT_META, receiptFromLine, receiptMetaOf, toolScope, traceEnvironment, withReceiptMeta, withTraceContext, type Invocation, type TraceIdentity } from '../layerfs/tracing.ts'
 import { callsSince } from '../logs/source.ts'
 import { parseTag, TAG_PREFIX } from '../../shared/logs.ts'
@@ -79,7 +78,7 @@ const need = (args: any, key: string): string => {
 }
 
 /**
- * `<root>/agent-bin/layerfs`: the `layerfs` command agents get in bash. A thin wrapper
+ * `<state>/bin/layerfs`: the `layerfs` command agents get in bash. A thin wrapper
  * that exports this plugin's LayerFS home (and bundle) and execs the pinned
  * CLI — model shell calls get a scrubbed environment, so the home cannot come
  * from the host process's own env. Rewritten when the pin changes.
@@ -171,8 +170,7 @@ export function apply(ctx: Context): void {
     }
     // A successful host read inside a tool call folds into the session's counter.
     // Resolve the persistence service through this context: it is a separate
-    // bundle with its own tracing module, so its `setReceiptAggregate` cannot
-    // reach the calls traced here.
+    // bundle with its own tracing module.
     const aggregate = async (invocation: Invocation): Promise<void> => {
       const persistence = ctx.get('sessionPersistence' as never) as any
       if (persistence?.aggregateInvocation) await persistence.aggregateInvocation(invocation)
@@ -180,7 +178,7 @@ export function apply(ctx: Context): void {
     /**
      * Receipts of calls the host did not see itself (agent shells' managed CLI):
      * the call log lines tagged `dsh:<sessionId>:<scope>.…` since each tool call
-     * started, from whichever source is active, deduped by receipt id.
+     * started, from LayerFS's call log, deduped by receipt id.
      */
     type ToolCall = { identity: TraceIdentity, since: number }
     const turnCalls = new Map<string, ToolCall[]>()
@@ -199,9 +197,9 @@ export function apply(ctx: Context): void {
         if (!call) continue
         known.add(tag.receiptId)
         // The line has no exit code; a `workspace exec` call's stored output holds it in its final frame.
-        const exit = line.argv[0] === 'workspace' && line.argv[1] === 'exec' && line.tag ? exitOfOutput(readOutput(outputsDir(ctx.layerfs.callLog), line.tag), line.argv.includes('--stream')) : undefined
+        const exit = line.argv[0] === 'workspace' && line.argv[1] === 'exec' && line.tag ? exitOfOutput(readOutput(ctx.layerfs.outputs, line.tag), line.argv.includes('--stream')) : undefined
         // Nor `fast_forward`: a merge's stored answer tells a new merge Commit from a moved pointer.
-        const fastForward = line.argv[0] === 'branch' && line.argv[1] === 'merge' && normalizeKind(line.kind ?? '') === 'merged' && line.tag ? fastForwardOfOutput(readOutput(outputsDir(ctx.layerfs.callLog), line.tag)) : undefined
+        const fastForward = line.argv[0] === 'branch' && line.argv[1] === 'merge' && normalizeKind(line.kind ?? '') === 'merged' && line.tag ? fastForwardOfOutput(readOutput(ctx.layerfs.outputs, line.tag)) : undefined
         await record(receiptFromLine(line, call.identity, tag.receiptId, exit, fastForward))
       }
     }
@@ -233,8 +231,6 @@ export function apply(ctx: Context): void {
         return await withTraceContext({ ...identity, record, aggregate, onError: (e) => ctx.logger('layerfs').warn('record invocation: %s', String(e)) }, next)
       } finally {
         await collect(id, [call]).catch((e) => ctx.logger('layerfs').warn('collect invocations: %s', String(e)))
-        // Agent shells' wrappers append stand-in lines in their own processes.
-        if (!(await ctx.layerfs.nativeLogs().catch(() => true))) notifyCallLog(ctx.layerfs.callLog)
       }
     })
     const store = new SessionStore(ctx, sessions)

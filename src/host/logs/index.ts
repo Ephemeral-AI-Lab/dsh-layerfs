@@ -11,24 +11,22 @@
  *   logs.project {project, sandboxes?, limit?}
  *                            one project's calls, newest first and labelled: the
  *                            lines naming it and those on its Sandboxes (`projectCalls`)
- *   logs.reset {}            clear the history (the active source's) and the stored outputs
+ *   logs.reset {}            clear LayerFS's call log and the stored outputs
  *   logs.output {tag}        what one call made through DSH printed (`CallOutput`),
  *                            or `{missing: true}` when none is kept
  *
- * Event: `logs` after stand-in appends (at most once a second).
+ * Event: `logs` when a call's output lands in `trace/outputs/` (at most once a second).
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { mkdirSync, watch, type FSWatcher } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { HOST_SESSION, isDshTag, LOGS_EVENT, parseSimTag, parseTag, sessionTag, TAG_PREFIX, type CallLabel, type CallLine, type LabeledLine, type LogsListArgs, type LogsListAnswer, type LogsOutputAnswer, type LogsProjectAnswer } from '../../shared/logs.ts'
-import { matches, onCallLogAppend } from '../layerfs/call-log.ts'
-import { compactRaw, hasOutput, outputsDir, RAW_DIR, RAW_SETTLE_MS, readOutput, validOutputTag } from '../layerfs/call-output.ts'
+import { compactRaw, hasOutput, RAW_DIR, RAW_SETTLE_MS, readOutput, validOutputTag } from '../layerfs/call-output.ts'
 
 /** Finished raw outputs are compacted into records at most this often. */
 const COMPACT_MS = 10_000
 import type { Checkpoint } from '../sessions/state.ts'
-import { callsSince, listArgs, projectCalls, readCalls, resetCalls, type CallPage } from './source.ts'
-import { readNewCallTags, type Cursor } from './new-lines.ts'
+import { callsSince, listArgs, matches, projectCalls, readCalls, resetCalls, type CallPage } from './source.ts'
 
 export const name = 'dsh-layerfs-logs'
 export const inject = ['layerfs', 'layerfsRemote']
@@ -183,8 +181,8 @@ async function importedLines(ctx: Context, sessionId: string, args: LogsListArgs
 }
 
 /**
- * `logs.list`: one page from the active source; for a session tag, once that
- * source has no more lines, the session's imported receipts follow
+ * `logs.list`: one page of LayerFS's call log; for a session tag, once that
+ * log has no more lines, the session's imported receipts follow
  * (`source: 'receipt'`, paged by a `receipt:<offset>` cursor).
  */
 export async function listPage(ctx: Context, args: LogsListArgs): Promise<{ page: CallPage, receipts: number }> {
@@ -195,8 +193,7 @@ export async function listPage(ctx: Context, args: LogsListArgs): Promise<{ page
     if (!sessionId || !Number.isInteger(from) || from < 0) throw Object.assign(new Error('The log cursor is not valid; list from the start'), { code: 'InvalidInput' })
     const all = await importedLines(ctx, sessionId, args)
     const lines = all.slice(from, from + limit), more = from + lines.length < all.length
-    const source = (await ctx.layerfs.nativeLogs()) ? 'layerfs' as const : 'plugin' as const
-    return { page: { lines, ...(more ? { next: `${RECEIPT_CURSOR}${from + lines.length}` } : {}), has_more: more, skipped: 0, source }, receipts: lines.length }
+    return { page: { lines, ...(more ? { next: `${RECEIPT_CURSOR}${from + lines.length}` } : {}), has_more: more, skipped: 0, source: 'layerfs' }, receipts: lines.length }
   }
   const page = await readCalls(ctx.layerfs, args)
   if (!sessionId || page.has_more) return { page, receipts: 0 }
@@ -207,72 +204,21 @@ export async function listPage(ctx: Context, args: LogsListArgs): Promise<{ page
 }
 
 export function apply(ctx: Context): void {
-  // Stand-in appends (this process, or agent shells' wrappers) → one `logs` event a second at most.
+  // A call's end shows as its output (LayerFS writes the call log line itself): the agent shell's raw
+  // `.exit` (bash wrapper), the SDK's record or the host's own. One `logs` event a second at most.
   let timer: NodeJS.Timeout | undefined, dirty = false
-  // Which session and project the appended lines belong to, when the window has
-  // exactly one of each; every other window announces plain growth (all views read).
-  let cursor: { value: Cursor | null } = { value: null }
-  let pendingTags: string[] = []
-  let pendingUnknown = false
-  /** The root session and project a traced session's calls belong to. */
-  const ownerOf = (id: string): { sessionId: string, project: string } | null => {
-    const state = (ctx.get('layerfsSessions' as never) as any)?.state?.read?.()
-    let cur = id
-    for (let i = 0; i < 8; i++) {
-      const b = state?.sessions?.[cur]
-      if (!b) return null
-      if (b.kind === 'shared' && b.parent) { cur = String(b.parent); continue }
-      return b.project ? { sessionId: cur, project: String(b.project) } : null
-    }
-    return null
-  }
-  const fire = (options: { unknown?: boolean } = {}) => {
-    if (timer) { dirty = true; if (options.unknown) pendingUnknown = true; else collect(); return }
-    collect()
-    // One root session and one project: the views of that session (or project) are
-    // the only ones that changed. Anything else — several sessions in the window,
-    // a rotation, an output write, an untagged line — wakes every open view.
-    let sessionId: string | undefined, project: string | undefined
-    if (!pendingUnknown && pendingTags.length) {
-      const owners = new Set<string>()
-      let root: string | undefined, proj: string | undefined
-      for (const tag of pendingTags) {
-        const session = sessionOfTag(tag)
-        const owner = session ? ownerOf(session) : null
-        if (!owner) { owners.clear(); root = undefined; break }
-        owners.add(`${owner.project}\u0000${owner.sessionId}`)
-        root = owner.sessionId; proj = owner.project
-      }
-      if (owners.size === 1 && root && proj) { sessionId = root; project = proj }
-    }
-    pendingTags = []
-    pendingUnknown = false
+  const fire = () => {
+    if (timer) { dirty = true; return }
     dirty = false
-    ctx.layerfs.emit(LOGS_EVENT, { at: Date.now(), ...(sessionId ? { sessionId, project } : {}) })
-    timer = setTimeout(() => { timer = undefined; if (dirty) { dirty = false; fire() } }, 1000)
+    ctx.layerfs.emit(LOGS_EVENT, { at: Date.now() })
+    timer = setTimeout(() => { timer = undefined; if (dirty) fire() }, 1000)
     timer.unref?.()
   }
-  const collect = () => {
-    const tags = readNewCallTags(ctx.layerfs.callLog, cursor)
-    if (tags === null) pendingUnknown = true
-    else if (tags.length) pendingTags.push(...tags)
-  }
   ctx.effect(() => () => { clearTimeout(timer); timer = undefined }, 'dsh-layerfs: logs event')
-  ctx.effect(() => onCallLogAppend(ctx.layerfs.callLog, fire), 'dsh-layerfs: logs appends')
-  ctx.effect(() => {
-    try {
-      mkdirSync(dirname(ctx.layerfs.callLog), { recursive: true, mode: 0o700 })
-      const watcher = watch(dirname(ctx.layerfs.callLog), (_event, file) => { if (!file || String(file).startsWith('calls')) fire() })
-      watcher.on('error', () => {})
-      watcher.unref?.()
-      return () => watcher.close()
-    } catch { return () => {} }
-  }, 'dsh-layerfs: logs watch')
-  // With LayerFS's own call log no stand-in line is appended, so a call's end shows as its output: the
-  // agent shell's raw `.exit` (bash wrapper) or the SDK's record. Finished raw calls become records
-  // (`compactRaw`) at most every `COMPACT_MS`: a raw `.exit` arms one trailing run once it has settled,
-  // so the last call of a burst is folded in too (records' own `.json` writes never re-arm it).
-  const outputs = outputsDir(ctx.layerfs.callLog)
+  // Finished raw calls become records (`compactRaw`) at most every `COMPACT_MS`: a raw `.exit` arms one
+  // trailing run once it has settled, so the last call of a burst is folded in too (records' own `.json`
+  // writes never re-arm it).
+  const outputs = ctx.layerfs.outputs
   let compactedAt = 0
   let pending: ReturnType<typeof setTimeout> | undefined
   const ended = (file: string | Buffer | null) => {
@@ -302,7 +248,7 @@ export function apply(ctx: Context): void {
   ctx.layerfsRemote.operate(ctx, {
     'logs.list': async (args: any): Promise<LogsListAnswer> => {
       const { page, receipts } = await listPage(ctx, listArgs(args))
-      const lines = await label(ctx, page.lines, outputsDir(ctx.layerfs.callLog))
+      const lines = await label(ctx, page.lines, ctx.layerfs.outputs)
       const from = lines.length - receipts
       return { ...page, lines: lines.map((line, index) => index >= from ? { ...line, source: 'receipt' as const } : line) }
     },
@@ -312,18 +258,15 @@ export function apply(ctx: Context): void {
       const known = Array.isArray(args?.sandboxes) ? args.sandboxes.filter((s: unknown): s is string => typeof s === 'string' && !!s) : []
       const limit = Number.isFinite(args?.limit) ? Math.max(1, Math.min(2000, Math.floor(args.limit))) : 500
       const page = await projectCalls(ctx.layerfs, project, known, limit)
-      return { ...page, lines: await label(ctx, page.lines, outputsDir(ctx.layerfs.callLog)) }
+      return { ...page, lines: await label(ctx, page.lines, ctx.layerfs.outputs) }
     },
     'logs.output': async (args: any): Promise<LogsOutputAnswer> => {
       const tag = args?.tag
       if (!validOutputTag(tag)) throw Object.assign(new Error('logs.output needs the dsh: tag of a call made through DSH'), { code: 'InvalidInput' })
-      return readOutput(outputsDir(ctx.layerfs.callLog), tag)
+      return readOutput(ctx.layerfs.outputs, tag)
     },
     'logs.reset': async () => {
       const answer = await resetCalls(ctx.layerfs)
-      cursor = { value: null }
-      pendingTags = []
-      pendingUnknown = true
       ctx.layerfs.emit(LOGS_EVENT, { at: Date.now() })
       return answer
     },

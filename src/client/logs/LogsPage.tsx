@@ -386,7 +386,7 @@ export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api:
         <ConfirmDialog
           onClose={() => setConfirming(false)}
           title={t('confirmReset')}
-          body={t(data?.source === 'layerfs' ? 'confirmResetLayerfs' : 'confirmResetPlugin')}
+          body={t('confirmResetLayerfs')}
           action={t('resetAction')}
           labels={{ cancel: t('cancel'), close: t('close'), refusal: labels }}
           run={reset}

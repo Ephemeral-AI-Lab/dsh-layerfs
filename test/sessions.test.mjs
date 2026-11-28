@@ -1554,7 +1554,7 @@ test('sessions.list rows carry the branch kind too, from the row\'s branch and i
   state.sessions.plain = row('plain', 'feature/x', 4)
   const ops = {}
   const ctx = {
-    layerfs: { state: '/lfs-root', lfs: {}, emit() {}, callLog: {} },
+    layerfs: { state: '/lfs-root', lfs: {}, emit() {}, outputs: '/lfs-root/trace/outputs' },
     layerfsSessions: { state: { read: () => state } },
     layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
     plugin() {},
@@ -1591,7 +1591,7 @@ test('sessions.places: a second batch in the window reuses project ids, and ids 
   f.s.ctx.get = (name) => name === 'sessionPersistence' ? persistence : undefined
   const ops = {}
   const ctx = {
-    layerfs: { state: '/lfs-root', lfs: {}, emit() {}, callLog: {} },
+    layerfs: { state: '/lfs-root', lfs: {}, emit() {}, outputs: '/lfs-root/trace/outputs' },
     layerfsSessions: f.s,
     layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
     plugin() {},
@@ -1626,7 +1626,7 @@ test('sessions.places: one read-only batch over placeOfId and projectIdOf; bad i
   const projectIds = { live: 'pid-1' }
   const ops = {}
   const ctx = {
-    layerfs: { state: '/lfs-root', lfs: {}, emit() {}, callLog: {} },
+    layerfs: { state: '/lfs-root', lfs: {}, emit() {}, outputs: '/lfs-root/trace/outputs' },
     layerfsSessions: { state: { read: () => S.initialState() }, placeOfId: (id) => places[id] ?? null },
     layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
     plugin() {},
@@ -1668,7 +1668,7 @@ test('sessions.list reads each session\'s log and sidecar once per call', async 
   }
   const ops = {}
   const ctx = {
-    layerfs: { state: '/lfs-root', lfs: { branch: { list: async () => ({ items: [] }) } }, emit() {}, callLog: {} },
+    layerfs: { state: '/lfs-root', lfs: { branch: { list: async () => ({ items: [] }) } }, emit() {}, outputs: '/lfs-root/trace/outputs' },
     layerfsSessions: sessions({ state }).s,
     layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
     plugin() {}, inject: (deps, callback) => { if (deps.includes('layerfsSessions')) callback(ctx) }, on() {}, effect() {},
@@ -1722,7 +1722,7 @@ test('a cold sessions.list answers known rows at once, then the walk lands and i
   const ops = {}
   const events = []
   const ctx = {
-    layerfs: { state: '/lfs-root', lfs, emit: (type, data) => events.push({ type, data }), callLog: {} },
+    layerfs: { state: '/lfs-root', lfs, emit: (type, data) => events.push({ type, data }), outputs: '/lfs-root/trace/outputs' },
     layerfsSessions: f.s,
     layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
     plugin() {}, inject: (deps, callback) => { if (deps.includes('layerfsSessions')) callback(ctx) }, on() {}, effect() {},
@@ -1791,7 +1791,7 @@ test('session.annotations answers sidecar metadata only; session.receipts pages 
     },
   }
   const ctx = {
-    layerfs: { state: '/lfs-root', lfs: {}, emit() {}, callLog: {} },
+    layerfs: { state: '/lfs-root', lfs: {}, emit() {}, outputs: '/lfs-root/trace/outputs' },
     layerfsSessions: {},
     layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
     plugin() {},

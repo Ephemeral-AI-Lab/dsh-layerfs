@@ -115,7 +115,6 @@ const en = {
   emptyTagBody: 'The session may have been imported from another machine, or the log was reset since.',
   // reset
   confirmReset: 'Reset the call log?',
-  confirmResetPlugin: 'Every call recorded through DSH on this machine is removed. Checkpoints and saved versions are kept.',
   confirmResetLayerfs: 'The call history of this LayerFS home is cleared for every client that uses it (DSH, LayerFS Connect, terminals and scripts). Checkpoints and saved versions are kept.',
   resetAction: 'Reset',
   resetting: 'Resetting…',
@@ -239,7 +238,6 @@ const zh: typeof en = {
   emptyTag: '这些调用不在本机的日志中',
   emptyTagBody: '该会话可能是从其他机器导入的，或者此后日志已被重置。',
   confirmReset: '重置调用日志？',
-  confirmResetPlugin: '将删除本机通过 DSH 记录的所有调用。检查点和已保存的版本会保留。',
   confirmResetLayerfs: '将为使用此 LayerFS 主目录的所有客户端（DSH、LayerFS Connect、终端和脚本）清除调用历史。检查点和已保存的版本会保留。',
   resetAction: '重置',
   resetting: '正在重置…',
