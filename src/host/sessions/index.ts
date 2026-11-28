@@ -44,7 +44,6 @@
  *   checkpoints.restore {sessionId, commit}
  *   checkpoints.branch {sessionId, commit, turn}
  */
-import { retireOldFolder } from '../migrate.ts'
 import { projectContext } from './prompt.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import { existsSync, statSync } from 'node:fs'
@@ -140,8 +139,6 @@ export function apply(ctx: Context): void {
   ctx.plugin(LayerfsSessions)
   ctx.inject(['layerfsSessions', 'layerfs', 'layerfsRemote', 'workspaceRegistry'], (ctx) => {
     const sessions = ctx.layerfsSessions
-    retireOldFolder(ctx.layerfs.state, ctx.workspaceRegistry as any, (message) => ctx.logger('layerfs').info(message))
-      .catch((error: any) => ctx.logger('layerfs').warn('dsh-layerfs: retiring the old folder failed: %s', error?.message ?? error))
     /*
      * Persistence seam (DIP-2, accepted before release). DSH's persistence is a
      * registry service, so the operations below reach it through
