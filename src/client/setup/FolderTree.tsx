@@ -17,6 +17,8 @@ import type { FolderContents, FolderEntry, FolderPart } from '../../shared/folde
 import type { SetupKey, SetupModalT } from './locale.ts'
 import type { SetupStatus } from './store.ts'
 import { countWords, relativeName } from './summary.ts'
+import { LayerfsGlyph } from '../overview/glyph.tsx'
+import { Whale } from '../views/marks.tsx'
 import css from './setup.module.css'
 
 type Home = 'home' | 'dsh'
@@ -70,6 +72,7 @@ export function FolderTree({ api, s, t, onError }: { api: LayerfsApi, s: SetupSt
         return (
           <li key={which} role="treeitem" aria-expanded={entries?.length ? isOpen : undefined} aria-label={relativeName(f.root, path)} className={css.treeNode} data-row={which}>
             <TreeLine name={relativeName(f.root, path)} line={t(which === 'home' ? 'folderHome' : 'folderDsh')}
+              icon={which === 'home' ? <LayerfsGlyph size={16} /> : <Whale size={18} />}
               meta={homeChips(which, entries, t, n)} warn={warn} path={path} t={t}
               chevron={entries?.length ? (isOpen ? 'open' : 'closed') : 'none'}
               onActivate={() => (entries?.length ? toggle() : open(which))} onOpen={() => open(which)}
@@ -91,8 +94,8 @@ export function FolderTree({ api, s, t, onError }: { api: LayerfsApi, s: SetupSt
   )
 }
 
-function TreeLine({ name, line, meta, warn, path, chevron, onActivate, onOpen, onKey, t }: {
-  name: string, line: string, meta?: ReactNode, warn?: boolean, path: string, chevron: 'open' | 'closed' | 'none' | 'leaf',
+function TreeLine({ name, icon, line, meta, warn, path, chevron, onActivate, onOpen, onKey, t }: {
+  name: string, icon?: ReactNode, line: string, meta?: ReactNode, warn?: boolean, path: string, chevron: 'open' | 'closed' | 'none' | 'leaf',
   onActivate: () => void, onOpen: () => void, onKey: (e: KeyboardEvent) => void, t: SetupModalT
 }): ReactNode {
   const [copied, setCopied] = useState(false)
@@ -107,6 +110,7 @@ function TreeLine({ name, line, meta, warn, path, chevron, onActivate, onOpen, o
       <span className={css.treeChevron} data-state={chevron} aria-hidden="true">
         {chevron === 'open' || chevron === 'closed' ? <IconChevronRightOutlineRegular size={12} /> : null}
       </span>
+      <span className={css.treeIcon} aria-hidden="true">{icon}</span>
       <span className={css.treeName}>{name}</span>
       <span className={css.treeText} data-warn={warn || undefined}>{line}</span>
       <span className={css.treeMeta}>{meta}</span>

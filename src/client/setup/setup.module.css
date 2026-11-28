@@ -412,7 +412,7 @@
 
 .treeLine {
   display: grid;
-  grid-template-columns: 16px max-content minmax(0, 1fr) max-content max-content;
+  grid-template-columns: 16px 18px max-content minmax(0, 1fr) max-content max-content;
   align-items: center;
   gap: 10px;
   min-height: 40px;
@@ -443,6 +443,13 @@
 }
 
 .treeChevron[data-state='open'] { transform: rotate(90deg); }
+
+/* the home's mark (LayerFS, the DSH whale); a folder inside a home keeps the column empty so names line up */
+.treeIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
 
 .treeName {
   font-family: var(--ds-font-family-code);
