@@ -46,9 +46,14 @@ const blocks = (css, head) => {
 
 // ---------------------------------------------------------------- 1. public seams only
 
+// The one exception the user allowed (2026-11-28): the LayerFS view switch in
+// DSH's Workspaces header, which has no slot. Nothing else may join this list.
+const HEADER_SWITCH = ['src/client/projects/WorkspacesView.tsx', 'src/client/projects/workspaces.module.css']
+
 test('no plugin stylesheet or script matches class names by substring (DSH hashed classes)', () => {
   const offenders = []
   for (const { path, text } of sources(/\.(css|tsx?)$/)) {
+    if (HEADER_SWITCH.includes(path)) continue
     for (const [n, line] of text.split('\n').entries()) {
       if (/\[class\s*[*^$|~]?=/.test(line)) offenders.push(`${path}:${n + 1}: ${line.trim()}`)
     }

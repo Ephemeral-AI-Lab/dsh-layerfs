@@ -58,6 +58,18 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+/* Our span in DSH's Workspaces header, just before its actions row. */
+.host {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+
+/* The stock header hides its actions while search is open; the switch goes with them. */
+:global([class*="_sectionHeader"]:has([class*="_searchExpanded"])) > .host {
+  display: none;
+}
+
 .switchOn {
   background: var(--dsw-alias-interactive-bg-active);
   color: var(--dsw-alias-label-primary);
@@ -91,3 +103,40 @@
   height: 44px;
 }
 
+
+/* In DSH's header the switch matches DSH's own 28 px icon buttons (the header is 36 px and clips). */
+.host .switch {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+}
+
+/* With a mouse, the LayerFS header takes the stock header's geometry (36 px
+   row, 28 px buttons 4 px apart) so the switch stays put between views; touch
+   keeps the 44 px targets above. */
+@media (pointer: fine) {
+  .header {
+    height: 36px;
+    margin: 2px 0 4px;
+    /* measured against the stock row: its last button ends one sidebar inset plus 1 px from the edge */
+    padding-right: calc(var(--dsh-sidebar-inline-padding, 8px) + 1px);
+  }
+
+  .label {
+    position: relative;
+    left: -1px;
+  }
+
+  .actions {
+    gap: 4px;
+  }
+
+  .actions .switch,
+  .actions .newMenu {
+    width: 28px;
+    min-width: 28px;
+    height: 28px;
+    min-height: 28px;
+  }
+}
