@@ -1159,21 +1159,17 @@ test('Presets Reset deletes this home\'s project sessions only; loaded ones are 
   assert.ok(f.events.some((e) => e.type === 'layerfs-workspaces-changed' && e.data.project === 'demo/app'))
 })
 
-test('Remove on a Removed project deletes its conversations only while LayerFS has no such project', async () => {
+function removeFixture() {
   const state = S.initialState()
-  state.sessions.bound = { sessionId: 'bound', kind: 'project', project: 'gone/app', sandbox: 'dsh-bound', anchor: '/a', scratch: '/s', state: 'failed' }
+  state.sessions.bound = { sessionId: 'bound', kind: 'project', project: 'demo/app', sandbox: 'dsh-bound', anchor: '/a', scratch: '/s', state: 'closed' }
   state.sessions.other = { sessionId: 'other', kind: 'project', project: 'live/app', anchor: '/a', scratch: '/s', state: 'closed' }
-  state.pending.draft = { project: 'gone/app' }
-  const live = new Set(['live/app'])
-  const asked = [], deleted = []
-  const notFound = (key) => Object.assign(new Error(`no project ${key}`), { code: 'NotFound' })
-  const f = sessions({ state, lfs: {
-    project: { get: async (key) => { asked.push(key); if (!live.has(key)) throw notFound(key); return { project: key } } },
-    sandbox: { remove: async () => ({ ok: true }) },
-  } })
-  // An owner route under an old address that carries the same project identity.
-  const owners = { routed: { project: 'gone/app' }, renamed: { project: 'gone/old-name' }, foreign: { project: 'live/app' } }
-  const ids = { routed: 'P1', renamed: 'P1', foreign: 'P2', bound: 'P1' }
+  state.sessions.folder = { sessionId: 'folder', kind: 'folder', anchor: '/a', scratch: '/s', state: 'closed' }
+  state.pending.draft = { project: 'demo/app' }
+  const deleted = [], closed = []
+  const f = sessions({ state, lfs: { sandbox: { remove: async (name) => { closed.push(name); return { ok: true } } } } })
+  // `renamed` routes to the project's old address; `reused` is another project that took its address since.
+  const owners = { routed: { project: 'demo/app' }, renamed: { project: 'demo/old-name' }, reused: { project: 'demo/app' }, foreign: { project: 'live/app' } }
+  const ids = { routed: 'P1', renamed: 'P1', reused: 'P9', foreign: 'P2', bound: 'P1' }
   const persistence = {
     ownedSessionIds: () => Object.keys(owners),
     ownerOf: (id) => owners[id],
@@ -1186,16 +1182,29 @@ test('Remove on a Removed project deletes its conversations only while LayerFS h
     workspaceRegistry: { archiveSession: async () => {} },
   })
   Object.defineProperty(f.s, 'store', { value: { forget: () => {} } })
-  await assert.rejects(f.s.deleteRemovedProjectConversations('live/app'), /still has project live\/app/, 'a live project is refused')
-  assert.deepEqual(deleted, [])
-  const removed = await f.s.deleteRemovedProjectConversations('gone/app', 'P1')
-  assert.deepEqual(removed, ['bound', 'draft', 'renamed', 'routed'])
-  assert.deepEqual(asked.filter((k) => k !== 'live/app').sort(), ['gone/app', 'gone/old-name'], 'every address is checked gone first')
-  assert.deepEqual(Object.keys(f.state().sessions), ['other'])
+  return { ...f, deleted, closed }
+}
+
+test('Remove on a project row deletes its conversations by identity, live project or not', async () => {
+  const f = removeFixture()
+  const removed = await f.s.deleteConversationsOfProject('demo/app', 'P1')
+  assert.deepEqual(removed, ['bound', 'draft', 'renamed', 'routed'], 'by identity, plus the address for a conversation that records none')
+  assert.deepEqual(f.deleted.sort(), removed)
+  assert.deepEqual(f.closed, ['dsh-bound'])
+  assert.deepEqual(Object.keys(f.state().sessions).sort(), ['folder', 'other'])
   assert.deepEqual(f.state().pending, {})
-  live.add('gone/old-name')
-  owners.again = { project: 'gone/old-name' }; ids.again = 'P1'
-  await assert.rejects(f.s.deleteRemovedProjectConversations('gone/app', 'P1'), /still has project gone\/old-name/, 'an identity now live elsewhere is refused')
+  const g = removeFixture()
+  assert.deepEqual(await g.s.deleteConversationsOfProject('demo/app'), ['bound', 'draft', 'reused', 'routed'], 'without an identity the address decides')
+})
+
+test('Delete on a conversation row deletes that project conversation only', async () => {
+  const f = removeFixture()
+  assert.deepEqual(await f.s.deleteConversation('renamed'), ['renamed'])
+  assert.deepEqual(await f.s.deleteConversation('bound'), ['bound'])
+  assert.deepEqual(f.deleted, ['renamed', 'bound'])
+  assert.deepEqual(Object.keys(f.state().sessions).sort(), ['folder', 'other'])
+  await assert.rejects(f.s.deleteConversation('folder'), /not a LayerFS project conversation/, 'a DSH folder conversation is not ours to delete')
+  await assert.rejects(f.s.deleteConversation('nope'), /not a LayerFS project conversation/)
 })
 
 // ---------------------------------------------------------------- checkpoint receipts

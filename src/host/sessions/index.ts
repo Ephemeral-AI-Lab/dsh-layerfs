@@ -912,13 +912,15 @@ export function apply(ctx: Context): void {
         ctx.layerfs.emit('layerfs-session', { sessionId: id })
         return { sessionId: id, archived: true }
       },
-      // The sidebar's Remove on a Removed project row: its conversations on this
-      // DSH are deleted for good (refused while LayerFS still has the project).
+      // The sidebar's Remove on a project row: its conversations on this DSH are
+      // deleted for good; the project itself stays (or is already gone).
       'projects.removeConversations': async (args: any) => {
         const project = need(args, 'project')
         const projectId = typeof args?.projectId === 'string' && args.projectId ? args.projectId : undefined
-        return { project, deleted: await sessions.deleteRemovedProjectConversations(project, projectId) }
+        return { project, deleted: await sessions.deleteConversationsOfProject(project, projectId) }
       },
+      // A project conversation row's Delete: that conversation, for good.
+      'sessions.delete': async (args: any) => ({ deleted: await sessions.deleteConversation(need(args, 'sessionId')) }),
       // One batch for every row mark and chip (the client's ownership store):
       // the same read-only lookups `session.place` uses, no mutation, no observe.
       'sessions.places': (args: any) => {
