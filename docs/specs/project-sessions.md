@@ -60,32 +60,35 @@ path from another machine.
 
 ## 3. Storage locations
 
-The project-session home defaults to `<DSH_HOME>/layerfs/project-sessions`
-(it was `~/.layerfs/dsh`, which is now inside the LayerFS home; see
-`homes.md`). Normal sessions remain in `<DSH_HOME>/sessions`.
+The project-session home is `<state>/sessions`, in the DSH x LayerFS home
+(`~/.layerfs/dsh`, see `layerfs-folder.md`). Normal sessions remain in
+`<DSH_HOME>/sessions`.
 
 ```text
-<DSH_HOME>/layerfs/project-sessions/
- └─ projects/<project-id>/
-     └─ sessions/<session-id>/
-         ├─ <standard DSH session files>
-         └─ layerfs.json
+~/.layerfs/dsh/sessions/
+ ├─ owners.json  deleted.json  projects.json  state.json  backups/
+ └─ store/<cwd-key>/<session-id>/
+     ├─ <standard DSH session files>
+     └─ layerfs/
+         ├─ binding.json
+         └─ calls.jsonl
 
 <DSH_HOME>/sessions/
  └─ <standard normal-session files>
 ```
 
-`<project-id>` is the project's UUID (§11, "Project identity"), so a directory
-name never comes from a display name and a recreated project with the same name
-never shares a directory with the old one.
+One stock backend holds every project's logs; `owners.json` names each
+session's project by its UUID (§11, "Project identity"), never by a folder name,
+so a recreated project with the same name never shares a conversation with the
+old one.
 
-The standard DSH files are the local durable conversation log. `layerfs.json` is
+The standard DSH files are the local durable conversation log. `layerfs/binding.json` is
 an additive sidecar for project identity, operation receipts, checkpoint links,
 and archive progress. Machine-local mount handles and folder preferences remain
 local and are excluded from portable session identity.
 
-The stock backend retains its native cwd partition beneath each project's
-`sessions/` root. The on-disk directory is therefore that backend's native
+The stock backend retains its native cwd partition beneath `store/` (project
+sessions start in the Scratch folder, so new ones share one `<cwd-key>`). The on-disk directory is therefore that backend's native
 layout, rather than a new session-file naming scheme. `owners.json` in the
 project-session home routes session IDs to project identities independently of
 DSH's workspace metadata. Owners recorded before project UUIDs keep their
@@ -350,7 +353,7 @@ ownership must not be inferred from a folder path.
 
 1. Normal sessions retain stock DSH storage and execution behavior.
 2. Project sessions are owned and listed by project, with local logs under the
-   configured project-session home, defaulting to `<DSH_HOME>/layerfs/project-sessions`.
+   project-session home `<state>/sessions`.
 3. An existing DSH workspace can serve as scratch for a project session without
    changing ownership or affecting normal sessions using the same folder.
 4. Project logs open using the standard DSH format without LayerFS annotations;

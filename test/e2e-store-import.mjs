@@ -119,9 +119,12 @@ try {
   const receiptLog = await B.op('logs.list', { tag: `dsh:${sid}:`, limit: 1000 })
   const execLine = receiptLog.lines.find((line) => line.tag === exec.tag)
   console.log({ lines: receiptLog.lines.length, sources: [...new Set(receiptLog.lines.map((line) => line.source ?? 'log'))] })
-  assert.ok(receiptLog.lines.length > 0 && receiptLog.lines.every((line) => line.source === 'receipt'), 'B has no line of its own: every line comes from a receipt')
+  // With LayerFS's native log the two servers read one call log (they share the home), so A's lines are B's too;
+  // only the per-install stand-in log leaves B with receipts alone.
+  if (receiptLog.source === 'plugin') assert.ok(receiptLog.lines.length > 0 && receiptLog.lines.every((line) => line.source === 'receipt'), 'B has no line of its own: every line comes from a receipt')
+  else assert.ok(receiptLog.lines.length > 0, 'the shared native log has the session\'s lines')
   assert.equal(execLine?.at, exec.at); assert.deepEqual(execLine.argv, exec.argv)
-  assert.equal(execLine.dsh?.toolCallId, exec.toolCallId, 'receipt lines are labelled with their tool call')
+  assert.equal(execLine.dsh?.toolCallId, exec.toolCallId, 'lines are labelled with their tool call')
   await B.page.waitForTimeout(2500)
   await B.page.getByText('done: 1 commands').first().waitFor({ timeout: 20000 })
 

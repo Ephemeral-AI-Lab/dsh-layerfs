@@ -134,7 +134,7 @@ export interface SessionsState {
    * person picked for a PostgreSQL project's Sandbox (spec v23: a session's
    * own choice, never Store-wide); forked sessions also record where their
    * files start. */
-  pending: Record<string, { project: string, machine?: string, commit?: string | null, branch?: string | null, session?: string, turn?: number, simulation?: SimulationBinding }>
+  pending: Record<string, { project: string, machine?: string, commit?: string | null, branch?: string | null, session?: string, turn?: number, simulation?: SimulationBinding, /** A folder picked as scratch before the first turn. */ scratch?: string }>
 }
 
 export const initialState = (): SessionsState => ({ version: 1, projects: {}, sessions: {}, checkpoints: {}, mirror: {}, pending: {} })

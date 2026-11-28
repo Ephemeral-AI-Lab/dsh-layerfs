@@ -3,14 +3,15 @@
 # Two owners: LayerFS projects own project sessions; DSH workspaces own normal
 # sessions. A project's selected local folder is scratch, on every machine.
 #
-# - `layerfs`: the plugin (host services + browser half). `root` holds this
-#   DSH install's plugin state; the LayerFS home (`home`, default ~/.layerfs)
-#   is LayerFS's own and holds its runtime and secrets (docs/specs/homes.md);
+# - `layerfs`: the plugin (host services + browser half). Its state is the DSH
+#   x LayerFS home `<folder>/dsh` and LayerFS's home is `<folder>` (the LayerFS
+#   folder, default ~/.layerfs; docs/specs/layerfs-folder.md). An older
+#   `$DSH_HOME/layerfs` is moved there on first start;
 #   `scratchProject` names the project sessions bound to the Scratch project
 #   used before folder sessions became plain.
 # - `session-persistence-jsonl` is replaced by an owner router over stock JSONL:
 #   normal sessions keep the original root; project logs are unpacked under
-#   $DSH_HOME/layerfs/project-sessions (DSH_LAYERFS_SESSION_HOME/config.projectSessionHome override).
+#   <state>/sessions/store (state: the DSH x LayerFS home, default ~/.layerfs/dsh; docs/specs/layerfs-folder.md).
 #   Missing project sessions can be imported from the LayerFS archive.
 # - `sandbox-policy` is replaced by a subclass that makes a bound session's
 #   selected local folder its workspace-write root and allows project execution;
@@ -31,7 +32,6 @@
     - id: layerfs
       name: dsh-layerfs
       config:
-        root: !!js dshHomePath('layerfs')
         scratchProject: dsh-scratch/scratch
         checkpoints: turn
         idleMinutes: 30

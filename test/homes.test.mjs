@@ -1,6 +1,6 @@
-// The two homes (docs/specs/homes.md): LAYERFS_HOME holds LayerFS's records,
-// its runtime (runtime/<version>-<sha>/) and secrets (secret/); DSH_HOME holds
-// dsh-layerfs's own state.
+// The two homes (docs/specs/homes.md, placed by docs/specs/layerfs-folder.md):
+// LAYERFS_HOME holds LayerFS's records, its runtime (runtime/<version>-<sha>/)
+// and secrets (secret/); the LayerFS folder's dsh/ holds dsh-layerfs's own state.
 //   node --test test/homes.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -83,18 +83,25 @@ test('runtime install: a different daemon or bundle for the same CLI is refused,
   } finally { f.done() }
 })
 
-test('service defaults: the LayerFS home is ~/.layerfs-style and apart from DSH_HOME; secrets in <home>/secret; logs under <root>', () => {
+test('service defaults: the LayerFS home is the LayerFS folder (or its home/) and apart from DSH_HOME; secrets in <home>/secret; plugin state in <folder>/dsh', () => {
   const f = fixture()
-  const saved = { DSH_HOME: process.env.DSH_HOME, DSH_LAYERFS_HOME: process.env.DSH_LAYERFS_HOME, LAYERFS_HOME: process.env.LAYERFS_HOME, DSH_LAYERFS_CLI: process.env.DSH_LAYERFS_CLI, DSH_LAYERFS_SESSION_HOME: process.env.DSH_LAYERFS_SESSION_HOME, DSH_LAYERFS_SECRETS: process.env.DSH_LAYERFS_SECRETS }
+  const keys = ['DSH_HOME', 'DSH_LAYERFS_HOME', 'LAYERFS_HOME', 'DSH_LAYERFS_CLI', 'DSH_LAYERFS_SESSION_HOME', 'DSH_LAYERFS_SECRETS', 'DSH_LAYERFS_FOLDER', 'DSH_LAYERFS_STATE']
+  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]))
   try {
-    for (const k of Object.keys(saved)) delete process.env[k]
+    for (const k of keys) delete process.env[k]
     process.env.DSH_HOME = join(f.dir, 'dsh')
+    // never the real ~/.layerfs: the folder is a temp one (docs/specs/layerfs-folder.md §3)
+    const folder = join(f.dir, 'folder')
+    process.env.DSH_LAYERFS_FOLDER = folder
     process.env.LAYERFS_HOME = f.home
     const s = new H.LayerfsService(new H.Context(), {})
     assert.equal(s.home, f.home)
-    assert.equal(s.root, join(f.dir, 'dsh', 'layerfs'))
+    assert.equal(s.folder, folder)
+    assert.equal(s.state, join(folder, 'dsh'))
     assert.equal(s.secrets, join(f.home, 'secret'))
-    assert.equal(s.projectSessionHome, join(f.dir, 'dsh', 'layerfs', 'project-sessions'))
+    assert.equal(s.projectSessionHome, join(folder, 'dsh', 'sessions'))
+    assert.equal(s.callLog, join(folder, 'dsh', 'trace', 'calls.jsonl'))
+    assert.equal(JSON.parse(readFileSync(join(folder, 'dsh', 'dsh.json'), 'utf8')).owner, join(f.dir, 'dsh'))
     assert.equal(s.cli, null)
     // nothing pinned: the newest runtime installed in the home
     const a = H.installRuntime(f.home, '2.0.0', { cli: join(f.src, 'layerfs'), daemon: join(f.src, 'layerfs-daemon'), bundle: join(f.src, 'bundle', 'linux-aarch64') })
@@ -103,11 +110,15 @@ test('service defaults: the LayerFS home is ~/.layerfs-style and apart from DSH_
     // an explicit pin still wins
     const u = new H.LayerfsService(new H.Context(), { cli: join(f.src, 'layerfs') })
     assert.equal(u.cli, join(f.src, 'layerfs'))
-    // without LAYERFS_HOME the default is ~/.layerfs, never under DSH_HOME
+    // without LAYERFS_HOME the home is the folder itself, never under DSH_HOME
     delete process.env.LAYERFS_HOME
     const v = new H.LayerfsService(new H.Context(), {})
-    assert.match(v.home, /\/\.layerfs$/)
+    assert.equal(v.home, folder)
     assert.ok(!v.home.startsWith(process.env.DSH_HOME))
+    // ... or <folder>/home once a home is set up there
+    mkdirSync(join(folder, 'home'), { recursive: true })
+    writeFileSync(join(folder, 'home', 'layerfs.json'), '{}')
+    assert.equal(new H.LayerfsService(new H.Context(), {}).home, join(folder, 'home'))
   } finally {
     for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v }
     f.done()
@@ -211,10 +222,11 @@ test('runtime cleanup: removes nothing when a fact is missing, and never a symli
 
 test('runtime cleanup: the service keeps its pin and what machine.list names; an unreadable machine list removes nothing', async () => {
   const f = fixture()
-  const saved = { DSH_HOME: process.env.DSH_HOME, DSH_LAYERFS_HOME: process.env.DSH_LAYERFS_HOME, LAYERFS_HOME: process.env.LAYERFS_HOME, DSH_LAYERFS_CLI: process.env.DSH_LAYERFS_CLI, DSH_LAYERFS_DAEMON: process.env.DSH_LAYERFS_DAEMON, DSH_LAYERFS_BUNDLE: process.env.DSH_LAYERFS_BUNDLE, LAYERFS_BUNDLE: process.env.LAYERFS_BUNDLE }
+  const saved = { DSH_HOME: process.env.DSH_HOME, DSH_LAYERFS_HOME: process.env.DSH_LAYERFS_HOME, LAYERFS_HOME: process.env.LAYERFS_HOME, DSH_LAYERFS_CLI: process.env.DSH_LAYERFS_CLI, DSH_LAYERFS_DAEMON: process.env.DSH_LAYERFS_DAEMON, DSH_LAYERFS_BUNDLE: process.env.DSH_LAYERFS_BUNDLE, LAYERFS_BUNDLE: process.env.LAYERFS_BUNDLE, DSH_LAYERFS_FOLDER: process.env.DSH_LAYERFS_FOLDER, DSH_LAYERFS_STATE: process.env.DSH_LAYERFS_STATE }
   try {
     for (const k of Object.keys(saved)) delete process.env[k]
     process.env.DSH_HOME = join(f.dir, 'dsh')
+    process.env.DSH_LAYERFS_FOLDER = join(f.dir, 'folder')
     process.env.LAYERFS_HOME = f.home
     const r = runtimes(f.home, 7)
     // pinned through the config: the oldest runtime

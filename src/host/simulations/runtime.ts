@@ -126,7 +126,7 @@ export class SimulationRuntime {
     return { runId: run.manifest.runId, agentKey: script.agentKey, scriptId: script.scriptId, name: script.name, hash: script.hash, ordinaryModel, ...(script.agentId ? { rootSessionId } : {}), state: binding.state }
   }
   async recover() {
-    const root = join(this.ctx.layerfs.root, 'simulations')
+    const root = join(this.ctx.layerfs.state, 'simulations')
     for (const entry of await readdir(root, { withFileTypes: true }).catch(() => [])) {
       if (!entry.isDirectory()) continue
       const directory = join(root, entry.name)
@@ -166,7 +166,7 @@ export class SimulationRuntime {
     if (!cli) throw new Error('Pin a LayerFS CLI before starting project work.')
     // Every session hands off to a real model; refuse before any Store or project exists.
     const ordinaryModel = await this.usableRealModel(options.ordinaryModel, signal)
-    const directory = await writeSimulationPackage(this.ctx.layerfs.root, compiled)
+    const directory = await writeSimulationPackage(this.ctx.layerfs.state, compiled)
     await claimSimulationExecution(directory, 'host')
     const journal = await SimulationJournal.open(directory)
     const run = { ...compiled, directory, journal, execution: new SimulationExecution(compiled.plan, journal, { directory }), bindings: new Map(), dispatchDelayMs: options.dispatchDelayMs ?? 0 }
@@ -185,7 +185,7 @@ export class SimulationRuntime {
       for (const script of run.plan.agents.filter(agent => !agent.agentId)) {
         signal?.throwIfAborted()
         const id = `session-${randomUUID()}`
-        const cwd = resolve(options.cwd ?? join(this.ctx.layerfs.root, 'simulation-scratch', run.manifest.runId, script.agentKey))
+        const cwd = resolve(options.cwd ?? join(this.ctx.layerfs.state, 'simulations', 'scratch', run.manifest.runId, script.agentKey))
         await mkdir(cwd, { recursive: true })
         const binding = { run, script, sessionId: id, rootSessionId: id, ordinaryModel, turn: 0, state: 'running', controller: new AbortController(), complete: false }
         this.bindings.set(id, binding); run.bindings.set(script.agentKey, binding)
@@ -421,7 +421,7 @@ export class SimulationRuntime {
           const argv = resolveSimulationStep(step, run.journal.receipts, run.directory)
           // A bound session's shell has `$DSH_LAYERFS_CLI` (the same managed, tracing
           // wrapper as agentCli()), as real models are told; else the wrapper's path.
-          const cli = (this.ctx.layerfs.agentCli?.() ?? managedCli({ root: this.ctx.layerfs.root, cli: this.ctx.layerfs.cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome, callLog: this.ctx.layerfs.callLog, gate: this.ctx.layerfs.lfs.spec.gate }))
+          const cli = (this.ctx.layerfs.agentCli?.() ?? managedCli({ root: this.ctx.layerfs.state, cli: this.ctx.layerfs.cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome, callLog: this.ctx.layerfs.callLog, gate: this.ctx.layerfs.lfs.spec.gate }))
           let bound = this.ctx.layerfsSessions?.binding?.(binding.sessionId)
           if (bound?.kind === 'shared' && bound.parent) bound = this.ctx.layerfsSessions.binding(bound.parent) ?? bound
           const command = renderSimulationCommand(step, argv, bound?.state === 'bound' ? SIMULATION_CLI : cli)
@@ -822,7 +822,7 @@ export class SimulationRuntime {
     const state = binding?.state ?? meta.state
     if (!binding) {
       if (typeof meta.runId !== 'string' || !/^[a-z0-9][a-z0-9_.-]{0,62}$/.test(meta.runId) || typeof meta.hash !== 'string' || !/^[a-f0-9]{64}$/.test(meta.hash)) throw new Error('The saved script identity is invalid.')
-      const directory = join(this.ctx.layerfs.root, 'simulations', meta.runId)
+      const directory = join(this.ctx.layerfs.state, 'simulations', meta.runId)
       let source = null
       try {
         const manifest = await validateSimulationPackage(directory)

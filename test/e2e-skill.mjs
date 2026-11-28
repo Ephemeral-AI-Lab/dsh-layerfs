@@ -98,7 +98,7 @@ try {
   const script = `const { default: l } = await import(process.env.DSH_LAYERFS_SDK); const r = await l.branch.list(process.env.DSH_LAYERFS_PROJECT); console.log('SDKOK ' + r.items.length + ' ' + Object.keys(l).filter((k) => typeof l[k] === 'object' && k !== 'table').join(','))`
   await runTurn(page, { message: `bash: echo "SDKVAR=[$DSH_LAYERFS_SDK]"\nbash: node --input-type=module -e ${JSON.stringify(script)}`, newSession: false, timeoutMs: 90000 })
   const text = toolOutputs(placed.sessionId)
-  assert.match(text, /SDKVAR=\[file:\/\/[^\]]+agent-bin\/sdk\.mjs\]/, 'the variable names the generated module')
+  assert.match(text, /SDKVAR=\[file:\/\/[^\]]+bin\/sdk\.mjs\]/, 'the variable names the generated module')
   assert.match(text, /SDKOK \d+ project,branch,commit,file,sandbox,workspace/, 'the SDK answered with the six families')
 
   step('the SDK call is a node line in the call log, tagged with the session')
@@ -109,7 +109,7 @@ try {
   assert.equal(listed.outcome, 'ok')
 
   step('the session catalog lists the dsh-layerfs skill')
-  const logs = grep(join(dev, 'project-sessions'), placed.sessionId).filter((path) => path.endsWith('.jsonl'))
+  const logs = grep(join(dev, 'layerfs', 'dsh', 'sessions', 'store'), placed.sessionId).filter((path) => path.endsWith('.jsonl'))
   const catalog = logs.filter((path) => readFileSync(path, 'utf8').includes('`dsh-layerfs`:'))
   assert.ok(catalog.length, `the session's skill catalog lists dsh-layerfs (${logs.join(', ') || 'no session log'})`)
 

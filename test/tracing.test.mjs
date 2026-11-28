@@ -281,15 +281,23 @@ test('SDK sidecar failure reports the error without replaying the command or spo
   assert.equal(existsSync(join(dir, 'invocation-receipts')), false)
 })
 
-test('managed CLI never overwrites the installed CLI at root/bin/layerfs or follows self-reference aliases', async () => {
+// The wrapper lives at <root>/bin/layerfs (docs/specs/layerfs-folder.md §2): an installed CLI at
+// that very path is refused before any write, never overwritten; one elsewhere is wrapped.
+test('managed CLI never overwrites the installed CLI (refused at its own root/bin/layerfs) or follows self-reference aliases', async () => {
   const fixture=mkdtempSync(join(process.cwd(),'.dev-trace-self-'))
   try {
-    mkdirSync(join(fixture,'bin'))
-    const cli=join(fixture,'bin','layerfs'), original=`#!/usr/bin/env node\nprocess.stdin.resume();process.stdin.on('end',()=>console.log(JSON.stringify({kind:'Committed',head:'${id}'})));`
+    const original=`#!/usr/bin/env node\nprocess.stdin.resume();process.stdin.on('end',()=>console.log(JSON.stringify({kind:'Committed',head:'${id}'})));`
+    const own=join(fixture,'own');mkdirSync(join(own,'bin'),{recursive:true})
+    const ownCli=join(own,'bin','layerfs');writeFileSync(ownCli,original,{mode:0o700})
+    assert.throws(()=>managedCli({root:own,cli:ownCli,home:join(fixture,'home')}),/self.reference|managed CLI/i)
+    assert.equal(readFileSync(ownCli,'utf8'),original,'an installed CLI at the wrapper path is never overwritten')
+    assert.equal(existsSync(ownCli+'.mjs'),false,'refused before writing the implementation')
+    mkdirSync(join(fixture,'installed'))
+    const cli=join(fixture,'installed','layerfs')
     writeFileSync(cli,original,{mode:0o700})
     const command=managedCli({root:fixture,cli,home:join(fixture,'home')})
     assert.equal(readFileSync(cli,'utf8'),original,'the pinned installed CLI must remain byte-for-byte unchanged')
-    assert.equal(command,join(fixture,'agent-bin','layerfs'))
+    assert.equal(command,join(fixture,'bin','layerfs'))
     const result=await run(command,['file','write','p','b','/x'],{DSH_LAYERFS_TRACE_CONTEXT:traceEnvironment({origin:'tool',sessionId:'self-check',project:'p',toolCallId:'call'})})
     assert.equal(result.code,0);assert.equal(JSON.parse(result.stdout).head,id)
     const wrapper=readFileSync(command,'utf8')
@@ -302,14 +310,14 @@ test('managed CLI never overwrites the installed CLI at root/bin/layerfs or foll
     const rootAlias=fixture+'-alias';symlinkSync(fixture,rootAlias)
     try { assert.throws(()=>managedCli({root:rootAlias,cli:command,home:fixture}),/self.reference|managed CLI/i) } finally { rmSync(rootAlias) }
     const fresh=join(fixture,'fresh');mkdirSync(fresh)
-    const broken=join(fresh,'alias');symlinkSync(join(fresh,'agent-bin','layerfs'),broken)
+    const broken=join(fresh,'alias');symlinkSync(join(fresh,'bin','layerfs'),broken)
     assert.throws(()=>managedCli({root:fresh,cli:broken,home:fixture}),/self.reference|managed CLI/i)
-    assert.equal(existsSync(join(fresh,'agent-bin')),false,'self-reference refusal happens before creating output state')
-    const hardRoot=join(fixture,'hardlink');mkdirSync(join(hardRoot,'agent-bin'),{recursive:true})
-    linkSync(cli,join(hardRoot,'agent-bin','layerfs'))
+    assert.equal(existsSync(join(fresh,'bin')),false,'self-reference refusal happens before creating output state')
+    const hardRoot=join(fixture,'hardlink');mkdirSync(join(hardRoot,'bin'),{recursive:true})
+    linkSync(cli,join(hardRoot,'bin','layerfs'))
     assert.throws(()=>managedCli({root:hardRoot,cli,home:fixture}),/self.reference|managed CLI/i)
-    const aliasRoot=join(fixture,'output-alias');mkdirSync(join(aliasRoot,'agent-bin'),{recursive:true})
-    symlinkSync(cli,join(aliasRoot,'agent-bin','layerfs'))
+    const aliasRoot=join(fixture,'output-alias');mkdirSync(join(aliasRoot,'bin'),{recursive:true})
+    symlinkSync(cli,join(aliasRoot,'bin','layerfs'))
     assert.throws(()=>managedCli({root:aliasRoot,cli,home:fixture}),/self.reference|managed CLI/i)
     assert.equal(readFileSync(cli,'utf8'),original)
   } finally { rmSync(fixture,{recursive:true,force:true}) }

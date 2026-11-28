@@ -384,6 +384,43 @@
   align-items: center;
 }
 
+.rowWide {
+  grid-template-columns: 32px minmax(0, 1fr) max-content max-content;
+}
+
+.rowWide .rowAction { gap: 8px; }
+
+/* the folder row's two homes, aligned with its text */
+.subRows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: -4px 0 8px 44px;
+}
+
+.subRow {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr) max-content;
+  gap: 12px;
+  align-items: baseline;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.subRow dt { color: var(--dsw-alias-label-primary); }
+
+.subRow dd {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subState { text-align: right; }
+.subState[data-warn] { color: var(--lf-tone-warning-fg); }
+
 .rowNote {
   margin: 0 0 0 44px;
   font-size: 12px;

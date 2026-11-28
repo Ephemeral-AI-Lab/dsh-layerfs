@@ -136,11 +136,13 @@ say({})
 
 async function withService(opts, run) {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-setup-gate-'))
-  const keys = ['DSH_HOME', 'DSH_LAYERFS_HOME', 'LAYERFS_HOME', 'DSH_LAYERFS_CLI', 'DSH_LAYERFS_DAEMON', 'DSH_LAYERFS_BUNDLE', 'LAYERFS_BUNDLE']
+  const keys = ['DSH_HOME', 'DSH_LAYERFS_HOME', 'LAYERFS_HOME', 'DSH_LAYERFS_CLI', 'DSH_LAYERFS_DAEMON', 'DSH_LAYERFS_BUNDLE', 'LAYERFS_BUNDLE', 'DSH_LAYERFS_FOLDER', 'DSH_LAYERFS_STATE']
   const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]))
   try {
     for (const k of keys) delete process.env[k]
     process.env.DSH_HOME = join(dir, 'dsh')
+    // the plugin state goes to a temp LayerFS folder, never the real ~/.layerfs
+    process.env.DSH_LAYERFS_FOLDER = join(dir, 'folder')
     const home = join(dir, 'home')
     if (opts.layout2) { mkdirSync(home, { recursive: true, mode: 0o700 }); writeFileSync(join(home, 'layerfs.json'), JSON.stringify({ layout: 2 })) }
     const fake = fakeCli(dir, opts)
@@ -244,9 +246,10 @@ test('a lease whose host root is gone holds nothing', () => {
 
 test('a service built in a test writes no pin lease until the plugin starts it', () => {
   const f = runtimeFixture()
-  const saved = process.env.DSH_HOME, pinned = process.env.DSH_LAYERFS_CLI
+  const saved = process.env.DSH_HOME, pinned = process.env.DSH_LAYERFS_CLI, folder = process.env.DSH_LAYERFS_FOLDER
   try {
     process.env.DSH_HOME = join(f.dir, 'dsh')
+    process.env.DSH_LAYERFS_FOLDER = join(f.dir, 'folder')
     // the newest runtime in the home is the pin only when no CLI is named (a test run may name the pinned one)
     delete process.env.DSH_LAYERFS_CLI
     const one = H.installRuntime(f.home, '1.0.0', { cli: join(f.src, 'layerfs'), daemon: null, bundle: null })
@@ -256,6 +259,7 @@ test('a service built in a test writes no pin lease until the plugin starts it',
   } finally {
     if (saved === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = saved
     if (pinned !== undefined) process.env.DSH_LAYERFS_CLI = pinned
+    if (folder === undefined) delete process.env.DSH_LAYERFS_FOLDER; else process.env.DSH_LAYERFS_FOLDER = folder
     f.done()
   }
 })

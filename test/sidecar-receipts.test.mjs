@@ -1,5 +1,6 @@
-// The session sidecar split: metadata stays in `layerfs.json`, receipts live in
-// an append-only `receipts.jsonl` beside it. A list read (metadata only) must
+// The session sidecar split: metadata stays in `layerfs/binding.json`, receipts
+// live in an append-only `layerfs/calls.jsonl` beside it (docs/specs/layerfs-folder.md §2;
+// an older folder's `layerfs.json` / `receipts.jsonl` move there on first touch). A list read (metadata only) must
 // never open, read or parse the receipts; a receipt reader streams them, pages
 // them, and survives a legacy combined file plus a crash while migrating.
 //   node --test test/sidecar-receipts.test.mjs
@@ -29,15 +30,15 @@ const scratch = mkdtempSync(join(root, '.dev-test-sidecar-receipts-'))
 test.after(() => { rmSync(out, { recursive: true, force: true }); rmSync(scratch, { recursive: true, force: true }) })
 
 const KEY = 'a'.repeat(64)
-const SIDECAR = 'layerfs.json'
-const RECEIPTS = 'receipts.jsonl'
+const SIDECAR = join('layerfs', 'binding.json')
+const RECEIPTS = join('layerfs', 'calls.jsonl')
 const meta = (id) => ({ version: 1, sessionId: id, project: 'store/project', title: `title ${id}` })
 const receipt = (id, extra = {}) => ({ id, sessionId: 's1', operation: 'file.write', outcome: 'success', at: 1_700_000_000_000, ms: 3, versions: [], ...extra })
 
 /** A log plus its sidecar folder, as the stock unpacked backend would lay it out. */
 function session(name, id = 's1') {
   const dir = join(scratch, name)
-  mkdirSync(dir, { recursive: true })
+  mkdirSync(join(dir, 'layerfs'), { recursive: true })
   const log = join(dir, 'session.jsonl')
   writeFileSync(log, `${JSON.stringify({ version: 4, id, createdAt: 1 })}\n`)
   return { dir, log, id, sidecar: join(dir, SIDECAR), receipts: join(dir, RECEIPTS) }
@@ -270,7 +271,7 @@ test('the annotations op stays metadata-sized on an 83,250-receipt session', asy
   const reads = countingReceiptReads(w)
   const ops = {}
   const ctx = {
-    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
+    layerfs: { state: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
     layerfsSessions: {},
     layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
     plugin() {},
@@ -329,4 +330,27 @@ test('a combined sidecar read whole first is converted, so the first page and ol
   const newest = (await w.readReceipts('s1', { from: -4, limit: 4 })).invocations.map((row) => row.id)
   assert.deepEqual(whole, rows.map((row) => row.id))
   assert.deepEqual(newest, whole.slice(-4), 'the newest page is the tail of the whole read')
+})
+
+test('an older session folder (layerfs.json, receipts.jsonl beside the log) moves into layerfs/ on first touch', async () => {
+  const dir = join(scratch, 'old-layout')
+  mkdirSync(dir, { recursive: true })
+  const log = join(dir, 'session.jsonl')
+  writeFileSync(log, `${JSON.stringify({ version: 4, id: 's1', createdAt: 1 })}\n`)
+  writeFileSync(join(dir, 'layerfs.json'), JSON.stringify({ ...meta('s1'), checkpoints: [{ commit: 'c1' }] }))
+  writeFileSync(join(dir, 'receipts.jsonl'), [receipt('r1'), receipt('r2')].map((row) => JSON.stringify(row)).join('\n') + '\n')
+  writeFileSync(join(dir, 'layerfs.json.bak'), 'left over')
+  const w = persistence({ dir, log, id: 's1' })
+  const read = await w.readSidecar('s1')
+  assert.equal(read.title, 'title s1')
+  assert.deepEqual(read.invocations.map((row) => row.id), ['r1', 'r2'])
+  assert.equal(existsSync(join(dir, 'layerfs.json')), false)
+  assert.equal(existsSync(join(dir, 'receipts.jsonl')), false)
+  assert.equal(existsSync(join(dir, 'layerfs.json.bak')), false, 'an old .bak leftover is dropped')
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, SIDECAR), 'utf8')).checkpoints, [{ commit: 'c1' }])
+  assert.equal(readFileSync(join(dir, RECEIPTS), 'utf8').trim().split('\n').length, 2)
+  // later writes land in the new place
+  await w.recordInvocation(receipt('r3'))
+  assert.equal(readFileSync(join(dir, RECEIPTS), 'utf8').trim().split('\n').length, 3)
+  assert.equal(existsSync(join(dir, 'receipts.jsonl')), false)
 })

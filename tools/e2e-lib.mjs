@@ -24,7 +24,7 @@ export const E2E_MACHINE = process.env.DSH_E2E_MACHINE ?? null
 export async function createStore(http, name) {
   if (!E2E_MACHINE || isHostName(E2E_MACHINE)) return await http('POST', '/api/stores', { name })
   const devDir = process.env.DSH_LAYERFS_DEV_DIR ?? fileURLToPath(new URL('../.dev', import.meta.url))
-  const cli = process.env.DSH_LAYERFS_CLI ?? join(devDir, 'agent-bin', 'layerfs')
+  const cli = process.env.DSH_LAYERFS_CLI ?? join(devDir, 'layerfs', 'dsh', 'bin', 'layerfs')
   execFileSync(cli, ['store', 'create', name, '--machine', E2E_MACHINE], { stdio: ['ignore', 'pipe', 'pipe'] })
 }
 

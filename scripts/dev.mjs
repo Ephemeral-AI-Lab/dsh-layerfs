@@ -40,7 +40,10 @@ if (pin) {
   delete env.DSH_LAYERFS_CLI; delete env.DSH_LAYERFS_DAEMON; delete env.DSH_LAYERFS_BUNDLE
   console.log('dev.mjs: no LayerFS CLI pinned (DSH_LAYERFS_DEV_NO_RUNTIME=1)')
 }
+// The dev LayerFS folder (docs/specs/layerfs-folder.md): <dev>/layerfs/dsh holds the plugin state.
+env.DSH_LAYERFS_FOLDER ??= join(dev, 'layerfs')
 env.DSH_LAYERFS_HOME ??= join(dev, 'layerfs-home')
+// Only read once, to move an older dev dir's project sessions into <dev>/layerfs/dsh/sessions.
 env.DSH_LAYERFS_SESSION_HOME ??= join(dev, 'project-sessions')
 
 const bin = join(root, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')

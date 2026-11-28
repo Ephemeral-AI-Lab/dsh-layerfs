@@ -43,7 +43,8 @@ function sessionOnDisk(id, { createdAt = 100, project = 'st/app', projectId = 'p
   mkdirSync(dir, { recursive: true })
   const path = join(dir, 'session.v4.jsonl')
   writeFileSync(path, `${JSON.stringify({ version: 4, id, createdAt })}\n`)
-  if (sidecar) writeFileSync(join(dir, 'layerfs.json'), JSON.stringify({ version: 1, sessionId: id, project, bindingKind }))
+  // the binding sits in layerfs/ beside the log (docs/specs/layerfs-folder.md §2)
+  if (sidecar) { mkdirSync(join(dir, 'layerfs'), { recursive: true }); writeFileSync(join(dir, 'layerfs', 'binding.json'), JSON.stringify({ version: 1, sessionId: id, project, bindingKind })) }
   return { id, createdAt, project, projectId, revision, path, dir, bindingKind }
 }
 
@@ -73,7 +74,7 @@ function harness(state, records) {
   }
   const s = Object.create(S.LayerfsSessions.prototype)
   Object.defineProperty(s, 'ctx', { value: {
-    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, ensureHostDaemon: async () => {} },
+    layerfs: { state: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, ensureHostDaemon: async () => {} },
     sessions: { get: () => undefined },
     logger: () => ({ warn() {}, info() {} }),
   } })
@@ -83,7 +84,7 @@ function harness(state, records) {
   Object.defineProperty(s, 'serverChecked', { value: new Map() })
   const ops = {}
   const ctx = {
-    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
+    layerfs: { state: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
     layerfsSessions: s,
     layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
     plugin() {},
@@ -135,7 +136,7 @@ test('a receipt (a rewritten sidecar) re-reads that session; a foreign append (a
   await h.recent()
   assert.equal(h.calls.sidecar, 2)
   // A receipt rewrites the sidecar: its file identity changes, the log's does not.
-  writeFileSync(join(a.dir, 'layerfs.json'), JSON.stringify({ version: 1, sessionId: 'a', project: 'st/app', bindingKind: 'project', invocations: [{ id: 'one' }] }))
+  writeFileSync(join(a.dir, 'layerfs', 'binding.json'), JSON.stringify({ version: 1, sessionId: 'a', project: 'st/app', bindingKind: 'project', invocations: [{ id: 'one' }] }))
   await h.recent()
   assert.equal(h.calls.sidecar, 3, 'the rewritten sidecar is read again')
   assert.equal(h.calls.snapshot, 3)

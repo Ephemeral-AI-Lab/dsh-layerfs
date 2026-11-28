@@ -52,6 +52,13 @@ export interface SetupStatus {
     /** A folder that is not ready, in LayerFS's words (`home get` `message` and `fix`). */
     readonly message?: string | null
     readonly fix?: string | null
+    /** The LayerFS folder (docs/specs/layerfs-folder.md) and where it came from. */
+    readonly root: string
+    readonly rootSource: 'config' | 'env' | 'pointer' | 'default'
+    /** A folder chosen in the setup modal that takes effect after a restart, or null. */
+    readonly next: string | null
+    /** The DSH x LayerFS home: its path, `<root>/dsh` when another DeepSeek Harness owns it, where it moved from. */
+    readonly dsh: { readonly path: string, readonly taken: string | null, readonly movedFrom: string | null }
   }
   readonly pieces: { readonly cli: Piece | null, readonly daemon: Piece | null, readonly bundle: Piece | null }
   readonly warnings: readonly { readonly code: string, readonly message: string }[]

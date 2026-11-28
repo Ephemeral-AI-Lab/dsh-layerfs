@@ -18,7 +18,7 @@
  */
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { Button, IconChevronDownOutlineRegular, IconChevronRightOutlineRegular, IconCloseOutlineRegular, IconFolderCloseRegular, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChevronDownOutlineRegular, IconChevronRightOutlineRegular, IconCloseOutlineRegular, IconFolderCloseRegular, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { MachineGlyph } from '../machines/icons.tsx'
 import type { MachinesKey } from '../machines/locale.ts'
@@ -136,11 +136,11 @@ export function SetupDialog({ api, t, tm, section }: { api: LayerfsApi, t: Setup
 }
 
 /** One row of a section: a tile, a title and a line, a state word, and at most one action. */
-function Row({ tile, title, line, lineMono, lineWarn, state, warn, action, data }: {
-  tile: ReactNode, title: ReactNode, line?: ReactNode, lineMono?: boolean, lineWarn?: boolean, state: string, warn: boolean, action?: ReactNode, data?: string
+function Row({ tile, title, line, lineMono, lineWarn, state, warn, action, data, wide }: {
+  tile: ReactNode, title: ReactNode, line?: ReactNode, lineMono?: boolean, lineWarn?: boolean, state: string, warn: boolean, action?: ReactNode, data?: string, wide?: boolean
 }): ReactNode {
   return (
-    <div className={css.row} data-row={data}>
+    <div className={clsx(css.row, wide && css.rowWide)} data-row={data}>
       <span className={css.rowTile} aria-hidden="true">{tile}</span>
       <span className={css.rowText}>
         <span className={css.rowTitle}>{title}</span>
@@ -172,7 +172,7 @@ function LayerfsSection({ api, s, t }: { api: LayerfsApi, s: SetupStatus, t: Set
     : t('runtimeTitle')
   return (
     <div className={css.rows}>
-      <FolderRow s={s} t={t} />
+      <FolderRow api={api} s={s} t={t} />
       <Row data="build" tile={<LayerfsGlyph size={16} />} title={title} line={line} lineWarn={b.state !== 'ready'} state={t(b.word)} warn={b.state !== 'ready'}
         action={changing ? null : <Button variant="outline" size="sm" onClick={() => setChanging('pick')}>{r.cli ? t('change') : t('choose')}</Button>} />
       {s.daemonRecordable ? <RecordDaemon api={api} t={t} /> : null}
@@ -198,16 +198,44 @@ function LayerfsSection({ api, s, t }: { api: LayerfsApi, s: SetupStatus, t: Set
  * (move it aside, then `layerfs home init`) to copy and run by hand; the page
  * never moves a folder.
  */
-function FolderRow({ s, t }: { s: SetupStatus, t: SetupModalT }): ReactNode {
+function FolderRow({ api, s, t }: { api: LayerfsApi, s: SetupStatus, t: SetupModalT }): ReactNode {
   const f = s.folder
+  const [error, setError] = useState<unknown>(null)
+  const [changing, setChanging] = useState(false)
+  const open = (which: 'folder' | 'home' | 'dsh') => { setError(null); api.op('setup.open', { which }).catch((e: unknown) => setError(e)) }
   const did = lately(s)
   const word = f.state === 'current' ? (did === 'created' ? t('sumFolderCreated') : t('stateReady'))
     : f.state === 'outdated' ? t('sumFolderOld')
       : f.state === 'unknown' ? t('sumFolderUnknown')
         : t('sumFolderMissing')
+  const locked = f.rootSource === 'config' || f.rootSource === 'env'
+  const actions = (
+    <>
+      <Button variant="outline" size="sm" onClick={() => open('folder')}>{t('openFolder')}</Button>
+      {locked ? null : <Button variant="outline" size="sm" onClick={() => setChanging(true)} disabled={changing}>{t('change')}</Button>}
+    </>
+  )
   return (
     <>
-      <Row data="folder" tile={<IconFolderCloseRegular size={16} />} title={t('folderTitle')} line={f.path} lineMono state={word} warn={f.state !== 'current'} />
+      <Row data="folder" wide tile={<IconFolderCloseRegular size={16} />} title={t('folderTitle')} line={f.root} lineMono state={word} warn={f.state !== 'current'} action={actions} />
+      <dl className={css.subRows}>
+        <div className={css.subRow} data-row="home">
+          <dt>{t('folderHome')}</dt>
+          <dd className={css.mono} title={f.path}>{f.path}</dd>
+          <dd className={css.subState} data-warn={f.state !== 'current' || undefined}>{word}</dd>
+        </div>
+        <div className={css.subRow} data-row="dsh">
+          <dt>{t('folderDsh')}</dt>
+          <dd className={css.mono} title={f.dsh.path}>{f.dsh.path}</dd>
+          <dd className={css.subState}>{t('stateReady')}</dd>
+        </div>
+      </dl>
+      {locked ? <p className={css.rowNote}>{t(f.rootSource === 'env' ? 'folderSetByEnv' : 'folderSetByConfig')}</p> : null}
+      {f.dsh.taken ? <p className={css.rowNote}>{t('folderDshTaken', { taken: f.dsh.taken })}</p> : null}
+      {f.dsh.movedFrom ? <p className={css.rowNote}>{t('folderDshMoved', { from: f.dsh.movedFrom })}</p> : null}
+      {f.next ? <p className={css.rowNote} data-warn="">{t('folderNext', { next: f.next })}</p> : null}
+      {changing ? <FolderPicker api={api} t={t} current={f.next ?? f.root} onDone={() => setChanging(false)} /> : null}
+      {error != null ? <p className={dialog.error} role="alert">{t('openFolderFailed', { message: messageOf(error) })}</p> : null}
       {f.state === 'outdated' ? (
         <div className={css.noteBlock}>
           <span className={css.note} data-warn="" title={f.message ?? undefined}>{t('folderOldNote')}</span>
@@ -223,6 +251,26 @@ function FolderRow({ s, t }: { s: SetupStatus, t: SetupModalT }): ReactNode {
         </div>
       ) : null}
     </>
+  )
+}
+
+/** Change… on the folder row: another LayerFS folder, saved for the next start (nothing is moved). */
+function FolderPicker({ api, t, current, onDone }: { api: LayerfsApi, t: SetupModalT, current: string, onDone: () => void }): ReactNode {
+  const [path, setPath] = useState(current)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<unknown>(null)
+  const save = async () => {
+    setBusy(true); setError(null)
+    try { await api.op('setup.folder', { path: path.trim() }); onDone() } catch (e) { setError(e) } finally { setBusy(false) }
+  }
+  return (
+    <div className={css.rowFollow} data-row="folder-picker">
+      <span className={css.rowFollowText}>{t('folderChangeHint')}</span>
+      <Input value={path} onChange={(e) => setPath(e.target.value)} placeholder="/path/to/folder" spellCheck={false} disabled={busy} aria-label={t('folderTitle')} />
+      <Button variant="primary" size="sm" disabled={busy || !path.trim() || path.trim() === current} onClick={() => void save()}>{t('folderUse')}</Button>
+      <Button variant="ghost" size="sm" disabled={busy} onClick={onDone}>{t('hideChange')}</Button>
+      {error != null ? <p className={dialog.error} role="alert">{messageOf(error)}</p> : null}
+    </div>
   )
 }
 

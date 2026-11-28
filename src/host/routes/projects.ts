@@ -351,7 +351,7 @@ export class Projects {
   storeJoin: (() => Promise<Map<string, { state: string, op: unknown }>>) | null = null
 
   constructor(private readonly host: RouteHost) {
-    this.emptySources = join(host.root, 'project-sources')
+    this.emptySources = join(host.root, 'tmp', 'sources')
     this.sandboxCreates = new SandboxCreates((type, data) => host.emit(type, data))
     // statistics journals and ledgers describe this home's Stores: they live in it
     this.storageObservations = new StorageObservations(host.stats, host.home)

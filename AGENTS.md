@@ -4,11 +4,13 @@ LayerFS Connect's Machines, Storage and explicit project-owned sessions
 (`sessions.choose` / `state.pending`): project files live in LayerFS, and the
 selected local folder is scratch. Normal sessions belong to DSH workspaces.
 Project conversations use native unpacked DSH logs with additive annotations
-under `projectSessionHome` (default `$DSH_HOME/layerfs/project-sessions`; dev must override), the LayerFS session store
+under `<state>/sessions/store` (the DSH x LayerFS home, default `~/.layerfs/dsh`; dev must override), the LayerFS session store
 and trajectory checkpoints, as a DeepSeek Harness (DSH) cordis plugin bundle.
-Current specs: `docs/specs/project-sessions.md`, and `docs/specs/homes.md` for
-the two homes (`LAYERFS_HOME`, default `~/.layerfs`, holds LayerFS's records,
-runtime and secrets; `$DSH_HOME/layerfs` holds this plugin's state). Earlier design docs:
+Current specs: `docs/specs/project-sessions.md`, `docs/specs/layerfs-folder.md` for
+where things live (the LayerFS folder `~/.layerfs`: the LayerFS home, `LAYERFS_HOME`, which
+holds LayerFS's records, runtime and secrets, and `~/.layerfs/dsh`, this plugin's state; DSH_HOME
+only gets the `layerfs.json` pointer), and `docs/specs/homes.md` for the runtime, secrets and
+storage state in the home. Earlier design docs:
 `../layerfs-connect/docs/dsh-layerfs/`.
 
 ## Hard rules
@@ -99,15 +101,16 @@ into the one 3080 server. That is expected; coordinate instead of competing for 
   - `layerfs/cli.ts` pinned-CLI SDK (`ctx.layerfs.lfs.<family>.<call>(...)`), port of Connect `host/cli`
   - `routes/` Connect's host HTTP API served as op `http` `{method,path,body}` -> `{status,body}`
   - `sessions/` session binding (`placeOf`: existing binding, pending placement,
-    durable persistence owner, subagent context, or a plain folder session), legacy anchors under
-    `<root>/projects` (fallback scratch parents, not DSH workspaces), checkpoints,
+    durable persistence owner, subagent context, or a plain folder session; never a folder path),
+    the Scratch folder `<state>/scratch` with a `<session>/` scratch folder per project session, checkpoints,
     LayerFS session store (mirror, discover, import, sync)
   - `session-persistence.ts` the `layerfs-session-persistence` row (`lib/session-persistence.js`):
-    owner routing over isolated stock JSONL backends, unpacked project logs,
-    additive `layerfs.json`, validated migration, and imports on a local miss
+    owner routing over one stock JSONL backend at `<state>/sessions/store`, unpacked project logs,
+    additive `layerfs/binding.json` + `layerfs/calls.jsonl` beside each log, validated migration, and imports on a local miss
+  - `folder.ts` the LayerFS folder, home and state resolution, and the one-time move of an older `$DSH_HOME/layerfs`
   - `layerfs/tracing.ts` execution-scoped receipts: one receipt id and log tag
     (`LAYERFS_LOGS_TAG=dsh:<sessionId>:<receiptId>`) per call, SDK receipts, the managed
-    `agent-bin/layerfs` wrapper (node with the stand-in; a bash script with LayerFS's native
+    `bin/layerfs` wrapper (node with the stand-in; a bash script with LayerFS's native
     log, outputs teed to `trace/outputs/raw/`), receipts rebuilt from tagged call log lines (no spool);
     `workspace.exec` never gets checkpoint links
   - `layerfs/call-log.ts` the call log stand-in `<root>/trace/calls.jsonl` (LayerFS #659

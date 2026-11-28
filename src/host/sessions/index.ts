@@ -125,7 +125,7 @@ const RECENT_FACTS_MAX = 4096
  */
 function sidecarIdentity(path: string): string | undefined {
   try {
-    const s = statSync(join(dirname(path), 'layerfs.json'), { bigint: true })
+    const s = statSync(join(dirname(path), 'layerfs', 'binding.json'), { bigint: true })
     return `${s.dev}:${s.ino}:${s.size}:${s.mtimeNs}:${s.ctimeNs}`
   } catch { return undefined }
 }
@@ -449,12 +449,12 @@ export function apply(ctx: Context): void {
       let invocations: any[] | undefined
       if (!options.whole && !loadedSessionEvents(id)) {
         const file = await logFile(id)
-        // Receipts live in `receipts.jsonl` beside the log: the `readSidecar` above
-        // converted a combined sidecar (receipts inside `layerfs.json`, the old
+        // Receipts live in `layerfs/calls.jsonl` beside the log: the `readSidecar` above
+        // converted a combined sidecar (receipts inside the binding, the old
         // layout, possibly half-converted by a crash) before this, so the window
         // and the whole parse read the same split file. A session with no
         // receipts file keeps the whole parse.
-        const receiptsFile = file ? tailFile(join(dirname(file.path), 'receipts.jsonl')) : undefined
+        const receiptsFile = file ? tailFile(join(dirname(file.path), 'layerfs', 'calls.jsonl')) : undefined
         if (file && mayReadTail(file.size, { loaded: false, splitReceipts: receiptsFile !== undefined })) {
           const page = tailPages(id, {
             logPath: file.path, logKey: file.key, logSize: file.size,
@@ -975,7 +975,7 @@ export function apply(ctx: Context): void {
       // available to migrate old conversation headers when they are resumed.
       'sessions.retireLegacyWorkspaces': async (args: any) => {
         const state = sessions.state.read()
-        const root = `${ctx.layerfs.root}/projects`
+        const root = `${ctx.layerfs.migratedFrom ?? ctx.layerfs.state}/projects`
         const candidates = ctx.workspaceRegistry.list().flatMap((workspace) => {
           const entry = Object.values(state.projects).find((p) => p.anchor === workspace.path)
           if (workspace.path !== root && (!entry || !workspace.path.startsWith(`${root}/`))) return []

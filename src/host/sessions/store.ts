@@ -430,7 +430,7 @@ export class SessionStore {
   /** Read one pinned Branch export. The windowed file.read API deliberately
    * truncates long lines, so it cannot transport native JSONL or annotations. */
   private async withArchive<T>(project: string, branch: string, consume: (read: (path: string) => Promise<string>) => Promise<T>): Promise<T> {
-    const parent = join(this.ctx.layerfs.root, 'archive-imports')
+    const parent = join(this.ctx.layerfs.state, 'tmp', 'archive-imports')
     await mkdir(parent, { recursive: true, mode: 0o700 })
     const owned = await mkdtemp(join(parent, 'read-'))
     const destination = join(owned, 'snapshot')
@@ -582,7 +582,7 @@ export class SessionStore {
     }
     // Receipts merge by id (local ones are kept, incoming ones marked imported); other fields as stored.
     if (sidecar) await provider?.updateSidecar?.(sessionId, (value: any) => { const local = value.invocations; Object.assign(value, sidecar); value.invocations = mergeInvocations(local, sidecar.invocations) })
-    const scratch = `${anchor}/sessions/${sessionId}`
+    const scratch = join(anchor, sessionId)
     mkdirSync(scratch, { recursive: true })
     const simulation: SimulationBinding | undefined = sidecar?.simulation ? { ...sidecar.simulation } : undefined
     if (simulation?.state === 'running') {

@@ -16,6 +16,8 @@ export interface RouteHost {
   readonly home: string
   /** The plugin root (`$DSH_HOME/layerfs`): this DSH install's own state. */
   readonly root: string
+  /** The LayerFS folder (holds the home and the DSH x LayerFS home). */
+  readonly folder?: string
   /**
    * Storage state in the LayerFS home, in folders named for no client so any
    * client of the home can use them: `jobs` (`<home>/job`: storage-jobs.json,

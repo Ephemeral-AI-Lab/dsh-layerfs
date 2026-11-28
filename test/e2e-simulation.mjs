@@ -26,7 +26,7 @@ const until = async (description, read, timeout = 240000, interval = 250) => {
   }
 }
 // Turns of a session that closed without a single step (an empty "Completed" turn).
-const sessionHome = process.env.DSH_LAYERFS_SESSION_HOME ?? join(process.env.DSH_LAYERFS_DEV_DIR ?? fileURLToPath(new URL('../.dev', import.meta.url)), 'project-sessions')
+const sessionHome = join(process.env.DSH_LAYERFS_DEV_DIR ?? fileURLToPath(new URL('../.dev', import.meta.url)), 'layerfs', 'dsh', 'sessions', 'store')
 const findLog = async (directory, sessionId) => {
   for (const entry of await readdir(directory, { withFileTypes: true }).catch(() => [])) {
     if (!entry.isDirectory()) continue

@@ -5,10 +5,12 @@
  */
 import { Service, type Context } from '@deepseek-ai/cordis'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, watch, writeFileSync, type FSWatcher } from 'node:fs'
+import { spawn } from 'node:child_process'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 import { boolOptions, CliError, client, discover, execute, hasNativeLogs, knownIdentity, knownNativeLogs, plain, uninitialized, type Discovery, type Lfs } from './layerfs/cli.ts'
 import { managedCli } from './layerfs/tracing.ts'
+import { checkFolder, resolveFolder, writeJson, type FolderSource } from './folder.ts'
 import { HOST_MACHINE, isHostMachine, machineRows } from './layerfs/machine-records.ts'
 import { findSdk, managedSdk } from './layerfs/agent-sdk.ts'
 import { fileURLToPath } from 'node:url'
@@ -34,9 +36,13 @@ declare module '@deepseek-ai/cordis' {
 
 /** Plugin configuration (bundle patch row `layerfs`). */
 export interface LayerfsConfig {
-  /** Plugin root: this DSH install's dsh-layerfs state (docs/specs/homes.md); default `$DSH_HOME/layerfs`. */
+  /** The LayerFS folder (docs/specs/layerfs-folder.md); else DSH_LAYERFS_FOLDER, else the `$DSH_HOME/layerfs.json` pointer, else `~/.layerfs`. */
+  folder?: string
+  /** The DSH x LayerFS home, this install's plugin state; else DSH_LAYERFS_STATE, else `<folder>/dsh`. */
+  state?: string
+  /** Older name of `state`: an older build's state there is moved into the new layout in place. */
   root?: string
-  /** Unpacked project-session logs and annotations; default `<root>/project-sessions`, or DSH_LAYERFS_SESSION_HOME. */
+  /** Older project-session home override: read once as a migration source. */
   projectSessionHome?: string
   /** Absolute pinned `layerfs` CLI; else runtime.json, else DSH_LAYERFS_CLI, else the newest runtime installed in the home. */
   cli?: string
@@ -51,7 +57,7 @@ export interface LayerfsConfig {
    * DSH_LAYERFS_CACHE_HOME, else the host's own XDG_CACHE_HOME (else `~/.cache`).
    */
   cacheHome?: string
-  /** LAYERFS_HOME, LayerFS's own and independent of DSH; else DSH_LAYERFS_HOME, else LAYERFS_HOME, else `~/.layerfs`. */
+  /** LAYERFS_HOME, LayerFS's own and independent of DSH; else DSH_LAYERFS_HOME, else LAYERFS_HOME, else `<folder>/home` when set up there, else `<folder>`. */
   home?: string
   /**
    * Where keys and passwords entered in the panel are saved (owner-only files,
@@ -82,7 +88,10 @@ export interface RuntimeStatus {
   /** Prepared VM OS images installed there (`layerfs/machine-images/<provider>/<platform>/<image>/current.json`). */
   readonly preparedImages: number
   readonly home: string
+  /** The DSH x LayerFS home (this install's plugin state). */
   readonly root: string
+  /** The LayerFS folder. */
+  readonly folder: string
   readonly projectSessionHome: string
   readonly scratchProject: string
   /** `layerfs`: the bundle's session persistence row runs (missing sessions are imported from LayerFS); `stock`: DSH's own. */
@@ -169,6 +178,13 @@ export interface SetupStatus {
     /** A folder that is not ready, in LayerFS's words: its sentence and its fix line (`home get`). */
     readonly message?: string | null
     readonly fix?: string | null
+    /** The LayerFS folder (docs/specs/layerfs-folder.md) and where it came from. */
+    readonly root: string
+    readonly rootSource: 'config' | 'env' | 'pointer' | 'default'
+    /** A folder chosen in the setup modal that takes effect after a restart, or null. */
+    readonly next: string | null
+    /** The DSH x LayerFS home: its path, `<root>/dsh` when another DeepSeek Harness owns it, where it moved from. */
+    readonly dsh: { readonly path: string, readonly taken: string | null, readonly movedFrom: string | null }
   }
   readonly pieces: { readonly cli: Piece | null, readonly daemon: Piece | null, readonly bundle: Piece | null }
   /** A home that is not ready, in LayerFS's words (`home get` `message` and `fix`). */
@@ -247,8 +263,21 @@ const abs = (v: unknown): string | undefined => typeof v === 'string' && isAbsol
 /** The LayerFS runtime service. */
 export class LayerfsService extends Service {
   static inject = ['layerfsRemote']
-  readonly root: string
-  /** The stand-in call log, `<root>/trace/calls.jsonl` (docs/specs/layerfs-logs.md §3). */
+  /** The LayerFS folder: holds the home (or is it) and the DSH x LayerFS home. */
+  readonly folder: string
+  /** Where the folder came from. */
+  readonly folderSource: FolderSource
+  /** The DSH x LayerFS home: this install's plugin state (`<folder>/dsh`). */
+  readonly state: string
+  /** `<folder>/dsh` when it belongs to another DSH_HOME and `state` is this install's own fallback. */
+  readonly stateTaken: string | null
+  /** This install's id (64 hex): Sandbox names and the runtime pin lease. */
+  readonly install: string
+  /** Where an older build's state was moved from, when it was. */
+  readonly migratedFrom: string | null
+  /** `$DSH_HOME/layerfs.json`: the folder chosen in the setup modal. */
+  readonly pointer: string
+  /** The stand-in call log, `<state>/trace/calls.jsonl` (docs/specs/layerfs-logs.md §3). */
   readonly callLog: string
   readonly projectSessionHome: string
   readonly home: string
@@ -288,11 +317,17 @@ export class LayerfsService extends Service {
 
   constructor(ctx: Context, private readonly config: LayerfsConfig = {}) {
     super(ctx, 'layerfs')
-    const dshHome = process.env.DSH_HOME ?? join(homedir(), '.dsh')
-    this.root = abs(config.root) ?? join(dshHome, 'layerfs')
-    this.callLog = join(this.root, 'trace', 'calls.jsonl')
-    this.projectSessionHome = abs(config.projectSessionHome) ?? abs(process.env.DSH_LAYERFS_SESSION_HOME) ?? join(this.root, 'project-sessions')
-    this.home = abs(config.home) ?? abs(process.env.DSH_LAYERFS_HOME) ?? abs(process.env.LAYERFS_HOME) ?? join(homedir(), '.layerfs')
+    const where = resolveFolder(config, process.env, (message) => ctx.logger('layerfs').info(message))
+    this.folder = where.folder
+    this.folderSource = where.folderSource
+    this.state = where.state
+    this.stateTaken = where.stateTaken
+    this.install = where.install
+    this.migratedFrom = where.migratedFrom
+    this.pointer = where.pointer
+    this.callLog = join(this.state, 'trace', 'calls.jsonl')
+    this.projectSessionHome = join(this.state, 'sessions')
+    this.home = where.home
     this.secrets = abs(config.secrets) ?? abs(process.env.DSH_LAYERFS_SECRETS) ?? join(this.home, 'secret')
     this.jobDir = join(this.home, 'job')
     this.statDir = join(this.home, 'stat')
@@ -302,7 +337,7 @@ export class LayerfsService extends Service {
     }
     this.checkpoints = config.checkpoints === 'off' ? 'off' : 'turn'
     this.idleMinutes = Number.isFinite(config.idleMinutes) ? Math.max(0, Number(config.idleMinutes)) : 30
-    this.settings = new JsonFile(join(this.root, 'runtime.json'), () => ({}))
+    this.settings = new JsonFile(join(this.state, 'runtime.json'), () => ({}))
     this.resolvePin()
   }
 
@@ -315,7 +350,7 @@ export class LayerfsService extends Service {
   startSetup(): void {
     if (this.started) return
     this.started = true
-    leasePin(this.home, this.root, this.pin.cli)
+    leasePin(this.home, this.state, this.pin.cli, this.install)
     this.ctx.effect(() => () => { clearTimeout(this.watchTimer); this.watcher?.close(); this.watcher = undefined }, 'dsh-layerfs: runtime watch')
     this.armWatch()
     const first = setTimeout(() => { void this.setup().catch(() => {}) }, 0)
@@ -376,7 +411,7 @@ export class LayerfsService extends Service {
     this.homeGeneration = (this.homeGeneration ?? 0) + 1
     this.hostDaemonRecorded = undefined
     // this host's lease on the runtime folder it pins, so no host's cleanup removes it (only once the plugin runs: never from a test)
-    if (this.started) leasePin(this.home, this.root, cli)
+    if (this.started) leasePin(this.home, this.state, cli, this.install)
     // Discover the CLI (identity, call log kind) now, so the first agent shell already gets $DSH_LAYERFS_SDK.
     if (cli) void hasNativeLogs(cli)
   }
@@ -499,6 +534,40 @@ export class LayerfsService extends Service {
     return await this.setup()
   }
 
+  /** Opens the LayerFS folder in the file manager (Finder on macOS); the setup modal's Open. */
+  openFolder(which: unknown): { ok: true } {
+    const path = which === 'home' ? this.home : which === 'dsh' ? this.state : this.folder
+    if (!statSync(path, { throwIfNoEntry: false })?.isDirectory()) throw new CliError('NotFound', `${path} is not there yet`)
+    const [cmd, args] = process.platform === 'darwin' ? ['open', [path]]
+      : process.platform === 'win32' ? ['explorer', [path]]
+        : ['xdg-open', [path]]
+    const child = spawn(cmd, args as string[], { stdio: 'ignore', detached: true })
+    child.on('error', () => {})
+    child.unref()
+    return { ok: true }
+  }
+
+  /** The folder the pointer names when it is not the one in use (it takes effect after a restart), else null. */
+  private nextFolder(): string | null {
+    let pointed: unknown
+    try { pointed = JSON.parse(readFileSync(this.pointer, 'utf8'))?.folder } catch { return null }
+    return typeof pointed === 'string' && pointed !== this.folder ? pointed : null
+  }
+
+  /**
+   * Choose the LayerFS folder (the setup modal's Change…): saved in the
+   * `$DSH_HOME/layerfs.json` pointer and used from the next start. Refused
+   * while config or env names the folder; nothing is moved.
+   */
+  saveFolder(path: unknown): SetupStatus['folder']['next'] {
+    if (this.folderSource === 'config' || this.folderSource === 'env') throw new CliError('InvalidInput', `The LayerFS folder is set by ${this.folderSource === 'env' ? 'DSH_LAYERFS_FOLDER' : 'the plugin config'}; change it there.`)
+    const folder = checkFolder(path)
+    writeJson(this.pointer, { folder })
+    this.lastSetup = null
+    this.emit('setup-changed')
+    return this.nextFolder()
+  }
+
   /**
    * The setup check (docs/specs/layerfs-setup.md §3): rescans the home's
    * runtimes, reads `home get` (creating a missing folder without asking),
@@ -560,6 +629,8 @@ export class LayerfsService extends Service {
       folder: {
         path: this.home, state, layout: got?.layout ?? null, mode: got?.mode ?? null, modeOk: modeOk(got?.mode), did: this.homeDid,
         ...(got && got.state !== 'ready' ? { message: got.message ?? null, fix: got.fix ?? null } : {}),
+        root: this.folder, rootSource: this.folderSource, next: this.nextFolder(),
+        dsh: { path: this.state, taken: this.stateTaken, movedFrom: this.migratedFrom },
       },
       pieces: { cli, daemon, bundle },
       // a home that is not ready: LayerFS's sentence and its fix (2.0 has no warnings list; `home doctor` reports the rest)
@@ -618,7 +689,7 @@ export class LayerfsService extends Service {
     if (!cli) return null
     const native = knownNativeLogs(cli)
     if (native === undefined) void hasNativeLogs(cli)
-    return managedCli({ root: this.root, cli, home: this.home, bundle: this.pin.bundle, cacheHome: this.pin.cacheHome, callLog: this.callLog, native: native ?? false, bools: boolOptions(cli) })
+    return managedCli({ root: this.state, cli, home: this.home, bundle: this.pin.bundle, cacheHome: this.pin.cacheHome, callLog: this.callLog, native: native ?? false, bools: boolOptions(cli) })
   }
 
   /**
@@ -637,7 +708,7 @@ export class LayerfsService extends Service {
     // As agentCli: until the call log kind is known, the stand-in log (the SDK falls back on its own).
     const native = knownNativeLogs(cli)
     if (native === undefined) void hasNativeLogs(cli)
-    return managedSdk({ root: this.root, sdk, home: this.home, bundle: this.pin.bundle, cacheHome: this.pin.cacheHome, callLog: this.callLog, native: native ?? false, bools: boolOptions(cli) })
+    return managedSdk({ root: this.state, sdk, home: this.home, bundle: this.pin.bundle, cacheHome: this.pin.cacheHome, callLog: this.callLog, native: native ?? false, bools: boolOptions(cli) })
   }
 
   /** Where Node SDK installs are looked for (`<dir>/<commit>/`, or `<dir>` itself): `DSH_LAYERFS_SDK_DIR`, else `.layerfs-sdk/` in this package. */
@@ -721,7 +792,7 @@ export class LayerfsService extends Service {
   async status(): Promise<RuntimeStatus> {
     const base = {
       cli: this.pin.cli, daemon: this.pin.daemon, bundle: this.pin.bundle, bundleInfo: this.bundleInfo(),
-      cacheHome: this.effectiveCacheHome(), cacheHomeSource: this.pin.cacheHomeSource, preparedImages: this.preparedImages(), home: this.home, root: this.root, projectSessionHome: this.projectSessionHome, source: this.pin.source,
+      cacheHome: this.effectiveCacheHome(), cacheHomeSource: this.pin.cacheHomeSource, preparedImages: this.preparedImages(), home: this.home, root: this.state, folder: this.folder, projectSessionHome: this.projectSessionHome, source: this.pin.source,
       scratchProject: this.scratchProject, checkpoints: this.checkpoints,
       sessionPersistence: this.persistenceKind(),
     }
