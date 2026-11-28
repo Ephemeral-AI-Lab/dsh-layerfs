@@ -90,11 +90,10 @@ export interface GridRow {
   sessions: readonly ProjectSession[] | null
 }
 
+/** The figure columns after Activity: each stacks two values, and sorts by the first (a Store's page). */
 const COLUMNS: readonly { order: ProjectOrder, label: StorageKey, cls: string, title?: StorageKey }[] = [
-  { order: 'session', label: 'ptLastSession', cls: 'colSession', title: 'ptLastSessionTitle' },
-  { order: 'recent', label: 'spColUpdated', cls: 'colWhen' },
-  { order: 'commits', label: 'spColCommits', cls: 'colCommits' },
-  { order: 'branches', label: 'spColBranches', cls: 'colBranches', title: 'spColBranchesTitle' },
+  { order: 'recent', label: 'ptUpdated', cls: 'colUpdated' },
+  { order: 'commits', label: 'ptHistory', cls: 'colHistory' },
   { order: 'size', label: 'spColSize', cls: 'colSize' },
 ]
 
@@ -142,10 +141,8 @@ export function ProjectGrid({ api, t, now, rows, label, showStore, order, onOrde
                     title={t('spSortBy', { column: t('ptProject') })} onClick={() => onOrder('name')}>{t('ptProject')}</button>
                 : t('ptProject')}
             </span>
-            {showStore ? <span role="columnheader" className={css.colStore}>{t('ptStore')}</span> : null}
-            {showStore ? <span role="columnheader" className={css.colMachine}>{t('ptMachine')}</span> : null}
-            <span role="columnheader" className={css.colSessions}>{t('ptSessions')}</span>
-            <span role="columnheader" className={css.colSandboxes}>{t('ptSandboxes')}</span>
+            {showStore ? <span role="columnheader" className={css.colWhere}>{t('ptWhere')}</span> : null}
+            <span role="columnheader" className={clsx(css.num, css.colActivity)}>{t('ptActivity')}</span>
             {COLUMNS.map(heading)}
             <span role="columnheader" aria-hidden="true" />
           </div>
@@ -359,21 +356,32 @@ export function EarlyCard({ r, t, now, onOpen }: { r: GridRow, t: StorageT, now:
 
 /** Whether a click on the row came from one of its own controls (or a menu portalled out of it). */
 /**
- * The machine its Store runs on: the first one's mark and name (a press opens
- * its page), and "+N" when a PostgreSQL Store is attached to more; the tip
- * names them all.
+ * Where a project lives (Home): its Store's mark and name over the machine the
+ * Store runs on. A PostgreSQL Store attached to several machines shows the
+ * first with "+N", and the tip names them all. Each name opens its page.
  */
-function MachineCell({ machines, t, onOpen }: { machines: NonNullable<GridRow['machines']>, t: StorageT, onOpen: (id: TabId) => void }): ReactNode {
+function WhereCell({ store, machines, t, onOpen }: { store: GridRow['store'], machines: NonNullable<GridRow['machines']>, t: StorageT, onOpen: (id: TabId) => void }): ReactNode {
   const [first, ...more] = machines
-  if (!first) return <span role="cell" className={clsx(css.colMachine, css.muted)}>—</span>
   return (
-    <span role="cell" className={css.colMachine} title={more.length ? t('ptRunsOn', { machines: machines.map((m) => m.label).join(', ') }) : undefined}>
-      <button type="button" className={css.store} title={first.label} onClick={() => onOpen(`machine:${first.name}`)}>
-        <MachineGlyph platform={first.platform} os={first.os} size={13} /><span className={css.ellipsis}>{first.label}</span>
+    <span role="cell" className={clsx(css.colWhere, css.stack)}>
+      <button type="button" className={css.store} title={store.name} onClick={() => onOpen(`store:${store.name}`)}>
+        <StoreGlyph kind={store.kind} size={13} /><span className={css.ellipsis}>{store.name}</span>
       </button>
-      {more.length ? <span className={css.moreMachines}>{t('ptMoreMachines', { n: more.length })}</span> : null}
+      {first ? (
+        <span className={css.sub} title={more.length ? t('ptRunsOn', { machines: machines.map((m) => m.label).join(', ') }) : undefined}>
+          <button type="button" className={css.store} title={first.label} onClick={() => onOpen(`machine:${first.name}`)}>
+            <MachineGlyph platform={first.platform} os={first.os} size={12} /><span className={css.ellipsis}>{first.label}</span>
+          </button>
+          {more.length ? <span className={css.moreMachines}>{t('ptMoreMachines', { n: more.length })}</span> : null}
+        </span>
+      ) : null}
     </span>
   )
+}
+
+/** A placeholder bar while a cell's value is read (never a dash that reads as "none"). */
+function Pending({ t, width = 56 }: { t: StorageT, width?: number }): ReactNode {
+  return <span className={css.pending} style={{ width }} role="img" aria-label={t('ptReadingCell')} />
 }
 
 function fromControl(e: MouseEvent<HTMLElement>): boolean {
@@ -406,6 +414,13 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
   const totals = unread ? null : p.totals
   const size = unread ? null : r.sizeRoute ? routed.stored ?? null : p.totals && p.totals.stored > 0 ? p.totals.stored : null
   const sizeWaiting = r.sizeRoute ? routed.counting : !!counting
+  // its history is still being read: figures show a placeholder bar, not a dash
+  const reading = !unread && !p.totals && !p.last
+  // Updated: the newer of its last session and last commit, else when it was made
+  const updated: { at: number, via: 'ptViaSession' | 'ptViaCommit' | 'ptViaCreated' } | null =
+    lastSession !== null && (at === null || lastSession >= at) ? { at: lastSession, via: 'ptViaSession' }
+      : at !== null ? { at, via: 'ptViaCommit' }
+        : p.created !== null && !reading ? { at: p.created, via: 'ptViaCreated' } : null
   const detailId = `project-detail-${key}`
   const openProject = () => onOpen(`project:${key}`)
   const toggle = () => onSetOpen(open ? false : lastList)
@@ -450,46 +465,46 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
             </span>
           </span>
         </span>
-        {showStore ? (
-          <span role="cell" className={css.colStore}>
-            <button type="button" className={css.store} title={store.name} onClick={() => onOpen(`store:${store.name}`)}>
-              <StoreGlyph kind={store.kind} size={13} /><span className={css.ellipsis}>{store.name}</span>
+        {showStore ? <WhereCell store={store} machines={r.machines ?? []} t={t} onOpen={onOpen} /> : null}
+        <span role="cell" className={clsx(css.num, css.colActivity, css.stack)}>
+          {local == null
+            ? <Pending t={t} width={64} />
+            : local.length === 0
+              ? <span className={css.muted}>{t('ptNoSessionsShort')}</span>
+              : (
+                <button type="button" className={css.cellLink} onClick={() => onSetOpen('sessions')}
+                  title={active > 0 ? t('ptSessionsActive', { n: local.length, active }) : undefined}>
+                  <span>{local.length === 1 ? t('ptSessionsOne') : t('ptSessionsN', { n: local.length.toLocaleString() })}</span>
+                </button>
+              )}
+          {boxes.length ? (
+            <button type="button" className={clsx(css.cellLink, css.sub)} onClick={() => onSetOpen('sandboxes')}
+              title={[running > 0 ? t('ptRunning', { n: running }) : null, ...boxes.map((b) => `${b.name} · ${place(b.machine)}`)].filter(Boolean).join('\n')}>
+              <span>{boxes.length === 1 ? t('ptSandboxesOne') : t('ptSandboxesN', { n: boxes.length })}</span>
             </button>
-          </span>
-        ) : null}
-        {showStore ? <MachineCell machines={r.machines ?? []} t={t} onOpen={onOpen} /> : null}
-        <span role="cell" className={css.colSessions}>
-          {local == null || local.length === 0
-            ? <span className={css.muted}>{local == null ? '' : '—'}</span>
-            : (
-              <button type="button" className={css.cellLink} onClick={() => onSetOpen('sessions')}
-                title={active > 0 ? t('ptSessionsActive', { n: local.length, active }) : undefined}>
-                <span>{String(local.length)}</span>
-              </button>
-            )}
+          ) : null}
         </span>
-        <span role="cell" className={css.colSandboxes}>
-          {boxes.length === 0
-            ? <span className={css.muted}>—</span>
-            : (
-              <button type="button" className={css.cellLink} onClick={() => onSetOpen('sandboxes')}
-                title={[running > 0 ? t('ptRunning', { n: running }) : null, ...boxes.map((b) => `${b.name} · ${place(b.machine)}`)].filter(Boolean).join('\n')}>
-                <span>{String(boxes.length)}</span>
-              </button>
-            )}
+        <span role="cell" className={clsx(css.num, css.colUpdated, css.stack)} title={updated ? when(updated.at) : undefined}>
+          {updated
+            ? <><span>{ago(updated.at, now, tt)}</span><span className={css.sub}>{t(updated.via)}</span></>
+            : reading || local == null ? <Pending t={t} width={60} /> : <span className={css.muted}>—</span>}
         </span>
-        <span role="cell" className={clsx(css.num, css.colSession, lastSession === null && css.muted)} title={lastSession !== null ? when(lastSession) : undefined}>
-          {lastSession !== null ? ago(lastSession, now, tt) : local == null ? '' : '—'}
+        <span role="cell" className={clsx(css.num, css.colHistory, css.stack)}>
+          {totals
+            ? totals.saves === 0
+              ? <span className={css.muted}>{t('ptNoCommits')}</span>
+              : <>
+                <span>{totals.saves === 1 ? t('ptCommitsOne') : t('ptCommitsN', { n: totals.saves.toLocaleString() })}</span>
+                <span className={css.sub}>{totals.branches === 1 ? t('ptBranchesOne') : t('ptBranchesN', { n: totals.branches.toLocaleString() })}</span>
+              </>
+            : reading ? <Pending t={t} width={68} /> : <span className={css.muted}>—</span>}
         </span>
-        <span role="cell" className={clsx(css.num, css.colWhen, css.muted)} title={when(at ?? p.created)}>
-          {at !== null ? ago(at, now, tt) : p.created !== null ? t('createdAgo', { ago: ago(p.created, now, tt) }) : '—'}
-        </span>
-        <span role="cell" className={clsx(css.num, css.colCommits, !totals && css.muted)}>{totals ? totals.saves.toLocaleString() : '—'}</span>
-        <span role="cell" className={clsx(css.num, css.colBranches, !totals && css.muted)}>{totals ? totals.branches.toLocaleString() : '—'}</span>
         <span role="cell" className={clsx(css.num, css.colSize)}
           title={share != null ? t('spShareOfStore', { n: share < 0.01 && share > 0 ? '<1' : String(Math.round(share * 100)) }) : r.sizeRoute ? (r.sizeRoute.alone ? t('ovSizeTitleAlone') : t('ovSizeTitle')) : undefined}>
           <ExportCell api={api} t={tt} project={key}>
-            <span className={clsx(size === null && css.muted)}>{size !== null ? bytes(size) : sizeWaiting && !unread ? t('ovSizeCounting') : '—'}</span>
+            {size === null && !unread && reading && !sizeWaiting
+              ? <Pending t={t} width={44} />
+              : <span className={clsx(size === null && css.muted)}>{size !== null ? bytes(size) : sizeWaiting && !unread ? t('ovSizeCounting') : '—'}</span>}
           </ExportCell>
           {share != null ? <span className={css.share} aria-hidden="true"><span style={{ width: `${Math.max(share * 100, share > 0 ? 2 : 0).toFixed(1)}%` }} /></span> : null}
         </span>
