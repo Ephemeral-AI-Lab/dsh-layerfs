@@ -208,7 +208,7 @@ test('a restored copy beside its original does not take over the identity', asyn
 test('a damaged durable catalog is reported instead of silently replaced', async () => {
   const f = fixture()
   try {
-    writeFileSync(join(f.dir, 'project-catalog.json'), '{broken')
+    writeFileSync(join(f.dir, 'projects.json'), '{broken')
     assert.throws(() => f.catalog.retained(), SyntaxError)
   } finally { f.close() }
 })

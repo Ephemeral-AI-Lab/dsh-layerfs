@@ -1,5 +1,5 @@
-// Two session modes: where a session works (placeOf: a project anchor binds,
-// anywhere else is a plain folder session), the Scratch project made on first
+// Two session modes: where a session works (placeOf: a binding, pending choice
+// or owner route makes a project session, a folder path never does), the Scratch project made on first
 // use, the pre-step guarantee (ensureBound) and the LayerFS session
 // persistence row's import on a local miss, over fakes.
 //   node --test test/sessions.test.mjs
@@ -43,7 +43,7 @@ function sessions({ state = S.initialState(), lfs = {}, layerfsRoot = '/lfs-root
   const s = Object.create(S.LayerfsSessions.prototype)
   const events = []
   const ctx = {
-    layerfs: { root: layerfsRoot, scratchProject: 'dsh-scratch/scratch', lfs, emit: (type, data) => events.push({ type, data }), ensureHostDaemon: async () => {} },
+    layerfs: { state: layerfsRoot, scratchProject: 'dsh-scratch/scratch', lfs, emit: (type, data) => events.push({ type, data }), ensureHostDaemon: async () => {} },
     sessions: { get: () => undefined },
     logger: () => ({ warn() {}, info() {} }),
   }
@@ -68,20 +68,24 @@ function sessionSaves(s, state) {
   return saves
 }
 
-test('placeOf: only recorded legacy project anchors bind; folder paths do not create ownership', () => {
+test('placeOf: a folder path never creates ownership, not even a recorded legacy project anchor', () => {
+  // docs/specs/layerfs-folder.md §4: the project is never inferred from a folder path;
+  // ownership comes from a binding, a pending choice, the owner route or a parent.
   const state = S.initialState()
   state.projects['st/app'] = { project: 'st/app', anchor: '/lfs-root/projects/st/app', workspaceId: 'legacy-workspace' }
   const { s } = sessions({ state })
-  assert.deepEqual(s.placeOf(session('a', { cwd: '/lfs-root/projects/st/app' })),
-    { kind: 'project', project: 'st/app', anchor: '/lfs-root/projects/st/app' })
+  assert.deepEqual(s.placeOf(session('a', { cwd: '/lfs-root/projects/st/app' })), { kind: 'folder', cwd: '/lfs-root/projects/st/app' })
   assert.deepEqual(s.placeOf(session('b', { cwd: '/lfs-root/scratch' })), { kind: 'folder', cwd: '/lfs-root/scratch' })
   assert.deepEqual(s.placeOf(session('c', { cwd: '/Users/me/Documents/default-workspace' })), { kind: 'folder', cwd: '/Users/me/Documents/default-workspace' })
   assert.deepEqual(s.placeOf(session('d', { cwd: '/Users/me/repo' }, ran)), { kind: 'folder', cwd: '/Users/me/repo' })
-  // A project anchor wins even when the session already ran (resumed after a restart).
-  assert.equal(s.placeOf(session('e', { cwd: '/lfs-root/projects/st/app' }, ran)).kind, 'project')
+  // Nor when the session already ran (resumed after a restart).
+  assert.equal(s.placeOf(session('e', { cwd: '/lfs-root/projects/st/app' }, ran)).kind, 'folder')
   assert.deepEqual(s.placeOf(session('unowned', { cwd: '/lfs-root/projects/other/repo' })), { kind: 'folder', cwd: '/lfs-root/projects/other/repo' })
   state.projects['st/new'] = { project: 'st/new', anchor: '/lfs-root/projects/st/new' }
   assert.equal(s.placeOf(session('new-anchor', { cwd: '/lfs-root/projects/st/new' })).kind, 'folder', 'new anchors are not ownership')
+  // A pending choice is what makes such a session a project session.
+  state.pending.a = { project: 'st/app' }
+  assert.deepEqual(s.placeOf(session('a', { cwd: '/lfs-root/projects/st/app' })), { kind: 'project', project: 'st/app', anchor: '/lfs-root/scratch' })
 })
 
 test('placeOf: bindings, subagents and forks follow what they come from', () => {
@@ -105,12 +109,13 @@ test('placeOf: bindings, subagents and forks follow what they come from', () => 
 test('choose: a session placed in a project binds there; cleared placement is a folder session', async () => {
   const lfs = { project: { get: async (key) => { if (key === 'gone/x') throw new Refusal('NoSuchProject'); return { key } } } }
   const { s, state } = sessions({ lfs, layerfsRoot: mkdtempSync(join(tmpdir(), 'dsh-root-')) })
-  const root = s.ctx.layerfs.root
+  const root = s.ctx.layerfs.state
   const sess = session('n', { cwd: '/Users/me/repo' })
   await s.choose('n', 'st/app')
   assert.deepEqual(state().pending.n, { project: 'st/app' })
-  // The same session in the same folder now works in the project — no workspace change.
-  assert.deepEqual(s.placeOf(sess), { kind: 'project', project: 'st/app', anchor: `${root}/projects/st/app` })
+  // The same session in the same folder now works in the project — no workspace change;
+  // its scratch parent is the Scratch folder (docs/specs/layerfs-folder.md §4).
+  assert.deepEqual(s.placeOf(sess), { kind: 'project', project: 'st/app', anchor: `${root}/scratch` })
   assert.deepEqual(s.placeOfId('n'), { project: 'st/app' })
   // An unknown project never reaches the pending record.
   await assert.rejects(s.choose('n', 'gone/x'), (e) => e.code === 'NoSuchProject')
@@ -128,7 +133,7 @@ test('choose: a session placed in a project binds there; cleared placement is a 
 test('choose: a blank session takes the layerfs preset with its project and the default without it', async () => {
   const lfs = { project: { get: async (key) => ({ key }) } }
   const { s } = sessions({ lfs, layerfsRoot: mkdtempSync(join(tmpdir(), 'dsh-root-')) })
-  const root = s.ctx.layerfs.root
+  const root = s.ctx.layerfs.state
   const blank = session('np', { cwd: root })
   s.ctx.sessions.get = () => blank
   const selected = []
@@ -329,12 +334,15 @@ test('recovery reuses the persisted project execution context instead of startin
       migrateProject: async () => {}, updateSidecar: async () => {}, recordInvocation: async () => {},
     }
     s.ctx.get = (name) => name === 'sessionPersistence' ? persistence : undefined
-    s.ctx.workingDirectory = { get: () => scratch }
+    const moves = []
+    s.ctx.workingDirectory = { get: () => scratch, set: async (_agent, dir) => { moves.push(dir) } }
     const agent = { id: 'recovered', session: session('recovered', { cwd: scratch }, [...ran, { type: 'turn/end', data: { turn: 1 } }]) }
     await s.ensureBound(agent)
     assert.equal(s.binding('recovered').branch, 'existing-internal')
     assert.deepEqual(s.checkpoints('recovered'), checkpoints)
-    assert.equal(s.binding('recovered').scratch, scratch)
+    // With no binding left, its scratch is a new folder of its own; a session that ran moves with DSH's notice.
+    assert.equal(s.binding('recovered').scratch, join(scratch, 'scratch', 'recovered'))
+    assert.deepEqual(moves, [join(scratch, 'scratch', 'recovered')])
   } finally { rmSync(scratch, { recursive: true, force: true }) }
 })
 
@@ -402,7 +410,7 @@ test('close refuses to discard unsaved files after an uncertain checkpoint', asy
   assert.equal(s.binding('a').state, 'bound')
 })
 
-test('ensureBound binds a remote project: Sandbox on its machine, working directory the scratch folder', async () => {
+test('ensureBound binds a remote project: Sandbox on its machine, working directory a new scratch folder of its own', async () => {
   const calls = []
   const lfs = {
     project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'lima1', state: 'ready' }) },
@@ -419,8 +427,8 @@ test('ensureBound binds a remote project: Sandbox on its machine, working direct
   const { s, state } = sessions({ lfs, layerfsRoot: mkdtempSync(join(tmpdir(), 'dsh-root-')) })
   const selected = []
   s.ctx.get = (name) => (name === 'agentPresets' ? { select: async (_a, id) => { selected.push(id); return id } } : undefined)
-  s.ctx.workingDirectory = { get: () => s.ctx.layerfs.root, set: async () => { throw new Error('selected scratch must stay unchanged') } }
-  const anchor = join(s.ctx.layerfs.root, 'projects', 'st', 'app')
+  s.ctx.workingDirectory = { get: () => s.ctx.layerfs.state, set: async () => { throw new Error('a fresh session moves silently, never with a notice') } }
+  const anchor = join(s.ctx.layerfs.state, 'projects', 'st', 'app')
   state().pending.n1 = { project: 'st/app' }
   const appended = []
   const agent = { id: 'n1', session: { ...session('n1', { cwd: anchor }), seq: 0, append: (type, data) => appended.push([type, data]) } }
@@ -430,12 +438,16 @@ test('ensureBound binds a remote project: Sandbox on its machine, working direct
   assert.equal(b.machine, 'lima1')
   assert.equal(b.mount, undefined, 'a remote Workspace mounts inside its Sandbox, not on this host')
   assert.equal(b.ws, 'dsh-n1:main', 'the Workspace handle stays usable for exec/status/commit')
-  assert.equal(b.scratch, s.ctx.layerfs.root)
-  assert.equal(b.scratchManaged, false)
+  // docs/specs/layerfs-folder.md §4: the folder it was created in never becomes its scratch
+  const own = join(s.ctx.layerfs.state, 'scratch', 'n1')
+  assert.equal(b.scratch, own)
+  assert.equal(b.scratchManaged, true)
+  assert.ok(statSync(own).isDirectory())
+  assert.equal(b.anchor, join(s.ctx.layerfs.state, 'scratch'), 'the Scratch folder is its parent')
   assert.deepEqual(calls, ['fork st/app dsh.n1 main', 'sandbox st/app dsh-n1 lima1', 'mount dsh-n1 dsh.n1 main'], 'the machine is named whenever it is not the host machine')
-  assert.equal(appended.find(([type]) => type === 'working-directory/change'), undefined)
+  assert.deepEqual(appended.filter(([type]) => type === 'working-directory/change'), [['working-directory/change', { cwd: own }]], 'moved there before its first turn')
   assert.deepEqual(selected, ['layerfs'], 'the session is recomposed under the layerfs preset')
-  rmSync(s.ctx.layerfs.root, { recursive: true, force: true })
+  rmSync(s.ctx.layerfs.state, { recursive: true, force: true })
 })
 
 // Issue #185: a project session's first message may spend seconds making its
@@ -462,9 +474,9 @@ test('a first bind says Starting while its Workspace mounts, then active', async
   const { s, state } = sessions({ lfs, layerfsRoot: mkdtempSync(join(tmpdir(), 'dsh-root-')) })
   try {
     const saves = sessionSaves(s, state)
-    s.ctx.workingDirectory = { get: () => s.ctx.layerfs.root, set: async () => {} }
+    s.ctx.workingDirectory = { get: () => s.ctx.layerfs.state, set: async () => {} }
     state().pending.n1 = { project: 'st/app' }
-    const agent = { id: 'n1', session: { ...session('n1', { cwd: join(s.ctx.layerfs.root, 'projects', 'st', 'app') }), seq: 0, append: () => {} } }
+    const agent = { id: 'n1', session: { ...session('n1', { cwd: join(s.ctx.layerfs.state, 'projects', 'st', 'app') }), seq: 0, append: () => {} } }
     const step = s.ensureBound(agent)
     await mounting
     const starting = state().sessions.n1
@@ -477,7 +489,7 @@ test('a first bind says Starting while its Workspace mounts, then active', async
     assert.equal(state().sessions.n1.executionState, 'active')
     assert.equal(state().sessions.n1.state, 'bound')
     assert.deepEqual(saves, [{ sessionId: 'n1', executionState: 'activating' }, { sessionId: 'n1', executionState: 'active' }], 'then one for active')
-  } finally { rmSync(s.ctx.layerfs.root, { recursive: true, force: true }) }
+  } finally { rmSync(s.ctx.layerfs.state, { recursive: true, force: true }) }
 })
 
 test('a failed mount leaves no Starting session: it ends interrupted with the error', async () => {
@@ -494,9 +506,9 @@ test('a failed mount leaves no Starting session: it ends interrupted with the er
   const { s, state } = sessions({ lfs, layerfsRoot: mkdtempSync(join(tmpdir(), 'dsh-root-')) })
   try {
     const saves = sessionSaves(s, state)
-    s.ctx.workingDirectory = { get: () => s.ctx.layerfs.root, set: async () => {} }
+    s.ctx.workingDirectory = { get: () => s.ctx.layerfs.state, set: async () => {} }
     state().pending.n1 = { project: 'st/app' }
-    const agent = { id: 'n1', session: { ...session('n1', { cwd: join(s.ctx.layerfs.root, 'projects', 'st', 'app') }), seq: 0, append: () => {} } }
+    const agent = { id: 'n1', session: { ...session('n1', { cwd: join(s.ctx.layerfs.state, 'projects', 'st', 'app') }), seq: 0, append: () => {} } }
     await assert.rejects(s.ensureBound(agent), (e) => e.code === 'Unavailable' && /worker gone/.test(e.message))
     assert.equal(during.executionState, 'activating', 'it was starting during the mount')
     const failed = state().sessions.n1
@@ -505,7 +517,7 @@ test('a failed mount leaves no Starting session: it ends interrupted with the er
     assert.match(failed.error, /worker gone/)
     assert.equal(failed.ws, undefined, 'no Workspace is claimed')
     assert.deepEqual(saves, [{ sessionId: 'n1', executionState: 'activating' }, { sessionId: 'n1', executionState: 'interrupted' }])
-  } finally { rmSync(s.ctx.layerfs.root, { recursive: true, force: true }) }
+  } finally { rmSync(s.ctx.layerfs.state, { recursive: true, force: true }) }
 })
 
 test('a normal step on a bound, usable session does not show Starting', async () => {
@@ -554,14 +566,14 @@ test('ensureBound runs a PostgreSQL project where the session picked, else its l
     const { s, state } = sessions({ lfs, layerfsRoot: mkdtempSync(join(tmpdir(), 'dsh-root-')) })
     try {
       s.ctx.get = (name) => (name === 'agentPresets' ? { select: async (_a, id) => id } : undefined)
-      s.ctx.workingDirectory = { get: () => s.ctx.layerfs.root, set: async () => {} }
+      s.ctx.workingDirectory = { get: () => s.ctx.layerfs.state, set: async () => {} }
       state().pending.n1 = { project: 'st/app', ...(picked ? { machine: picked } : {}) }
-      await s.ensureBound({ id: 'n1', session: { ...session('n1', { cwd: join(s.ctx.layerfs.root, 'projects', 'st', 'app') }), seq: 0, append: () => {} } })
+      await s.ensureBound({ id: 'n1', session: { ...session('n1', { cwd: join(s.ctx.layerfs.state, 'projects', 'st', 'app') }), seq: 0, append: () => {} } })
       assert.deepEqual(calls, [`sandbox st/app dsh-n1 ${state().sessions.n1.machine}`])
       // nothing Store-wide was written: no store-machines.json beside the plugin's state
-      assert.equal(existsSync(join(s.ctx.layerfs.root, 'store-machines.json')), false)
+      assert.equal(existsSync(join(s.ctx.layerfs.state, 'store-machines.json')), false)
       return state().sessions.n1.machine
-    } finally { rmSync(s.ctx.layerfs.root, { recursive: true, force: true }) }
+    } finally { rmSync(s.ctx.layerfs.state, { recursive: true, force: true }) }
   }
   const m = (name, more = {}) => ({ name, supports: ['sqlite', 'postgresql_sandbox'], ...more })
   const fleet = [m('macos-host'), m('docker'), m('vm1'), m('vm2', { state: 'stopped' }), m('vm3', { state: 'broken' }), m('old', { supports: ['sqlite'] })]
@@ -574,7 +586,7 @@ test('ensureBound runs a PostgreSQL project where the session picked, else its l
   await assert.rejects(bind(fleet, {}), (e) => e.code === 'InvalidInput', 'none attached: nothing is guessed, not even the host machine')
 })
 
-test('ensureBound keeps a host machine project’s local cwd as selected scratch, separate from the mount', async () => {
+test('ensureBound gives a host machine project a new scratch folder, separate from the mount; a picked folder is kept', async () => {
   const calls = []
   const lfs = {
     project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'macos-host', state: 'ready' }) },
@@ -586,7 +598,7 @@ test('ensureBound keeps a host machine project’s local cwd as selected scratch
     workspace: { mount: async (sandbox, _b, options) => { calls.push(`mount ${sandbox}`); return { path: `${s_root}/host-mount`, workspace: `${sandbox}:${options.name}` } } },
   }
   const { s, state } = sessions({ lfs, layerfsRoot: mkdtempSync(join(tmpdir(), 'dsh-root-')) })
-  const s_root = s.ctx.layerfs.root
+  const s_root = s.ctx.layerfs.state
   s.ctx.workingDirectory = { get: () => s_root, set: async () => {} }
   const anchor = join(s_root, 'projects', 'st', 'app')
   state().pending.n2 = { project: 'st/app' }
@@ -597,9 +609,21 @@ test('ensureBound keeps a host machine project’s local cwd as selected scratch
   assert.equal(b.state, 'bound')
   assert.equal(b.mount, `${s_root}/host-mount`)
   assert.deepEqual(calls, ['fork', 'sandbox macos-host', 'mount dsh-n2'])
-  assert.equal(b.scratch, s_root)
-  assert.equal(b.scratchManaged, false)
-  assert.equal(appended.find(([type]) => type === 'working-directory/change'), undefined, 'selected local folder stays the working directory')
+  const own = join(s_root, 'scratch', 'n2')
+  assert.equal(b.scratch, own, 'the folder it was created in (an old anchor) is not its scratch')
+  assert.equal(b.scratchManaged, true)
+  assert.notEqual(b.scratch, b.mount)
+  assert.deepEqual(appended.filter(([type]) => type === 'working-directory/change'), [['working-directory/change', { cwd: own }]])
+  // A folder the person picked (sessions.selectScratch) stays the scratch, unmanaged.
+  const picked = join(s_root, 'picked')
+  mkdirSync(picked)
+  state().sessions.n3 = { sessionId: 'n3', kind: 'project', project: 'st/app', anchor: join(s_root, 'scratch'), scratch: picked, scratchManaged: false, state: 'closed', createdAt: 1, updatedAt: 1 }
+  const kept = []
+  await s.ensureBound({ id: 'n3', session: { ...session('n3', { cwd: picked }), seq: 0, append: (type, data) => kept.push([type, data]) } })
+  assert.equal(state().sessions.n3.state, 'bound')
+  assert.equal(state().sessions.n3.scratch, picked)
+  assert.equal(state().sessions.n3.scratchManaged, false)
+  assert.equal(existsSync(join(s_root, 'scratch', 'n3')), false, 'no scratch folder is made for it')
   rmSync(s_root, { recursive: true, force: true })
 })
 
@@ -617,7 +641,7 @@ test('ensureScratchProject makes the Store and project once, tolerating Exists',
   await Promise.all([s.ensureScratchProject(), s.ensureScratchProject()])
   await s.ensureScratchProject()
   assert.deepEqual(calls, ['get dsh-scratch/scratch', 'create dsh-scratch', 'init dsh-scratch/scratch'])
-  rmSync(s.ctx.layerfs.root, { recursive: true, force: true })
+  rmSync(s.ctx.layerfs.state, { recursive: true, force: true })
 })
 
 test('ensureScratchProject retries after a failure', async () => {
@@ -1318,7 +1342,7 @@ test('a session\'s host reads fold into its sidecar; a tool read and a write kee
     workspace: { status: traced('workspace.status', () => ({ changes_count: 0 }), tags) },
   }
   const ctx = new Context()
-  ctx.provide('layerfs', { root: join(dir, 'plugin'), projectSessionHome: join(dir, 'project-home'), home: join(dir, 'layerfs-home'), lfs })
+  ctx.provide('layerfs', { state: join(dir, 'plugin'), projectSessionHome: join(dir, 'project-home'), home: join(dir, 'layerfs-home'), lfs })
   const fork = ctx.plugin(S.persistence, { root: join(dir, 'normal') })
   const header = (id) => ({ version: 4, id, createdAt: 1, cwd: '/scratch', isSeeded: false })
   const binding = (id) => ({ sessionId: id, kind: 'project', project: 'store/app', machine: 'vm', anchor: '/anchor', scratch: '/scratch',
@@ -1426,7 +1450,7 @@ test('choosing a project with an unclaimed listing id claims it (the one claimin
   await s.choose('n', 'st/app', 'unclaimed:st/app')
   assert.deepEqual(asserted, [['st/app', 'unclaimed:st/app', { claim: true }]])
   assert.deepEqual(state().pending.n, { project: 'st/app' })
-  rmSync(s.ctx.layerfs.root, { recursive: true, force: true })
+  rmSync(s.ctx.layerfs.state, { recursive: true, force: true })
 })
 
 test('a turn with changes (an in-place edit counts as one) or a pending merge is checkpointed; an unchanged turn is not', async () => {
@@ -1564,7 +1588,7 @@ test('sessions.list rows carry the branch kind too, from the row\'s branch and i
   state.sessions.plain = row('plain', 'feature/x', 4)
   const ops = {}
   const ctx = {
-    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
+    layerfs: { state: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
     layerfsSessions: { state: { read: () => state } },
     layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
     plugin() {},
@@ -1601,7 +1625,7 @@ test('sessions.places: a second batch in the window reuses project ids, and ids 
   f.s.ctx.get = (name) => name === 'sessionPersistence' ? persistence : undefined
   const ops = {}
   const ctx = {
-    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
+    layerfs: { state: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
     layerfsSessions: f.s,
     layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
     plugin() {},
@@ -1636,7 +1660,7 @@ test('sessions.places: one read-only batch over placeOfId and projectIdOf; bad i
   const projectIds = { live: 'pid-1' }
   const ops = {}
   const ctx = {
-    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
+    layerfs: { state: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
     layerfsSessions: { state: { read: () => S.initialState() }, placeOfId: (id) => places[id] ?? null },
     layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
     plugin() {},
@@ -1678,7 +1702,7 @@ test('sessions.list reads each session\'s log and sidecar once per call', async 
   }
   const ops = {}
   const ctx = {
-    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: { branch: { list: async () => ({ items: [] }) } }, emit() {}, callLog: {} },
+    layerfs: { state: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: { branch: { list: async () => ({ items: [] }) } }, emit() {}, callLog: {} },
     layerfsSessions: sessions({ state }).s,
     layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
     plugin() {}, inject: (deps, callback) => { if (deps.includes('layerfsSessions')) callback(ctx) }, on() {}, effect() {},
@@ -1732,7 +1756,7 @@ test('a cold sessions.list answers known rows at once, then the walk lands and i
   const ops = {}
   const events = []
   const ctx = {
-    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs, emit: (type, data) => events.push({ type, data }), callLog: {} },
+    layerfs: { state: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs, emit: (type, data) => events.push({ type, data }), callLog: {} },
     layerfsSessions: f.s,
     layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
     plugin() {}, inject: (deps, callback) => { if (deps.includes('layerfsSessions')) callback(ctx) }, on() {}, effect() {},
@@ -1801,7 +1825,7 @@ test('session.annotations answers sidecar metadata only; session.receipts pages 
     },
   }
   const ctx = {
-    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
+    layerfs: { state: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
     layerfsSessions: {},
     layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
     plugin() {},
@@ -1838,7 +1862,7 @@ test('session.annotations answers sidecar metadata only; session.receipts pages 
 test('a choice that fails after moving the owner route moves the route back', async () => {
   const lfs = { project: { get: async (key) => ({ key }) } }
   const { s, state } = sessions({ lfs, layerfsRoot: mkdtempSync(join(tmpdir(), 'dsh-choose-undo-')) })
-  const root = s.ctx.layerfs.root
+  const root = s.ctx.layerfs.state
   s.ctx.sessions.get = (id) => session(id, { cwd: '/Users/me/repo' })
   // The persistence row's public face: owner routes in owners.json, moved by migrateProject.
   const owners = { kept: 'st/old' }

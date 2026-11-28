@@ -165,8 +165,9 @@ export function runtimeOf(home: string, path: string | null | undefined): string
  * Leaves this host's lease on the folder holding `cli` (if it is an installed
  * runtime) and removes its lease from every other folder. Never throws.
  */
-export function leasePin(home: string, root: string, cli: string | null): void {
-  const id = hostId(root)
+export function leasePin(home: string, root: string, cli: string | null, install?: string): void {
+  // A migrated install keeps its id (the hash of the folder it moved from), so its lease file stays the same.
+  const id = install ? install.slice(0, 16) : hostId(root)
   const held = runtimeOf(home, cli)
   for (const r of installedRuntimes(home)) {
     const lease = join(r.dir, 'pins', id)

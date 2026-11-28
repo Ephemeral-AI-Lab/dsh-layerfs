@@ -174,7 +174,11 @@ switching homes never carries one home's state into another:
   `project-storage/`) belonged to whichever home was in use then; they are no
   longer read.
 
-## 6. dsh-layerfs state under DSH_HOME
+## 6. dsh-layerfs state
+
+Superseded by `layerfs-folder.md`: the plugin's state is the DSH x LayerFS home
+`~/.layerfs/dsh` (an older `$DSH_HOME/layerfs` is moved there once). The rest of
+this section describes the layout before that.
 
 - `root` (default `$DSH_HOME/layerfs`) holds the plugin's state for this install:
   the runtime pin, session bindings, scratch and legacy anchors.

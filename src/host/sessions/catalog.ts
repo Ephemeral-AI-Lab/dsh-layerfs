@@ -83,7 +83,7 @@ export class ProjectCatalog {
   private readonly gone = new Map<string, { at: number, message: string }>()
   /** `<address>\0<created>` -> when a listing last read it as unclaimed (UNCLAIMED_MS) */
   private readonly unclaimed = new Map<string, number>()
-  constructor(private readonly lfs: () => Lfs, root: string) { this.path = join(root, 'project-catalog.json') }
+  constructor(private readonly lfs: () => Lfs, root: string) { this.path = join(root, 'projects.json') }
   private read(): Record<string, CatalogProject> {
     if (!existsSync(this.path)) return {}
     const value = JSON.parse(readFileSync(this.path, 'utf8'))

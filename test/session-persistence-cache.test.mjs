@@ -221,13 +221,13 @@ test('the byte budget bounds the cache before the entry bound', async () => {
 
 // ---------------------------------------------------------------- sidecar cache
 
-/** A log file with a sidecar next to it, in its own folder (the sidecar path is `<log dir>/layerfs.json`). */
+/** A log file with a sidecar next to it, in its own folder (the sidecar path is `<log dir>/layerfs/binding.json`). */
 function sidecarFixture(name) {
   const dir = join(scratch, name)
-  mkdirSync(dir, { recursive: true })
+  mkdirSync(join(dir, 'layerfs'), { recursive: true })
   const log = join(dir, 'session.jsonl')
   writeFileSync(log, `${JSON.stringify({ version: 4, id: 's1', createdAt: 1 })}\n`)
-  return { dir, log, sidecar: join(dir, 'layerfs.json'), backend: new FileBackend(log) }
+  return { dir, log, sidecar: join(dir, 'layerfs', 'binding.json'), backend: new FileBackend(log) }
 }
 const sidecarValue = (title, extra = {}) => ({ version: 1, sessionId: 's1', project: 'st/app', invocations: [], title, ...extra })
 /** Count the cache's real file reads (the method is overridable for exactly this). */
@@ -328,7 +328,8 @@ test('deleteSessions invalidates a cached sidecar', async () => {
   mkdirSync(dir, { recursive: true })
   const log = join(dir, 'session.jsonl')
   writeFileSync(log, '{"version":4}\n')
-  writeFileSync(join(dir, 'layerfs.json'), JSON.stringify({ version: 1, sessionId: 's6', project: 'st/app', invocations: [] }))
+  mkdirSync(join(dir, 'layerfs'), { recursive: true })
+  writeFileSync(join(dir, 'layerfs', 'binding.json'), JSON.stringify({ version: 1, sessionId: 's6', project: 'st/app', invocations: [] }))
   const key = 'a'.repeat(64)
   writeFileSync(join(home, 'owners.json'), JSON.stringify({ version: 1, sessions: { s6: { project: 'st/app', key } } }))
   const backend = new MemoryBackend(log, { version: 4, id: 's6', createdAt: 1 })
@@ -352,9 +353,9 @@ test('the sidecar cache is bounded to 1024 entries', async () => {
   }
   for (let i = 0; i < 1100; i++) {
     const id = `id-${String(i).padStart(4, '0')}`
-    mkdirSync(join(base, id), { recursive: true })
+    mkdirSync(join(base, id, 'layerfs'), { recursive: true })
     writeFileSync(join(base, id, 'session.jsonl'), '{"version":4}\n')
-    writeFileSync(join(base, id, 'layerfs.json'), JSON.stringify(sidecarValue(id)))
+    writeFileSync(join(base, id, 'layerfs', 'binding.json'), JSON.stringify(sidecarValue(id)))
   }
   const w = persistence(backend)
   for (let i = 0; i < 1100; i++) await w.readSidecar(`id-${String(i).padStart(4, '0')}`)

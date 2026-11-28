@@ -69,7 +69,7 @@ export interface ManagedSdkOptions {
  * @param options - the installed SDK, the LayerFS home and the call log mode.
  */
 export function managedSdk(options: ManagedSdkOptions): string {
-  const file = join(options.root, 'agent-bin', 'sdk.mjs')
+  const file = join(options.root, 'bin', 'sdk.mjs')
   const outputs = options.callLog ? outputsDir(options.callLog) : null
   const config = {
     entry: pathToFileURL(options.sdk.entry).href, addon: options.sdk.addon, commit: options.sdk.commit,

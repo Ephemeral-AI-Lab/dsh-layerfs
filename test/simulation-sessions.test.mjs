@@ -24,7 +24,7 @@ function fixture() {
     sandbox: { get: async () => { const e = new Error('absent'); e.code = 'NotFound'; throw e }, create: async (...args) => { calls.push(['sandbox', ...args]); return { ok: true } }, remove: async () => ({ ok: true }) },
     workspace: { mount: async (...args) => { calls.push(['mount', ...args]); return { path: dir, workspace: 'sandbox:main', commit: 'a'.repeat(66) } }, status: async () => { throw new Error('automatic status must not run') } },
   }
-  const ctx = { layerfs: { root: dir, lfs, emit() {}, ensureHostDaemon: async () => {} },
+  const ctx = { layerfs: { state: dir, lfs, emit() {}, ensureHostDaemon: async () => {} },
     sessions: { get: (id) => agents.get(id)?.session }, workspaceRegistry: { list: () => [] },
     workingDirectory: { get: () => dir, set: async () => {} }, logger: () => ({ warn() {} }),
     get: (key) => key === 'sessionPersistence' ? persistence : key === 'agents' ? { get: (id) => agents.get(id) } : key === 'layerfsSimulations' ? simulations : undefined }

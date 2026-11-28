@@ -54,8 +54,8 @@ export function privateHome(devDir) {
   return home
 }
 
-/** The plugin call log (src/host/layerfs/call-log.ts: `$DSH_HOME/layerfs/trace/calls.jsonl`; dev DSH_HOME = <dev dir>/state). */
-export const callLogPath = (devDir) => join(resolve(devDir), 'state', 'layerfs', 'trace', 'calls.jsonl')
+/** The plugin call log (src/host/layerfs/call-log.ts: `<state>/trace/calls.jsonl`; dev state = <dev dir>/layerfs/dsh). */
+export const callLogPath = (devDir) => join(resolve(devDir), 'layerfs', 'dsh', 'trace', 'calls.jsonl')
 
 /** Files named like logs under the home, skipping Workspace mount trees. */
 function daemonLogFiles(home, mounted) {

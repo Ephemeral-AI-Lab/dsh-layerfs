@@ -22,7 +22,7 @@
  * (docs/specs/homes.md §5): buckets are LayerFS's records (`<home>/backup/`),
  * storage-jobs.json and doctor-jobs.json are in `<home>/job`, and
  * storage-observations/ and project-storage/ in `<home>/stat`. Entered keys and passwords go to `ctx.layerfs.secrets`
- * (default `<home>/secret`). `ctx.layerfs.root` keeps project-sources/.
+ * (default `<home>/secret`). `ctx.layerfs.state` keeps tmp/sources/.
  *
  * Events, published with `ctx.layerfs.emit(type, data)`; `data` is Connect's
  * whole HostEvent object (its `type` included), so a client handler written
@@ -57,7 +57,8 @@ export function apply(ctx: Context): void {
   const host: RouteHost = {
     lfs: () => ctx.layerfs.lfs,
     home: ctx.layerfs.home,
-    root: ctx.layerfs.root,
+    root: ctx.layerfs.state,
+    folder: ctx.layerfs.folder,
     secrets: ctx.layerfs.secrets,
     jobs: ctx.layerfs.jobDir,
     stats: ctx.layerfs.statDir,
@@ -95,7 +96,7 @@ export function apply(ctx: Context): void {
   const groups = createGroups(host, () => ctx.layerfs.status())
   const sessions = () => ctx.get('layerfsSessions' as never) as any
   // each LayerFS home has its own presets state: a manifest names the home it built in
-  const presetState = presetStateFor(ctx.layerfs.root, ctx.layerfs.home)
+  const presetState = presetStateFor(ctx.layerfs.migratedFrom ?? ctx.layerfs.state, ctx.layerfs.home)
   const presets = new PresetManager({
     spec: () => {
       const { cli, home, bundle, cacheHome, callLog, gate } = ctx.layerfs.lfs.spec

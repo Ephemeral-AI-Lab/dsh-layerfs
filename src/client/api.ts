@@ -617,7 +617,9 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
       // Refuse before anything is made: identity, project, machine and Store are
       // checked read-only, so a refusal leaves no blank session behind.
       await op('sessions.checkPlacement', { project, projectId, ...(machine ? { machine } : {}) })
-      const target = workspaceId ?? selectedWorkspaceId()
+      // Project sessions start in the Scratch folder and get a scratch folder of their own
+      // (docs/specs/layerfs-folder.md §4); the folder selected in DSH is not used.
+      const target = workspaceId
         ?? (await op<{ workspaceId: string }>('sessions.prepareScratch', { navigate: false })).workspaceId
       if (!target) throw new HostError('no-workspace', 'Select a local folder to use as scratch for the project session', 0)
       // A workspace blank may already belong to another project. Request a fresh identity before binding it.

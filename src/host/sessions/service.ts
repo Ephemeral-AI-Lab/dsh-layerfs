@@ -17,7 +17,7 @@ import type {} from '@deepseek-ai/dsh-workspace'
 import type {} from '@deepseek-ai/dsh-working-directory'
 import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-agent'
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { CliError, pages, sandboxWorkspaces, type Lfs } from '../layerfs/cli.ts'
@@ -30,6 +30,14 @@ import type { SessionFailure } from '../../shared/pg-failure.ts'
 import { branchFields, type BranchFields } from '../../shared/session-branch.ts'
 import { attachedFrom, lastUsed, pgPlacement } from '../placement.ts'
 import { HOST_MACHINE, isHostName, machineRows } from '../layerfs/machine-records.ts'
+
+/** The Scratch folder's README (`<state>/scratch`). */
+const SCRATCH_README = `# Scratch
+
+The DSH x LayerFS Scratch folder. Project sessions start here, and each gets
+its own scratch folder inside it (\`session-<id>/\`) unless you pick another
+folder for it. Scratch files are never saved into the project.
+`
 
 /** How long a passed identity and readiness check stands for pre-step checks. */
 const IDENTITY_FRESH_MS = 15_000
@@ -191,14 +199,14 @@ export class LayerfsSessions extends Service {
 
   constructor(ctx: Context) {
     super(ctx, 'layerfsSessions')
-    this.state = new JsonFile(join(ctx.layerfs.root, 'sessions.json'), initialState)
+    this.state = new JsonFile(join(ctx.layerfs.state, 'sessions', 'state.json'), initialState)
   }
 
   get lfs(): Lfs { return this.ctx.layerfs.lfs }
 
   /** Separate installations may resume one archived conversation in the same home. */
   private simulationSandbox(sessionId: string): string {
-    const installation = createHash('sha256').update(this.ctx.layerfs.root).digest('hex').slice(0, 10)
+    const installation = this.ctx.layerfs.install?.slice(0, 10) ?? createHash('sha256').update(this.ctx.layerfs.state).digest('hex').slice(0, 10)
     return `${sandboxOf(sessionId)}-${installation}`
   }
 
@@ -220,32 +228,36 @@ export class LayerfsSessions extends Service {
 
   // ------------------------------------------------------------- workspaces
 
-  /** `<root>/projects/<store>/<name>`. */
+  /**
+   * The parent of a project session's default scratch folder: the Scratch
+   * folder `<state>/scratch` for every project (docs/specs/layerfs-folder.md
+   * §4). Bindings made before it keep the anchor they recorded.
+   */
   anchorOf(project: string): string {
     const [store, name] = project.split('/')
     if (!store || !name || project.split('/').length !== 2) throw new CliError('InvalidInput', `Not a project key: ${project}`)
-    return join(this.ctx.layerfs.root, 'projects', store, name)
+    return this.scratchAnchor
   }
 
-  get scratchAnchor(): string { return join(this.ctx.layerfs.root, 'scratch') }
+  get scratchAnchor(): string { return join(this.ctx.layerfs.state, 'scratch') }
 
   /** Whether `project` is the Scratch project. */
   isScratch(project: string | undefined): boolean { return project === this.ctx.layerfs.scratchProject }
 
   private writeAnchor(dir: string, text: string): void {
-    mkdirSync(join(dir, 'sessions'), { recursive: true })
+    mkdirSync(dir, { recursive: true })
     const readme = join(dir, 'README.md')
-    if (!existsSync(readme)) writeFileSync(readme, text)
+    if (!existsSync(readme) || readFileSync(readme, 'utf8') !== text) writeFileSync(readme, text)
   }
 
   /**
-   * The project's anchor directory (`<root>/projects/<store>/<name>`): the
-   * parent of its sessions' scratch folders. It is a real directory but no
-   * DSH workspace — sessions stay in whichever workspace they were placed in.
+   * Record a project this install works in (`state.projects`: the projects an
+   * open-by-id searches) and make the Scratch folder its sessions' default
+   * scratch folders go in; answers that folder.
    */
   ensureAnchor(project: string): string {
     const anchor = this.anchorOf(project)
-    this.writeAnchor(anchor, `# ${project}\n\nThe DeepSeek Harness scratch area of LayerFS project \`${project}\`.\n\nEach session works in its own LayerFS Workspace (branch \`dsh.<session>\`), used for project execution and checkpointed at the end of changed turns. \`sessions/<session>/\` is that\nsession's scratch folder: it is never saved into the project.\n`)
+    this.writeAnchor(anchor, SCRATCH_README)
     this.state.update((s) => { s.projects[project] ??= { project, anchor, createdAt: Date.now() } })
     return anchor
   }
@@ -286,6 +298,8 @@ export class LayerfsSessions extends Service {
     }
     await this.moveTo(agent, real(cwd))
     if (binding) this.save({ ...binding, scratch: real(cwd), scratchManaged: false })
+    // Not bound yet: the pick waits on the pending placement and wins over a new folder at the first bind.
+    else this.state.update((s) => { const pending = s.pending[sessionId]; if (pending) pending.scratch = real(cwd) })
     for (const child of Object.values(this.state.read().sessions)) {
       if (child.kind !== 'shared' || child.parent !== sessionId) continue
       const childAgent = (this.ctx.get?.('agents' as never) as any)?.get?.(child.sessionId)
@@ -298,9 +312,10 @@ export class LayerfsSessions extends Service {
   /** Ensure the Scratch workspace: a plain folder workspace for sessions without a project. */
   async ensureScratchWorkspace(): Promise<{ workspaceId: string, anchor: string }> {
     const anchor = this.scratchAnchor
-    this.writeAnchor(anchor, `# Scratch\n\nA workspace for sessions without a LayerFS project: sessions here run as ordinary\nDeepSeek Harness sessions in this folder.\n`)
+    this.writeAnchor(anchor, SCRATCH_README)
     const workspace = await this.ctx.workspaceRegistry.create(anchor, 'Scratch')
     if (workspace.title !== 'Scratch') await workspace.setTitle('Scratch')
+    await this.retitleMovedScratch()
     return { workspaceId: String(workspace.id), anchor }
   }
 
@@ -313,7 +328,7 @@ export class LayerfsSessions extends Service {
       }
       await this.ctx.layerfs.ensureHostDaemon()
       await this.lfs.store.create(key.split('/')[0]).catch((error: any) => { if (!exists(error)) throw error })
-      const sources = join(this.ctx.layerfs.root, 'project-sources')
+      const sources = join(this.ctx.layerfs.state, 'tmp', 'sources')
       mkdirSync(sources, { recursive: true, mode: 0o700 })
       const empty = mkdtempSync(join(sources, 'scratch-'))
       try {
@@ -327,18 +342,14 @@ export class LayerfsSessions extends Service {
     return key
   }
 
-  /** Which project workspace a session `cwd` is, if it is one. */
-  classify(cwd: string | undefined): { project: string, anchor: string } | undefined {
-    if (!cwd) return undefined
-    const at = real(cwd)
-    const root = real(join(this.ctx.layerfs.root, 'projects'))
-    for (const entry of Object.values(this.state.read().projects)) {
-      if (!entry.workspaceId) continue
-      // Only anchors under the projects root: state may hold an old entry for
-      // the Scratch workspace, which is a plain folder now.
-      if (real(entry.anchor) === at && at.startsWith(`${root}/`)) return { project: entry.project, anchor: entry.anchor }
+  /** The Scratch workspace an older build registered (`<old state>/scratch`) is titled so it is not taken for this one. */
+  private async retitleMovedScratch(): Promise<void> {
+    const from = this.ctx.layerfs.migratedFrom
+    if (!from) return
+    const old = join(from, 'scratch')
+    for (const workspace of this.ctx.workspaceRegistry?.list?.() ?? []) {
+      if (workspace.path === old && workspace.title === 'Scratch') await workspace.setTitle('Scratch (before the move)').catch(() => {})
     }
-    return undefined
   }
 
   /**
@@ -386,7 +397,9 @@ export class LayerfsSessions extends Service {
     // A placement change can change the place (and with it identity/readiness).
     this.forgetFreshReads(sessionId)
     this.state.update((s) => {
-      if (written) s.pending[sessionId] = written
+      // A scratch folder picked before the first turn stays picked across project changes.
+      const picked = s.pending[sessionId]?.scratch
+      if (written) s.pending[sessionId] = picked ? { ...written, scratch: picked } : written
       else delete s.pending[sessionId]
     })
     try {
@@ -468,8 +481,6 @@ export class LayerfsSessions extends Service {
     if (pending?.project) return { kind: 'project', project: pending.project, anchor: this.anchorOf(pending.project) }
     const owner = (this.ctx.get?.('sessionPersistence' as never) as any)?.ownerOf?.(sessionId)
     if (owner?.project) return { kind: 'project', project: owner.project, anchor: this.anchorOf(owner.project) }
-    const where = this.classify(header.cwd)
-    if (where) return { kind: 'project', ...where }
     if (parent?.project) return { kind: 'project', project: parent.project, anchor: parent.anchor }
     return { kind: 'folder', cwd: String(header.cwd ?? '') }
   }
@@ -882,7 +893,7 @@ export class LayerfsSessions extends Service {
         this.ctx.logger('layerfs').warn('session %s: bind failed: %s', sessionId, error?.message ?? error)
         if (place.kind === 'project') {
           this.save({
-            ...(previous ?? { sessionId, kind: 'project', anchor: place.anchor, scratch: join(place.anchor, 'sessions', sessionId), createdAt: Date.now(), updatedAt: Date.now() }),
+            ...(previous ?? { sessionId, kind: 'project', anchor: place.anchor, scratch: join(this.scratchAnchor, sessionId), createdAt: Date.now(), updatedAt: Date.now() }),
             project: place.project, executionState: 'interrupted', state: 'failed', error: String(error?.message ?? error),
           } as Binding)
         }
@@ -1013,21 +1024,23 @@ export class LayerfsSessions extends Service {
     await this.detach(sessionId)
   }
 
-  private scratchFor(anchor: string, sessionId: string): string {
-    const dir = join(anchor, 'sessions', sessionId)
+  /** `<state>/scratch/<session>`: a project session's own new scratch folder. */
+  private scratchFor(sessionId: string): string {
+    const dir = join(this.scratchAnchor, sessionId)
     mkdirSync(dir, { recursive: true })
     return dir
   }
 
-  /** The selected folder is scratch on every machine; generated scratch is a fallback. */
-  private selectedScratch(agent: any, anchor: string, previous?: Binding): { scratch: string, scratchManaged: boolean } {
+  /**
+   * A project session's scratch folder: the one it already has (a folder the
+   * user picked, `sessions.scratch`, or one made earlier), else a new folder of
+   * its own. The folder it was created in never becomes its scratch.
+   */
+  private selectedScratch(agent: any, _anchor: string, previous?: Binding): { scratch: string, scratchManaged: boolean } {
     if (previous?.scratch && existsSync(previous.scratch) && statSync(previous.scratch).isDirectory()) return { scratch: previous.scratch, scratchManaged: previous.scratchManaged === true }
-    const cwd = this.ctx.workingDirectory?.get(agent.session) ?? agent.session.header?.cwd
-    if (cwd && isAbsolute(cwd) && !this.classify(cwd)) {
-      if (!existsSync(cwd) || !statSync(cwd).isDirectory()) throw new CliError('ScratchUnavailable', 'Select an existing local folder to use as scratch for this project session')
-      return { scratch: cwd, scratchManaged: false }
-    }
-    return { scratch: this.scratchFor(anchor, String(agent.id)), scratchManaged: true }
+    const picked = this.state.read().pending[String(agent.id)]?.scratch
+    if (picked && existsSync(picked) && statSync(picked).isDirectory()) return { scratch: picked, scratchManaged: false }
+    return { scratch: this.scratchFor(String(agent.id)), scratchManaged: true }
   }
 
   /** Move the session's working directory: silently before its first turn, with DSH's notice afterwards. */

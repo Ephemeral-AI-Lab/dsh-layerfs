@@ -622,7 +622,7 @@ export interface ManagedCliOptions {
  * the call log line itself. Bypassing this entry point is outside capture coverage.
  */
 export function managedCli(options: ManagedCliOptions): string {
-  const file = join(options.root, 'agent-bin', 'layerfs')
+  const file = join(options.root, 'bin', 'layerfs')
   const implementation = `${file}.mjs`
   const pinned = canonicalPath(options.cli)
   // Never overwrite or recursively invoke the pin, even through a symlinked
@@ -637,7 +637,7 @@ export function managedCli(options: ManagedCliOptions): string {
   }
   const standIn = !!options.callLog && !options.native
   const outputs = options.callLog ? outputsDir(options.callLog) : null
-  mkdirSync(join(options.root, 'agent-bin'), { recursive: true })
+  mkdirSync(join(options.root, 'bin'), { recursive: true })
   if (options.callLog) mkdirSync(dirname(options.callLog), { recursive: true, mode: 0o700 })
   if (options.native) {
     // LayerFS writes the line: no node per call (about 45 ms each), only bash.

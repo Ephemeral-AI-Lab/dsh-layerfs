@@ -21,7 +21,7 @@ async function fixture(branches = ['main']) {
   // One project whose branches hold its UUID (`dsh.project.<uuid>`) once claimed.
   // 2.0 long forms: a project row, Branch rows keyed by `branch` (listed by prefix), a ready Store
   const info = (key) => ({ project: key, store: key.split('/')[0], engine: 'sqlite', machine: 'macos-host', created_at: '1970-01-01T00:00:00.100Z' })
-  ctx.provide('layerfs', { root: join(dir, 'plugin'), projectSessionHome: join(dir, 'project-home'), home: join(dir, 'layerfs-home'), lfs: {
+  ctx.provide('layerfs', { state: join(dir, 'plugin'), projectSessionHome: join(dir, 'project-home'), home: join(dir, 'layerfs-home'), lfs: {
     project: { list: async () => ({ items: [info('store/project')] }), get: async (key) => info(key) },
     branch: { list: async (_, o = {}) => ({ items: branches.filter((name) => !o.prefix || name.startsWith(o.prefix)).map((branch) => ({ branch })) }), fork: async (_, name) => { if (!branches.includes(name)) branches.push(name); return { commit: `32${'a'.repeat(64)}` } } },
     store: { get: async () => ({ state: 'ready' }) },
@@ -43,7 +43,8 @@ test('project ownership routes unpacked native logs, normal sessions stay stock,
     await f.p.migrateProject('project', 'store/project')
     assert.match((await f.p.stat('normal')).location.path, /\/normal\//)
     const location = (await f.p.stat('project')).location.path
-    assert.match(location, /\/project-home\/projects\/[0-9a-f-]{36}\/sessions\//)
+    // one shared stock store for every project, grouped by the creation folder (docs/specs/layerfs-folder.md §4)
+    assert.match(location, /\/project-home\/store\/[^/]+\/project\/session\.v4\.jsonl$/)
     assert.match(location, /\.jsonl$/)
     const physical = readFileSync(location, 'utf8').trim().split('\n').map(JSON.parse)
     assert.equal(physical[0].id, 'project')
@@ -64,6 +65,26 @@ test('project ownership routes unpacked native logs, normal sessions stay stock,
     assert.deepEqual(fresh.ownerOf('project'), { project: 'store/project' })
     assert.deepEqual(fresh.ownedSessionIds('store/project'), ['project'])
     assert.equal(fresh.ownerOf('normal'), undefined)
+  } finally { await f.close() }
+})
+
+test('one shared store serves every project: a change of project before work re-routes the owner, the log stays put', async () => {
+  const f = await fixture()
+  try {
+    const handle = await f.p.create(header('moving'))
+    await handle.flush()
+    await f.p.migrateProject('moving', 'store/project')
+    const before = (await f.p.stat('moving')).location.path
+    const backups = () => readdirSync(join(f.dir, 'project-home', 'backups'))
+    const kept = backups()
+    await f.p.migrateProject('moving', 'store/other')
+    assert.equal((await f.p.stat('moving')).location.path, before, 'no copy between per-project stores')
+    assert.deepEqual(f.p.ownerOf('moving'), { project: 'store/other' })
+    assert.equal((await f.p.readSidecar('moving')).project, 'store/other', 'the binding names the new project')
+    assert.deepEqual(backups(), kept, 'no copy, so no migration backup (the first move from normal storage kept one)')
+    assert.equal(readdirSync(join(f.dir, 'project-home')).includes('projects'), false, 'no per-project folder')
+    assert.deepEqual((await handle.read()).events, [])
+    await handle.close()
   } finally { await f.close() }
 })
 
@@ -319,7 +340,7 @@ test('one pinned export imports native JSONL, manifest and annotations with line
     assert.equal(readFileSync((await b.p.stat('portable')).location.path, 'utf8'), nativeBytes, 'native DSH bytes remain exact')
     assert.deepEqual((await b.p.readSidecar('portable')).invocations, invocations.map(row => ({ ...row, imported: true })), 'receipts arrive whole, marked imported')
     assert.equal(archiveB.state.checkpoints.portable.length, 1000)
-    assert.deepEqual(readdirSync(join(b.ctx.layerfs.root, 'archive-imports')), [], 'only the owned export is cleaned, including read-only root metadata')
+    assert.deepEqual(readdirSync(join(b.ctx.layerfs.state, 'tmp', 'archive-imports')), [], 'only the owned export is cleaned, including read-only root metadata')
     await imported.close(); await handle.close()
   } finally { await a.close(); await b.close() }
 })
@@ -338,7 +359,7 @@ test('archive readers reject exported symlink components without following or de
     }
     await assert.rejects(archive.store.readManifest('store/project', 'dsh.session.portable'), error => error.code === 'InvalidInput' && /real directories/.test(error.message))
     assert.equal(readFileSync(sentinel, 'utf8'), '{"sessionId":"portable"}\n')
-    assert.deepEqual(readdirSync(join(b.ctx.layerfs.root, 'archive-imports')), [])
+    assert.deepEqual(readdirSync(join(b.ctx.layerfs.state, 'tmp', 'archive-imports')), [])
     assert.equal(await b.p.stat('portable'), undefined)
   } finally { await b.close() }
 })
@@ -351,7 +372,7 @@ test('failed exports leave no import state or owned temporary tree', async () =>
     await assert.rejects(archive.store.import('store/project', 'portable'), /export disconnected/)
     assert.equal(await b.p.stat('portable'), undefined)
     assert.equal(b.p.ownerOf('portable'), undefined)
-    assert.deepEqual(readdirSync(join(b.ctx.layerfs.root, 'archive-imports')), [])
+    assert.deepEqual(readdirSync(join(b.ctx.layerfs.state, 'tmp', 'archive-imports')), [])
   } finally { await b.close() }
 })
 
@@ -391,7 +412,7 @@ test('clipped or unproven manifest windows fall back to one exact export', async
       assert.deepEqual(await archive.store.readManifest('store/project', 'dsh.session.portable'), manifest)
       assert.equal(exports, before + 1)
     }
-    assert.deepEqual(readdirSync(join(b.ctx.layerfs.root, 'archive-imports')), [])
+    assert.deepEqual(readdirSync(join(b.ctx.layerfs.state, 'tmp', 'archive-imports')), [])
   } finally { await b.close() }
 })
 
@@ -520,8 +541,8 @@ test('an owner recorded before project UUIDs keeps its history and is never adop
     const legacyKey = createHash('sha256').update(JSON.stringify([f.ctx.layerfs.home, 'store/project', 'store-id', '1'])).digest('hex')
     delete owners.sessions['legacy-owner'].identity
     owners.sessions['legacy-owner'].key = legacyKey
-    const { renameSync } = await import('node:fs')
-    renameSync(join(f.dir, 'project-home', 'projects', previousKey), join(f.dir, 'project-home', 'projects', legacyKey))
+    assert.notEqual(previousKey, legacyKey)
+    // The log stays where it is: the shared store does not group logs by owner key.
     writeFileSync(ownersPath, JSON.stringify(owners))
     const fresh = new persistence.LayerfsSessionPersistence(f.ctx.isolate('sessionPersistence'), f.p.stock)
     await assert.rejects(fresh.assertSessionIdentity('legacy-owner'), { code: 'ProjectIdentityChanged' })
@@ -559,7 +580,7 @@ test('events appended while the owner is being chosen move with the session', as
     const stock = f.p.stock, flush = stock.flush.bind(stock)
     stock.flush = async () => { await flush(); stock.flush = flush; await live.current.append([late]) }
     await f.p.migrateProject('racing', 'store/project')
-    assert.match((await f.p.stat('racing')).location.path, /\/project-home\/projects\//)
+    assert.match((await f.p.stat('racing')).location.path, /\/project-home\/store\//)
     const reader = await f.p.open('racing', 'read')
     try { assert.deepEqual((await reader.read()).events.map((e) => e.type), ['plugin:layerfs/test', 'turn/start']) } finally { await reader.close() }
     await live.close()
@@ -580,7 +601,7 @@ test('Presets Reset deletion: log folder, owner route and sidecar go; a deletion
     }
     await f.p.recordInvocation({ id: 'op', sessionId: 'gone', operation: 'file.write' })
     const goneDir = dirname((await f.p.stat('gone')).location.path)
-    assert.ok(readdirSync(goneDir).includes('layerfs.json'))
+    assert.ok(readdirSync(join(goneDir, 'layerfs')).includes('binding.json'))
     // Implicit import (open by id) would find these in the Store.
     const imports = []
     f.ctx.provide('layerfsSessions', { state: { read: () => ({ sessions: {}, pending: {} }) }, store: { locate: async () => 'store/project', import: async (project, id) => { imports.push(id); return { imported: false } } } })

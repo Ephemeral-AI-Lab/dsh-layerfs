@@ -10,9 +10,12 @@
  * session resolves exactly as the stock service does.
  */
 import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { HOST_MACHINE } from './layerfs/machine-records.ts'
+
+/** A writable root must exist before the policy names it (DSH refuses a missing one). */
+const ensureDir = (dir: string): string | undefined => { try { mkdirSync(dir, { recursive: true }); return dir } catch { return undefined } }
 
 export const name = 'dsh-layerfs-sandbox-policy'
 
@@ -72,7 +75,7 @@ export default class LayerfsSandboxPolicy extends (SandboxPolicyService as any) 
     }
     const extra = [...(base.additionalWritableRoots ?? [])]
     // Call log lines the managed CLI writes: the stand-in (`<root>/trace`) or LayerFS's own (`<home>/trace`).
-    const trace = layerfs?.root ? join(layerfs.root, 'trace') : undefined
+    const trace = layerfs?.state ? ensureDir(join(layerfs.state, 'trace')) : undefined
     const homeTrace = layerfs?.home && isDir(join(layerfs.home, 'trace')) ? join(layerfs.home, 'trace') : undefined
     for (const dir of [mount, trace, homeTrace, ...owned]) if (dir && dir !== root && !extra.includes(dir)) extra.push(dir)
     return { ...base, workspaceRoot: root, additionalWritableRoots: extra }

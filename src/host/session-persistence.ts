@@ -9,6 +9,7 @@ import { dirname, join, relative, sep } from 'node:path'
 import { homedir } from 'node:os'
 import { ProjectCatalog, type ProjectIdentity, type CatalogProject } from './sessions/catalog.ts'
 import { CliError } from './layerfs/cli.ts'
+import { relayout } from './folder.ts'
 import {
   compactInvocations, foldRead, RECEIPT_CAP, RECEIPT_META, receiptDisposition, readOnlyOperation, withReceiptMeta,
   type Invocation, type ReceiptMeta,
@@ -47,7 +48,17 @@ type Deleted = { version: 1, sessions: Record<string, { project: string, at: num
  * file would exceed it, compaction keeps the newest complete lines and puts a
  * marker at the top recording how many older receipts were dropped.
  */
-const RECEIPTS_FILE = 'receipts.jsonl'
+const RECEIPTS_FILE = 'calls.jsonl'
+/** LayerFS's files beside a session log sit in `layerfs/` (docs/specs/layerfs-folder.md §2). */
+const SIDECAR_DIR = 'layerfs'
+const SIDECAR_FILE = 'binding.json'
+/** A session folder's sidecar path; an older folder's files are put in `layerfs/` first. */
+export function sidecarOf(sessionDir: string): string {
+  if (existsSync(join(sessionDir, 'layerfs.json')) || existsSync(join(sessionDir, 'receipts.jsonl'))) {
+    try { relayout(sessionDir) } catch { /* read where it is next time */ }
+  }
+  return join(sessionDir, SIDECAR_DIR, SIDECAR_FILE)
+}
 /** Receipts bytes retained per session; past this the oldest lines are dropped. */
 const RECEIPT_BYTE_BUDGET = 32 * 1024 * 1024
 /** First line of a compacted receipts file; it is not a receipt. */
@@ -310,6 +321,8 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
   private readonly handles = new Map<string, RoutedHandle>()
   private readonly migrations = new Map<string, Promise<void>>()
   private routes?: Routes
+  /** The shared store's listing failed once (logged once; later lists read owned ids one by one). */
+  private listFailed?: boolean
   private routesPath?: string
   private routesSignature?: string
   private readonly stock: any
@@ -359,7 +372,9 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
   private get service(): any { return (this as any).ctx.get('layerfs') }
   private get sessions(): any { return (this as any).ctx.get('layerfsSessions') }
   private get store(): any { return this.sessions?.store }
-  get projectHome(): string { return this.service?.projectSessionHome ?? process.env.DSH_LAYERFS_SESSION_HOME ?? join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'layerfs', 'project-sessions') }
+  get projectHome(): string { return this.service?.projectSessionHome ?? join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'layerfs', 'sessions') }
+  /** The one stock JSONL root every project session lives under (nothing else may sit there). */
+  get storeRoot(): string { return join(this.projectHome, 'store') }
   /**
    * `owners.json` is shared by every DSH using this project-session home (it can
    * be configured to one per user, not per DSH home). Reads reload it when
@@ -443,16 +458,18 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     }
     return rows
   }
-  private async backend(owner: Owner): Promise<any> {
-    let pending = this.backends.get(owner.key)
+  /** The stock JSONL backend for project sessions: one, at {@link storeRoot}, whatever the owner. */
+  private async backend(_owner?: Owner): Promise<any> {
+    const root = this.storeRoot
+    let pending = this.backends.get(root)
     if (!pending) {
       pending = (async () => {
         const inner = (this as any).ctx.isolate('sessionPersistence')
-        await inner.plugin(jsonl as any, { root: join(this.projectHome, 'projects', owner.key, 'sessions'), compression: 'none' }).await()
+        await inner.plugin(jsonl as any, { root, compression: 'none' }).await()
         return inner.get('sessionPersistence')
       })()
-      this.backends.set(owner.key, pending)
-      pending.catch(() => this.backends.delete(owner.key))
+      this.backends.set(root, pending)
+      pending.catch(() => this.backends.delete(root))
     }
     return pending
   }
@@ -543,11 +560,11 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
       const backend = await this.backend(owner)
       await backend.flush().catch(() => {})
       const snapshot = await backend.stat(id).catch(() => undefined)
-      const root = join(this.projectHome, 'projects', owner.key, 'sessions')
+      const root = this.storeRoot
       const dir = snapshot?.location?.path ? dirname(snapshot.location.path) : undefined
       const inside = dir ? relative(root, dir) : ''
       if (dir && inside && !inside.startsWith('..') && !inside.startsWith(sep)) {
-        this.forgetSidecar(join(dir, 'layerfs.json'))
+        this.forgetSidecar(join(dir, SIDECAR_DIR, SIDECAR_FILE))
         rmSync(dir, { recursive: true, force: true })
       }
       this.setOwner(id, undefined)
@@ -587,7 +604,15 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     const newOwner: Owner | undefined = row ? { project: project!, key: oldOwner?.project === project ? oldOwner.key : row.projectId, identity: row.identity } : undefined
     const source = oldOwner ? await this.backend(oldOwner) : this.stock
     const destination = newOwner ? await this.backend(newOwner) : this.stock
-    if (source === destination) return
+    if (source === destination) {
+      // One backend holds every project's logs: a change of project before work starts is a new route, not a copy.
+      if (oldOwner && newOwner && (oldOwner.project !== newOwner.project || oldOwner.key !== newOwner.key)) {
+        this.setOwner(id, newOwner)
+        // As copySidecar does on a move: the binding names the new project (projectId follows the owner).
+        if (await source.stat(id)) await this.updateSidecar(id, (value) => { value.project = newOwner.project })
+      }
+      return
+    }
     const writer = this.handles.get(id)
     await source.flush()
     const sourceStat = await source.stat(id)
@@ -638,11 +663,11 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     if (writer) writer.current = migratedWriter
     if (sourceStat.location?.path) {
       const sourceDir = dirname(sourceStat.location.path)
-      const sourceSidecar = join(sourceDir, 'layerfs.json')
-      if (target?.location?.path) this.forgetSidecar(join(dirname(target.location.path), 'layerfs.json'))
-      if (target?.location?.path && existsSync(sourceSidecar)) this.copySidecar(sourceSidecar, join(dirname(target.location.path), 'layerfs.json'), project)
+      const sourceSidecar = sidecarOf(sourceDir)
+      if (target?.location?.path) this.forgetSidecar(sidecarOf(dirname(target.location.path)))
+      if (target?.location?.path && existsSync(sourceSidecar)) this.copySidecar(sourceSidecar, sidecarOf(dirname(target.location.path)), project)
       this.forgetSidecar(sourceSidecar)
-      const backup = join(this.projectHome, 'migration-backups', randomUUID())
+      const backup = join(this.projectHome, 'backups', randomUUID())
       mkdirSync(dirname(backup), { recursive: true })
       try { renameSync(sourceDir, backup) } catch (error: any) {
         // The source may be on another volume. Preserve it as inert recovery
@@ -689,10 +714,20 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     if (!this.service) return this.stock.list(options)
     const all = new Map<string, any>()
     for (const snapshot of await this.stock.list(options)) if (!this.owners.sessions[snapshot.header.id]) all.set(snapshot.header.id, snapshot)
-    for (const owner of new Map(Object.values(this.owners.sessions).map((owner) => [owner.key, owner])).values()) {
-      for (const snapshot of await (await this.backend(owner)).list(options)) {
-        if (this.owners.sessions[snapshot.header.id]?.key === owner.key) all.set(snapshot.header.id, snapshot)
+    if (Object.keys(this.owners.sessions).length) {
+      const backend = await this.backend()
+      let owned: any[]
+      try { owned = await backend.list(options) } catch (error: any) {
+        // One unreadable log fails the stock listing of the whole store: list the owned ids one by one instead.
+        if (!this.listFailed) (this as any).ctx.logger('layerfs').warn('project session store listing failed, reading each session: %s', error?.message ?? error)
+        this.listFailed = true
+        owned = []
+        for (const id of Object.keys(this.owners.sessions)) {
+          const snapshot = await backend.stat(id, options).catch(() => undefined)
+          if (snapshot) owned.push(snapshot)
+        }
       }
+      for (const snapshot of owned) if (this.owners.sessions[snapshot.header.id]) all.set(snapshot.header.id, snapshot)
     }
     return [...all.values()]
   }
@@ -769,7 +804,7 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
       current = await this.statLocal(id)
     }
     if (!current?.location?.path) throw new Error(`Session ${id} has no durable log for LayerFS metadata`)
-    return join(dirname(current.location.path), 'layerfs.json')
+    return sidecarOf(dirname(current.location.path))
   }
   /** The sidecar file's identity (as {@link logIdentity}) and its size in bytes. */
   private sidecarIdentity(path: string): { key: string, bytes: number } | undefined { return fileIdentity(path) }

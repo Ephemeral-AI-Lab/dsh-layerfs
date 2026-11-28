@@ -75,7 +75,7 @@ test('findSdk answers an install only for its own commit', () => {
 test('the module binds the home and addon and exposes the six families only', () => {
   const dir = install(mkdtempSync(join(root, 'bind-'))), base = mkdtempSync(join(root, 'r-'))
   const file = S.managedSdk({ root: base, sdk: S.findSdk(dir, commit), home: '/home/lfs', callLog: join(base, 'trace', 'calls.jsonl') })
-  assert.equal(file, join(base, 'agent-bin', 'sdk.mjs'))
+  assert.equal(file, join(base, 'bin', 'sdk.mjs'))
   const out = run(file, `const r = await m.default.file.read('s/p', 'work', '/a.js'); console.log(JSON.stringify({ r, keys: Object.keys(m.default).sort(), store: 'store' in m.default, seen: globalThis.__seen, table: m.table.map((t) => t.family) }))`)
   assert.deepEqual(out.r, { kind: 'ok', text: 'hi' })
   assert.equal(out.store, false)

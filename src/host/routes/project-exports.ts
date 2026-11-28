@@ -223,6 +223,7 @@ export class ProjectExports {
     if (!real || !statSync(real, { throwIfNoEntry: false })?.isDirectory()) throw refuse(400, 'InvalidInput', `${folder} is not an existing folder.`)
     if (inside(safeReal(this.host.home), real)) throw refuse(400, 'InvalidInput', `Choose a folder outside the LayerFS home (${this.host.home}).`)
     if (inside(safeReal(this.host.root), real)) throw refuse(400, 'InvalidInput', 'Choose a folder outside DeepSeek Harness\'s LayerFS state.')
+    if (this.host.folder && inside(safeReal(this.host.folder), real)) throw refuse(400, 'InvalidInput', `Choose a folder outside the LayerFS folder (${this.host.folder}).`)
     return real
   }
 

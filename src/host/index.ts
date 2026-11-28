@@ -39,6 +39,9 @@ export function apply(ctx: Context, config: Config = {}): void {
       // a refusal's `layerfs home init` fix (a missing folder); an older LayerFS's folder is never converted
       'setup.init': () => ctx.layerfs.initHome(),
       'setup.recordDaemon': () => ctx.layerfs.recordDaemon(),
+      // the setup modal's Open (the LayerFS folder, the home or the DSH x LayerFS home) and Change… on the folder row
+      'setup.open': (args: { which?: string }) => ctx.layerfs.openFolder(args?.which),
+      'setup.folder': (args: { path?: string }) => ({ next: ctx.layerfs.saveFolder(args?.path) }),
       'runtime.installed': () => ctx.layerfs.installed(),
     })
     ctx.plugin(routes)

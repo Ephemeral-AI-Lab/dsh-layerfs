@@ -37,7 +37,7 @@
 // Every row also fails on: a console or page error; a page request that
 // answered 4xx/5xx (a log read the page itself dropped, `Cancelled`, is not
 // one); and a new line in <dev dir>/layerfs-home/trace/calls.jsonl or a new
-// record in <dev dir>/state/layerfs/trace/outputs/ that comes from a log,
+// record in <dev dir>/layerfs/dsh/trace/outputs/ that comes from a log,
 // files or machine stats read. Other reads of the page (store list, machine status, sandbox
 // get) do add lines there; they are told apart by argv and tag.
 import { execFileSync, spawnSync } from 'node:child_process'
@@ -175,7 +175,7 @@ export const spawnMark = () => (spawns() ?? []).length
 // ---------------------------------------------------------------- the call log and the saved outputs
 
 const callsFile = join(process.env.DSH_LAYERFS_HOME || join(devDir, 'layerfs-home'), 'trace', 'calls.jsonl')
-const outputsDir = join(devDir, 'state', 'layerfs', 'trace', 'outputs')
+const outputsDir = join(devDir, 'layerfs', 'dsh', 'trace', 'outputs')
 const callLines = () => { try { return readFileSync(callsFile, 'utf8').split('\n').filter(Boolean) } catch { return [] } }
 const outputNames = () => { try { return readdirSync(outputsDir) } catch { return [] } }
 
