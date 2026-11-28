@@ -88,7 +88,7 @@ test('a project session in no workspace leaves DSH its own workspace chip: no sc
 })
 
 test('a draft in no workspace is replaced by a fresh one in the project; a started session never is', async () => {
-  const run = async (sessionId, draft) => {
+  const run = async (sessionId, draft, listed = false) => {
     const calls = []
     const p = props({ state: 'project', project: 'st/app', projectId: 'pid', ...(draft ? { draft: true } : {}) })
     p.sessionId = sessionId
@@ -96,13 +96,18 @@ test('a draft in no workspace is replaced by a fresh one in the project; a start
     p.api.onWorkspaces = () => () => {}
     p.api.openProjectSession = async (...args) => { calls.push(['open', ...args]); return { sessionId: `${sessionId}-new` } }
     const op = p.api.op
-    p.api.op = async (name, args) => { if (name === 'sessions.archive') calls.push([name, args]); return op(name, args) }
+    p.api.op = async (name, args) => {
+      if (name === 'sessions.reattach') return { listed }
+      if (name === 'sessions.archive') calls.push([name, args])
+      return op(name, args)
+    }
     await M.mount(M.HeroProjectControl, p).settle()
     await new Promise((resolve) => setTimeout(resolve, 1000))
     return calls
   }
   assert.deepEqual(await run('old-draft', true), [['open', 'st/app', undefined, 'pid'], ['sessions.archive', { sessionId: 'old-draft' }]])
   assert.deepEqual(await run('has-history', false), [])
+  assert.deepEqual(await run('list-lagging', true, true), [], 'the host put it back: nothing replaced')
 })
 
 test('notProject: the chip says No project', async () => {

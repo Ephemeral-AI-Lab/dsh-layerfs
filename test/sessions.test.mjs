@@ -292,6 +292,16 @@ test('a project draft keeps the layerfs preset and has no scratch folder until o
   assert.equal(s.placeOfId('d').draft, undefined)
 })
 
+test('reattach puts a waiting session in the workspace that takes its folder, or says none does', async () => {
+  const { s } = sessions()
+  const attached = []
+  const workspace = (path, takes) => ({ path, sessionIds: [], attachSession: async (id) => { if (id !== takes) throw new Error('cwd'); attached.push([path, id]) } })
+  s.ctx.workspaceRegistry = { list: () => [workspace('/a', 'x'), workspace('/b', 'mine')] }
+  assert.equal(await s.reattach('mine'), true)
+  assert.deepEqual(attached, [['/b', 'mine']])
+  assert.equal(await s.reattach('stranded'), false)
+})
+
 test('ensureBound lets a folder session run untouched (stock DSH)', async () => {
   const { s, state } = sessions()
   const agent = { id: 'leg', session: session('leg', { cwd: '/Users/me/repo' }, ran) }

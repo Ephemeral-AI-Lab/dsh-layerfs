@@ -48,8 +48,8 @@ first message (`<state>/scratch/<session>`): the New Session row reads
 instead select any available local workspace/folder, including an existing DSH
 workspace.
 
-A project session never asks for a DSH workspace. One that has not run and is in
-none (its folder is gone) is replaced by a fresh session in the same project and
+A project session never asks for a DSH workspace. One that has not run, is in
+none and that the host cannot put back in one (its folder is gone) is replaced by a fresh session in the same project and
 archived. It stays on the `layerfs` preset: another pick before the first turn is
 moved back.
 

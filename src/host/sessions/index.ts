@@ -941,6 +941,13 @@ export function apply(ctx: Context): void {
         }
         return { places }
       },
+      // Before the New Session row replaces a draft DSH lists in no workspace:
+      // the client's list can lag (just after a restart), so try to put it back.
+      // Anything that is not a draft counts as listed, and is never replaced.
+      'sessions.reattach': async (args: any) => {
+        const id = need(args, 'sessionId')
+        return { listed: sessions.placeOfId(id)?.draft ? await sessions.reattach(id) : true }
+      },
       'session.place': (args: any) => {
         const id = need(args, 'sessionId')
         const place = sessions.placeOfId(id)

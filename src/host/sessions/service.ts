@@ -275,13 +275,19 @@ export class LayerfsSessions extends Service {
     const { sessions, pending } = this.state.read()
     for (const id of new Set([...Object.keys(sessions), ...Object.keys(pending), ...owned])) {
       if (!pending[id]) { await this.detach(id); continue }
-      const workspaces = this.ctx.workspaceRegistry?.list?.() ?? []
-      if (workspaces.some((w) => w.sessionIds.includes(id as never))) continue
-      for (const workspace of workspaces) {
-        // attachSession refuses a session whose folder is not the workspace's
-        if (await workspace.attachSession(id as never).then(() => true, () => false)) break
-      }
+      await this.reattach(id)
     }
+  }
+
+  /** Put a waiting project session back in the workspace of the folder it was opened in. False: no workspace takes it. */
+  async reattach(sessionId: string): Promise<boolean> {
+    const workspaces = this.ctx.workspaceRegistry?.list?.() ?? []
+    if (workspaces.some((w) => w.sessionIds.includes(sessionId as never))) return true
+    for (const workspace of workspaces) {
+      // attachSession refuses a session whose folder is not the workspace's
+      if (await workspace.attachSession(sessionId as never).then(() => true, () => false)) return true
+    }
+    return false
   }
 
   /** Change the local folder's scratch role without moving project ownership. */

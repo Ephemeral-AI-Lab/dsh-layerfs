@@ -199,6 +199,9 @@ export function HeroProjectControl({ sessionId, api, t, imports, ownership, retr
       if (!api.sessionUnlisted?.(sessionId)) return
       replaced.add(sessionId)
       void (async () => {
+        // only one no workspace will take: a list still loading after a restart is not that
+        const { listed } = await api.op<{ listed: boolean }>('sessions.reattach', { sessionId })
+        if (listed) { replaced.delete(sessionId); return }
         const made = await api.openProjectSession(key, undefined, place?.projectId)
         replaced.add(made.sessionId)
         await api.op('sessions.archive', { sessionId })
