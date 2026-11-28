@@ -31,6 +31,8 @@ import type { Translate } from '../files/types.ts'
 import { MachineGlyph, SandboxGlyph } from '../machines/icons.tsx'
 import { shortSandbox, type AvailableView, type MachineInfo, type MachineSandbox } from '../machines/model.ts'
 import { sandboxRuns } from '../machines/stats.ts'
+import { runsOn } from '../projects/setup/model.ts'
+import { isHostName } from '../../shared/host-machine.ts'
 import { useProjectSessions, type ProjectSession } from '../projects/hooks.ts'
 import { formatSessionFailure } from '../projects/session-failure.ts'
 import { Card, FixAction, FixContext, MoreMenu, resolveFix } from '../ui/index.tsx'
@@ -73,6 +75,8 @@ export interface GridRow {
   /** `store/project` */
   key: string
   store: { name: string, kind: string, state?: string | null }
+  /** The machines its Store runs on (Home): a SQLite Store's one, a PostgreSQL Store's attached ones. */
+  machines?: readonly { name: string, platform: string, label: string, os?: 'mac' | 'linux' | 'pc' | undefined }[]
   p: StoreProject
   boxes: readonly MachineSandbox[]
   /** Its share of its Store's bytes (a Store's page), for the bar under its size. */
@@ -139,6 +143,7 @@ export function ProjectGrid({ api, t, now, rows, label, showStore, order, onOrde
                 : t('ptProject')}
             </span>
             {showStore ? <span role="columnheader" className={css.colStore}>{t('ptStore')}</span> : null}
+            {showStore ? <span role="columnheader" className={css.colMachine}>{t('ptMachine')}</span> : null}
             <span role="columnheader" className={css.colSessions}>{t('ptSessions')}</span>
             <span role="columnheader" className={css.colSandboxes}>{t('ptSandboxes')}</span>
             {COLUMNS.map(heading)}
@@ -307,9 +312,16 @@ export function ProjectTable({ api, tick, query, sort, frozen, stores, view, fle
       </div>
     )
   }
+  const os = view.computer?.os
+  const hostOs = os === 'linux' ? 'linux' as const : os === 'windows' || os === 'other' ? 'pc' as const : 'mac' as const
+  const hostLabel = t(os === 'windows' ? 'ptHostPc' : os === 'linux' ? 'ptHostLinux' : 'ptHostMac')
+  const machinesOf = (s: StoreRow) => runsOn(s).map((m) => isHostName(m)
+    ? { name: m, platform: 'host', label: hostLabel, os: hostOs }
+    : { name: m, platform: view.machines.find((x) => x.name === m)?.platform ?? m, label: m })
   const rows: GridRow[] = projects.map(({ s, p, trouble }) => ({
     key: `${s.name}/${p}`,
     store: { name: s.name, kind: s.kind, state: s.state },
+    machines: machinesOf(s),
     p: answers.get(s.name)?.projects.find((x) => x.name === p) ?? placeholderProject(p),
     boxes: sandboxesOfProject(sandboxes, stores, s.name, p),
     trouble,
@@ -346,6 +358,24 @@ export function EarlyCard({ r, t, now, onOpen }: { r: GridRow, t: StorageT, now:
 }
 
 /** Whether a click on the row came from one of its own controls (or a menu portalled out of it). */
+/**
+ * The machine its Store runs on: the first one's mark and name (a press opens
+ * its page), and "+N" when a PostgreSQL Store is attached to more; the tip
+ * names them all.
+ */
+function MachineCell({ machines, t, onOpen }: { machines: NonNullable<GridRow['machines']>, t: StorageT, onOpen: (id: TabId) => void }): ReactNode {
+  const [first, ...more] = machines
+  if (!first) return <span role="cell" className={clsx(css.colMachine, css.muted)}>—</span>
+  return (
+    <span role="cell" className={css.colMachine} title={more.length ? t('ptRunsOn', { machines: machines.map((m) => m.label).join(', ') }) : undefined}>
+      <button type="button" className={css.store} title={first.label} onClick={() => onOpen(`machine:${first.name}`)}>
+        <MachineGlyph platform={first.platform} os={first.os} size={13} /><span className={css.ellipsis}>{first.label}</span>
+      </button>
+      {more.length ? <span className={css.moreMachines}>{t('ptMoreMachines', { n: more.length })}</span> : null}
+    </span>
+  )
+}
+
 function fromControl(e: MouseEvent<HTMLElement>): boolean {
   const target = e.target as Element
   if (!e.currentTarget.contains(target)) return true
@@ -427,6 +457,7 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
             </button>
           </span>
         ) : null}
+        {showStore ? <MachineCell machines={r.machines ?? []} t={t} onOpen={onOpen} /> : null}
         <span role="cell" className={css.colSessions}>
           {local == null || local.length === 0
             ? <span className={css.muted}>{local == null ? '' : '—'}</span>
