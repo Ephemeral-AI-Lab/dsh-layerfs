@@ -284,6 +284,12 @@ test('a project draft keeps the layerfs preset and has no scratch folder until o
   assert.deepEqual(s.placeOfId('d'), { project: 'st/app', scratch: '/Users/me/picked', draft: true })
   s.ctx.sessions.get = () => session('d', { cwd: '/x' }, ran)
   assert.equal(s.placeOfId('d').draft, undefined, 'once it has run it is no draft')
+  // a draft an earlier start left a binding for is still one; one with a checkpoint is not
+  s.ctx.sessions.get = () => undefined
+  state().sessions.d = { sessionId: 'd', kind: 'project', project: 'st/app', scratch: '/s', state: 'closed' }
+  assert.equal(s.placeOfId('d').draft, true)
+  state().checkpoints.d = [{}]
+  assert.equal(s.placeOfId('d').draft, undefined)
 })
 
 test('ensureBound lets a folder session run untouched (stock DSH)', async () => {

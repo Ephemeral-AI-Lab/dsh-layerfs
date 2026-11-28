@@ -460,7 +460,7 @@ export class LayerfsSessions extends Service {
     const session = this.ctx.sessions.get(sessionId as never) as any
     if (!session) {
       if (persisted?.kind === 'shared') return { project: this.binding(String(persisted.parent))?.project ?? persisted.project ?? null }
-      if (persisted) return { project: persisted.project ?? null, ...(persisted.project ? { scratch: persisted.scratch } : {}) }
+      if (persisted) return { project: persisted.project ?? null, ...(persisted.project ? { scratch: persisted.scratch } : {}), ...(persisted.project && this.neverRan(sessionId) ? { draft: true } : {}) }
       const pending = this.state.read().pending[sessionId]?.project
       const owner = (this.ctx.get?.('sessionPersistence' as never) as any)?.ownerOf?.(sessionId)
       return pending || owner?.project ? { project: pending ?? owner.project, ...(pending ? { draft: true } : {}) } : null
@@ -470,9 +470,12 @@ export class LayerfsSessions extends Service {
     if (place.kind === 'folder') return { project: null }
     // Only a recorded or picked folder: a session that has not run has none yet
     // (its own new one is made at the first message), whatever folder DSH opened it in.
-    const waiting = this.state.read().pending[sessionId]
-    // `draft`: placed but never run, so the New Session row may replace it.
-    return { project: place.project, scratch: persisted?.scratch ?? waiting?.scratch, ...(waiting && !persisted && isFresh({ session }) ? { draft: true } : {}) }
+    return { project: place.project, scratch: persisted?.scratch ?? this.state.read().pending[sessionId]?.scratch, ...(this.neverRan(sessionId) && isFresh({ session }) ? { draft: true } : {}) }
+  }
+
+  /** Placed and still waiting for its first turn (a draft): the New Session row may replace it. */
+  private neverRan(sessionId: string): boolean {
+    return !!this.state.read().pending[sessionId] && !this.checkpoints(sessionId).length
   }
 
   // ------------------------------------------------------------- binding
