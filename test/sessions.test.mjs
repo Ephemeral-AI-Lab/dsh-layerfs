@@ -1151,12 +1151,11 @@ test('Presets Reset deletes this home\'s project sessions only; loaded ones are 
   state.projects['demo/app'] = { project: 'demo/app', anchor: '/a', createdAt: 1 }
   const closed = [], archived = [], deleted = [], forgotten = []
   const f = sessions({ state, lfs: { sandbox: { remove: async (name, options) => { closed.push([name, options]); return { ok: true } } } } })
-  // Owner routes: one in this home's Store, one in a same-named Store of another home (other Store ID).
-  const owners = { bound: { project: 'demo/app', storeId: 'here' }, archivedOnly: { project: 'demo/old', storeId: 'here' }, foreign: { project: 'demo/app', storeId: 'elsewhere' } }
+  // Owner routes: two in this home's Store, one in another Store.
+  const owners = { bound: { project: 'demo/app' }, archivedOnly: { project: 'demo/old' }, foreign: { project: 'other/app' } }
   const persistence = {
     ownedSessionIds: () => Object.keys(owners),
     ownerOf: (id) => owners[id] && { project: owners[id].project },
-    storeIdOf: (id) => owners[id]?.storeId,
     deleteSessions: async (ids) => { deleted.push(...ids); return ids },
   }
   Object.assign(f.s.ctx, {
@@ -1165,10 +1164,9 @@ test('Presets Reset deletes this home\'s project sessions only; loaded ones are 
     workspaceRegistry: { archiveSession: async (id, options) => { archived.push([id, options]) } },
   })
   Object.defineProperty(f.s, 'store', { value: { forget: (id) => forgotten.push(id) } })
-  const stores = [{ name: 'demo', id: 'here' }]
+  const stores = [{ name: 'demo' }]
   const listed = f.s.projectConversations(stores).map((c) => c.id)
-  assert.deepEqual(listed.sort(), ['archivedOnly', 'bound', 'child', 'draft'])
-  assert.deepEqual(f.s.projectConversations([{ name: 'demo' }]).map((c) => c.id).sort(), ['archivedOnly', 'bound', 'child', 'draft', 'foreign'], 'without a Store ID the name decides')
+  assert.deepEqual(listed.sort(), ['archivedOnly', 'bound', 'child', 'draft'], 'the Store name decides')
   const ids = await f.s.deleteProjectConversations(stores)
   assert.deepEqual(ids.sort(), ['archivedOnly', 'bound', 'child', 'draft'])
   assert.deepEqual(archived, [['bound', { stopActivity: true }]], 'only the loaded session is archived, with its activity stopped')

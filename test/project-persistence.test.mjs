@@ -103,21 +103,6 @@ test('clearing owner before work returns original handle to normal storage witho
 })
 
 
-test('legacy binding keeps stock log readable until validated migration', async () => {
-  const f = await fixture()
-  try {
-    const session = await f.p.create(header('legacy'))
-    await session.flush()
-    f.ctx.provide('layerfsSessions', { state: { read: () => ({ sessions: { legacy: { project: 'store/project' } } }) } })
-    assert.match((await f.p.stat('legacy')).location.path, /\/normal\//)
-    await f.p.migrateProject('legacy', 'store/project')
-    assert.match((await f.p.stat('legacy')).location.path, /\/project-home\//)
-    assert.deepEqual((await session.read()).events, [])
-    await session.close()
-  } finally { await f.close() }
-})
-
-
 function archiveFixture(f, files) {
   const state = { projects: {}, sessions: {}, pending: {}, checkpoints: {}, mirror: {} }
   const applied = []
@@ -529,26 +514,24 @@ test('a failed first archive save is retried as a first save; another writer\'s 
   } finally { await f.close() }
 })
 
-test('an owner recorded before project UUIDs keeps its history and is never adopted', async () => {
+test('an owner route must carry the project UUID as its key and identity', async () => {
   const f = await fixture()
   try {
-    const log = await f.p.create(header('legacy-owner')); await log.flush()
-    await f.p.migrateProject('legacy-owner', 'store/project')
+    const log = await f.p.create(header('routed')); await log.flush()
+    await f.p.migrateProject('routed', 'store/project')
     await log.close()
     const ownersPath = join(f.dir, 'project-home', 'owners.json')
     const owners = JSON.parse(readFileSync(ownersPath, 'utf8'))
-    const previousKey = owners.sessions['legacy-owner'].key
-    const legacyKey = createHash('sha256').update(JSON.stringify([f.ctx.layerfs.home, 'store/project', 'store-id', '1'])).digest('hex')
-    delete owners.sessions['legacy-owner'].identity
-    owners.sessions['legacy-owner'].key = legacyKey
-    assert.notEqual(previousKey, legacyKey)
-    // The log stays where it is: the shared store does not group logs by owner key.
-    writeFileSync(ownersPath, JSON.stringify(owners))
-    const fresh = new persistence.LayerfsSessionPersistence(f.ctx.isolate('sessionPersistence'), f.p.stock)
-    await assert.rejects(fresh.assertSessionIdentity('legacy-owner'), { code: 'ProjectIdentityChanged' })
-    assert.equal(fresh.projectIdOf('legacy-owner'), legacyKey)
-    assert.ok(await fresh.local.stat('legacy-owner'))
-    assert.ok((await fresh.catalogProjects()).some((row) => row.projectId === legacyKey))
+    const owner = owners.sessions.routed
+    assert.match(owner.key, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+    assert.equal(owner.identity.id, owner.key)
+    assert.equal(f.p.projectIdOf('routed'), owner.key)
+    // A route without the UUID (a 64-hex key, or no identity) is a damaged index, never read as normal.
+    for (const damaged of [{ ...owner, key: createHash('sha256').update('old').digest('hex') }, { project: owner.project, key: owner.key }]) {
+      writeFileSync(ownersPath, JSON.stringify({ version: 1, sessions: { routed: damaged } }))
+      const fresh = new persistence.LayerfsSessionPersistence(f.ctx.isolate('sessionPersistence'), f.p.stock)
+      assert.throws(() => fresh.ownerOf('routed'), /Invalid LayerFS session owner identity/)
+    }
   } finally { await f.close() }
 })
 

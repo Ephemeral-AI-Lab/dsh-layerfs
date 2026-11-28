@@ -449,11 +449,9 @@ export function apply(ctx: Context): void {
       let invocations: any[] | undefined
       if (!options.whole && !loadedSessionEvents(id)) {
         const file = await logFile(id)
-        // Receipts live in `layerfs/calls.jsonl` beside the log: the `readSidecar` above
-        // converted a combined sidecar (receipts inside the binding, the old
-        // layout, possibly half-converted by a crash) before this, so the window
-        // and the whole parse read the same split file. A session with no
-        // receipts file keeps the whole parse.
+        // Receipts live in `layerfs/calls.jsonl` beside the log, so the window
+        // and the whole parse read the same file. A session with no receipts
+        // file keeps the whole parse.
         const receiptsFile = file ? tailFile(join(dirname(file.path), 'layerfs', 'calls.jsonl')) : undefined
         if (file && mayReadTail(file.size, { loaded: false, splitReceipts: receiptsFile !== undefined })) {
           const page = tailPages(id, {

@@ -1,8 +1,7 @@
 // The session sidecar split: metadata stays in `layerfs/binding.json`, receipts
-// live in an append-only `layerfs/calls.jsonl` beside it (docs/specs/layerfs-folder.md §2;
-// an older folder's `layerfs.json` / `receipts.jsonl` move there on first touch). A list read (metadata only) must
-// never open, read or parse the receipts; a receipt reader streams them, pages
-// them, and survives a legacy combined file plus a crash while migrating.
+// live in an append-only `layerfs/calls.jsonl` beside it (docs/specs/layerfs-folder.md §2).
+// A list read (metadata only) must never open, read or parse the receipts; a
+// receipt reader streams them, pages them, and survives a crashed final line.
 //   node --test test/sidecar-receipts.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -29,7 +28,7 @@ const P = await import(pathToFileURL(join(out, 'persistence.mjs')).href)
 const scratch = mkdtempSync(join(root, '.dev-test-sidecar-receipts-'))
 test.after(() => { rmSync(out, { recursive: true, force: true }); rmSync(scratch, { recursive: true, force: true }) })
 
-const KEY = 'a'.repeat(64)
+const KEY = '00000000-0000-4000-8000-000000000001'
 const SIDECAR = join('layerfs', 'binding.json')
 const RECEIPTS = join('layerfs', 'calls.jsonl')
 const meta = (id) => ({ version: 1, sessionId: id, project: 'store/project', title: `title ${id}` })
@@ -65,7 +64,7 @@ function persistence(f, { owners = true } = {}) {
   Object.defineProperty(w, 'sidecarPaths', { value: new Map() })
   Object.defineProperty(w, 'sidecarBytes', { value: 0, writable: true })
   if (owners) {
-    Object.defineProperty(w, 'owners', { value: { version: 1, sessions: { [f.id]: { project: 'store/project', key: KEY } } } })
+    Object.defineProperty(w, 'owners', { value: { version: 1, sessions: { [f.id]: { project: 'store/project', key: KEY, identity: { id: KEY, name: 'project', created: 1 } } } } })
     // Owned sessions route through a per-project backend; this fake is one backend.
     Object.defineProperty(w, 'backend', { value: async () => backend })
   }
@@ -91,7 +90,7 @@ test('a metadata read never touches the receipts file', async () => {
   assert.deepEqual(cached.checkpoints, [{ commit: 'c1' }])
   const copy = await w.readSidecar('s1')
   assert.equal(copy.title, 'title s1')
-  assert.equal(reads.reads, 0, 'metadata reads never opened receipts.jsonl')
+  assert.equal(reads.reads, 0, 'metadata reads never opened calls.jsonl')
   // Receipts are read only when a caller actually asks for them, then cached by identity.
   assert.deepEqual(cached.invocations.map((row) => row.id), ['r1', 'r2', 'r3'])
   assert.equal(reads.reads, 1)
@@ -150,45 +149,6 @@ test('metadata-only updates never create a receipts file', async () => {
   assert.deepEqual(empty.invocations, [])
   assert.equal(empty.total, 0)
   assert.equal(empty.truncated, false)
-})
-
-test('first write migrates a legacy combined sidecar: every receipt kept, .bak retained, idempotent', async () => {
-  const f = session('legacy-migrate')
-  const rows = Array.from({ length: 500 }, (_, index) => receipt(`r${index}`))
-  const legacy = { ...meta('s1'), checkpoints: [{ commit: 'old' }], invocations: rows }
-  const original = JSON.stringify(legacy)
-  writeFileSync(f.sidecar, original)
-  const w = persistence(f)
-  assert.equal((await w.readSidecar('s1')).invocations.length, 500, 'a legacy in-file array still reads')
-  await w.recordInvocation(receipt('r-new'))
-  assert.equal(existsSync(f.receipts), true)
-  const migrated = JSON.parse(readFileSync(f.sidecar, 'utf8'))
-  assert.equal(migrated.invocations, undefined)
-  assert.deepEqual(migrated.checkpoints, [{ commit: 'old' }])
-  assert.equal(migrated.title, 'title s1')
-  assert.equal(readFileSync(`${f.sidecar}.bak`, 'utf8'), original, 'the combined original is kept verbatim')
-  assert.equal(readFileSync(f.receipts, 'utf8').trim().split('\n').length, 501)
-  const page = await w.readReceipts('s1')
-  assert.deepEqual(page.invocations.map((row) => row.id), [...rows.map((row) => row.id), 'r-new'])
-  // A later metadata write finds nothing to migrate and appends nothing.
-  await w.updateSidecar('s1', (value) => { value.title = 'renamed' })
-  assert.equal(readFileSync(f.receipts, 'utf8').trim().split('\n').length, 501)
-  assert.deepEqual((await w.readReceipts('s1')).invocations.map((row) => row.id), [...rows.map((row) => row.id), 'r-new'])
-  assert.equal((await w.readSidecar('s1')).title, 'renamed')
-})
-
-test('a crash mid-migration cannot lose receipts: the combined file still wins until the metadata rewrite', async () => {
-  const f = session('legacy-crash')
-  const rows = Array.from({ length: 40 }, (_, index) => receipt(`r${index}`))
-  writeFileSync(f.sidecar, JSON.stringify({ ...meta('s1'), invocations: rows }))
-  // Simulate the crash window: the receipts file is present (possibly partial),
-  // the metadata was never rewritten. The next write migrates again from metadata.
-  writeFileSync(f.receipts, rows.slice(0, 5).map((row) => JSON.stringify(row)).join('\n') + '\n')
-  const w = persistence(f)
-  await w.recordInvocation(receipt('after-crash'))
-  const page = await w.readReceipts('s1')
-  assert.deepEqual(page.invocations.map((row) => row.id), [...rows.map((row) => row.id), 'after-crash'])
-  assert.equal(readFileSync(f.receipts, 'utf8').trim().split('\n').length, 41)
 })
 
 test('a crashed or incomplete final line is skipped, and a later append keeps working', async () => {
@@ -287,7 +247,7 @@ test('the annotations op stays metadata-sized on an 83,250-receipt session', asy
   const annotations = await ops['session.annotations']({ sessionId: 's1' })
   const annotationsMs = performance.now() - annotationsAt
   const bytes = Buffer.byteLength(JSON.stringify(annotations))
-  assert.equal(reads.reads, 0, 'annotations never opened receipts.jsonl')
+  assert.equal(reads.reads, 0, 'annotations never opened calls.jsonl')
   assert.equal('invocations' in annotations, false, 'no receipts array')
   assert.equal(annotations.title, 'The long session')
   assert.equal(annotations.checkpoints.length, 8)
@@ -299,58 +259,4 @@ test('the annotations op stays metadata-sized on an 83,250-receipt session', asy
   assert.deepEqual(page.invocations.map((row) => row.id), ['r083248', 'r083249'])
   assert.equal(page.total, 83_250)
   console.log(`# 83,250 receipts: annotations ${bytes} B / ${annotationsMs.toFixed(2)} ms; receipts page ${page.invocations.length} of ${page.total}`)
-})
-
-test('a half-converted session reads one source: the whole read and the pages agree, and the read finishes the conversion', async () => {
-  const f = session('half-converted')
-  const rows = Array.from({ length: 40 }, (_, index) => receipt(`r${index}`))
-  const original = JSON.stringify({ ...meta('s1'), invocations: rows })
-  writeFileSync(f.sidecar, original)
-  // A crash after the receipts file was written but before the metadata rewrite.
-  writeFileSync(f.receipts, rows.slice(0, 5).map((row) => JSON.stringify(row)).join('\n') + '\n')
-  const ids = rows.map((row) => row.id)
-  // the page reader first (receipts.jsonl), then the whole read: both are every receipt
-  const page = await persistence(f).readReceipts('s1')
-  assert.deepEqual(page.invocations.map((row) => row.id), ids, 'the paged reader sees every receipt')
-  const whole = (await persistence(f).readSidecar('s1')).invocations
-  assert.deepEqual(whole.map((row) => row.id), ids, 'and the whole read the same receipts')
-  // the first read converted it once: metadata only, receipts beside it, the original kept
-  assert.equal(JSON.parse(readFileSync(f.sidecar, 'utf8')).invocations, undefined)
-  assert.equal(readFileSync(f.receipts, 'utf8').trim().split('\n').length, 40)
-  assert.equal(readFileSync(`${f.sidecar}.bak`, 'utf8'), original)
-})
-
-test('a combined sidecar read whole first is converted, so the first page and older pages agree', async () => {
-  const f = session('combined-whole-first')
-  const rows = Array.from({ length: 12 }, (_, index) => receipt(`r${index}`))
-  writeFileSync(f.sidecar, JSON.stringify({ ...meta('s1'), invocations: rows }))
-  writeFileSync(f.receipts, rows.slice(0, 3).map((row) => JSON.stringify(row)).join('\n') + '\n')
-  const w = persistence(f)
-  const whole = (await w.readSidecar('s1', { cached: true })).invocations.map((row) => row.id)
-  const newest = (await w.readReceipts('s1', { from: -4, limit: 4 })).invocations.map((row) => row.id)
-  assert.deepEqual(whole, rows.map((row) => row.id))
-  assert.deepEqual(newest, whole.slice(-4), 'the newest page is the tail of the whole read')
-})
-
-test('an older session folder (layerfs.json, receipts.jsonl beside the log) moves into layerfs/ on first touch', async () => {
-  const dir = join(scratch, 'old-layout')
-  mkdirSync(dir, { recursive: true })
-  const log = join(dir, 'session.jsonl')
-  writeFileSync(log, `${JSON.stringify({ version: 4, id: 's1', createdAt: 1 })}\n`)
-  writeFileSync(join(dir, 'layerfs.json'), JSON.stringify({ ...meta('s1'), checkpoints: [{ commit: 'c1' }] }))
-  writeFileSync(join(dir, 'receipts.jsonl'), [receipt('r1'), receipt('r2')].map((row) => JSON.stringify(row)).join('\n') + '\n')
-  writeFileSync(join(dir, 'layerfs.json.bak'), 'left over')
-  const w = persistence({ dir, log, id: 's1' })
-  const read = await w.readSidecar('s1')
-  assert.equal(read.title, 'title s1')
-  assert.deepEqual(read.invocations.map((row) => row.id), ['r1', 'r2'])
-  assert.equal(existsSync(join(dir, 'layerfs.json')), false)
-  assert.equal(existsSync(join(dir, 'receipts.jsonl')), false)
-  assert.equal(existsSync(join(dir, 'layerfs.json.bak')), false, 'an old .bak leftover is dropped')
-  assert.deepEqual(JSON.parse(readFileSync(join(dir, SIDECAR), 'utf8')).checkpoints, [{ commit: 'c1' }])
-  assert.equal(readFileSync(join(dir, RECEIPTS), 'utf8').trim().split('\n').length, 2)
-  // later writes land in the new place
-  await w.recordInvocation(receipt('r3'))
-  assert.equal(readFileSync(join(dir, RECEIPTS), 'utf8').trim().split('\n').length, 3)
-  assert.equal(existsSync(join(dir, 'receipts.jsonl')), false)
 })

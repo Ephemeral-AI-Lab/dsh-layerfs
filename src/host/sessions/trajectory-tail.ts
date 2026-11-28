@@ -4,7 +4,7 @@
  *
  * A project session's log is JSONL: one header line, then one v4 event per line
  * with an explicit `seq` (the LayerFS backend stores it uncompressed). Its
- * receipts sit beside it in `receipts.jsonl`, one receipt per line, append-only
+ * receipts sit beside it in `layerfs/calls.jsonl`, one receipt per line, append-only
  * and in call order. The Trajectory's first page is capped at
  * {@link FIRST_PAGE_RECORDS} records and {@link FIRST_PAGE_BYTES}, so a cold
  * read needs neither file whole: the measured 47 MB session needs 1.97 MB /
@@ -80,7 +80,7 @@ export interface TrajectoryWindow {
 /** The receipts of a window's turns. */
 export interface ReceiptsWindow {
   receipts: any[]
-  /** Bytes read from `receipts.jsonl`. */
+  /** Bytes read from `calls.jsonl`. */
   bytes: number
   /** The receipts identity the window was read from. */
   key: string
@@ -116,8 +116,8 @@ export function tailFile(path: string): TailFile | undefined {
 
 /**
  * When a cold first page may read only the tails: an unloaded session, a long
- * log, and split receipts (a legacy combined sidecar cannot be bounded and is
- * left to the whole parse). A whole-log parse cached by an earlier record or
+ * log, and a receipts file (a session without one is left to the whole parse).
+ * A whole-log parse cached by an earlier record or
  * older-page read does not change the answer: the window stays the first page's
  * input, so its revision — and a `since` poll — does not move when that cache
  * appears.
