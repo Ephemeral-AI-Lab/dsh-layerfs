@@ -10,7 +10,7 @@
  * Prefer the runtime's own answers: a listed machine is the host when its
  * `platform` is `host`. A name is the host when it is one of the two names.
  * {@link hostNameFor} is only for the default a caller needs before it has
- * read anything (a Store with no machine recorded yet, a preset's plan).
+ * read anything (a Store with no machine recorded yet, a plan).
  */
 
 export const HOST_PLATFORM = 'host'

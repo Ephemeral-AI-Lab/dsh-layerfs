@@ -224,7 +224,7 @@ export const PROJECT_SCAN = 10_000
  * the lines on its Sandboxes (`<sandbox>` or `<sandbox>:<ws>` first argument),
  * which do not name it. A Sandbox is the project's when `known` lists it or a
  * scanned `sandbox create <project> <name>` made it. Reads made outside a
- * session (pages, presets' polling) are left out; a session's reads are kept.
+ * session (the pages' polling) are left out; a session's reads are kept.
  * @param limit - lines returned at most (the newest).
  * @param scan - lines read at most.
  */

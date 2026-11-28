@@ -22,7 +22,7 @@ one side:
 
 dsh-layerfs changes LayerFS records only through the CLI; it may read them
 (the bucket list, §5). The only files it writes into the LayerFS home itself
-are in `runtime/`, `secret/`, `job/`, `stat/` and `preset/` (§3–§5), folders whose layout
+are in `runtime/`, `secret/`, `job/` and `stat/` (§3–§5), folders whose layout
 this spec fixes and LayerFS should adopt (§7). None is named after a client:
 any client of the home (dsh-layerfs, Connect, the CLI) uses the same folders.
 
@@ -46,9 +46,6 @@ LAYERFS_HOME  (default ~/.layerfs)       LayerFS's
   stat/                                  (0700) storage statistics about this home (§5)
     storage-observations/                Store statistics journals
     project-storage/                     per-project storage ledgers (Stats tab)
-  preset/                                (0700) Presets state for this home (§5)
-    demo-fixtures.json                   ownership manifest: what the preset built here
-    demo-steps.ndjson  demo-preset-jobs.json  environment-reset.json  demo-sources/
 
 DSH_HOME                                 DSH's
   sessions/                              normal DSH sessions (stock)
@@ -150,9 +147,6 @@ switching homes never carries one home's state into another:
   ledgers), 0700, created with the home owner-only if it does not exist yet.
   They are named for what they hold, never for a client, so any service using
   the home reads and writes the same files.
-- **Presets state** is in `<home>/preset/`: the ownership manifest names the
-  home it built in, so it lives in that home. Build and Reset act only through
-  LayerFS calls, so `preset/` survives a Reset.
 - Limit: the job tables are rewritten whole by the host that owns the job, so
   two DSH servers using one home at the same time can drop each other's job
   history (never Stores, projects or backups). One server per home is the
@@ -168,7 +162,7 @@ Superseded by `layerfs-folder.md`: the plugin's state is the DSH x LayerFS home
 dsh-layerfs cannot change LayerFS; these are changes to LayerFS's home design
 (`layerfs/core/docs/proposals/host-platform-connections.md` §7.8 and §9):
 
-1. Reserve `runtime/<version>-<sha>/`, `secret/`, `job/`, `stat/` and `preset/` in the home
+1. Reserve `runtime/<version>-<sha>/`, `secret/`, `job/` and `stat/` in the home
    layout, with these file formats as the shared contract between clients.
 2. Preferably, a call that lists the connected buckets from the home's records
    without contacting them, so clients need not read `backup/*/record.json`.
@@ -182,14 +176,6 @@ dsh-layerfs cannot change LayerFS; these are changes to LayerFS's home design
 
 ## 8. Open decisions
 
-- **Presets and the real home.** Build clears and rebuilds the home it runs on.
-  Presets now run on the one LayerFS home; on a home with real work that is
-  destructive. Either Presets get their own home (sessions and the Storage pages
-  would then have to switch homes with them), or Build stays on the one home and
-  its confirmation keeps naming that scope. Decided so far: preset state lives
-  in the home it describes, `<home>/preset/` (§5, `src/host/presets/state-dir.ts`).
-  Moving a server to another home leaves the old home's preset resources
-  running until a Reset runs against that home.
 - **Moving an existing home.** LayerFS now has `layerfs home move <to>`; the
   home a server uses follows from its LayerFS folder (`layerfs-folder.md` §3).
 - **Sharing with Connect.** Connect keeps its own home

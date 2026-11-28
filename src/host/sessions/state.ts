@@ -50,25 +50,6 @@ export interface Binding {
   restores?: number
   readonly createdAt: number
   updatedAt: number
-  /** Script execution is project-owned without an automatic code workspace. */
-  simulation?: SimulationBinding
-  /** Local-only: fork an imported simulation pin before mounting it. */
-  resumeFromArchive?: boolean
-}
-
-export interface SimulationTarget { kind: 'Commit' | 'Layer'; id: string; branch: string }
-export interface SimulationBinding {
-  runId: string
-  agentKey: string
-  scriptId: string
-  name: string
-  hash: string
-  ordinaryModel?: { provider: string; model: string; reasoningEffort?: string }
-  rootSessionId?: string
-  state: 'running' | 'completed' | 'stopped' | 'interrupted' | 'failed'
-  continuation?: SimulationTarget
-  handoffReady?: boolean
-  error?: string
 }
 
 /** One trajectory checkpoint. */
@@ -130,7 +111,7 @@ export interface SessionsState {
    * person picked for a PostgreSQL project's Sandbox (spec v23: a session's
    * own choice, never Store-wide); forked sessions also record where their
    * files start. */
-  pending: Record<string, { project: string, machine?: string, commit?: string | null, branch?: string | null, session?: string, turn?: number, simulation?: SimulationBinding, /** A folder picked as scratch before the first turn. */ scratch?: string }>
+  pending: Record<string, { project: string, machine?: string, commit?: string | null, branch?: string | null, session?: string, turn?: number, /** A folder picked as scratch before the first turn. */ scratch?: string }>
 }
 
 export const initialState = (): SessionsState => ({ version: 1, projects: {}, sessions: {}, checkpoints: {}, mirror: {}, pending: {} })

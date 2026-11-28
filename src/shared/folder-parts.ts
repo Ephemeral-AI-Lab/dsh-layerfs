@@ -6,7 +6,7 @@
  */
 export const FOLDER_PARTS = {
   home: ['store', 'machine', 'sandbox', 'runtime', 'backup', 'log', 'trace'],
-  dsh: ['sessions', 'scratch', 'trace', 'simulations'],
+  dsh: ['sessions', 'scratch', 'trace'],
 } as const
 
 export type FolderWhich = 'folder' | 'home' | 'dsh'

@@ -102,7 +102,7 @@ Links to the pages this one leads to.
 - 手机布局和桌面不同的页面还要一张手机截图：390×844、2 倍分辨率。先改文字、手机截图稍后补时，
   指南用正文描述手机上的行为；补这张图不需要重截其他页面的图。
 - 图片命名为 `<page>-<what>.png`。截图通过后，删掉 `img/_failed-*.png`。
-- 示例数据：Starter 预设的 Store `demo-starter`（项目 `bookshelf`，Docker 机器上的 Sandbox
+- 示例数据：SQLite Store `demo-starter`（项目 `bookshelf`，Docker 机器上的 Sandbox
   `guide-box`）、`macos-host` 上的 Store `guide-notes`（项目 `handbook`，以及由 `fixture-session.mjs` 生成的
   一个项目对话），还有存储桶 `guide-backups`（一个本地 MinIO），里面有 `guide-notes` 的一份备份。
 - 截图里永远不能出现密钥、token 或带认证的 URL。
@@ -115,9 +115,9 @@ Links to the pages this one leads to.
    ```bash
    DSH_LAYERFS_DEV_DIR=$PWD/.dev-guide DSH_LAYERFS_DEV_OVERLAY=<a copy of dev/fake-llm.overlay.yml naming this checkout's dev/fake-llm/index.js> node scripts/dev.mjs --port 3097
    ```
-2. 在预设对话框里构建 Starter 预设（主页 › **试用预设**（Try a preset）› **入门**（Starter）），或者用
-   `GET /api/demo-presets/quickstart/build-plan` 读出它的计划，再通过 `tools/guide/calls.mjs` 提交到
-   `/api/demo-presets/quickstart/environment-reset`。
+2. 通过 `tools/guide/calls.mjs` 在 Docker 机器上创建 Store `demo-starter`（`POST /api/stores`），
+   把一个示例文件夹导入为它的项目 `bookshelf`（带 `source` 文件夹的 `POST /api/projects`）。
+   再建几个分支和提交，让历史图有内容可画。
 3. 通过 `tools/guide/calls.mjs`：
    - 创建 Sandbox `guide-box`（`POST /api/projects/demo-starter%2Fbookshelf/sandboxes`）；
    - 创建 Store `guide-notes`（`POST /api/stores`）及其项目 `handbook`（带 `source` 文件夹的 `POST /api/projects`）；

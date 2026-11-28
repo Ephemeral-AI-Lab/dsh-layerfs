@@ -33,7 +33,7 @@
 | | 传输 | **{n} 个传输**（{n} transfers），带百分比和进度条，在迁移、备份或恢复进行时出现 | 按下 → 那个 Store 的页面（只有一个任务时），或一个列出它们的菜单（有多个时） | —（Center 已在跟踪的任务） | 没有任务运行时隐藏 |
 | 5 | **跳转到…**（Jump to…） | 一个带 **⌘K**（**Ctrl+K**）的输入框；手机上是一个 44 px 的图标 | 点它或按快捷键 → **跳转到会话、项目、Store、机器、Sandbox 或存储桶**（Jump to a session, project, Store, machine, Sandbox or bucket），按项目、Store、机器、Sandbox、存储桶、页面和会话分组。会话结果显示标题与 ID，选中后打开对话。**↑ ↓ 移动 · Enter 打开 · Esc 关闭**（↑ ↓ to move · Enter to open · Esc to close） | —（在 Center 已读到的内容中搜索） | **没有与“{q}”匹配的项**（Nothing matches “{q}”）。最多 60 条结果。有对话框打开时快捷键不可用 |
 | 6 | 刷新 | 一个环形箭头，除主页、诊断和日志外每个页面都有（这三页各自有刷新） | 按下 → 页面重新读取它的数据 | 页面自己的读取 | 读取时显示一个圆点 |
-| 7 | **+ 添加**（+ Add） | **新建会话**（New session）、**新建项目**（New project）、**导入文件夹**（Import a folder）、**新建 Sandbox**（New Sandbox）、**新建 Store**（New Store，从机器页打开时预选那台机器）、**连接数据库**（Connect a database）、**新建机器**（New machine）、**添加存储桶**（Add bucket）、**试用预设**（Try a preset） | 打开对应的对话框 | `store create` · `store connect`、`store get` · `machine create` · `backup connect` · 预设自己的脚本。新建项目：`store create`、`project init`、`store move` | 新建机器和新建 Sandbox 不可用时仍显示，并说明原因 |
+| 7 | **+ 添加**（+ Add） | **新建会话**（New session）、**新建项目**（New project）、**导入文件夹**（Import a folder）、**新建 Sandbox**（New Sandbox）、**新建 Store**（New Store，从机器页打开时预选那台机器）、**连接数据库**（Connect a database）、**新建机器**（New machine）、**添加存储桶**（Add bucket） | 打开对应的对话框 | `store create` · `store connect`、`store get` · `machine create` · `backup connect` · 预设自己的脚本。新建项目：`store create`、`project init`、`store move` | 新建机器和新建 Sandbox 不可用时仍显示，并说明原因 |
 | | 诊断 | 带计数的盾牌图标，提示为 **诊断：{n} 项发现**（Doctor: {n} findings）；手机上在 **更多** 里 | 按下 → `LayerFS › 诊断`（[诊断](health.md)） | 读取主机保存的结果。如果还没有结果，打开主页时会运行一次 `home doctor` | 有错误时计数为红色，有警告时为琥珀色 |
 | | 日志 | 列表图标；手机上在 **更多** 里 | 按下 → `LayerFS › 日志`（[日志](logs.md)） | — | |
 | | 设置 | 齿轮图标；手机上在 **更多** 里 | 按下 → 设置 LayerFS | `home get`（读取） | |
@@ -69,7 +69,6 @@
 | 1 | 标题 | **概览**（Overview），页面的名字 | — | — | |
 | 2 | 运行时 | `LayerFS 2.0.0 · 12345678`，固定的构建和它的提交号（**显示固定的运行时**，Show the pinned runtime；提示里是 LayerFS 目录） | 按下 → 在运行时这一步打开[设置 LayerFS](entry-points.md#set-up-layerfs) | `--version --json` (读取) | **LayerFS 不可用**（LayerFS unavailable）、**正在读取 LayerFS…**（Reading LayerFS…）；读取时显示进行中圆点，运行时不可用时有红点 |
 | 3 | 状态行 | 最紧急的那件事，或者 **没有需要处理的事项**（Nothing needs your attention） | 那件事的按钮（见[待处理提示](#needs-you-notices)） | 按钮的调用 | 事项前有圆点：故障为红点、警告为琥珀点；无需处理时没有圆点。有多项时显示 **还有 {n} 个**（+{n} more） |
-| 4 | 试用预设 | 预设图标 | 按下 → [预设](presets.md) | — | |
 | 5 | 刷新 | 一个环形箭头。提示：**重新读取 Store、机器和存储桶，并重新运行 Home 检查 · Checked {ago}**（Read the Stores, machines and buckets again, and re-run the home checks · Checked {ago}） | 按下 → 重新读取 Store、机器和存储桶，并重新运行主目录检查 | `home get`、`project list`、`store list` (读取)，然后 `home doctor` | 检查运行期间显示进行中圆点 |
 
 手机上，状态行在标题下方单独占一条：文字按需要的宽度换行，操作按钮按拇指大小挪到下一行，
@@ -132,7 +131,7 @@ Store、机器和平台信息（`home get`、`machine get`、`machine list`、`s
   （Move to another machine…）、**备份到…**、**立即备份 · *存储桶*/*文件***（Back up now · …）和
   **压缩…**（Compact…）；PostgreSQL 登录组的 **移除登录**（Remove login，有 Store 在用时不可用）；
   机器菜单的 **重启 worker**（Restart worker，它的修复需要 `--force` 时）和 **移除…**（Remove…）；
-  导航栏的 **+ 添加**（+ Add）与预设菜单的 **停止机器**（Stop machines）。
+  导航栏的 **+ 添加**（+ Add）。
 - **不给原因、因为一直可按**：**断开**（Disconnect，Store、机器或存储桶的）和 Store 菜单的
   **移除…**（Remove…）在动手前先确认。
 

@@ -33,7 +33,7 @@ The earlier multi-Store example below shows the breadcrumb switcher.
 | | Transfers | **{n} transfers**, with a percentage and a progress track, while moves, backups or restores run | Press → that Store's page (one job), or a menu of them (several) | — (the jobs Center already tracks) | Hidden when nothing is running |
 | 5 | **Jump to…** | A field with **⌘K** (**Ctrl+K**); on a phone a 44 px icon | Press it or use the shortcut → **Jump to a session, project, Store, machine, Sandbox or bucket**, grouped as Projects, Stores, Machines, Sandboxes, Buckets, Pages and Sessions. Session hits show the title and ID and open the conversation. **↑ ↓ to move · Enter to open · Esc to close** | — (searches what Center already read) | **Nothing matches “{q}”**. At most 60 hits. The shortcut is off while a dialog is open |
 | 6 | Refresh | A circular arrow, on every page except Home, Doctor and Logs (each has its own) | Press → the page reads its data again | The page's own reads | A dot while reading |
-| 7 | **+ Add** | **New session**, **New project**, **Import a folder**, **New Sandbox**, **New Store** (set to the machine when opened from a machine page), **Connect a database**, **New machine**, **Add bucket**, **Try a preset** | Opens that dialog | `store create` · `store connect`, `store get` · `machine create` · `backup connect` · the preset's script. New project: `store create`, `project init`, `store move` | New machine and New Sandbox stay visible with the reason when unavailable |
+| 7 | **+ Add** | **New session**, **New project**, **Import a folder**, **New Sandbox**, **New Store** (set to the machine when opened from a machine page), **Connect a database**, **New machine**, **Add bucket** | Opens that dialog | `store create` · `store connect`, `store get` · `machine create` · `backup connect` · the preset's script. New project: `store create`, `project init`, `store move` | New machine and New Sandbox stay visible with the reason when unavailable |
 | | Doctor | A shield with a count badge. Title: **Doctor: {n} findings**; on a phone, in **More** | Press → `LayerFS › Doctor` ([Doctor](health.md)) | The results the host holds. When none are held, the home checks run once as Home opens: `home doctor` | Red badge for an error, amber for a warning |
 | | Logs | A list icon; on a phone, in **More** | Press → `LayerFS › Logs` ([Logs](logs.md)) | — | |
 | | Settings | A gear; on a phone, in **More** | Press → Set up LayerFS | `home get` (read) | |
@@ -67,7 +67,6 @@ you. It is one row of text, not a card: no wordmark, no box.
 | 1 | Title | **Overview**, the page's name | — | — | |
 | 2 | Runtime | `LayerFS 2.0.0 · 12345678`, the pinned build and its commit (**Show the pinned runtime**, and the LayerFS folder as the tip) | Press → opens [Set up LayerFS](entry-points.md#set-up-layerfs) on the runtime | `--version --json` (read) | **LayerFS unavailable**, **Reading LayerFS…**; a spinner while it is read, a red dot when the runtime is unusable |
 | 3 | Status line | The most urgent need, or **Nothing needs your attention** | The need's buttons (see [Needs-you notices](#needs-you-notices)) | The button's call | A dot before a need: red for a problem, amber for a warning; no dot when nothing needs you. **+{n} more** when there are several |
-| 4 | Try a preset | The preset icon | Press → [Presets](presets.md) | — | |
 | 5 | Refresh | A circular arrow. Tip: **Read the Stores, machines and buckets again, and re-run the home checks · Checked {ago}** | Press → reads Stores, machines and buckets again and re-runs the home checks | `home get`, `project list`, `store list` (read), then `home doctor` | A dot while the checks run |
 
 On a phone the status line is its own band under the heading: the words wrap to the width
@@ -139,7 +138,7 @@ shows its reason in a tooltip on hover or keyboard focus.
   machine…**, **Back up to…**, **Back up now · *bucket*/*file*** and **Compact…**; the
   PostgreSQL login group's **Remove login** (off while a Store uses the login); the
   machine menu's **Restart worker** (when its fix needs `--force`) and **Remove…**; the
-  nav bar's **+ Add** and the preset menu's **Stop machines**.
+  nav bar's **+ Add**.
 - **No reason, because they are always pressable:** **Disconnect** (a Store's, a machine's
   or a bucket's) and a Store menu's **Remove…** confirm before they act instead.
 

@@ -30,8 +30,6 @@ await build({
       "export { filesEn, filesZh } from './src/client/files/locale.ts'",
       "export { locales as viewsLocales } from './src/client/views/locale.ts'",
       "export { stateWords } from './src/client/views/model.ts'",
-      "export { machinesStarted } from './src/client/presets/labels.ts'",
-      "export { locales as presetsLocales } from './src/client/presets/locale.ts'",
     ].join('\n'),
     resolveDir: root, loader: 'tsx',
   },
@@ -154,9 +152,6 @@ const START_SITES = {
   'src/client/storage/MachineStores.tsx': 'the machine page\'s attached Store row: Start that machine (aria-label "Start <machine>")',
   'src/client/storage/PgDialogs.tsx': 'the attach picker\'s Start beside the stopped machine it names (aria-label "Start <machine>")',
   'src/client/storage/dialogs.tsx': 'StartFirst and the place dialog\'s "Start <machine>"',
-  'src/host/presets/build.js': 'the preset script listing (shown, not run)',
-  'src/host/presets/environment-reset.js': 'a confirmed Reset: its confirm names the machines',
-  'src/host/presets/runner.js': 'a confirmed Build: its confirm names the machines',
   'src/host/routes/doctor.ts': 'the Doctor fix of that machine\'s own row',
   'src/host/routes/machines.ts': 'the POST /api/machines/<m>/start route',
   'src/host/routes/projects.ts': 'a Sandbox create that asks for it (`start: true`; no page sends it)',
@@ -184,21 +179,11 @@ test('NOTE 3: each start a page press sends names its machine in the label or th
     assert.match(fill(M.setupLocales[lang].startNamed, { machine: 'demo-build' }), /demo-build/, `${lang} dialog row`)
     assert.match(fill(M.storageLocales[lang].ovRestartWorker, { machine: 'demo-build' }), /demo-build/, `${lang} Restart worker`)
     assert.match(fill(M.storageLocales[lang].ovStopUnreachable, { machine: 'demo-build' }), /demo-build/, `${lang} hero Stop`)
-    assert.match(fill(M.presetsLocales[lang].confirmStarts, { machines: 'demo-build, demo-research' }), /demo-build, demo-research/, `${lang} preset confirm`)
   }
   // the visible text, not only the accessible name
   assert.match(src('src/client/projects/ProjectList.tsx'), /onClick=\{startGuard\(\(\) => void actions\.start\(availability\.machine!\)\)\}>\{t\('startNamed', \{ machine: availability\.machine \?\? '' \}\)\}/)
   assert.match(src('src/client/projects/setup/ProjectDialog.tsx'), /\{t\('startNamed', \{ machine: availability\.machine \?\? '' \}\)\}<\/Button>/)
   assert.match(src('src/client/storage/HomeCards.tsx'), /t\('ovRestartWorker', \{ machine: m\.name \}\)/)
-})
-
-test('NOTE 3: Build and Reset name every machine they may start before the press (studio: demo-build, demo-research, docker, the host machine)', () => {
-  const studio = { projectGroups: [{ machine: 'macos-host' }, { machine: 'docker' }, { machine: 'demo-build' }, { machine: 'demo-research' }] }
-  const plan = { scope: 'environment', startMachines: ['demo-build'] }
-  assert.deepEqual(M.machinesStarted(studio, plan, true), ['demo-build', 'demo-research', 'docker', 'macos-host'], 'the host machine too: it can be stopped')
-  assert.deepEqual(M.machinesStarted(studio, plan, false), ['demo-build'], 'a Reset alone starts only what it needs to reach')
-  assert.deepEqual(M.machinesStarted(studio, { scope: 'machines', stopMachines: ['demo-build'] }, false), [], 'Stop machines starts none')
-  assert.match(src('src/client/presets/PresetsSection.tsx'), /starts=\{machinesStarted\(preset, dialog\.plan, dialog\.kind === 'build'\)\}/)
 })
 
 test('NOTE 14: the Home hero\'s worker-down item has Stop <machine> again (a press), beside Open', () => {

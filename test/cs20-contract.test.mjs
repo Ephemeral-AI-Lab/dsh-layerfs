@@ -1,7 +1,7 @@
 // The plugin against the real LayerFS 2.0 call table: every call it sends (home, machine,
 // store, backup, project, branch, commit, file, sandbox, workspace and the six doctors) is in
 // the pinned CLI's `help --json`, with the options, `--with` sections, `--progress` and
-// `--full` it passes, and every flag in a raw argv (presets, simulations) is one the call takes.
+// `--full` it passes, and every flag in a raw argv is one the call takes.
 // Runs DSH_LAYERFS_CS20_CLI or the dev runtime pin with a throwaway LayerFS root (LAYERFS_ROOT).
 //
 // The installed 2.0.0 CLI (ed911896) predates the Store attach/detach contract
@@ -55,7 +55,7 @@ const optionNames = (c) => new Set((c.options ?? []).map((o) => o.name))
 const withNames = (c) => new Set(Object.keys(c.form?.with ?? {}))
 
 // What the plugin passes besides the positionals, per call (src/host/routes/*.ts,
-// service.ts, logs/source.ts, sessions/*.ts, presets/*.js, simulations/*.ts). `progress` is
+// service.ts, logs/source.ts, sessions/*.ts). `progress` is
 // an `on_progress` callback (`--progress`); `with` is a `--with` section.
 /**
  * The PostgreSQL connect/attach contract (docs/specs/store-home-rows.md;
@@ -85,7 +85,7 @@ const SENT = {
   'machine.create': { options: ['cpus', 'memory', 'disk', 'image', 'os_image'], progress: true },
   'machine.remove': { progress: true },
   'machine.update': { options: ['cpus', 'memory', 'image', 'docker', 'wsl', 'daemon'] },
-  // Storage (routes/storage.ts, jobs.ts; presets build/runner)
+  // Storage (routes/storage.ts, jobs.ts)
   'store.list': { with: ['stats'] },
   'store.get': { with: ['live', 'stats'] },
   'store.create': {},
@@ -116,7 +116,7 @@ const SENT = {
   'workspace.commit': { options: ['message'] },
   'workspace.unmount': { options: ['discard', 'force'] },
   'workspace.status': {},
-  // Projects, Branches, Commits and files (routes/projects.ts, project-storage.ts; sessions; presets)
+  // Projects, Branches, Commits and files (routes/projects.ts, project-storage.ts; sessions)
   'project.init': { progress: true },
   'project.list': { options: ['store', 'limit', 'cursor'] },
   'project.get': {},
@@ -195,7 +195,7 @@ test('the plugin sends neither home.leftovers nor home.prune, and has no route o
   assert.ok(scanned > 100, `the scan read the plugin's sources (${scanned})`)
 })
 
-test('every flag in a raw argv the plugin writes (presets, simulations) is a 2.0 switch or one the call takes', { skip }, () => {
+test('every flag in a raw argv the plugin writes is a 2.0 switch or one the call takes', { skip }, () => {
   const { help, calls } = table()
   const switches = new Set((help.switches ?? []).map((s) => s.name))
   const flagsOf = (c) => {
@@ -222,7 +222,7 @@ test('every flag in a raw argv the plugin writes (presets, simulations) is a 2.0
       }
     }
   }
-  assert.ok(checked > 30, `the scan checked the plugin's flags (${checked})`)
+  assert.ok(checked > 0, `the scan checked the plugin's flags (${checked})`)
 })
 
 test('secrets go on stdin: the content options the plugin passes have the shell flags it writes', { skip }, () => {
@@ -365,9 +365,7 @@ test('options 2.0 makes required are always sent: a new Store\'s connect user + 
   const connect = sites(/\.backup\.connect\([^)]*\)/g)
   assert.ok(connect.length > 0)
   for (const s of connect) assert.match(s.call, /access_key/, `${s.path}: ${s.call}`), assert.match(s.call, /secret_key/, `${s.path}: ${s.call}`)
-  const argv = sites(/\['store', 'connect'[^\]]*\]/g)
-  assert.ok(argv.length > 0)
-  for (const s of argv) assert.ok(s.call.includes("'--user'") && s.call.includes("'--password-stdin'"), `${s.path}: ${s.call}`)
+  for (const s of sites(/\['store', 'connect'[^\]]*\]/g)) assert.ok(s.call.includes("'--user'") && s.call.includes("'--password-stdin'"), `${s.path}: ${s.call}`)
   // the plugin itself makes no file edit (agents do, through the CLI): none to check, and none may appear without its strings
   for (const s of sites(/\.file\.edit\([^)]*\)/g)) assert.ok(/old_string/.test(s.call) && /new_string/.test(s.call), `${s.path}: ${s.call}`)
   for (const s of sites(/\['file', 'edit'[^\]]*\]/g)) assert.ok(s.call.includes("'--old-string'") && s.call.includes("'--new-string'"), `${s.path}: ${s.call}`)
@@ -388,7 +386,7 @@ async function recordingClient(dir, home) {
 
 // LayerFS N-F: an option other than `--with` and a repeatable one (`--env`) given twice is
 // a usage error (exit 2). The seam writes each option once and joins `--with` sections;
-// a raw argv the plugin writes (presets, simulations) never repeats a flag either.
+// a raw argv the plugin writes never repeats a flag either.
 test('no option is given twice: the seam joins --with, and no raw argv repeats a flag', { skip }, async () => {
   const { help, calls } = table()
   const repeatable = new Set(['--with'])
@@ -405,7 +403,7 @@ test('no option is given twice: the seam joins --with, and no raw argv repeats a
       for (const f of new Set(flags)) if (!repeatable.has(f)) assert.ok(flags.filter((x) => x === f).length === 1, `${m[1]} ${m[2]} (${path.slice(root.length)}) gives ${f} once`)
     }
   }
-  assert.ok(argvs > 30, `the scan read the plugin's raw argvs (${argvs})`)
+  assert.ok(argvs > 0, `the scan read the plugin's raw argvs (${argvs})`)
   const dir = tmpRoot('dsh-cs20-repeat-')
   try {
     const home = join(dir, 'home')

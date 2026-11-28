@@ -1,8 +1,7 @@
 // Self-sufficient receipts (docs/specs/layerfs-logs.md §4, §5a): both writers
 // fill `at`, `ms`, redacted portable `argv`, `tag`, outcome code, kind, exec id
-// and exit, and the simulation step; a store import merges receipts by id;
-// `logs.list` renders an imported session's receipts when this machine's log
-// has no line for them; simulation host calls carry `dsh-sim:` tags.
+// and exit; a store import merges receipts by id; `logs.list` renders an
+// imported session's receipts when this machine's log has no line for them.
 //   node --test test/receipt-logs.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -46,14 +45,13 @@ function run(command, argv, env, input = '') {
     child.on('error', reject); child.on('close', code => resolve({ stdout, code })); child.stdin.end(input)
   })
 }
-const step = { runId: 'run-1', stepKey: 'cycle.1.write' }
 
 test('SDK receipts carry time, duration, redacted portable argv, tag, outcome code, kind, exec id and exit', async () => {
   const { dir, outputs } = place(), cli = fakeCli(dir)
   const spec = { cli, home: join(dir, 'home'), outputs }
   const receipts = []
   const before = Date.now()
-  await L.withTraceContext({ origin: 'tool', sessionId: 's', project: 'demo/app', turn: 1, toolCallId: 'c1', scope: L.toolScope('s', 'c1'), step, record: async row => receipts.push(row) }, async () => {
+  await L.withTraceContext({ origin: 'tool', sessionId: 's', project: 'demo/app', turn: 1, toolCallId: 'c1', scope: L.toolScope('s', 'c1'), record: async row => receipts.push(row) }, async () => {
     await L.execute(spec, ['file', 'write', '--message', 'secret words', '--from', join(homedir(), 'notes.txt'), '--', 'demo/app', 'main', '/x'])
     assert.equal((await L.execute(spec, ['workspace', 'exec', '--detail', '--', 'sb:main', 'echo hi'])).exit_code, 3, 'a command\'s own exit is its answer, not a failure')
     await assert.rejects(L.execute(spec, ['file', 'write', '--', 'demo/app', 'main', '/x', 'fail'], { input: 'abc' }))
@@ -63,7 +61,6 @@ test('SDK receipts carry time, duration, redacted portable argv, tag, outcome co
   assert.deepEqual(write.argv, ['file', 'write', 'demo/app', 'main', '/x', '--message', '<12 bytes>', '--from', '<local path>'])
   assert.ok(!JSON.stringify(receipts).includes(homedir()), 'no machine-local path in a receipt')
   assert.equal(write.kind, 'Committed'); assert.equal(write.code, undefined)
-  assert.deepEqual(write.step, step, 'the scripted step travels with the receipt')
   assert.equal(write.tag, L.sessionTag('s', write.id), 'the receipt names its line by tag')
   assert.ok(L.hasOutput(outputs, write.tag), 'its output is kept under that tag')
   assert.equal(exec.execId, 'exec-7', 'LayerFS\'s exec id from the answer'); assert.equal(exec.exit, 3); assert.deepEqual(exec.argv, ['workspace', 'exec', 'sb:main', '<7 bytes>', '--detail'])
@@ -79,7 +76,7 @@ test('SDK receipts carry time, duration, redacted portable argv, tag, outcome co
 test('receipts from wrapper calls\' log lines carry the same fields; exit comes from the stored output', async () => {
   const { dir, outputs } = place(), cli = fakeCli(dir)
   const command = L.managedCli({ root: dir, cli, home: join(dir, 'home'), outputs })
-  const identity = { origin: 'tool', sessionId: 's', project: 'demo/app', turn: 2, toolCallId: 'bash-1', scope: L.toolScope('s', 'bash-1'), step }
+  const identity = { origin: 'tool', sessionId: 's', project: 'demo/app', turn: 2, toolCallId: 'bash-1', scope: L.toolScope('s', 'bash-1') }
   const env = { DSH_LAYERFS_TRACE_CONTEXT: L.traceEnvironment(identity) }
   const execTag = JSON.parse((await run(command, ['workspace', 'exec', 'sb:main', 'echo hi'], env)).stdout).tag
   const initTag = JSON.parse((await run(command, ['project', 'init', 'demo/app', join(tmpdir(), 'src-folder')], env)).stdout).tag
@@ -91,7 +88,7 @@ test('receipts from wrapper calls\' log lines carry the same fields; exit comes 
   assert.equal(execReceipt.at, exec.at); assert.equal(execReceipt.ms, exec.ms); assert.equal(execReceipt.tag, exec.tag)
   // a log line names no exec id (only the answer does); the exit comes from the stored result
   assert.equal(execReceipt.execId, undefined); assert.equal(execReceipt.exit, 3)
-  assert.deepEqual(execReceipt.step, step); assert.equal(execReceipt.turn, 2)
+  assert.equal(execReceipt.turn, 2)
   const initReceipt = L.receiptFromLine(init, identity, L.parseTag(init.tag).receiptId)
   assert.deepEqual(initReceipt.argv, ['project', 'init', 'demo/app', '<local path>'], 'a project source folder is local')
   assert.equal(initReceipt.execId, undefined); assert.equal(initReceipt.exit, undefined)
@@ -140,14 +137,14 @@ test('logs.list falls back to an imported session\'s receipts, pages them and sk
   const receipt = (rid, at, extra = {}) => ({ id: rid, origin: 'tool', sessionId: 'imp', project: 'demo/app', turn: 1, toolCallId: `t-${rid}`, operation: 'file.write', outcome: 'success',
     versions: [{ kind: 'Commit', id, effect: 'created' }], at, ms: 4, argv: ['file', 'write', 'demo/app', 'main', '/x', '<3 bytes>'], tag: `dsh:imp:${rid}`, kind: 'Committed', imported: true, ...extra })
   const sidecars = {
-    imp: { title: 'Imported', invocations: [receipt('r1', 1000, { step }), receipt('r2', 2000), receipt('r3', 3000, { operation: 'file.read', argv: ['file', 'read', 'demo/app', 'main', '/x'], versions: [], kind: undefined })] },
+    imp: { title: 'Imported', invocations: [receipt('r1', 1000), receipt('r2', 2000), receipt('r3', 3000, { operation: 'file.read', argv: ['file', 'read', 'demo/app', 'main', '/x'], versions: [], kind: undefined })] },
     own: { invocations: [{ ...receipt('o1', 1000), sessionId: 'own', tag: 'dsh:own:o1', imported: undefined }] },
   }
   const ops = logsCtx(log, outputs, sidecars)
   let page = await ops['logs.list']({ tag: 'dsh:imp:' })
   assert.deepEqual(page.lines.map(l => l.tag), ['dsh:imp:r3', 'dsh:imp:r2', 'dsh:imp:r1'])
   assert.ok(page.lines.every(l => l.source === 'receipt' && l.client === 'cli' && !l.output))
-  assert.equal(page.lines[2].commit, id); assert.equal(page.lines[2].dsh.toolCallId, 't-r1'); assert.deepEqual(page.lines[2].dsh.step, step)
+  assert.equal(page.lines[2].commit, id); assert.equal(page.lines[2].dsh.toolCallId, 't-r1');
   assert.equal(page.lines[2].dsh.title, 'Imported')
   assert.equal((await ops['logs.list']({ tag: 'dsh:imp:', writes: true })).lines.length, 2, 'filters apply to receipt lines')
   assert.deepEqual((await ops['logs.list']({ tag: 'dsh:imp:r2' })).lines.map(l => l.tag), ['dsh:imp:r2'])
@@ -167,49 +164,4 @@ test('logs.list falls back to an imported session\'s receipts, pages them and sk
   // Without a session tag there is no fallback.
   assert.ok((await ops['logs.list']({})).lines.every(l => !l.source))
   assert.equal(L.sessionOfTag('dsh:-:'), undefined); assert.equal(L.sessionOfTag('dsh:imp:'), 'imp'); assert.equal(L.sessionOfTag('dsh:imp:r1'), 'imp')
-})
-
-test('simulation host calls carry dsh-sim tags, keep outputs and are labelled with their run', async () => {
-  const { dir, outputs } = place(), cli = fakeCli(dir)
-  const spec = { cli, home: join(dir, 'home'), outputs }
-  assert.equal(L.simTag('run-1', 'setup.store'), 'dsh-sim:run-1:setup.store')
-  assert.equal(L.simTag('a:b', 'x'), undefined); assert.equal(L.simTag('r', 'x'.repeat(200)), undefined)
-  assert.deepEqual(L.parseSimTag('dsh-sim:run-1:verify'), { runId: 'run-1', stepKey: 'verify' })
-  assert.equal(L.parseTag('dsh-sim:run-1:verify'), undefined, 'never a session tag')
-  const tags = []
-  tags.push((await L.execute(spec, ['store', 'create', '--', 'demo'], { tag: 'dsh-sim:run-1:setup.store' })).tag)
-  tags.push((await L.execute(spec, ['store', 'list'], { tag: 'dsh-sim:run-1:verify' })).tag)
-  tags.push((await L.execute(spec, ['store', 'list'], { tag: 'forged' })).tag)
-  // A session receipt's tag wins over a caller's.
-  const receipts = []
-  tags.push((await L.withTraceContext({ origin: 'host', sessionId: 's', project: 'p', record: async row => receipts.push(row) }, () => L.execute(spec, ['store', 'list'], { tag: 'dsh-sim:run-1:verify' }))).tag)
-  assert.deepEqual(tags.map(t => t.split(':').slice(0, 2).join(':')), ['dsh-sim:run-1', 'dsh-sim:run-1', 'dsh:-', 'dsh:s'])
-  assert.equal(tags[3], receipts[0].tag)
-  assert.ok(L.hasOutput(outputs, 'dsh-sim:run-1:setup.store'), 'a simulation call keeps its output')
-  const log = nativeLog()
-  tags.forEach((tag, i) => log.push({ v: 1, at: 1000 + i, ms: 1, client: 'cli', argv: i === 0 ? ['store', 'create', 'demo'] : ['store', 'list'], outcome: 'ok', tag }))
-  const ops = logsCtx(log, outputs, {}, { root: { simulation: { runId: 'run-1', agentKey: 'a' } }, child: { simulation: { runId: 'run-1', agentKey: 'b', rootSessionId: 'root' } } })
-  const page = await ops['logs.list']({ tag: 'dsh-sim:run-1:' })
-  assert.deepEqual(page.lines.map(l => l.sim), [{ runId: 'run-1', stepKey: 'verify', sessionId: 'root' }, { runId: 'run-1', stepKey: 'setup.store', sessionId: 'root' }])
-  assert.ok(page.lines.every(l => l.output && !l.dsh))
-  assert.equal((await ops['logs.output']({ tag: 'dsh-sim:run-1:setup.store' })).exit, 0)
-})
-
-test('stepOfCall joins a scripted tool call to its run and step, only for its own session', async () => {
-  const repo = fileURLToPath(new URL('..', import.meta.url))
-  const { mkdirSync, rmSync } = await import('node:fs')
-  mkdirSync(join(repo, 'lib'), { recursive: true })
-  const out = mkdtempSync(join(repo, 'lib/.test-receipt-step-'))
-  try {
-    await build({ absWorkingDir: repo, stdin: { contents: "export { SimulationRuntime } from './src/host/simulations/runtime.ts'", resolveDir: repo, loader: 'ts' }, outfile: join(out, 'runtime.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', external: ['@deepseek-ai/*'], logLevel: 'warning' })
-    const { SimulationRuntime } = await import(pathToFileURL(join(out, 'runtime.mjs')))
-    const runtime = new SimulationRuntime({})
-    const binding = { sessionId: 'sim-1', run: { manifest: { runId: 'run-1' } } }
-    runtime.calls.set('call-a', { binding, action: { type: 'tool', stepKey: 'cycle.1.write' }, argv: ['file', 'write'] })
-    runtime.calls.set('call-b', { binding, action: { type: 'delegate', agentId: 'helper' } })
-    assert.deepEqual(runtime.stepOfCall('sim-1', 'call-a'), { runId: 'run-1', stepKey: 'cycle.1.write' })
-    assert.equal(runtime.stepOfCall('other', 'call-a'), undefined)
-    assert.equal(runtime.stepOfCall('sim-1', 'call-b'), undefined)
-    assert.equal(runtime.stepOfCall('sim-1', 'missing'), undefined)
-  } finally { rmSync(out, { recursive: true, force: true }) }
 })

@@ -2,7 +2,7 @@
 // the host makes exists in the pinned CLI's call table (`help --json`), with
 // the options it passes. Scans src/host for SDK calls (`lfs.<family>.<call>(`,
 // `lfs().…`, `this.lfs.…`) and for literal argv arrays (`['machine', 'stop', …, '--force']`
-// handed to execute / the preset driver). Calls a CLI may lack are allowed only
+// handed to execute). Calls a CLI may lack are allowed only
 // where a discovery gate guards them (GATED, checked to be present).
 //
 // The installed 2.0.0 CLI (ed911896) predates the Store attach/detach contract
@@ -244,8 +244,6 @@ const GATED = [
   { site: /^project\.(delete|remove)$/, file: 'src/host/routes/projects.ts', gate: /const hasDelete = \(await this\.host\.discover\(\)\)\.calls\.some\(/, lines: 3 },
   // the Doctor page (call surface 2.0): the records tree is read only when the call table lists `tree` among `home get`'s --with values; else the route refuses `Unsupported`
   { site: /^home\.get --(with|detail)$/, file: 'src/host/routes/doctor.ts', gate: /const hasTree = hasTreeRead\(\(await this\.host\.discover\(\)\)\.calls\)\n\s+if \(!hasTree\) throw refuse\(501, 'Unsupported'/, lines: 6 },
-  // the preset Reset's force-close refuses up front (preflight) when machine.stop lacks the bool force option
-  { site: /^machine\.stop --force$/, file: 'src/host/presets/machine-stop.js', gate: /option\.name === 'force' && option\.kind === 'bool'/, lines: 45 },
 ]
 
 /**

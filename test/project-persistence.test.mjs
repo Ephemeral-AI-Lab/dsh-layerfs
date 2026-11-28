@@ -220,89 +220,6 @@ test('shared-session archive retains parent provenance without recursive parent 
   } finally { await a.close(); await b.close() }
 })
 
-test('simulation archive/import preserves the exact handoff pin and never replays its private script', async () => {
-  const a = await fixture(), b = await fixture(a.branches)
-  const files = new Map()
-  try {
-    const handle = await a.p.create(header('portable'))
-    await handle.flush()
-    await a.p.migrateProject('portable', 'store/project')
-    const simulation = {
-      runId: 'finished-run', agentKey: 'release-main', scriptId: 'release-script', name: 'Billing release',
-      hash: 'b'.repeat(64), ordinaryModel: { provider: 'real', model: 'next-model', reasoningEffort: 'high' },
-      state: 'completed', handoffReady: true,
-      continuation: { kind: 'Layer', id: '01' + 'a'.repeat(64), branch: 'main' },
-    }
-    await a.p.updateSidecar('portable', sidecar => { sidecar.simulation = simulation })
-    const archiveA = archiveFixture(a, files)
-    archiveA.binding.branch = undefined // The script owns resources until the separate LLM workspace is established.
-    archiveA.binding.simulation = simulation
-    await archiveA.store.mirror('portable')
-    const archiveB = archiveFixture(b, files)
-    assert.equal((await archiveB.store.import('store/project', 'portable')).imported, true)
-    const imported = archiveB.state.sessions.portable
-    assert.deepEqual(imported.simulation, simulation)
-    assert.equal(imported.branch, undefined)
-    assert.equal(imported.ws, undefined)
-    assert.equal(imported.sandbox, undefined)
-    assert.equal(imported.state, 'closed')
-    assert.deepEqual((await b.p.readSidecar('portable')).simulation.continuation, simulation.continuation)
-    const reopened = await b.p.open('portable', 'read')
-    assert.deepEqual((await reopened.read()).events, [])
-    await reopened.close()
-    // Import reads only archive files and native logs; there is no local run package or executable script.
-    assert.equal((await archiveB.store.import('store/project', 'portable')).imported, false)
-    await handle.close()
-  } finally { await a.close(); await b.close() }
-})
-
-test('imported unfinished simulation remains inert and requires reconciliation', async () => {
-  const a = await fixture(), b = await fixture(a.branches)
-  const files = new Map()
-  try {
-    const handle = await a.p.create(header('portable'))
-    await handle.flush()
-    await a.p.migrateProject('portable', 'store/project')
-    const simulation = { runId: 'unfinished', agentKey: 'main', scriptId: 'main-script', name: 'Release', hash: 'c'.repeat(64), state: 'running', handoffReady: false }
-    await a.p.updateSidecar('portable', sidecar => { sidecar.simulation = simulation })
-    const archiveA = archiveFixture(a, files)
-    archiveA.binding.branch = undefined
-    archiveA.binding.simulation = simulation
-    await archiveA.store.mirror('portable')
-    const archiveB = archiveFixture(b, files)
-    await archiveB.store.import('store/project', 'portable')
-    assert.equal(archiveB.state.sessions.portable.simulation.state, 'interrupted')
-    assert.equal(archiveB.state.sessions.portable.simulation.handoffReady, false)
-    assert.equal(archiveB.state.sessions.portable.ws, undefined)
-    assert.equal(archiveB.state.sessions.portable.branch, undefined)
-    await handle.close()
-  } finally { await a.close(); await b.close() }
-})
-
-test('simulation import never mounts an archived mutable code branch in place of its saved pin', async () => {
-  const a = await fixture(), b = await fixture(a.branches)
-  const files = new Map()
-  try {
-    const handle = await a.p.create(header('portable'))
-    await handle.flush()
-    await a.p.migrateProject('portable', 'store/project')
-    const simulation = { runId: 'run', agentKey: 'main', scriptId: 'script', name: 'Release', hash: 'c'.repeat(64), state: 'completed', handoffReady: true, continuation: { kind: 'Commit', id: '02' + 'a'.repeat(64), branch: 'mutable-code' } }
-    await a.p.updateSidecar('portable', sidecar => { sidecar.simulation = simulation })
-    const archiveA = archiveFixture(a, files)
-    archiveA.binding.branch = 'mutable-code'
-    archiveA.binding.simulation = simulation
-    await archiveA.store.mirror('portable')
-    const archiveB = archiveFixture(b, files)
-    await archiveB.store.import('store/project', 'portable')
-    const imported = archiveB.state.sessions.portable
-    assert.equal(imported.branch, undefined, 'remote mutable branch must not bypass pin-aware fork')
-    assert.equal(imported.ws, undefined)
-    assert.equal(imported.resumeFromArchive, true)
-    assert.equal(imported.simulation.continuation.id, simulation.continuation.id)
-    await handle.close()
-  } finally { await a.close(); await b.close() }
-})
-
 test('one pinned export imports native JSONL, manifest and annotations with lines far beyond file.read windows', async () => {
   const a = await fixture(), b = await fixture(a.branches), files = new Map()
   try {
@@ -584,7 +501,7 @@ test('events appended while the owner is being chosen move with the session', as
   } finally { await f.close() }
 })
 
-test('Presets Reset deletion: log folder, owner route and sidecar go; a deletion record blocks implicit import', async () => {
+test('conversation deletion: log folder, owner route and sidecar go; a deletion record blocks implicit import', async () => {
   const f = await fixture()
   try {
     const kept = await f.p.create(header('kept'))

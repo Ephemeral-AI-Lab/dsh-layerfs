@@ -21,7 +21,7 @@ call runs behind it.
   (the answer comes from host memory or from what your browser remembers).
   [cli-map.md](cli-map.md) lists every interaction in one place.
 - **Words are the UI's own.** Buttons are in **bold**, spelled as on screen.
-- The earlier screenshots come from a demo setup: the Starter preset's Store `demo-starter`
+- The earlier screenshots come from a demo setup: the Store `demo-starter`
   (project `bookshelf`, 235 commits), a small Store `guide-notes` (project `handbook`, with
   one project conversation), and a bucket `guide-backups`.
 
@@ -84,7 +84,7 @@ at a time under its own navigation bar. Center starts on **Home**.
 | 1 | LayerFS row | The sidebar row that opens Center | [Entry points](entry-points.md#sidebar-layerfs-row) |
 | 2 | Navigation bar | History, location, Jump to, Doctor, Logs, Settings and Add | [Navigation](components.md#nav-bar) |
 | 3 | Doctor | Opens the checks and shows the findings count | [Doctor](health.md) |
-| 4 | Overview head | The title, the pinned runtime, the most urgent notice, Presets and Refresh | [Home](home.md) |
+| 4 | Overview head | The title, the pinned runtime, the most urgent notice and Refresh | [Home](home.md) |
 | 5 | Tabs | Projects, Stores and Machines | [Home](home.md) |
 | 6 | Projects table | Projects with their Stores, sessions and Sandboxes | [Projects](home.md#projects) |
 
@@ -104,7 +104,6 @@ flowchart TD
   PR --> SX
   H --> DR[Doctor]
   H --> LG[Logs]
-  H --> PS[Presets dialog]
   H --> SU[Set up LayerFS dialog]
   PR --> CV[Project session<br/><small>Trajectory · Files · History · Sandbox · Stats</small>]
   PC --> CV
@@ -129,7 +128,6 @@ this browser.
 | [Conversation](conversation.md) | follow a project session: its trajectory, files, history, Sandbox and numbers | a project session |
 | [Doctor](health.md) | check that LayerFS and everything it runs is healthy, and fix what is not | `LayerFS › Doctor` |
 | [Logs](logs.md) | see each LayerFS call the app made, and why | `LayerFS › Logs` |
-| [Presets](presets.md) | build a demo library, or reset this LayerFS home | `LayerFS › Home ›` Presets |
 | [Components](components.md) | read once about the parts many pages share | — |
 
 ## How do I…
@@ -149,7 +147,6 @@ this browser.
 | Free disk space on a machine | [Machine › Overview › Disk space](machine.md#disk-space-dialog), [Images](machine.md#images) | `machine stats --with space`, `machine prune` |
 | Find out what is wrong, and fix it | [Doctor](health.md), [Needs-you notices](components.md#needs-you-notices) | `<family> doctor`, then the fix LayerFS names |
 | See which LayerFS call a click ran | [Logs](logs.md) | — (reads the call log) |
-| Try LayerFS on demo data | [Presets](presets.md) | a recipe of many calls |
 
 ## Behind every button
 

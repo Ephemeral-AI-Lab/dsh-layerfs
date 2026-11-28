@@ -2,7 +2,7 @@
 // reads clear of long work and terminals, reads have a default time budget, a timed-out call ends
 // its whole process group and settles, every call is one attempt (a Store-lease refusal is not run again),
 // argument shapes that would shift or invent CLI words are refused, the host daemon record is
-// retried after a failure (service.ts), and preset long work gets a long budget (presets/driver.ts).
+// retried after a failure (service.ts).
 //   node --test test/cli-lanes.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -16,7 +16,7 @@ const root = mkdtempSync(join(tmpdir(), 'dsh-cli-lanes-'))
 process.on('exit', () => rmSync(root, { recursive: true, force: true }))
 await build({
   stdin: {
-    contents: "export * from './src/host/layerfs/cli.ts'\nexport { presetTimeout, PRESET_TIMEOUT_MS, PRESET_LONG_TIMEOUT_MS } from './src/host/presets/driver.ts'\nexport { LayerfsService } from './src/host/service.ts'\nexport { Context } from '@deepseek-ai/cordis'\n",
+    contents: "export * from './src/host/layerfs/cli.ts'\nexport { LayerfsService } from './src/host/service.ts'\nexport { Context } from '@deepseek-ai/cordis'\n",
     resolveDir: process.cwd(), loader: 'ts',
   },
   outfile: join(root, 'cli.mjs'), bundle: true, platform: 'node', format: 'esm', target: 'node24',
@@ -213,7 +213,7 @@ test('a CLI that exits while a helper holds its stdout still answers; child.kill
   assert.ok(Date.now() - started < 20000, `answered after ${Date.now() - started} ms, not when the 30 s helper ended`)
   assert.equal(C.children.size, 0)
 
-  // shutdown (index.ts) and simulation cancel call child.kill: it reaches the helper too
+  // shutdown (index.ts) calls child.kill: it reaches the helper too
   let spawned
   const running = C.execute({ cli, home: join(dir, 'home') }, ['hold', 'x'], { onSpawn: (child) => { spawned = child } })
   for (let i = 0; i < 200 && !existsSync(join(dir, 'helper')); i++) await new Promise((r) => setTimeout(r, 10))
@@ -267,15 +267,6 @@ test('ensureHostDaemon retries after a failed record and caches a success', { sk
   assert.equal(updates(), 2, 'the failed attempt is not kept')
   await service.ensureHostDaemon()
   assert.equal(updates(), 2, 'a recorded daemon is kept')
-})
-
-test('preset calls: reads and short writes keep 2 minutes, long work gets 30 minutes', () => {
-  assert.equal(C.presetTimeout(['machine', 'list'], true), C.PRESET_TIMEOUT_MS)
-  assert.equal(C.presetTimeout(['file', 'write', 'p/a', 'main', '/x'], false), C.PRESET_TIMEOUT_MS)
-  for (const argv of [['machine', 'create', 'vm', 'lima'], ['machine', 'start', 'vm'], ['store', 'move', 's', 'vm'], ['project', 'init', 'p/a', '/src'], ['sandbox', 'create', 'p/a', 'sb']]) {
-    assert.equal(C.presetTimeout(argv, false), C.PRESET_LONG_TIMEOUT_MS, argv.join(' '))
-  }
-  assert.equal(C.PRESET_LONG_TIMEOUT_MS, 30 * 60_000)
 })
 
 test('Stage 1 calls: machine.images is kept 5 s and cleared by machine.prune; sandbox.create sends the reference and --progress', { timeout: 20000 }, async () => {
@@ -434,7 +425,7 @@ test('a caller-named lane never moves a monitoring read out of the inspect lane'
   t.after(() => writeFileSync(join(f.dir, 'release'), ''))
   const spec = { cli: f.cli, home: f.home }
   writeFileSync(join(f.dir, 'hold-inspect'), '')
-  // a bulk caller's wide lane (presets, simulations): three reads would all run in it
+  // a bulk caller's wide lane: three reads would all run in it
   const bulk = { name: 'bulk', limit: 16 }
   const reads = [1, 2, 3].map((i) => C.execute(spec, ['machine', 'files', '--', `vm${i}`], { lane: bulk, read: true }))
   assert.ok(await until(() => inspectSpawns(f).length === 2), 'two run')

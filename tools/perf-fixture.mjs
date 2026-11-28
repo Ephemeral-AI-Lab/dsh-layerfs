@@ -27,8 +27,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { runtimePin } from '../scripts/runtime-pin.mjs'
 import { homeIn, rootOf } from '../src/host/folder.ts'
-import { baseProjectHistorySteps, stepEffect } from '../src/host/presets/recipe/recipe.js'
-import { HOST_MACHINE, sourceFiles } from '../src/host/presets/recipe/presets.js'
+import { HOST_MACHINE } from '../src/host/layerfs/machine-records.ts'
+import { baseProjectHistorySteps, sourceFiles, stepEffect } from './perf-recipe/history.js'
 
 export const FIXTURE_VERSION = 4
 const root = fileURLToPath(new URL('..', import.meta.url))

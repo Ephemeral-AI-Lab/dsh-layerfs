@@ -13,7 +13,7 @@ dsh-layerfs 把 LayerFS 加进了 DeepSeek Harness（DSH）网页应用。LayerF
 - **截图带编号。** 每个编号对应图片下方表格中的一行。
 - **每个操作都写明它的 LayerFS 调用**，放在“LayerFS 调用”一列里，比如 `store move`。“(读取)”标出视图为了绘制自己而读取的内容，`—` 表示没有调用（结果来自主机内存，或来自你的浏览器记住的内容）。[cli-map.md](cli-map.md) 把所有操作列在一处。
 - **用词以界面为准。** 按钮用 **粗体**，先写中文界面上的文字，括号里附英文，因为截图是英文界面。
-- 早期截图来自一套演示环境：入门（Starter）预设的 Store `demo-starter`（项目 `bookshelf`，235 个提交）、一个小 Store `guide-notes`（项目 `handbook`，含一个项目对话），以及一个存储桶 `guide-backups`。
+- 早期截图来自一套演示环境：Store `demo-starter`（项目 `bookshelf`，235 个提交）、一个小 Store `guide-notes`（项目 `handbook`，含一个项目对话），以及一个存储桶 `guide-backups`。
 
 ## 两种模式：DSH 会话和项目会话
 
@@ -71,7 +71,7 @@ LayerFS 在 DSH 侧边栏里只有一行。它打开 **Center**：一个页面�
 | 1 | LayerFS 行 | 侧边栏里打开 Center 的那一行 | [入口](entry-points.md#sidebar-layerfs-row) |
 | 2 | 导航栏 | 后退、前进、面包屑、跳转、诊断、日志、设置和添加 | [导航栏](components.md#nav-bar) |
 | 3 | 诊断 | 打开诊断页查看检查结果。按钮上会显示发现数量 | [诊断](health.md) |
-| 4 | 概览头部 | 标题、固定使用的运行时、最紧急的提示、预设和刷新 | [主页](home.md) |
+| 4 | 概览头部 | 标题、固定使用的运行时、最紧急的提示和刷新 | [主页](home.md) |
 | 5 | 标签页 | 项目、Store、机器 | [主页](home.md) |
 | 6 | 项目表 | 项目及其 Store、会话和 Sandbox | [项目](home.md#projects) |
 
@@ -91,7 +91,6 @@ flowchart TD
   PR --> SX
   H --> DR["诊断"]
   H --> LG["日志"]
-  H --> PS["预设对话框"]
   H --> SU["设置 LayerFS 对话框"]
   PR --> CV["项目会话<br/><small>轨迹 · 文件 · 历史 · Sandbox · 统计</small>"]
   PC --> CV
@@ -113,7 +112,6 @@ flowchart TD
 | [对话](conversation.md) | 跟进一个项目会话：轨迹、文件、历史、Sandbox 和数据 | 一个项目会话 |
 | [诊断](health.md) | 检查 LayerFS 及其运行的一切是否健康，并修复出问题的地方 | `LayerFS › 诊断` |
 | [日志](logs.md) | 查看应用发起的每条 LayerFS 调用，以及原因 | `LayerFS › 日志` |
-| [预设](presets.md) | 构建演示项目库，或重置这个 LayerFS 主目录 | `LayerFS › 主页 ›` 预设 |
 | [组件](components.md) | 一次读懂多个页面共用的部件 | — |
 
 ## 我想……
@@ -133,7 +131,6 @@ flowchart TD
 | 释放机器上的磁盘空间 | [机器 › 概览 › 磁盘空间](machine.md#disk-space-dialog)、[镜像](machine.md#images) | `machine stats --with space`、`machine prune` |
 | 找出问题并修复 | [诊断](health.md)、[待处理提示](components.md#needs-you-notices) | `<family> doctor`，然后执行 LayerFS 给出的修复 |
 | 看一次点击运行了哪条 LayerFS 调用 | [日志](logs.md) | —（读取调用日志） |
-| 用演示数据试用 LayerFS | [预设](presets.md) | 一份包含许多调用的配方 |
 
 ## 每个按钮背后
 

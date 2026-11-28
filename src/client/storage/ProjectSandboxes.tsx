@@ -1,7 +1,7 @@
 /**
  * A project's Sandboxes tab: the conversation Sandbox map at project scope.
  * Every conversation (and its subagents) that called LayerFS on this project
- * or its Sandboxes, plus the calls made outside conversations (pages, presets,
+ * or its Sandboxes, plus the calls made outside conversations (pages,
  * other clients), wired to the branches and the open Sandboxes, live.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'

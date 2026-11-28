@@ -24,8 +24,6 @@ await build({
       "export { filesEn, filesZh } from './src/client/files/locale.ts'",
       "export { tagWords } from './src/client/logs/LogsPage.tsx'",
       "export { locales as logsLocales } from './src/client/logs/locale.ts'",
-      "export { presetIdName } from './src/client/presets/labels.ts'",
-      "export { locales as presetsLocales } from './src/client/presets/locale.ts'",
       "export { backupChip, listStatusWords, placeWords } from './src/client/storage/model.ts'",
       "export { providerWords } from './src/client/storage/BucketPage.tsx'",
       "export { StoreBackups } from './src/client/storage/StoreLinks.tsx'",
@@ -132,14 +130,6 @@ test('11: the history legend counts are singular for one', () => {
   assert.equal(M.treeCounts(1, 1, 1, t), '1 Branch · 1 checkpoint · 1 Layer')
   assert.equal(M.treeCounts(20, 552, 3, t), '20 Branches · 552 checkpoints · 3 Layers')
   for (const k of ['files_treeBranches', 'files_treeBranchOne', 'files_treeCheckpoints', 'files_treeCheckpointOne', 'files_treeLayers', 'files_treeLayerOne']) assert.ok(M.filesZh[k], k)
-})
-
-test('12: the script drawer names the preset as its card does, and describes any preset', () => {
-  const t = tOf(M.presetsLocales.en)
-  assert.equal(M.presetIdName(t, 'quickstart'), 'Starter')
-  assert.equal(M.presetIdName(t, 'studio'), 'Studio')
-  assert.doesNotMatch(M.presetsLocales.en.scriptBodyAll, /eight|four/)
-  assert.match(src('src/client/presets/ScriptDrawer.tsx'), /t\('scriptTitleAll', \{ name: presetIdName\(t, preset\) \}\)/)
 })
 
 test('15: the unused RuntimeCard is gone', () => {

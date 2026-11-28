@@ -22,7 +22,7 @@ LayerFS 的几个标签：轨迹，显示每次工具调用在 LayerFS 里做了
 
 ## 布局
 
-最上面是对话标题栏（标题、**LayerFS** 预设标签，脚本会话还有 **查看脚本**（View script）），然后是标签栏，
+最上面是对话标题栏（标题和 **LayerFS** 预设标签），然后是标签栏，
 再下面是标签内容。在项目会话的 LayerFS 标签上，消息框都会让开：轨迹、文件、历史、Sandbox 或统计显示时，
 输入框是隐藏的，回到 **Chat** 时它会回来，草稿原样保留。审批和提问仍然会显示。
 
@@ -191,8 +191,6 @@ Sandbox 标签回答的是“谁调用了 LayerFS、在哪个分支和哪个 San
 - 项目会话的**子智能体**显示根会话的项目、分支和 Sandbox；它的轨迹是它自己的。
 - **存在 LayerFS 里但没加载的会话**（按 id 打开或导入的）没有实时日志：轨迹列出来自保存回执的
   LayerFS 调用，并显示上面那条说明。
-- **脚本会话**（用 `/simulation` 启动的）在脚本跑完后，标题栏会出现 **查看脚本**（View script）；
-  脚本还在跑时不显示额外内容。
 - **项目会话标记。** 在 DSH 的 Workspaces 列表里，项目会话那一行会被拿掉（插件把它标为项目所有，
   `session.place`，没有 LayerFS 调用）；这个会话改为列在侧边栏 LayerFS 项目视图里它所属的项目下面：
 
@@ -200,15 +198,6 @@ Sandbox 标签回答的是“谁调用了 LayerFS、在哪个分支和哪个 San
 
   1 视图切换（**显示 LayerFS 项目**（Show LayerFS projects）/ **显示 DSH 工作区**（Show DSH workspaces）），2 项目
   （**展开或收起 handbook 中的对话**（Toggle conversations in handbook）），3 会话。
-
-## 在这里打开的对话框
-
-| 对话框 | 打开方式 | 作用 | LayerFS 调用 | 撤销 |
-|---|---|---|---|---|
-| ***脚本名称***（查看脚本） | 标题栏 › **查看脚本**（View script）（脚本会话，脚本结束后） | 显示 **此会话模型使用的指令。**（The instructions used by this session’s model.）、**内容哈希**（Content hash）和脚本源文件，每次按下都会重新读取。**关闭**（Close） | `simulation.script`（没有 LayerFS 调用：这次运行保存的脚本）；脚本运行期间 `simulation.status` 每 4 秒轮询一次 | 无需撤销：只读 |
-
-示例里没有脚本会话，所以这个对话框没有截图。源文件读不出来时，按钮旁边会用红字显示
-**脚本源文件不可用。仍可阅读此会话。**（The script source is unavailable. The conversation can still be read.）
 
 ## 状态与提示
 
@@ -237,8 +226,8 @@ Sandbox 标签回答的是“谁调用了 LayerFS、在哪个分支和哪个 San
 `TrajectoryInspector.tsx`、`TrajectoryParts.tsx`、`TrajectoryTimeline.tsx`、
 `trajectory-model.ts`、`stock-trajectory.ts`、`FileViews.tsx`（文件、历史、会话分支那一行）、
 `SandboxView.tsx`、`WorkspaceTerminal.tsx`、`model.ts`、`StatsView.tsx`、`hooks.ts`、
-`locale.ts`。`src/client/simulation/index.tsx`（查看脚本），`src/client/session/index.tsx`
+`locale.ts`。`src/client/session/index.tsx`
 （行标记）。主机：`src/host/sessions/index.ts`（`session.place`、`session.state`、
 `session.trajectory`、`session.trajectory.record`、`session.annotations`），
 `src/host/sessions/service.ts`（`view`），`src/host/logs/index.ts`（`logs.list`、
-`logs.output`），`src/host/simulations/index.ts`（`simulation.script`、`simulation.status`）。
+`logs.output`）。

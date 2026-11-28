@@ -57,22 +57,9 @@ export default class LayerfsSandboxPolicy extends (SandboxPolicyService as any) 
     if (b?.kind === 'shared' && b.parent) b = sessions.binding(b.parent) ?? b
     const layerfs = (this as any).ctx.get?.('layerfs')
     const home = layerfs?.home
-    // An active script also drives its own run's Store, machine and Sandboxes;
-    // a planned Sandbox may not exist yet (its scripted `sandbox create` makes it).
-    const scope = sessions?.isSimulationManaged?.(String(id)) ? (this as any).ctx.get?.('layerfsSimulations')?.executionScope?.(String(id)) : undefined
-    const scripted = scope && home && existsSync(home)
-      ? [...sessionHomeRoots(home, { project: scope.project, machine: scope.machine }), ...(scope.sandboxes as string[]).map(component).filter((name): name is string => !!name).map(name => join(home, 'sandbox', name))]
-      : []
-    let root: string | undefined, owned: string[], mount: string | undefined
-    if (b?.state === 'bound') {
-      root = b.scratch; mount = b.mount
-      owned = [...sessionHomeRoots(home, b, { createSandboxes: true }), ...scripted]
-    } else {
-      if (!scope) return base
-      const scratch = b?.scratch ?? sessions?.binding?.(scope.rootSessionId)?.scratch
-      root = scratch && isDir(scratch) ? scratch : base.workspaceRoot
-      owned = scripted
-    }
+    if (b?.state !== 'bound') return base
+    const root = b.scratch, mount = b.mount
+    const owned = sessionHomeRoots(home, b, { createSandboxes: true })
     const extra = [...(base.additionalWritableRoots ?? [])]
     // What the managed CLI and SDK write: call outputs (`<state>/trace/outputs`) and LayerFS's own call log (`<home>/trace`).
     const trace = layerfs?.state ? ensureDir(join(layerfs.state, 'trace')) : undefined

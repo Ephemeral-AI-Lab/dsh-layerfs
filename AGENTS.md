@@ -68,8 +68,8 @@ into the one 3080 server. That is expected; coordinate instead of competing for 
 1. **Develop and verify on the side.** Work in your own git worktree and/or on a
    private side server (`scripts/dev.mjs` with a `.dev*/` dir on a non-3080 port).
    Run the build, typecheck, unit tests and whichever e2e tests cover your change
-   there (fake-llm e2e, store import and preset home resets need a private home, so
-   they always run on a side server). Kill only your own side server (match its
+   there (fake-llm e2e and store import need a private home, so they always run on a
+   side server). Kill only your own side server (match its
    `.dev*/overlay.yml` path) and stop it when done.
 2. **Merge into the 3080 checkout.** Once verified, merge your work into the
    checkout 3080 links (find it with
@@ -90,7 +90,7 @@ into the one 3080 server. That is expected; coordinate instead of competing for 
   what you are about to merge or restart.
 - On 3080, name everything you create with a prefix unique to you (Stores,
   projects, sessions, machines), remove only your own when done, and leave the
-  LayerFS home alone (no preset Reset there without the user's OK).
+  LayerFS home alone.
 - The 3080 page needs its authenticated URL: pass it to `tools/shot.mjs <url>` /
   `openDev({ url })`; do not write the token into tracked files or chat.
 
@@ -117,10 +117,6 @@ into the one 3080 server. That is expected; coordinate instead of competing for 
   - `layerfs/call-words.ts` a call's rendered words and saved fields (receipts, outputs)
   - `logs/` `logs.list` / `logs.reset` ops on LayerFS's `home log` / `home clear-log` (`source.ts`),
     lines labelled with session, turn and checkpoint (`Checkpoint.receipt`), `logs` event
-  - `presets/` Presets: `manager.ts` (`/api/demo-presets…` on the `http` op, admission,
-    durable jobs in `<root>/presets/`), `driver.ts`, and LayerFS Connect's runner/recipe
-    kept as JavaScript (`runner.js`, `build.js`, `environment-reset.js`, `recipe/` copied
-    from Connect `tools/demo/`, typed through `js.ts`) so they stay diffable against Connect
   - `routes/project-exports.ts` project exports to a local folder (`project.export`, pinned Commit,
     progress, stop), docs/specs/project-exports.md
   - `sandbox-policy.ts` the `layerfs-sandbox-policy` row (`lib/sandbox-policy.js`)
@@ -128,7 +124,7 @@ into the one 3080 server. That is expected; coordinate instead of competing for 
   DSH's `__ModuleLoader__` factory format)
   - `api.ts` `LayerfsApi` (`call(method,path,body)`, `op(name,args)`, `onEvent`)
   - `exports/` project export views (Home dialog and row cell, History inspector and dock chip)
-  - `machines/`, `storage/`, `presets/`, `logs/`, `session/`, `picker/`, `hero/`, `views/` areas, each
+  - `machines/`, `storage/`, `logs/`, `session/`, `picker/`, `hero/`, `views/` areas, each
     `register<Area>(ctx, api)`; `picker/` owns the shared `NewProjectForm` + locale,
     `hero/` puts the project choice on the New Session row (`conversation.hero.options`
     + the `session.place` op), `views/` adds the Files/History/Sandbox conversation
@@ -190,15 +186,6 @@ into the one 3080 server. That is expected; coordinate instead of competing for 
   (`DSH_LAYERFS_DEV_DIR=$PWD/.dev-import DSH_LAYERFS_FOLDER=$PWD/.dev/layerfs ... --port 3096`),
   then `A_DIR=$PWD/.dev B_DIR=$PWD/.dev-import node test/e2e-store-import.mjs` (explicit
   import, open by id alone through the persistence row, folder sessions never stored).
-- Presets: `test/presets.test.mjs` (admission, request-ID reconciliation, restart recovery,
-  the router's exclusive guard, script paging, live reset of a private home). A real Studio
-  Build needs Docker, Lima and `DSH_LAYERFS_BUNDLE` (a Linux bundle built from the same `layerfs_v2_0_0` commit as the CLI) on the
-  dev server; it creates two Lima VMs (2 CPU, 4 GB) in the dev LayerFS home, so stop its
-  machines from the home's Presets dialog (head card → Presets → Studio → Stop machines…)
-  afterwards. A real Starter Build (`quickstart`: one SQLite Store on docker, 552 commits on
-  20 branches) needs only Docker and the bundle and takes under a minute; stop the dev home's
-  docker machine afterwards (`layerfs machine stop docker` with that server's
-  `LAYERFS_ROOT` (its `<dev dir>/layerfs`) and `LAYERFS_BUNDLE`).
 - `node tools/cleanup-dev.mjs` removes leftover `e2e*`/`imp*` Stores through the host API.
 - After side verification passes, merge into the 3080 checkout and check it on 3080
   (see "Shared server on 3080"); that is the last step of every task.

@@ -29,7 +29,7 @@ import { StringDecoder } from 'node:string_decoder'
 import { traceInvocation } from './tracing.ts'
 import { loggable, renderCall } from './call-words.ts'
 import { outputRecord, outputSink, saveOutput, type OutputSink } from './call-output.ts'
-import { hostTag, OUTPUT_MAX, parseSimTag, simTag } from '../../shared/logs.ts'
+import { hostTag, OUTPUT_MAX } from '../../shared/logs.ts'
 import { rootOf } from '../folder.ts'
 
 /** How a call failed: `refusal` = LayerFS answered a refusal; others are transport outcomes. */
@@ -261,11 +261,7 @@ interface ExecuteOptions {
    * ended. Either way it is refused `Cancelled`.
    */
   signal?: AbortSignal
-  /**
-   * `LAYERFS_LOGS_TAG` for this call. {@link execute} sets it from the trace
-   * context; outside one a caller may pass a `dsh-sim:<runId>:<stepKey>` tag
-   * (simulation setup/verification), other values are replaced by a host tag.
-   */
+  /** `LAYERFS_LOGS_TAG` for this call: {@link execute} sets it from the trace context, else a host tag is made. */
   tag?: string
   /** Where the call's output is collected for the output store (set by {@link logged}). */
   capture?: Capture
@@ -330,7 +326,7 @@ export function admitStore<T>(home: string, store: string, run: () => Promise<T>
  * lease (`store/<name>/open/<pid>`); `store get` without it and `store list`
  * read records.
  * Accepts both argv shapes: SDK words (`family call [--flags] -- positionals`)
- * and the preset driver's (`family call positionals [--flags]`).
+ * and a raw argv's (`family call positionals [--flags]`).
  */
 export function storeOfCall(argv: readonly string[]): string | undefined {
   const [family, call] = argv
@@ -447,18 +443,12 @@ function killOnExit(): void {
 export function execute(spec: CliSpec, argv: readonly string[], options: ExecuteOptions = {}): Promise<any> {
   if (options.discovery) return executeRaw(spec, argv, options)
   const target = ['file', 'branch'].includes(argv[0]) || (argv[0] === 'workspace' && argv[1] === 'commit') ? renderCall(argv)[2] : undefined
-  // A session receipt's tag wins; else the caller's own `dsh-sim:` tag (simulation setup and verification).
+  // A session receipt's tag wins; else {@link logged} makes a host tag.
   // The receipt takes the call's own start and duration when its output is kept.
   const timing: Timing = {}
-  return traceInvocation(argv.slice(0, 2).join('.').replaceAll('-', '_'), (tag) => logged(spec, argv, { ...options, tag: tag ?? callerTag(options.tag), timing }),
+  return traceInvocation(argv.slice(0, 2).join('.').replaceAll('-', '_'), (tag) => logged(spec, argv, { ...options, tag, timing }),
     argv[0] === 'workspace' ? undefined : target, argv[0] === 'workspace' ? target : undefined,
     () => ({ argv, input: options.input ?? null, bools: boolOptions(spec.cli), ...timing }))
-}
-
-/** A caller-supplied tag outside a trace context: only a valid `dsh-sim:` tag, else none (a host tag is made). */
-function callerTag(tag: string | undefined): string | undefined {
-  const sim = parseSimTag(tag)
-  return sim && simTag(sim.runId, sim.stepKey) === tag ? tag : undefined
 }
 
 /**
@@ -540,7 +530,7 @@ function executeRaw(spec: CliSpec, argv: readonly string[], options: ExecuteOpti
     // Dropped while it waited for the lane (the waiter was already woken): no process starts.
     if (signal?.aborted) { reject(cancelled()); return }
     // Its own process group, so a timeout or shutdown ends the CLI's helpers with it;
-    // `child.kill` signals that group for every holder (shutdown, simulation cancel).
+    // `child.kill` signals that group for every holder (shutdown).
     const child = spawn(spec.cli, [...argv], {
       shell: false, stdio: ['pipe', 'pipe', 'pipe'], detached: true,
       env: { ...tagged(options), ...(spec.home ? { LAYERFS_ROOT: rootOf(spec.home) } : {}), ...(spec.bundle ? { LAYERFS_BUNDLE: spec.bundle } : {}), ...(spec.cacheHome ? { XDG_CACHE_HOME: spec.cacheHome } : {}), LAYERFS_PROGRESS_JSON: '1' },

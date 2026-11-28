@@ -2,7 +2,7 @@
 // One page serves every shot in a run, so each shot sets the tab, kind and view it needs instead of assuming them.
 
 const bar = (p) => p.locator('header[aria-label="Home navigation"]')
-const tools = (p) => p.getByRole('group').filter({ has: p.getByRole('button', { name: 'Try a preset', exact: true }) })
+const tools = (p) => p.getByRole('group').filter({ has: p.getByRole('button', { name: 'Refresh', exact: true }) })
 const head = (p) => p.locator('header[class*=HomeHero]')
 const homeTab = (p, name) => p.getByRole('tablist', { name: 'Projects, Stores, backups, connections and machines' }).getByRole('tab', { name: new RegExp(`^${name}\\b`) })
 
@@ -46,7 +46,6 @@ export default [
       (p) => head(p).locator('h1'),
       (p) => head(p).getByRole('button', { name: /^LayerFS 2/ }),
       (p) => head(p).locator('[class*=HomeHero_status]'),
-      (p) => tools(p).getByRole('button', { name: 'Try a preset' }),
       (p) => tools(p).getByRole('button', { name: 'Refresh' }),
     ],
   },

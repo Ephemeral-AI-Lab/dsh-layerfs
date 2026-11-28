@@ -114,7 +114,7 @@ Builds of clean `095f5887d9`, release profile:
   gate** does it instead: before the first call it asks `home get` once; a
   folder that needs converting refuses every call `Uninitialized` (503)
   until Convert in the setup modal; a read on a missing folder runs
-  `home init` first. Presets and simulations go through the same gate.
+  `home init` first.
   The read guard that blocked home setup on Linux is gone (it is this gate).
 - §6.2: a docker machine records its socket on its next start only.
 - §6.3: runtimes come only from the LayerFS app; the picker lists
@@ -140,9 +140,6 @@ Builds of clean `095f5887d9`, release profile:
 - Center: while setup misses something required after Later, it is the
   head card's first need (one place), not a second card; with nothing set
   up, the setup card replaces the error box.
-- Preset runner/machine-stop messages now name Center → Settings → Change…
-  (they named a page that no longer exists); this diverges those copied
-  Connect files by one line each.
 - `scripts/dev.mjs` gains `DSH_LAYERFS_DEV_NO_RUNTIME=1` (the "no runtime"
   state on a side server).
 - LayerFS B/C (made by the B/C agent; see their commit messages):

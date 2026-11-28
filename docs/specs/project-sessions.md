@@ -179,8 +179,8 @@ operation (`family.call`), target project and outcome (`success`, `refusal`,
 `unknown`). Saved-version links carry the actual version identity and an effect
 such as `created`, `unchanged`, or `referenced`. Preserve typed Commit versus
 Layer identities. The receipt also carries the call itself (start, duration,
-redacted portable argv, log tag, outcome code, result kind, exec id and exit,
-the simulation step) so it renders without this machine's call log; the exact
+redacted portable argv, log tag, outcome code, result kind, exec id and exit)
+so it renders without this machine's call log; the exact
 fields, caps and the import merge are in docs/specs/layerfs-logs.md §4–§5a.
 Older sidecars may also hold `arguments`, `source`, `startedAt`, `finishedAt`
 and `error`, or lack the call fields; they are read as they are and those old
@@ -485,16 +485,13 @@ mismatches retain their catalog entries, native conversation logs, checkpoint
 references, pending selections and archive progress. Removal never deletes
 conversation history implicitly.
 
-Presets Reset and Build are the one deletion path. After their machines are
-stopped (Reset) or their Stores removed (Build), they delete every project
-conversation of that LayerFS home: native logs and sidecars, owner routes,
-bindings, checkpoint references, pending choices and archive progress. A
-conversation belongs to the home when its Store is one of the home's Stores (by
-Store ID when an older owner recorded one and the CLI reports it, else by name); conversations of other homes
-sharing the project-session home stay. A loaded conversation is archived with
-its activity stopped through DSH's workspace registry first. Copies archived
-inside a kept Store are not deleted (the CLI cannot delete branches); a deletion
-record keeps store sync and open-by-id from importing them back, and only an
+Conversations are deleted only on request (a conversation's Delete, a project's
+Remove, or pruning never-started drafts): native logs and sidecars, owner routes,
+bindings, checkpoint references, pending choices and archive progress go. A
+loaded conversation is archived with its activity stopped through DSH's workspace
+registry first. Copies archived inside a Store are not deleted (the CLI cannot
+delete branches); a deletion record keeps store sync and open-by-id from
+importing them back, and only an
 explicit open lifts it. The confirmation states how many conversations go.
 
 Availability refreshes automatically through read-only event/polling paths.

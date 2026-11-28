@@ -41,7 +41,6 @@ only file this plugin adds there is the pointer `$DSH_HOME/layerfs.json`.
     │           └── layerfs/
     │               ├── binding.json       project, Branch, title, checkpoints, archive, read counter
     │               └── calls.jsonl        one line per LayerFS call (tool call → call → versions)
-    ├── simulations/<run-id>/              team runs; simulations/scratch/ their agents' folder
     ├── trace/
     │   └── outputs/<sha1(tag)>.json       call outputs, keyed by the call's tag; raw/ shell tees
     ├── bin/                               layerfs wrapper, layerfs.mjs, sdk.mjs (regenerated)

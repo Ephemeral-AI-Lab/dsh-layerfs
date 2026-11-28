@@ -280,8 +280,6 @@ test('P0-2 (Option A) & P1-2: Hero identity shows LayerFS version + 8-char SHA; 
       onDismiss: () => {},
       onBackup: () => {},
       onAddBucket: () => {},
-      onPresets: () => {},
-      presetsLabel: 'Presets',
       onListBucket: () => {},
       onListAll: () => {},
       listingAll: false,

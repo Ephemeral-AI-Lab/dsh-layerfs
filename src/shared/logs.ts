@@ -35,8 +35,6 @@ export interface CallLabel {
   toolCallId?: string
   /** `tag`: the line carries this session's receipt; `commit`: matched by commit only. */
   match: 'tag' | 'commit'
-  /** The simulation script step this call ran for (from the receipt). */
-  step?: SimulationStep
   checkpoint?: {
     kind: string
     turn: number
@@ -46,13 +44,8 @@ export interface CallLabel {
   }
 }
 
-/** A simulation script step: the run and the step key (`setup.store`, `verify`, …). */
-export interface SimulationStep { runId: string, stepKey: string }
-
 export interface LabeledLine extends CallLine {
   dsh?: CallLabel
-  /** A simulation's own host call (`dsh-sim:<runId>:<stepKey>`), with the run's root session when known. */
-  sim?: SimulationStep & { sessionId?: string }
   /** True when `logs.output {tag}` has this call's output. */
   output?: boolean
   /**
@@ -132,32 +125,14 @@ export function sessionTag(sessionId: string, receiptId: string): string {
 /** Session id slot of a tag for a plugin call made outside any project session. */
 export const HOST_SESSION = '-'
 
-/** `dsh:-:<callId>`: a plugin call outside any session (pages, presets, discovery-free host calls). */
+/** `dsh:-:<callId>`: a plugin call outside any session (pages, discovery-free host calls). */
 export function hostTag(callId: string): string {
   return `${TAG_PREFIX}${HOST_SESSION}:${callId}`
 }
 
-/** `dsh-sim:<runId>:<stepKey>`: a simulation's setup or verification call (no session context). */
-export const SIM_TAG_PREFIX = 'dsh-sim:'
-
-/** The tag of a simulation host call, or undefined when it would not be a valid tag. */
-export function simTag(runId: string, stepKey: string): string | undefined {
-  const tag = `${SIM_TAG_PREFIX}${runId}:${stepKey}`
-  // eslint-disable-next-line no-control-regex
-  return !!runId && !!stepKey && !runId.includes(':') && new TextEncoder().encode(tag).length <= TAG_MAX && !/[\u0000-\u001f\u007f]/.test(tag) ? tag : undefined
-}
-
-/** The run and step a `dsh-sim:` tag names, or undefined. */
-export function parseSimTag(tag: string | undefined): SimulationStep | undefined {
-  if (!tag?.startsWith(SIM_TAG_PREFIX)) return undefined
-  const rest = tag.slice(SIM_TAG_PREFIX.length), at = rest.indexOf(':')
-  if (at <= 0 || at === rest.length - 1) return undefined
-  return { runId: rest.slice(0, at), stepKey: rest.slice(at + 1) }
-}
-
-/** True for any tag this plugin set (session, host or simulation); such calls may have a stored output. */
+/** True for any tag this plugin set (session or host); such calls may have a stored output. */
 export function isDshTag(tag: string | undefined): boolean {
-  return !!tag?.startsWith(TAG_PREFIX) || !!tag?.startsWith(SIM_TAG_PREFIX)
+  return !!tag?.startsWith(TAG_PREFIX)
 }
 
 /** The session and receipt a session `dsh:` tag names, or undefined (also for host tags). */

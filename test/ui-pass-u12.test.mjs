@@ -677,7 +677,6 @@ test('every machine start/stop/restart press sits behind the press guard (no exc
     ['src/client/machines/MachineImages.tsx', /disabled=\{restarting\.pending !== null \|\| restartGuard\.settling\} aria-disabled=\{restartGuard\.settling \|\| undefined\} onClick=\{restartGuard\(\(\) => void restarting\.restart\(\)\)\}/],
     ['src/client/machines/ImageMenu.tsx', /if \(id === RESTART\) \{ restartGuard\(\(\) => void restarting\.restart\(\)\)/],
     ['src/client/machines/parts.tsx', /disabled=\{pending !== null \|\| guard\.settling\} aria-disabled=\{guard\.settling \|\| undefined\}\n\s*onClick=\{guard\(\(\) => void run\('stop', \{ kind: 'stop', name: m\.name, force: true \}\)/],
-    ['src/client/presets/PresetsSection.tsx', /disabled=\{waiting \|\| data\.busy \|\| confirmGuard\.settling\} aria-disabled=\{confirmGuard\.settling \|\| undefined\} aria-busy=\{waiting\} onClick=\{confirmGuard\(\(\) => \{ void execute\(\) \}\)\}/],
   ]
   for (const [file, re] of sites) assert.match(src(file), re, file)
   const dialogs = src('src/client/storage/dialogs.tsx')

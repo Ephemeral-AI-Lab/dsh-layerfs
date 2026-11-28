@@ -60,25 +60,12 @@ same home appear with their own `client` and no `dsh:` tag.
   receipt id per call, for calls inside a project session's trace context:
   agent tool calls (`origin: tool`) and host saves (`origin: host`).
 - **Host tag:** every other non-discovery call the plugin makes through
-  `execute()` (Machines, Storage and Presets pages, storage jobs, simulation
-  setup, and Store archive writes under `withoutTraceContext`,
+  `execute()` (Machines and Storage pages, storage jobs, and Store archive writes under `withoutTraceContext`,
   `src/host/sessions/store.ts:120-219`) gets `dsh:-:<random>` (`hostTag`), so
   its line can be matched to its stored output (§6a). `-` is never a session
   id: `parseTag` answers nothing for host tags, so they build no receipt, get
   no session label and never match a `dsh:<sessionId>:` prefix. Agent shells
   outside a session context stay untagged.
-- **Simulation tag:** a simulation's setup steps and its final verification
-  reads run outside any session context; they pass
-  `dsh-sim:<runId>:<stepKey>` (setup) and `dsh-sim:<runId>:verify` as
-  `execute`'s `tag` option (`src/host/simulations/runtime.ts`, the setup and
-  verification `execute()` calls). `execute` keeps a caller's tag only when it
-  is a valid `dsh-sim:` tag (≤128 bytes, no `:` in the run id, no control
-  characters) and only outside a trace context; anything else gets a host tag.
-  `parseTag` answers nothing for them (never a session); `isDshTag` accepts
-  them, so their outputs are kept (§6a), and `logs.list` labels such a line
-  `sim: {runId, stepKey, sessionId?}`, `sessionId` being the run's root
-  session (the binding whose `simulation.runId` matches, without
-  `rootSessionId`). Filter one run with the tag prefix `dsh-sim:<runId>:`.
 - **SDK path:** `traceInvocation` already makes the receipt id before the
   call (`tracing.ts:113`); it passes the tag to `execute`, which sets
   `LAYERFS_LOGS_TAG` in the child's environment (`executeRaw` merges
@@ -104,7 +91,6 @@ same home appear with their own `client` and no `dsh:` tag.
     kind?,     // the result kind (the line's `kind`)
     execId?,   // workspace exec: its --exec-id
     exit?,     // workspace exec: the command's exit code (null: killed), when known
-    step?,     // { runId, stepKey }: the simulation script step of the tool call
     imported?, // true: arrived through a store import, never in this machine's log
   }
   ```
@@ -166,12 +152,6 @@ commit and shown only as "references checkpoint", never "saved".
 `dsh:<sessionId>:` plus the turn's receipt ids. An imported session shows its
 receipts (§5a); no lines means "reset on this machine", not an error.
 
-The receipt's `step` labels the line `dsh.step = {runId, stepKey}`, joining a
-scripted tool call to its script step without the simulation's private
-journal: the `tools/execute` hook (`src/host/sessions/index.ts`) asks
-`ctx.layerfsSimulations?.stepOfCall(sessionId, callId)`, which answers
-`{runId, stepKey}` for a scripted `tool` action of that session.
-
 ## 5a. Receipt fallback and import
 
 - **Import merge:** a store import (`src/host/sessions/store.ts`, the
@@ -195,14 +175,12 @@ journal: the `tools/execute` hook (`src/host/sessions/index.ts`) asks
 
 ## 6. Host
 
-- **Ops** (`src/host/remote.ts:54-62`), dotted like `runtime.*` and
-  `simulation.*`:
+- **Ops** (`src/host/remote.ts:54-62`), dotted like `runtime.*`:
   - `logs.list {cursor?, limit?, op?, project?, client?, tag?, outcome?,
     since?, writes?}` → `{lines, next, has_more, skipped, source:
     "layerfs" | "plugin"}`; each line may carry `dsh: {sessionId, turn,
-    toolCallId?, origin, step?, checkpoint?: {kind, turn, changed}}` from the
-    §5 join (sidecars read once per session per page), `sim: {runId,
-    stepKey, sessionId?}` for a `dsh-sim:` tag (§4), and `source: 'receipt'`
+    toolCallId?, origin, checkpoint?: {kind, turn, changed}}` from the
+    §5 join (sidecars read once per session per page), and `source: 'receipt'`
     for a line rebuilt from an imported receipt (§5a).
   - `logs.reset {}` → `{removed}`.
 - `writes` filters on the client until #659 Q1 is answered: it hides lines
@@ -289,7 +267,7 @@ clients of the home), in both stand-in and native modes.
   - Paging: a "More" row appending `next` pages
     (`src/client/files/ProjectHistory.tsx:116-123`).
   - **Reset:** a `Modal` confirm with Cancel autofocused and a danger
-    primary (`src/client/presets/PresetsPage.tsx:156-168`). With the native
+    primary. With the native
     log the copy says it clears the history for every client of this
     LayerFS home.
   - A note when `source` is `plugin`: only calls made through DSH appear.
@@ -329,10 +307,9 @@ clients of the home), in both stand-in and native modes.
   refusal outputs, `--events` capture, the wrapper's byte-identical tee,
   pruning, Reset, `logs.output` validation and `missing`, `logs.list` `output`.
 - `test/receipt-logs.test.mjs`: receipt fields from both writers (time,
-  duration, portable redacted argv, tag, code, kind, exec id and exit, step),
+  duration, portable redacted argv, tag, code, kind, exec id and exit),
   argv bounds, the import merge by id, the `logs.list` receipt fallback
-  (paging, filters, dedup, no fallback after a local Reset), `dsh-sim:` tags
-  and their labels and outputs, `stepOfCall`.
+  (paging, filters, dedup, no fallback after a local Reset).
 - `test/sessions.test.mjs`: a turn-end save's checkpoint carries `receipt`;
   restore and branch checkpoints carry the fork's receipt; `UpToDate` binds
   as unchanged; archive writes are untagged.
@@ -344,9 +321,6 @@ clients of the home), in both stand-in and native modes.
 
 - The working tree currently moves Projects out of the LayerFS group
   (uncommitted edits to `src/client/index.tsx` and `src/client/projects/`),
-  leaving Storage and Presets as its children; Logs joins them.
-- Simulation setup and verification calls are tagged `dsh-sim:` (§4);
-  the runtime's `workspace exec-cancel` on abort gets no `dsh-sim:` tag
-  (a session tag inside a trace context, else a host tag).
+  leaving Storage as its child; Logs joins it.
 - Whether the page should default to this machine's DSH calls only
   (`tag` prefix `dsh:`) when the native log also holds other clients.

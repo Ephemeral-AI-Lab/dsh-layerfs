@@ -282,8 +282,6 @@ export class LayerfsService extends Service {
   private pin!: { cli: string | null, daemon: string | null, bundle: string | null, cacheHome: string | null, cacheHomeSource: RuntimeStatus['cacheHomeSource'], source: RuntimeStatus['source'] }
   private sdk: Lfs | undefined
   private hostDaemonRecorded: Promise<unknown> | undefined
-  /** Set while an operation holds the whole home (a preset build or reset): why new Sandboxes must wait, or null. */
-  exclusive: (() => string | null) | undefined
   /** The LayerFS folder's last known state (the setup check); `outdated` closes the home gate. */
   private homeState: HomeState | null = null
   /** Goes up when the folder changes under a running check (set up, moved aside) or the pin moves: older answers are stale. */

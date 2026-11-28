@@ -1,6 +1,6 @@
 /** Home inventory, ordered notices and the selected frame. Center owns navigation and Doctor results. */
 import { useContext, useId, useRef, useState, type ReactNode } from 'react'
-import { Button, IconAgentPresetOutlineRegular, IconInspectOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconInspectOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { StatusDot } from '../ui/StatusDot.tsx'
 import { ago, bytes } from '../files/format.ts'
 import type { Query } from '../files/use-query.ts'
@@ -56,10 +56,6 @@ export interface HomeOverviewProps {
   /** Opens a SQLite Store's Backups dialog. */
   onBackups: (store: string) => void
   onNewMachine: () => void
-  /** Open the Presets dialog (sample libraries to build into this home). */
-  onPresets: () => void
-  /** "Try a preset", from the Presets copy. */
-  presetsLabel: string
   /** A machine's Add Store dialog (move a SQLite Store there, or connect a PostgreSQL one). */
   onAddStore: (machine: string) => void
   /** Delete a project, through the page's confirm dialog. */
@@ -331,7 +327,6 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
         toolsLabel={t('ovToolsLabel')}
         tools={(
           <>
-            <Button variant="ghost" size="sm" className={heroCss.toolButton} icon={<IconAgentPresetOutlineRegular size={15} />} onClick={props.onPresets} aria-label={props.presetsLabel} title={props.presetsLabel} />
             <Button variant="ghost" size="sm" className={heroCss.toolButton} icon={doctor.loading ? <StatusDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={15} />}
               disabled={doctor.loading} onClick={refreshAll} aria-label={t('refresh')} title={[t(doctor.loading ? 'ovChecksRunning' : 'ovRefreshTitle'), checked].filter(Boolean).join(' · ')} />
           </>
@@ -379,7 +374,6 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
                 action={(
                   <>
                     <Button variant="primary" size="sm" icon={<IconPlusOutlineRegular size={13} />} onClick={newProject}>{t('newProject')}</Button>
-                    <Button variant="outline" size="sm" icon={<IconAgentPresetOutlineRegular size={13} />} onClick={props.onPresets}>{props.presetsLabel}</Button>
                   </>
                 )} />
             </Card>

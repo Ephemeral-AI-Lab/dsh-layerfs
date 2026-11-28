@@ -116,15 +116,6 @@ export interface Groups {
   readonly exports: ProjectExports
   /** Runtime facts for `GET /api/status` (`ctx.layerfs.status()`). */
   readonly runtime: () => Promise<unknown>
-  /** `/api/demo-presets…` (presets/manager.ts), once attached. */
-  presets?: PresetRoutes
-}
-
-/** What the router needs from the presets manager. */
-export interface PresetRoutes {
-  route(method: string, parts: string[], body: unknown, query: URLSearchParams): Promise<unknown>
-  /** A preset build or reset holds the home: other changes are refused, reads stay open. */
-  exclusive(): boolean
 }
 
 /** Build the route groups over one host, wired as Connect's main.js wires them. */
@@ -159,7 +150,6 @@ export async function route(g: Groups, method: string, parts: string[], query: U
   const [api, group, id, sub, ...rest] = parts
   // any write may change the machines view: a GET after it must not join a read started before
   if (method !== 'GET') machines.changed()
-  if (api === 'api' && group === 'demo-presets') return g.presets?.route(method, parts.slice(2), body, query)
   // the Doctor page: /api/doctor/tree, /results, /runs, /runs/:id/stop, /fixes 
   if (api === 'api' && group === 'doctor' && id) return g.checks.route(method, parts.slice(2), body)
   if (api !== 'api' || rest.length) return undefined
@@ -366,9 +356,6 @@ export async function handle(g: Groups, request: { method?: string, path?: strin
       if (typeof request.body === 'string') {
         try { body = JSON.parse(request.body) } catch { throw httpError(400, 'InvalidInput', 'Invalid JSON request body.') }
       } else body = request.body
-    }
-    if (method !== 'GET' && parts[1] !== 'demo-presets' && g.presets?.exclusive()) {
-      throw httpError(409, 'ConnectBusy', 'A preset build or reset is changing this LayerFS home. Changes are available when it finishes; you can keep browsing.')
     }
     // Connect recorded the host machine's daemon at boot; here once, before the first call that needs it
     await g.host.ensureHostDaemon()

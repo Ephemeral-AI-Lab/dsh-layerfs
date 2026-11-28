@@ -193,9 +193,9 @@ LayerFS CLI 调用。各页面指南的表格里也写着同样的调用；这�
 | Sandbox 文件（Workspace 视图） | `… › <sandbox> › 文件` | `GET /api/projects/:id/fs`, `/file` | `branch get`, `file list`, `file read`, `file stat` (读取) |
 | Daemon 日志 | `… › <sandbox> › Daemon 日志` | `GET /api/sandboxes/:id/log` | `sandbox log` (读取) |
 
-## 项目会话、诊断、日志和预设
+## 项目会话、诊断、日志
 
-页面：[对话](conversation.md) · [诊断](health.md) · [日志](logs.md) · [预设](presets.md)
+页面：[对话](conversation.md) · [诊断](health.md) · [日志](logs.md)
 
 | 操作 | 位置 | 主机路由或 op | LayerFS 调用 |
 |---|---|---|---|
@@ -211,7 +211,6 @@ LayerFS CLI 调用。各页面指南的表格里也写着同样的调用；这�
 | Sandbox 地图上的机器标记 | 项目会话 › Sandbox | `GET /api/machines` | `home get`, `machine list`, `machine get`, `sandbox list`, `store list` (读取) |
 | 播放、暂停、重播、速度、**实时**（Live）、拖动进度、此对话 | 项目会话 › Sandbox | — | — |
 | 活动的调用详情 | 项目会话 › Sandbox | op `logs.output`, `session.trajectory.record` | — （保留的输出） |
-| **查看脚本**（View script）及其对话框 | 脚本会话的标题栏 | op `simulation.script`, `simulation.status` | — （保存的脚本文件） |
 | 诊断页面绘制 | `LayerFS › 诊断` | `GET /api/doctor/tree`, `GET /api/doctor/results` | `home get --with tree --detail` (读取)；结果：— |
 | **检查**（Check） | 诊断中的一行 | `POST /api/doctor/runs` | `home doctor` / `machine doctor <m>` / `store doctor <s>` / `project doctor <s/p>` / `sandbox doctor <b>` / `backup doctor <b>` |
 | **完整检查**（Full check） | 诊断中的项目行或存储桶行 | `POST /api/doctor/runs` `{full}` | `project doctor --full`, `backup doctor --full` |
@@ -225,10 +224,3 @@ LayerFS CLI 调用。各页面指南的表格里也写着同样的调用；这�
 | 调用详情输出、**重试**（Retry） | 日志 › 一行 | op `logs.output` | — （重新读取保留的输出；不会再次运行该调用） |
 | **复制**（Copy）、**打开会话**（Open session）、上一个 / 下一个 | 日志 › 一行 | — | — |
 | **此会话的调用 / 此检查点的调用**（Calls of this session / checkpoint） | 日志 › 一行 | op `logs.list` `{tag}` | `home log --tag` (读取) |
-| 预设对话框、预设列表、状态、资源详情 | `主页 ›` 试用预设 | `GET /api/demo-presets` | — （主机记录） |
-| **查看脚本**（View script）、项目的 **#** | 预设 | `GET /api/demo-presets/:id/script` | `machine list`, `store list`, `sandbox list`, `sandbox get` ×n (读取) |
-| **构建…**（Build…）/ **重新构建…**（Rebuild…）→ **继续**（Continue） | 预设 | `GET /api/demo-presets/:id/build-plan` | `home get --with platforms`, `machine list`, `store list`, `sandbox list`, `sandbox get` (读取) |
-| **清空并构建**（Wipe and build） | 预设计划审阅 | `POST /api/demo-presets/:id/environment-reset` `{rebuild: true}` | 先重置（`machine start`, `workspace unmount --discard`, `sandbox remove`, `store remove`, `store disconnect`, `machine remove`, `machine stop docker`），再执行配方（`store create`, `project init`, `file write`, `branch fork` / `merge` / `publish`, …；混合模式还会加上 `workspace mount` / `exec` / `commit`），最后用读取做验证 |
-| **停止机器…**（Stop machines…）（打开） | 预设 ⋯ | `GET /api/demo-presets/:id/environment-plan` | `machine list` (读取) |
-| **停止机器**（Stop machines） | 预设确认 | `POST /api/demo-presets/:id/environment-reset` `{rebuild: false}` | 对每台机器运行 `machine stop <m> --force`；项目会话会被删除 |
-| **检查操作**（Check operation） | 预设失败提示 | `GET /api/demo-presets/requests/:id` | — |

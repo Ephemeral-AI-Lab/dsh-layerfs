@@ -23,8 +23,8 @@ agent did to the project.
 
 ## Layout
 
-The conversation header (title, the **LayerFS** preset label, and, for a scripted session,
-**View script**), then the tab row, then the tab's body. On a project session's LayerFS tabs
+The conversation header (title and the **LayerFS** preset label), then the tab row, then the
+tab's body. On a project session's LayerFS tabs
 the message box steps aside: the composer is hidden while Trajectory, Files, History, Sandbox
 or Stats is on screen, and comes back on **Chat** with your draft intact. Approvals and questions still show.
 
@@ -214,8 +214,6 @@ added**. It reads again when the session saves a checkpoint.
   Sandbox; its Trajectory is its own.
 - **A session stored in LayerFS but not loaded** (opened by id, or imported) has no live
   log: the Trajectory lists the LayerFS calls from its saved receipts, with the note above.
-- **A scripted session** (started with `/simulation`) gets **View script** in the header once
-  its script has finished; a running script shows nothing extra.
 - **The project-session mark.** In DSH's Workspaces list, a project session's row is taken
   out (the plugin marks it as project-owned, `session.place`, no LayerFS call); the session
   is listed instead under its project in the sidebar's LayerFS projects view:
@@ -224,16 +222,6 @@ added**. It reads again when the session saves a checkpoint.
 
   1 the view toggle (**Show LayerFS projects** / **Show DSH workspaces**), 2 the project
   (**Toggle conversations in handbook**), 3 the session.
-
-## Modals opened here
-
-| Modal | Opened by | What it does | LayerFS call | Undo |
-|---|---|---|---|---|
-| ***script name*** (script inspection) | Header › **View script** (scripted sessions, after the script ends) | Shows **The instructions used by this session’s model.**, the **Content hash** and the script's source, read again on each press. **Close** | `simulation.script` (no LayerFS call: the run's saved script); `simulation.status` polls every 4 s while it runs | Nothing to undo: read only |
-
-No fixture session is scripted, so this modal has no screenshot. When the source cannot be
-read the button shows **The script source is unavailable. The conversation can still be
-read.** in red beside it.
 
 ## States and signals
 
@@ -264,8 +252,8 @@ read.** in red beside it.
 `TrajectoryInspector.tsx`, `TrajectoryParts.tsx`, `TrajectoryTimeline.tsx`,
 `trajectory-model.ts`, `stock-trajectory.ts`, `FileViews.tsx` (Files, History, the session
 line), `SandboxView.tsx`, `WorkspaceTerminal.tsx`, `model.ts`, `StatsView.tsx`, `hooks.ts`,
-`locale.ts`. `src/client/simulation/index.tsx` (View script), `src/client/session/index.tsx`
+`locale.ts`. `src/client/session/index.tsx`
 (the row mark). Host: `src/host/sessions/index.ts` (`session.place`, `session.state`,
 `session.trajectory`, `session.trajectory.record`, `session.annotations`),
 `src/host/sessions/service.ts` (`view`), `src/host/logs/index.ts` (`logs.list`,
-`logs.output`), `src/host/simulations/index.ts` (`simulation.script`, `simulation.status`).
+`logs.output`).

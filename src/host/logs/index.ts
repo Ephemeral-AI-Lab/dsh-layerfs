@@ -5,8 +5,7 @@
  *   logs.list LogsListArgs   one page of call log lines, newest first, each
  *                            labelled with the project session, turn and
  *                            checkpoint it belongs to (`dsh`, see CallLabel),
- *                            or with its simulation run (`sim`); for a session
- *                            tag, imported receipts follow this machine's lines
+ *                            for a session tag, imported receipts follow this machine's lines
  *                            (`source: 'receipt'`)
  *   logs.project {project, sandboxes?, limit?}
  *                            one project's calls, newest first and labelled: the
@@ -20,7 +19,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { mkdirSync, watch, type FSWatcher } from 'node:fs'
 import { join } from 'node:path'
-import { HOST_SESSION, isDshTag, LOGS_EVENT, parseSimTag, parseTag, sessionTag, TAG_PREFIX, type CallLabel, type CallLine, type LabeledLine, type LogsListArgs, type LogsListAnswer, type LogsOutputAnswer, type LogsProjectAnswer } from '../../shared/logs.ts'
+import { HOST_SESSION, isDshTag, LOGS_EVENT, parseTag, sessionTag, TAG_PREFIX, type CallLabel, type CallLine, type LabeledLine, type LogsListArgs, type LogsListAnswer, type LogsOutputAnswer, type LogsProjectAnswer } from '../../shared/logs.ts'
 import { compactRaw, hasOutput, RAW_DIR, RAW_SETTLE_MS, readOutput, validOutputTag } from '../layerfs/call-output.ts'
 
 /** Finished raw outputs are compacted into records at most this often. */
@@ -96,16 +95,9 @@ export async function label(ctx: Context, lines: readonly CallLine[], outputs?: 
         ...(receipt?.origin === 'tool' || receipt?.origin === 'host' ? { origin: receipt.origin } : checkpoint ? { origin: 'host' as const } : {}),
         ...(Number.isInteger(turn) ? { turn } : {}),
         ...(typeof receipt?.toolCallId === 'string' ? { toolCallId: receipt.toolCallId } : {}),
-        ...(typeof receipt?.step?.runId === 'string' && typeof receipt?.step?.stepKey === 'string' ? { step: { runId: receipt.step.runId, stepKey: receipt.step.stepKey } } : {}),
         ...(checkpoint ? { checkpoint: checkpointLabel(checkpoint, !!checkpoint.commit && checkpoint.changed > 0) } : {}),
       }
       out.push({ ...line, dsh, ...stored(line) })
-      continue
-    }
-    const sim = parseSimTag(line.tag)
-    if (sim) {
-      const sessionId = simulationRoot(ctx, sim.runId)
-      out.push({ ...line, sim: { ...sim, ...(sessionId ? { sessionId } : {}) }, ...stored(line) })
       continue
     }
     const version = line.commit ?? line.layer
@@ -118,17 +110,6 @@ export async function label(ctx: Context, lines: readonly CallLine[], outputs?: 
     out.push({ ...line, ...stored(line) })
   }
   return out
-}
-
-/** The root session of a simulation run on this machine (its binding's `simulation.runId`), when known. */
-function simulationRoot(ctx: Context, runId: string): string | undefined {
-  try {
-    const state = (ctx.get('layerfsSessions' as never) as any)?.state?.read?.()
-    for (const [id, binding] of Object.entries<any>(state?.sessions ?? {})) {
-      if (binding?.simulation?.runId === runId && !binding.simulation.rootSessionId) return id
-    }
-  } catch { /* label is optional */ }
-  return undefined
 }
 
 /** The session a `dsh:<sessionId>:` prefix or exact `dsh:<sessionId>:<receipt>` tag names. */

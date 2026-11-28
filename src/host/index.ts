@@ -17,7 +17,6 @@ import { LayerfsService, type LayerfsConfig } from './service.ts'
 import { children } from './layerfs/cli.ts'
 import * as routes from './routes/index.ts'
 import * as sessions from './sessions/index.ts'
-import * as simulations from './simulations/index.ts'
 import * as logs from './logs/index.ts'
 
 export const name = 'dsh-layerfs'
@@ -48,7 +47,6 @@ export function apply(ctx: Context, config: Config = {}): void {
     })
     ctx.plugin(routes)
     ctx.plugin(sessions)
-    ctx.plugin(simulations)
     ctx.plugin(logs)
   })
 }

@@ -272,15 +272,6 @@ test('ensureBound lets a folder session run untouched (stock DSH)', async () => 
   assert.equal(state().sessions.leg, undefined, 'a folder session records no binding')
 })
 
-test('a running Preset blocks project steps but never a normal folder session', async () => {
-  const state = S.initialState()
-  state.sessions.proj = { sessionId: 'proj', kind: 'project', project: 'st/p', sandbox: 'box', ws: 'box:main', scratch: '/scratch', anchor: '/anchor', state: 'bound' }
-  const { s } = sessions({ state })
-  s.ctx.layerfs.exclusive = () => 'A Preset build holds the LayerFS home'
-  await s.ensureBound({ id: 'normal', session: session('normal', { cwd: '/Users/me/repo' }, ran) })
-  await assert.rejects(s.ensureBound({ id: 'proj', session: session('proj', { cwd: '/scratch' }, ran) }), (e) => e.code === 'ConnectBusy')
-})
-
 test('a first step waits for an in-flight project choice and runs under the chosen owner', async () => {
   let release
   const gate = new Promise((resolve) => { release = resolve })
@@ -400,9 +391,8 @@ test('recovery after a start keeps a never-started project session in its worksp
   state.pending.waiting = { project: 'st/app' }
   state.pending.removed = { project: 'st/app' }
   state.pending.elsewhere = { project: 'st/app' }
-  state.pending.script = { project: 'st/app', simulation: { runId: 'r' } }
   const { s } = sessions({ state })
-  const members = { scratch: ['ran', 'waiting', 'script'], other: [] }
+  const members = { scratch: ['ran', 'waiting'], other: [] }
   // like DSH, a workspace accepts only sessions whose folder is its own
   const folderOf = { removed: 'scratch' }
   const workspace = (name) => ({
@@ -705,14 +695,6 @@ test('force-stopped machines invalidate only their mounts while preserving sessi
   assert.equal(f.state().sessions.other.state, 'closed')
   assert.equal(f.state().sessions.other.ws, undefined)
   assert.deepEqual(f.state().checkpoints, state.checkpoints)
-})
-
-test('a running preset stop blocks new steps even when a session still has cached bound handles', async () => {
-  const state = S.initialState()
-  state.sessions.live = { sessionId: 'live', kind: 'project', project: 'st/p', machine: 'vm', sandbox: 'box', ws: 'box:main', scratch: '/scratch', anchor: '/anchor', state: 'bound' }
-  const f = sessions({ state })
-  f.s.ctx.layerfs.exclusive = () => 'Machines are stopping'
-  await assert.rejects(f.s.ensureBound({ id: 'live' }), (error) => error.code === 'ConnectBusy')
 })
 
 test('a session recreates its force-stopped gone Sandbox on the retained branch', async () => {
@@ -1130,7 +1112,7 @@ test('pgPlacement: the last machine while attached and placeable, else the only 
   assert.equal(S.placeable({ name: 'x' }), true, 'a machine that says nothing about support or state is placeable')
 })
 
-test('Presets Reset deletes this home\'s project sessions only; loaded ones are archived with activity stopped first', async () => {
+test('deleting a project\'s conversations: loaded ones are archived with activity stopped first, other projects stay', async () => {
   const state = S.initialState()
   state.sessions.bound = { sessionId: 'bound', kind: 'project', project: 'demo/app', sandbox: 'dsh-bound', anchor: '/a', scratch: '/s', state: 'bound' }
   state.sessions.child = { sessionId: 'child', kind: 'shared', project: 'demo/app', parent: 'bound', anchor: '/a', scratch: '/s', state: 'bound' }
@@ -1141,8 +1123,8 @@ test('Presets Reset deletes this home\'s project sessions only; loaded ones are 
   state.projects['demo/app'] = { project: 'demo/app', anchor: '/a', createdAt: 1 }
   const closed = [], archived = [], deleted = [], forgotten = []
   const f = sessions({ state, lfs: { sandbox: { remove: async (name, options) => { closed.push([name, options]); return { ok: true } } } } })
-  // Owner routes: two in this home's Store, one in another Store.
-  const owners = { bound: { project: 'demo/app' }, archivedOnly: { project: 'demo/old' }, foreign: { project: 'other/app' } }
+  // Owner routes: two of this project, one of another.
+  const owners = { bound: { project: 'demo/app' }, archivedOnly: { project: 'demo/app' }, foreign: { project: 'other/app' } }
   const persistence = {
     ownedSessionIds: () => Object.keys(owners),
     ownerOf: (id) => owners[id] && { project: owners[id].project },
@@ -1154,16 +1136,13 @@ test('Presets Reset deletes this home\'s project sessions only; loaded ones are 
     workspaceRegistry: { archiveSession: async (id, options) => { archived.push([id, options]) } },
   })
   Object.defineProperty(f.s, 'store', { value: { forget: (id) => forgotten.push(id) } })
-  const stores = [{ name: 'demo' }]
-  const listed = f.s.projectConversations(stores).map((c) => c.id)
-  assert.deepEqual(listed.sort(), ['archivedOnly', 'bound', 'child', 'draft'], 'the Store name decides')
-  const ids = await f.s.deleteProjectConversations(stores)
+  const ids = await f.s.deleteConversationsOfProject('demo/app')
   assert.deepEqual(ids.sort(), ['archivedOnly', 'bound', 'child', 'draft'])
   assert.deepEqual(archived, [['bound', { stopActivity: true }]], 'only the loaded session is archived, with its activity stopped')
   assert.deepEqual(closed, [['dsh-bound', { force: true }]])
   assert.deepEqual(deleted.sort(), ids.sort())
   assert.deepEqual(forgotten.sort(), ids.sort())
-  assert.deepEqual(Object.keys(f.state().sessions), ['folder'], 'another Store\'s binding stays')
+  assert.deepEqual(Object.keys(f.state().sessions), ['folder'], 'another project\'s binding stays')
   assert.deepEqual(f.state().pending, {})
   assert.deepEqual(f.state().checkpoints, {})
   assert.deepEqual(f.state().mirror, {})

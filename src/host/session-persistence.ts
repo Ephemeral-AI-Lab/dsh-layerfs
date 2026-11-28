@@ -506,7 +506,7 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     } catch {}
     return { version: 1, sessions: {} }
   }
-  /** Whether this conversation was deleted here (a Presets Reset). Only an explicit import brings it back. */
+  /** Whether this conversation was deleted here. Only an explicit import brings it back. */
   isDeleted(id: string): boolean { return !!this.readDeleted().sessions[id] }
   /** An explicit import of a deleted conversation lifts its deletion record. */
   undelete(id: string): void {

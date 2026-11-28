@@ -10,7 +10,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
-import { isWrite, operationOf, type CallLine, type CallOutput, type SimulationStep } from '../../shared/logs.ts'
+import { isWrite, operationOf, type CallLine, type CallOutput } from '../../shared/logs.ts'
 import { makeReceipt, renderCall, savedFields } from './call-words.ts'
 import { RAW_DIR } from './call-output.ts'
 import { displayKind, RECEIPT_META_FIELD, receiptAggregateLines, versionEffect, type ReceiptMeta } from '../../shared/trajectory.ts'
@@ -41,8 +41,6 @@ export interface Invocation {
   kind?: string
   /** `workspace exec`: the exec id and the command's exit code (null: killed), when known. */
   execId?: string; exit?: number | null
-  /** The simulation script step this tool call ran (`stepOfCall`). */
-  step?: SimulationStep
   /** Arrived through a session store import: never in this machine's call log. */
   imported?: true
 }
@@ -54,8 +52,6 @@ export interface TraceIdentity {
   internal?: boolean
   /** Prefix of this tool call's receipt ids (`<scope>.<random>`), see {@link toolScope}. */
   scope?: string
-  /** The simulation script step this tool call runs, when scripted. */
-  step?: SimulationStep
 }
 export interface TraceContext extends TraceIdentity {
   record: (invocation: Invocation) => Promise<void>
@@ -116,11 +112,10 @@ export function lineVersions(line: Pick<CallLine, 'argv' | 'kind' | 'commit' | '
   return []
 }
 
-const portable = (identity: TraceIdentity, id: string, project: string): Pick<Invocation, 'id' | 'origin' | 'sessionId' | 'project' | 'turn' | 'toolCallId' | 'step'> => ({
+const portable = (identity: TraceIdentity, id: string, project: string): Pick<Invocation, 'id' | 'origin' | 'sessionId' | 'project' | 'turn' | 'toolCallId'> => ({
   id, origin: identity.origin === 'tool' ? 'tool' : 'host', sessionId: identity.sessionId, project,
   ...(Number.isInteger(identity.turn) ? { turn: identity.turn } : {}),
   ...(typeof identity.toolCallId === 'string' ? { toolCallId: identity.toolCallId } : {}),
-  ...(typeof identity.step?.runId === 'string' && typeof identity.step?.stepKey === 'string' ? { step: { runId: identity.step.runId, stepKey: identity.step.stepKey } } : {}),
 })
 
 /** Receipt argv bounds: words kept, and the JSON size past which long words are cut to 40 characters. */

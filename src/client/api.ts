@@ -338,7 +338,7 @@ const READ_OPS: ReadonlySet<string> = new Set([
   'runtime.installed', 'runtime.status',
   'session.state', 'session.trajectory', 'session.trajectory.record',
   'sessions.checkPlacement', 'sessions.list', 'sessions.places', 'sessions.scratchOptions',
-  'setup.status', 'simulation.script', 'simulation.status',
+  'setup.status',
 ])
 
 /** Whether a send writes: a non-GET `http` call, or a named operation not known to read. */

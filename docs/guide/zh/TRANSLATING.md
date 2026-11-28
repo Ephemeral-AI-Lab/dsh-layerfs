@@ -72,7 +72,7 @@ other word. The last column lists those known variants, so a reviewer does not "
 
 | English | 中文 | Quoted app labels that differ |
 |---|---|---|
-| Store, Sandbox, Workspace, Layer, Worker, Daemon, LayerFS, DSH, Center | 保留英文 | Store: setup and picker labels say 存储 (**新建存储**, **搜索项目或存储**); Sandbox: Presets says 沙盒; Worker: the Doctor fix says **重启工作进程** |
+| Store, Sandbox, Workspace, Layer, Worker, Daemon, LayerFS, DSH, Center | 保留英文 | Store: setup and picker labels say 存储 (**新建存储**, **搜索项目或存储**); Worker: the Doctor fix says **重启工作进程** |
 | Storage (the host's Storage view) | 存储 / 存储视图 | |
 | project / project session | 项目 / 项目会话 | |
 | DSH session / conversation | DSH 会话 / 对话 | |
@@ -84,7 +84,7 @@ other word. The last column lists those known variants, so a reviewer does not "
 | the LayerFS home: this computer's control data (records, secrets, runtimes); not a machine | LayerFS 主目录 | **此 LayerFS 主目录** |
 | the LayerFS home as a whole: its records, runtime, machines, call log ("this LayerFS home") | LayerFS 主目录 / 此主目录 | |
 | Overview / Files / History / Stats / Trajectory | 概览 / 文件 / 历史 / 统计 / 轨迹 | |
-| Doctor / Logs / Presets / Settings | 诊断 / 日志 / 预设 / 设置 | |
+| Doctor / Logs / Settings | 诊断 / 日志 / 设置 | |
 | needs-you notice | 待处理提示 | |
 | refusal / refused | 拒绝 / 被拒绝 | |
 | fix (a LayerFS fix line) | 修复 | |

@@ -38,10 +38,8 @@ the entry. A stopped machine can be chosen. Saving a choice starts nothing;
 a session starts no machine either, so a stopped one must be started (Create
 does it, §6).
 
-Sessions (`sessions/service.ts machineFor`), `POST /api/projects/:p/sandboxes`
-and the presets all use it. A preset names one machine per PostgreSQL Store
-and hands it to the plugin (`PresetSpec.runsOn`); its script holds no
-attach command.
+Sessions (`sessions/service.ts machineFor`) and
+`POST /api/projects/:p/sandboxes` both use it.
 
 ## 3. Host routes
 
@@ -142,7 +140,6 @@ PostgreSQL Sandboxes.
   changes where the Store runs.
 - **Health**: per PostgreSQL Store, "server reachable" (the host's check)
   and the doctor's connection check. No per-machine item.
-- **Presets**: the Studio preset's PostgreSQL Stores name one machine each.
 
 ## 7. Not built
 

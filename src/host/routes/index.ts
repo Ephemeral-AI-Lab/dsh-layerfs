@@ -16,7 +16,6 @@
  *   doctor.ts               /api/doctor/… (the Doctor page: tree, runs, fixes)
  *   projects.ts             /api/status, /api/projects…, /api/sandboxes…, /api/workspaces…, /api/project-inits…
  *   storage-observations.ts Store statistics journals
- *   ../presets/manager.ts   /api/demo-presets… (Presets: build the Studio library, reset the home)
  *
  * Storage state lives in the LayerFS home, in client-neutral folders
  * (docs/specs/homes.md §5): buckets are LayerFS's records (`<home>/backup/`),
@@ -32,10 +31,9 @@
  *   doctor       { type: 'doctor', id, state }             a Doctor job changed
  *   doctor-run   a DoctorRun (shared/doctor.ts)            a doctor call of the Doctor page moved (progress, report, failure)
  *   doctor-fix   a DoctorFixRun                            a fix of the Doctor page moved
- *   demo-preset  { jobId, preset, state }                  a preset build or reset moved
  * (Connect's projects and machines emitted no events; their pages poll.)
  *
- * Not ported: agents/chat, demos, runs, simulations, preset homes and
+ * Not ported: agents/chat, demos, runs, preset homes and
  * environment switching, demo-runtime, cli-activity, layerfs-runtime (ops `runtime.status` /
  * `runtime.save`), terminal CLI install, and the HTTP server, bearer token,
  * CORS and `/api/events` stream (the `layerfs/events` Remote replaces it).
@@ -43,8 +41,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { CallLabel, CallLine } from '../../shared/logs.ts'
 import { label } from '../logs/index.ts'
-import { PresetManager } from '../presets/manager.ts'
-import { presetStateFor } from '../presets/state-dir.ts'
 import { createGroups, handle } from './router.ts'
 import { sessionOfSandbox } from './projects.ts'
 import type { RouteHost } from './util.ts'
@@ -94,44 +90,10 @@ export function apply(ctx: Context): void {
     log: (line) => logger.warn(line),
   }
   const groups = createGroups(host, () => ctx.layerfs.status())
-  const sessions = () => ctx.get('layerfsSessions' as never) as any
-  // each LayerFS home has its own presets state: a manifest names the home it built in
-  const presetState = presetStateFor(ctx.layerfs.home)
-  const presets = new PresetManager({
-    spec: () => {
-      const { cli, home, bundle, cacheHome, outputs, gate } = ctx.layerfs.lfs.spec
-      return { cli, home, bundle, cacheHome, outputs, gate, daemon: ctx.layerfs.daemon, state: presetState }
-    },
-    busy: () => [
-      ...(groups.storage.busy() ? ['a storage job'] : []),
-      ...(groups.projects.busy() ? ['a project import'] : []),
-      ...(groups.exports.busy() ? ['a project export'] : []),
-      ...(groups.checks.busy() ? ['a doctor run'] : []),
-      ...(groups.commands.busy() ? ['a Sandbox command'] : []),
-    ],
-    boundSessions: () => Object.values((sessions()?.state.read().sessions ?? {}) as Record<string, any>)
-      .filter((b) => b.kind === 'project' && b.state === 'bound' && b.sandbox)
-      .map((b) => ({ id: String(b.sessionId), project: b.project ?? null })),
-    dshProjects: () => {
-      const state = sessions()?.state.read()
-      if (!state) return []
-      const all = Object.values(state.sessions as Record<string, any>)
-      return Object.keys(state.projects).sort().map((project) => ({ project, sessions: all.filter((b) => b.project === project && b.kind !== 'shared').length }))
-    },
-    forgetProject: async (project) => { await sessions()?.forgetProject(project) },
-    homeStores: async (also) => sessions()?.homeStores(also) ?? also.map((name) => ({ name })),
-    projectConversations: (stores) => sessions()?.projectConversations(stores) ?? [],
-    deleteProjectConversations: async (stores) => (await sessions()?.deleteProjectConversations(stores)) ?? [],
-    machinesStopped: async (machines) => { sessions()?.machinesStopped(machines) },
-    emit: (type, data) => ctx.layerfs.emit(type, data),
-  }, presetState, ctx.layerfs.home)
-  groups.presets = presets
-  ctx.layerfs.exclusive = () => presets.exclusive() ? 'A preset build or reset is changing this LayerFS home; the session gets its Sandbox when it finishes. Send the message again then.' : null
   // the metrics sampler runs as long as dsh does, whether a page is open or not (layerfs-project#182 D1)
   groups.machines.metrics.start()
   ctx.effect(() => () => {
     groups.machines.metrics.stop()
-    ctx.layerfs.exclusive = undefined
     groups.storage.close()
     groups.checks.close()
     groups.exports.close()

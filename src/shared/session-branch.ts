@@ -2,9 +2,9 @@
  * What a session's LayerFS branch name says about the session.
  *
  * The host names a session's branch `dsh.<compact session id>`, `.r<N>` after a
- * restore and `.resume.<hex>` when a conversation imported from the saved
- * archive continues (`branchOf` and `resumeFromArchive` in
- * src/host/sessions/service.ts). Both faces derive the same words from here:
+ * restore (`branchOf` in src/host/sessions/service.ts); `.resume.<hex>` names
+ * a branch an earlier build made when it continued an imported conversation.
+ * Both faces derive the same words from here:
  * the host annotates `session.state` and `sessions.list` with these fields
  * (`branchFields`), and the client reads them as given.
  */

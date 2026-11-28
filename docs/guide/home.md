@@ -14,7 +14,7 @@ what needs you, to find a project, Store or machine, and to add a new one.
 | # | Component | What it is |
 |---|---|---|
 | 1 | Nav bar | [Components › Nav bar](components.md#nav-bar): Back, Forward, the crumbs (just **Home** here), **Jump to…**, **Add** |
-| 2 | Overview head | [Components › Overview head](components.md#overview-head): the title, the pinned runtime, what needs your attention, and the preset and Refresh buttons |
+| 2 | Overview head | [Components › Overview head](components.md#overview-head): the title, the pinned runtime, what needs your attention, and the Refresh button |
 | 3 | Tabs | **Projects** *n* · **Stores** *n* · **Machines** *n*, each with a count; a count that needs you turns amber or red |
 | 4 | Search and sort | Filters the project list and orders it |
 | 5 | Project row | One project: its Store, sessions, Sandboxes, last session and commit, size. On a phone it is a card, not a table row |
@@ -51,7 +51,6 @@ The Overview head is a shared component; its full table is in
 | 1 Overview | The page's title | — | — (static) | — |
 | 2 Runtime | `LayerFS 2.0.0 · 12345678`, the pinned build and its commit | Press → opens [Set up LayerFS](entry-points.md#set-up-layerfs) | `--version --json` (read, runtime discovery) | **LayerFS unavailable**, **Reading LayerFS…** |
 | 3 Status line | The most urgent need with its fix, or **Nothing needs your attention** | Each need's own button (see [Needs-you notices](components.md#needs-you-notices)) | the button's own call | a dot before a need (red problem, amber warning); **+{n} more** expands or collapses the remaining needs and their actions |
-| 4 Try a preset | The agent-preset icon | Press → the Presets dialog ([Presets](presets.md)) | — (opens a dialog) | — |
 | 5 Refresh | A circular arrow; its tip says when the checks last ran | Press → reads Stores, projects and machines again and re-runs the home checks | `home get`, `project list`, `store list`, `project list` (read), then `home doctor` | a dot while the checks run |
 
 On a phone the host-status line under the heading is its own band: its word wraps, and its
@@ -101,7 +100,7 @@ table: [Components › Nav bar](components.md#nav-bar).
 | — Transfers | **{n} transfers** with a monotonic percentage and progress bar (matching the Store page and Store cards), while moves, backups or restores run | Press → that Store's page (one), or a menu of them (several) | — (the jobs in the Storage view already read) | hidden when nothing runs |
 | 5 Jump to… | A search field with **⌘K**; on a phone a 44 px icon | Press or **⌘K** → the Jump to dialog: type, **↑ ↓** to move, **Enter** to open, **Esc** to close | — (searches what Home already read) | **Nothing matches “{q}”**; not while another dialog is open |
 | 6 Refresh | A circular arrow, on every page but Home | Press → the page reads again | the page's own reads | a dot while reading |
-| 7 Add | **+ Add** | Press → **New session**, **New project**, **Import a folder**, **New Sandbox**, **New Store**, **Connect a database**, **New machine**, **Add bucket**, **Try a preset** | each item's dialog (see [Modals opened here](#modals-opened-here)) | New machine and New Sandbox stay visible with the reason when unavailable |
+| 7 Add | **+ Add** | Press → **New session**, **New project**, **Import a folder**, **New Sandbox**, **New Store**, **Connect a database**, **New machine**, **Add bucket** | each item's dialog (see [Modals opened here](#modals-opened-here)) | New machine and New Sandbox stay visible with the reason when unavailable |
 | Doctor | A shield; a red or orange count when the home checks found something. On a phone it is in **More** | Press → `LayerFS › Doctor` ([Doctor](health.md)) | `GET /api/doctor/results` (read, host memory) | count red for an error, orange for a warning |
 | Logs | A list icon. On a phone it is in **More** | Press → `LayerFS › Logs` ([Logs](logs.md)) | — (navigation) | — |
 | Settings | A gear. On a phone it is in **More** | Press → [Set up LayerFS](entry-points.md#set-up-layerfs) | `home get` (read, through `setup.status`) | — |
@@ -148,7 +147,7 @@ opens the project's Sessions or Sandboxes list, which keeps its own switch and a
 | **Delete project…** | [Confirm dialog](components.md#confirm-dialog) **Delete {name}?**: "The project and all its history are deleted from its Store. This cannot be undone." Type the name to enable **Delete**. | `project delete` |
 
 Empty: **No projects yet** — "A project is a folder of files kept in a LayerFS Store." with
-**New project** and **Try a preset**.
+**New project**.
 
 ## Stores
 
@@ -231,7 +230,6 @@ hold".
 | Connect a database | **Connect a database** | Connects a PostgreSQL database with its address, user and password, checked from this computer | `store connect` | **Disconnect…** |
 | New machine | **New machine** | Creates a Docker, Lima or Apple Container machine | `machine create` | **Remove** in the machine menu |
 | Add bucket | **Add bucket** | Connects an S3 bucket for backups | `backup connect` | **Disconnect** on the bucket |
-| Presets | **Try a preset**, Add › **Try a preset** | [Presets](presets.md) | the preset's script | — |
 | Set up LayerFS | Runtime, **Settings** | [Entry points › Set up LayerFS](entry-points.md#set-up-layerfs) | `home get` | — |
 | Jump to | **Jump to…**, **⌘K** | Opens a project, Store, machine, Sandbox, bucket, Center page or available DSH session | — | Esc |
 | Delete {name}? | Project ⋯ › **Delete project…** | [Confirm dialog](components.md#confirm-dialog) | `project delete` | none |
@@ -250,7 +248,7 @@ hold".
 ## Where next
 
 [Project](project.md) · [Store](store.md) · [Bucket](bucket.md) · [Machine](machine.md) ·
-[Sandbox](sandbox.md) · [Doctor](health.md) · [Logs](logs.md) · [Presets](presets.md) ·
+[Sandbox](sandbox.md) · [Doctor](health.md) · [Logs](logs.md) ·
 [Entry points](entry-points.md)
 
 ## Source

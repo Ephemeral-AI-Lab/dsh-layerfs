@@ -25,7 +25,7 @@ type Home = 'home' | 'dsh'
 
 const PART_KEY: Record<FolderPart, SetupKey> = {
   store: 'partStore', machine: 'partMachine', sandbox: 'partSandbox', runtime: 'partRuntime', backup: 'partBackup',
-  log: 'partLog', trace: 'partTrace', sessions: 'partSessions', scratch: 'partScratch', simulations: 'partSimulations',
+  log: 'partLog', trace: 'partTrace', sessions: 'partSessions', scratch: 'partScratch',
 }
 
 /** A folder's line: what it is (for machines, their names too). */

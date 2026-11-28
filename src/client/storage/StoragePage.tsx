@@ -26,7 +26,6 @@ import { MachineDetail } from '../machines/MachineDetail.tsx'
 import { NewSandboxDialog } from '../machines/Sandboxes.tsx'
 import { canAddMachine, shortSandbox, type MachineInfo } from '../machines/model.ts'
 import { SandboxDetail } from '../machines/SandboxDetail.tsx'
-import { PresetsDialog, type PresetsT } from '../presets/index.tsx'
 import { projectDialog } from '../projects/dialog.ts'
 import { takeStorageRequest, useStorageRequest } from '../projects/navigation.ts'
 import type { SetupModalT } from '../setup/locale.ts'
@@ -63,14 +62,13 @@ export interface StorageMainProps extends Omit<MachinesPageProps, 't'> {
   tm: MachinesT
   /** What a project's Sandboxes map needs of the conversation views. */
   map: ProjectMapShare
-  /** The copy of the pages Center hosts from other areas (Logs, Presets, the setup modal). */
+  /** The copy of the pages Center hosts from other areas (Logs, the setup modal). */
   more: MoreT
 }
 
 /** The `t`s of the pages Center hosts from other areas. */
 export interface MoreT {
   logs: LogsT
-  presets: PresetsT
   setup: SetupModalT
 }
 
@@ -204,7 +202,6 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
   const [listingAll, setListingAll] = useState(false)
   const [sandbox, setSandbox] = useState<'pick' | MachineInfo | null>(null)
   const [newMachine, setNewMachine] = useState(false)
-  const [presetsOpen, setPresetsOpen] = useState(false)
 
   // One page at a time: Back and Forward over the pages visited, and the Overview's section.
   const history = useNavHistory(api)
@@ -462,12 +459,10 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
     { id: 'database', label: t('connectDatabaseRow'), run: () => setDialog({ kind: 'connect' }) },
     { id: 'machine', label: t('newMachine'), disabledReason: machineReason, run: () => { if (!machineReason) setNewMachine(true) } },
     { id: 'bucket', label: t('addBucket'), run: () => setDialog({ kind: 'bucket' }) },
-    { id: 'presets', label: more.presets('openTitle'), run: () => setPresetsOpen(true) },
   ]
 
   const dialogs = (
     <>
-      <PresetsDialog api={api} t={more.presets} open={presetsOpen} onClose={() => setPresetsOpen(false)} />
       <StorageDialogs api={api} t={t} dialog={dialog} view={view} onClose={() => setDialog(null)} done={refresh} onDialog={setDialog} />
       {sandbox === 'pick' ? (
         <SandboxMachinePicker t={t} machines={candidates} reason={sandboxReason} onPick={setSandbox} onClose={() => setSandbox(null)} />
@@ -517,7 +512,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
           <HomeOverview view={view} error={storage.error} t={t} setup={more.setup} now={now} doctor={doctor} jobs={jobs} dismissed={dismissed} sandboxes={sandboxes}
             onOpen={open} onRefresh={refresh} onCheckAgain={() => setChecks((n) => n + 1)}
             onNewStore={() => setDialog({ kind: 'new-store' })} onConnect={() => setDialog({ kind: 'connect' })}
-            onBackups={(store) => setDialog({ kind: 'backups', store })} onNewMachine={() => setNewMachine(true)} onPresets={() => setPresetsOpen(true)} presetsLabel={more.presets('openTitle')}
+            onBackups={(store) => setDialog({ kind: 'backups', store })} onNewMachine={() => setNewMachine(true)}
             onAddStore={(machine) => setDialog({ kind: 'to-machine', machine })}
             onRemoveProject={(store, project) => setDialog({
               kind: 'confirm', title: t('removeProjectTitle', { name: project }), body: t('removeProjectBody'), action: t('deleteAction'), name: project,

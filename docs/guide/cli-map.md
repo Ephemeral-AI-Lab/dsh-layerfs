@@ -195,9 +195,9 @@ Pages: [Machine](machine.md) · [Sandbox](sandbox.md)
 | Sandbox Files (Workspaces view) | `… › <sandbox> › Files` | `GET /api/projects/:id/fs`, `/file` | `branch get`, `file list`, `file read`, `file stat` (read) |
 | Daemon log | `… › <sandbox> › Daemon log` | `GET /api/sandboxes/:id/log` | `sandbox log` (read) |
 
-## Project sessions, Doctor, Logs and Presets
+## Project sessions, Doctor and Logs
 
-Pages: [Conversation](conversation.md) · [Doctor](health.md) · [Logs](logs.md) · [Presets](presets.md)
+Pages: [Conversation](conversation.md) · [Doctor](health.md) · [Logs](logs.md)
 
 | Interaction | Where | Host route or op | LayerFS call(s) |
 |---|---|---|---|
@@ -213,7 +213,6 @@ Pages: [Conversation](conversation.md) · [Doctor](health.md) · [Logs](logs.md)
 | Sandbox map machine marks | project session › Sandbox | `GET /api/machines` | `home get`, `machine list`, `machine get`, `sandbox list`, `store list` (read) |
 | Play, Pause, Replay, speed, **Live**, scrub, This chat | project session › Sandbox | — | — |
 | Activity call detail | project session › Sandbox | ops `logs.output`, `session.trajectory.record` | — (kept outputs) |
-| **View script** and its modal | a scripted session's header | ops `simulation.script`, `simulation.status` | — (saved script files) |
 | Doctor page draws | `LayerFS › Doctor` | `GET /api/doctor/tree`, `GET /api/doctor/results` | `home get --with tree --detail` (read); results: — |
 | **Check** | a Doctor row | `POST /api/doctor/runs` | `home doctor` / `machine doctor <m>` / `store doctor <s>` / `project doctor <s/p>` / `sandbox doctor <b>` / `backup doctor <b>` |
 | **Full check** | a Doctor project or bucket row | `POST /api/doctor/runs` `{full}` | `project doctor --full`, `backup doctor --full` |
@@ -227,10 +226,3 @@ Pages: [Conversation](conversation.md) · [Doctor](health.md) · [Logs](logs.md)
 | Call detail output, **Retry** | Logs › a row | op `logs.output` | — (re-reads the kept output; does not run the call again) |
 | **Copy**, **Open session**, previous / next | Logs › a row | — | — |
 | **Calls of this session / checkpoint** | Logs › a row | op `logs.list` `{tag}` | `home log --tag` (read) |
-| Presets dialog, preset list, status, resource details | `Home ›` Try a preset | `GET /api/demo-presets` | — (host records) |
-| **View script**, a project's **#** | Presets | `GET /api/demo-presets/:id/script` | `machine list`, `store list`, `sandbox list`, `sandbox get` ×n (read) |
-| **Build…** / **Rebuild…** → **Continue** | Presets | `GET /api/demo-presets/:id/build-plan` | `home get --with platforms`, `machine list`, `store list`, `sandbox list`, `sandbox get` (read) |
-| **Wipe and build** | Presets plan review | `POST /api/demo-presets/:id/environment-reset` `{rebuild: true}` | the reset (`machine start`, `workspace unmount --discard`, `sandbox remove`, `store remove`, `store disconnect`, `machine remove`, `machine stop docker`), then the recipe (`store create`, `project init`, `file write`, `branch fork` / `merge` / `publish`, …; mixed mode adds `workspace mount` / `exec` / `commit`), then reads to verify |
-| **Stop machines…** (open) | Presets ⋯ | `GET /api/demo-presets/:id/environment-plan` | `machine list` (read) |
-| **Stop machines** | Presets confirm | `POST /api/demo-presets/:id/environment-reset` `{rebuild: false}` | `machine stop <m> --force` for each machine; the project sessions are deleted |
-| **Check operation** | Presets failure notice | `GET /api/demo-presets/requests/:id` | — |

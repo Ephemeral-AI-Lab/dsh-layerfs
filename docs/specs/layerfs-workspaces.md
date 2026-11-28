@@ -25,7 +25,7 @@ no per-project page.
   machine, or on the machine its PostgreSQL Store runs on (the saved choice,
   else docker, else the host machine).
 - `project init` never creates a Store. The UI creates SQLite projects on
-  the host machine and then pushes the Store, the order the presets use.
+  the host machine and then pushes the Store.
 
 ## 2. One dialog
 

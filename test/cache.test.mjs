@@ -13,14 +13,14 @@ import { loadRoutes, testHost } from './routes-helper.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const R = await loadRoutes()
-// the real project catalog (assertProjectIdentity) and presets manager, bundled like the routes
+// the real project catalog (assertProjectIdentity), bundled like the routes
 const extraDir = mkdtempSync(join(tmpdir(), 'dsh-cache-test-'))
 await build({
   absWorkingDir: root,
-  stdin: { contents: "export { ProjectCatalog } from './src/host/sessions/catalog.ts'\nexport { PresetManager } from './src/host/presets/manager.ts'\nexport { presetStateFor } from './src/host/presets/state-dir.ts'\n", resolveDir: root, loader: 'ts' },
+  stdin: { contents: "export { ProjectCatalog } from './src/host/sessions/catalog.ts'\n", resolveDir: root, loader: 'ts' },
   outfile: join(extraDir, 'extra.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', logLevel: 'warning',
 })
-const { ProjectCatalog, PresetManager, presetStateFor } = await import(pathToFileURL(join(extraDir, 'extra.mjs')).href)
+const { ProjectCatalog } = await import(pathToFileURL(join(extraDir, 'extra.mjs')).href)
 test.after(() => rmSync(extraDir, { recursive: true, force: true }))
 
 class Refusal extends Error {
@@ -413,7 +413,7 @@ test('TTL bounds: cached at TTL − 1 ms, read again at TTL', async (t) => {
 
 // ---------------------------------------------------------------- no writes on reads
 
-/** A recording fake CLI for the paths that spawn it directly (doctor, presets): argv lines in `log`. */
+/** A recording fake CLI for the paths that spawn it directly (doctor): argv lines in `log`. */
 function fakeCli(dir) {
   const cli = join(dir, 'fake-layerfs.cjs'), log = join(dir, 'fake-layerfs.log')
   const required = ['project.init', 'project.list', 'project.get', 'project.export', 'branch.fork', 'branch.list', 'commit.list', 'commit.diff',
@@ -457,7 +457,6 @@ function routerGets() {
     if (/^\s*if \(!id\) \{/.test(line)) { noId = true; continue }
     if (noId && indent === 4 && /^\s*\}/.test(line)) { noId = false; continue }
     if (line.includes("method !== 'GET'")) { projectGets = true; continue }
-    if (line.includes("'demo-presets'")) continue
     const projectSub = projectGets && /^\s*if \(sub === '([\w-]+)'\)/.exec(line)
     if (!line.includes("method === 'GET'") && !projectSub) continue
     const group = /group === '([\w-]+)'/.exec(line)?.[1] ?? block
@@ -529,8 +528,6 @@ const GETS = [
   ['project-exports', '/api/project-exports'],
   ['project-exports/:id', '/api/project-exports/x-none'],
 ]
-/** The presets manager's GET routes (manager.ts `route`), dispatched by router.ts under /api/demo-presets. */
-const PRESET_GETS = ['', '/requests/r1', '/jobs/j1', '/studio', '/studio/environment-plan', '/studio/build-plan', '/studio/build-plan-no-sandboxes', '/studio/script', '/studio/script-no-sandboxes']
 /** Routes whose 2xx needs more than the fake has: they may answer 4xx/5xx, but still must not write. */
 const MAY_FAIL = new Set(['/api/storage-jobs/job-x', '/api/project-inits/init-x', '/api/project-exports/x-none', '/api/stores/s1/check?machine=macos-host'])
 
@@ -547,21 +544,13 @@ test('no GET route makes a mutating LayerFS call, with or without a projectId', 
   // the real identity check, wired as routes/index.ts wires it: reads never claim
   const catalog = new ProjectCatalog(() => f.lfs, join(f.dir, 'root'))
   f.host.host.assertProjectIdentity = (project, projectId) => catalog.assert(project, projectId, { claim: false })
-  // doctor and presets spawn the CLI themselves: a recording fake CLI over a home that has its layerfs.json
+  // doctor spawns the CLI itself: a recording fake CLI over a home that has its layerfs.json
   const home = join(f.dir, 'home')
   mkdirSync(home, { recursive: true })
   writeFileSync(join(home, 'layerfs.json'), JSON.stringify({ id: 'home-test' }))
   const { cli, log } = fakeCli(f.dir)
   f.lfs.spec.cli = cli
   f.lfs.spec.home = home
-  const presetState = presetStateFor(home)
-  f.groups.presets = new PresetManager({
-    spec: () => ({ cli, home, state: presetState, daemon: null }),
-    busy: () => [], boundSessions: () => [], dshProjects: () => [], forgetProject: async () => {},
-    homeStores: async (also) => also.map((name) => ({ name })), projectConversations: () => [], deleteProjectConversations: async () => [],
-    emit: () => {},
-  }, presetState, home)
-
   const requests = []
   for (const [sig, path] of GETS) {
     requests.push(path)
@@ -572,7 +561,6 @@ test('no GET route makes a mutating LayerFS call, with or without a projectId', 
       requests.push(`${path}${join}projectId=00000000-0000-4000-8000-00000000000a`)
     }
   }
-  for (const p of PRESET_GETS) requests.push(`/api/demo-presets${p}`)
 
   const offenders = [], statuses = {}
   for (const path of requests) {
@@ -591,10 +579,9 @@ test('no GET route makes a mutating LayerFS call, with or without a projectId', 
   assert.deepEqual([...new Set(offenders)], [])
 
   // the reads were real: the fake answered them (a failing route proves nothing about its writes)
-  const failing = Object.entries(statuses).filter(([path, status]) => status >= 400 && !MAY_FAIL.has(path) && !path.includes('00000000-0000-4000') && !path.startsWith('/api/demo-presets/'))
+  const failing = Object.entries(statuses).filter(([path, status]) => status >= 400 && !MAY_FAIL.has(path) && !path.includes('00000000-0000-4000'))
   assert.deepEqual(failing, [], 'every plain GET answers 2xx over the fake home')
   for (const [path, status] of Object.entries(statuses)) if (path.includes('00000000-0000-4000')) assert.equal(status, 409, path)
-  assert.equal(statuses['/api/demo-presets'], 200)
   assert.equal(f.count('branch.fork'), 0, 'an unclaimed projectId never claims (C1)')
   // the log reads made their calls, and nothing else: no sandbox.get, no machine probe
   assert.equal(f.count('machine.log'), 2)

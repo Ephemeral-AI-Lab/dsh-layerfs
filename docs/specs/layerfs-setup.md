@@ -154,8 +154,8 @@ call log and `layerfs.lock` are allowed. The guard sits in `migrate::open_from`
 after the worker-root check. Calls that write still create a missing home.
 `doctor` already skips opening.
 
-Before it lands: both preset runners call `home init` instead of `machine list`
-(dsh-layerfs `presets/runner.js`, Connect's copy), the Node SDK test
+Before it lands: Connect's preset runner calls `home init` instead of
+`machine list`, the Node SDK test
 (`api/node/test/calls.mjs`) and the Rust fixtures that start with `machine
 list` call `home init`, and the SDK knows `Uninitialized`.
 

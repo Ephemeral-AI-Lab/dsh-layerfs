@@ -14,12 +14,10 @@ import { NS, locales } from './locale.ts'
 import { registerMachines } from './machines/index.tsx'
 import { PANEL_ID as STORAGE_PANEL, registerStorage } from './storage/index.tsx'
 import { registerSession } from './session/index.tsx'
-import { registerPresets } from './presets/index.tsx'
 import { registerLogs } from './logs/index.tsx'
 import { registerProjects } from './projects/index.tsx'
 import { registerPicker } from './picker/index.tsx'
 import { registerHero } from './hero/index.tsx'
-import { registerSimulation } from './simulation/index.tsx'
 import { registerViews } from './views/index.tsx'
 import { registerSetup } from './setup/index.tsx'
 import { syncLocale } from './ui/locale-sync.ts'
@@ -74,12 +72,10 @@ export function apply(ctx: any): void {
   const machines = registerMachines(ctx, api, [STORAGE_PANEL])
   registerStorage(ctx, api, machines)
   registerSetup(ctx, api, machines.t)
-  registerPresets(ctx)
   registerLogs(ctx)
   registerProjects(ctx, api)
   registerSession(ctx, api)
   registerPicker(ctx, api)
   registerHero(ctx, api)
-  registerSimulation(ctx, api)
   registerViews(ctx, api)
 }

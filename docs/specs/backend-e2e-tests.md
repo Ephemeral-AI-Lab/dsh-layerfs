@@ -95,9 +95,9 @@ run it there). Point `DSH_LAYERFS_CLI` at it with `LFS_REAL_CLI` set to the pinn
 
 Built with plain CLI calls on a SQLite Store on the host machine (no Docker or Lima), cached
 under `.dev-perf-<tier>/` with a manifest of the CLI commit and fixture
-version. History comes from the preset recipe's plain argv steps
-(`projectHistorySteps` in `src/host/presets/recipe/recipe.js`: branch fork,
-file write, merge, publish) and initial trees from `sourceFiles`.
+version. History is plain argv steps (`baseProjectHistorySteps` in
+`tools/perf-recipe/history.js`: branch fork, file write, merge, publish) and
+initial trees from `sourceFiles`.
 
 | tier | Stores | projects | history | tree |
 |---|---|---|---|---|

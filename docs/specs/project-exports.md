@@ -56,7 +56,7 @@ to one per 500 ms per job.
   export runs at all. If a folder is there after a stop, the export finished
   first and is reported `done`.
 - Ended jobs stay listed for 30 minutes or until dismissed. Running exports
-  hold preset admission (`a project export`) and end when the plugin unloads.
+  end when the plugin unloads.
 
 ## Client (`src/client/exports/`)
 

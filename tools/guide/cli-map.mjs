@@ -119,8 +119,8 @@ for (let i = start + 1; i < router.length; i++) {
   if (!m) { if (trimmed && !trimmed.startsWith('const') && !trimmed.startsWith('if (projectId)')) comment = []; continue }
   const [, found, receiver, fn] = m
   const cond = noId ? `!id && ${found}` : found
-  if (receiver === 'g.presets' || receiver === 'g.checks') {
-    rows.push({ ...pathOf(cond, block), handler: receiver === 'g.presets' ? 'presets/manager.ts' : 'routes/doctor.ts', calls: new Set([receiver === 'g.presets' ? 'many (a recipe of calls)' : '<family> doctor, fix steps']), note: comment.join(' ') })
+  if (receiver === 'g.checks') {
+    rows.push({ ...pathOf(cond, block), handler: 'routes/doctor.ts', calls: new Set(['<family> doctor, fix steps']), note: comment.join(' ') })
     comment = []
     continue
   }

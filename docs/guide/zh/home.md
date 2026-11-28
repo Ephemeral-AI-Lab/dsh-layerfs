@@ -15,7 +15,7 @@
 | # | 组件 | 说明 |
 |---|---|---|
 | 1 | 导航栏 | [组件 › 导航栏](components.md#nav-bar)：后退、前进、面包屑（这里只有 **主页**，Home）、**跳转到…**（Jump to…）、**添加**（Add） |
-| 2 | 概览头部 | [组件 › 概览头部](components.md#overview-head)：标题、固定使用的运行时、需要你关注的事项，以及预设和刷新按钮 |
+| 2 | 概览头部 | [组件 › 概览头部](components.md#overview-head)：标题、固定使用的运行时、需要你关注的事项，以及刷新按钮 |
 | 3 | 标签页 | **项目**（Projects）*n* · **Store**（Stores）*n* · **机器**（Machines）*n*，每个都带计数；里面的计数需要你处理时会变琥珀色或红色 |
 | 4 | 搜索和排序 | 筛选项目列表，并决定它的顺序 |
 | 5 | 项目行 | 一个项目：它的 Store、会话、Sandbox、最近会话和最近提交、大小。手机上它是卡片，不是表格行 |
@@ -51,7 +51,6 @@
 | 1 概览 | 页面的标题 | — | —（静态） | — |
 | 2 运行时 | `LayerFS 2.0.0 · 12345678`，固定使用的构建和它的提交号 | 按下 → 打开[设置 LayerFS](entry-points.md#set-up-layerfs) | `--version --json` (读取，运行时发现) | **LayerFS 不可用**（LayerFS unavailable）、**正在读取 LayerFS…**（Reading LayerFS…） |
 | 3 状态行 | 最紧急的那件事和它的修复，或者 **没有需要处理的事项**（Nothing needs your attention） | 每件事各自的按钮（见[待处理提示](components.md#needs-you-notices)） | 按钮自己的调用 | 事项前有圆点（故障红、警告琥珀）；按 **还有 {n} 个**（+{n} more）可展开或收起其余待处理事项及其操作按钮 |
-| 4 试用预设 | 智能体预设图标 | 按下 → 预设对话框（[预设](presets.md)） | —（打开对话框） | — |
 | 5 刷新 | 一个环形箭头；它的提示写着上次检查的时间 | 按下 → 重新读取 Store、项目和机器，并重新运行主目录检查 | `home get`、`project list`、`store list`、`project list` (读取)，然后 `home doctor` | 检查运行期间显示进行中圆点 |
 
 手机上，标题下方的宿主状态行会单独占一条：状态词换行，它的唯一操作按钮按拇指大小挪到下一行，
@@ -99,7 +98,7 @@ Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker una
 | — 传输 | **{n} 个传输**（{n} transfers），带与 Store 页及卡片一致的单调百分比与进度条，在迁移、备份或恢复进行时出现 | 按下 → 那个 Store 的页面（只有一个时），或一个列出它们的菜单（有多个时） | —（已读到的存储视图里的任务） | 没有任务运行时隐藏 |
 | 5 跳转到… | 一个带 **⌘K** 的搜索框；手机上是一个 44 px 的图标 | 按下或按 **⌘K** → 跳转到对话框：输入文字，**↑ ↓** 移动，**Enter** 打开，**Esc** 关闭 | —（在主页已读到的内容中搜索） | **没有与“{q}”匹配的项**（Nothing matches “{q}”）；有其他对话框打开时不可用 |
 | 6 刷新 | 一个环形箭头，除主页外每个页面都有 | 按下 → 页面重新读取 | 页面自己的读取 | 读取时显示一个圆点 |
-| 7 添加 | **+ 添加**（+ Add） | 按下 → **新建会话**（New session）、**新建项目**（New project）、**导入文件夹**（Import a folder）、**新建 Sandbox**（New Sandbox）、**新建 Store**（New Store）、**连接数据库**（Connect a database）、**新建机器**（New machine）、**添加存储桶**（Add bucket）、**试用预设**（Try a preset） | 各项对应的对话框（见[在此打开的对话框](#modals-opened-here)） | **新建机器**和**新建 Sandbox** 不可用时仍会显示，并说明原因 |
+| 7 添加 | **+ 添加**（+ Add） | 按下 → **新建会话**（New session）、**新建项目**（New project）、**导入文件夹**（Import a folder）、**新建 Sandbox**（New Sandbox）、**新建 Store**（New Store）、**连接数据库**（Connect a database）、**新建机器**（New machine）、**添加存储桶**（Add bucket） | 各项对应的对话框（见[在此打开的对话框](#modals-opened-here)） | **新建机器**和**新建 Sandbox** 不可用时仍会显示，并说明原因 |
 | 诊断 | 盾牌图标，主目录检查有发现时显示数量；手机上在 **更多** 里 | 按下 → `LayerFS › 诊断`（[诊断](health.md)） | `GET /api/doctor/results`（读取主机内存） | 有错误时计数为红色，有警告时为橙色 |
 | 日志 | 列表图标；手机上在 **更多** 里 | 按下 → `LayerFS › 日志`（[日志](logs.md)） | —（导航） | — |
 | 设置 | 齿轮图标；手机上在 **更多** 里 | 按下 → [设置 LayerFS](entry-points.md#set-up-layerfs) | `home get`（通过 `setup.status` 读取） | — |
@@ -145,7 +144,7 @@ Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker una
 | **删除项目…**（Delete project…） | [确认对话框](components.md#confirm-dialog) **删除 {name}？**（Delete {name}?）：“项目及其全部历史都会从它的 Store 中删除，且无法撤销。”输入项目名后 **删除**（Delete）才可用。 | `project delete` |
 
 没有项目时：**还没有项目**（No projects yet）——“项目是保存在 LayerFS Store 中的一个文件夹。”，带
-**新建项目**（New project）和 **试用预设**（Try a preset）。
+**新建项目**（New project）。
 
 ## Store
 
@@ -223,7 +222,6 @@ Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker una
 | 连接数据库 | **连接数据库**（Connect a database） | 用地址、用户和密码连接一个 PostgreSQL 数据库，并从这台电脑检查 | `store connect` | **断开连接…** |
 | 新建机器 | **新建机器**（New machine） | 创建一台 Docker、Lima 或 Apple Container 机器 | `machine create` | 机器菜单里的 **移除**（Remove） |
 | 添加存储桶 | **添加存储桶**（Add bucket） | 连接一个用于备份的 S3 存储桶 | `backup connect` | 存储桶上的 **断开连接**（Disconnect） |
-| 预设 | **试用预设**（Try a preset）、添加 › **试用预设** | [预设](presets.md) | 预设自己的脚本 | — |
 | 设置 LayerFS | 运行时、**设置**（Settings） | [入口 › 设置 LayerFS](entry-points.md#set-up-layerfs) | `home get` | — |
 | 跳转到 | **跳转到…**（Jump to…）、**⌘K** | 打开项目、Store、机器、Sandbox、存储桶、Center 页面或可用的 DSH 会话 | — | Esc |
 | 删除 {name}？ | 项目 ⋯ › **删除项目…**（Delete project…） | [确认对话框](components.md#confirm-dialog) | `project delete` | 无 |
@@ -241,7 +239,7 @@ Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker una
 ## 接下来
 
 [项目](project.md) · [Store](store.md) · [存储桶](bucket.md) · [机器](machine.md) ·
-[Sandbox](sandbox.md) · [诊断](health.md) · [日志](logs.md) · [预设](presets.md) ·
+[Sandbox](sandbox.md) · [诊断](health.md) · [日志](logs.md) ·
 [入口](entry-points.md)
 
 ## 源码

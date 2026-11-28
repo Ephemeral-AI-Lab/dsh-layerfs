@@ -213,11 +213,7 @@ export function apply(ctx: Context): void {
       await sessions.ensureBound(agent, { rebind: false })
       let binding = sessions.binding(id)
       if (binding?.kind === 'shared' && binding.parent) binding = sessions.binding(binding.parent)
-      const simulations = ctx.get('layerfsSimulations' as never) as any
-      const scriptedWorkspace = simulations?.workspaceOfCall?.(id, String(execution.callId))
-      // A scripted step's receipts name the run and step, so they join the script without its private journal.
-      const step = simulations?.stepOfCall?.(id, String(execution.callId))
-      const identity: TraceIdentity = { origin: 'tool', sessionId: id, project: place.project, workspace: scriptedWorkspace ?? binding?.ws, turn: turnOf(agent.session), toolCallId: execution.callId, scope: toolScope(id, String(execution.callId)), ...(step ? { step } : {}) }
+      const identity: TraceIdentity = { origin: 'tool', sessionId: id, project: place.project, workspace: binding?.ws, turn: turnOf(agent.session), toolCallId: execution.callId, scope: toolScope(id, String(execution.callId)) }
       const call: ToolCall = { identity, since: Date.now() }
       const calls = turnCalls.get(id) ?? []
       calls.push(call)
@@ -330,7 +326,7 @@ export function apply(ctx: Context): void {
           return {
             DSH_LAYERFS_CLI: cli,
             ...(sdk ? { DSH_LAYERFS_SDK: pathToFileURL(sdk).href } : {}),
-            DSH_LAYERFS_TRACE_CONTEXT: traceEnvironment({ origin: 'tool', sessionId: String(agent.id), project: b.project!, workspace: (scope.get('layerfsSimulations' as never) as any)?.workspaceOfCall?.(String(agent.id), String(execution.callId)) ?? b.ws, turn: turnOf(agent.session), toolCallId: execution.callId, scope: toolScope(String(agent.id), String(execution.callId)) }),
+            DSH_LAYERFS_TRACE_CONTEXT: traceEnvironment({ origin: 'tool', sessionId: String(agent.id), project: b.project!, workspace: b.ws, turn: turnOf(agent.session), toolCallId: execution.callId, scope: toolScope(String(agent.id), String(execution.callId)) }),
             ...(b.project ? { DSH_LAYERFS_PROJECT: b.project } : {}),
             ...(b.branch ? { DSH_LAYERFS_BRANCH: b.branch } : {}),
             ...(b.ws ? { DSH_LAYERFS_WS: b.ws } : {}),
@@ -353,10 +349,6 @@ export function apply(ctx: Context): void {
           let b = sessions.binding(String(id))
           if (b?.kind === 'shared' && b.parent) b = sessions.binding(b.parent) ?? b
           if (!b) return ''
-          if (sessions.isSimulationManaged(String(id))) {
-            return `## LayerFS project\nProject files belong to ${JSON.stringify(b.project)}. The active model supplies explicit LayerFS commands and manages their saved contexts. Local commands run in scratch ${JSON.stringify(b.scratch)}; scratch is never checkpointed. Preserve actual tool results and report only confirmed changes.`
-          }
-
           return projectContext(b, { checkpoints: ctx.layerfs.checkpoints === 'turn', subagent: String(id) !== b.sessionId })
         },
       })
@@ -825,7 +817,7 @@ export function apply(ctx: Context): void {
         }
         // A project hint imports from that project; otherwise DSH's resume reaches the
         // session persistence row, which finds and imports the session itself.
-        // Opening a session explicitly lifts a Presets Reset deletion record.
+        // Opening a session explicitly lifts its deletion record.
         ;(ctx.get('sessionPersistence' as never) as any)?.undelete?.(sessionId)
         const out = args?.project ? await store.import(String(args.project), sessionId, workspaceId) : { sessionId, imported: true }
         // Resuming the session announces it to every client (api-session/added) and binds its Workspace.

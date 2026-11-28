@@ -102,7 +102,7 @@ export class DoctorChecks {
     }
   }
 
-  /** Whether a doctor call or a fix runs now (a preset build waits for it). */
+  /** Whether a doctor call or a fix runs now. */
   busy(): boolean { return this.live.size > 0 || [...this.fixes.values()].some((f) => f.state === 'running') }
 
   /** Ends every running doctor call (host shutdown). */

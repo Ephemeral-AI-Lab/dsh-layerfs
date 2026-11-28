@@ -34,7 +34,6 @@ const GROUPS = [
   { title: 'Center tools', pages: [
     ['doctor', 'health.md', 'Doctor', 'Checks and fixes'],
     ['logs', 'logs.md', 'Logs', 'Every LayerFS call the app made'],
-    ['presets', 'presets.md', 'Presets', 'Demo libraries and resets'],
   ] },
   { title: 'Reference', pages: [
     ['components', 'components.md', 'Components', 'Parts shared by several pages'],
@@ -80,7 +79,6 @@ const I18N = {
       sandbox: ['Sandbox', '概览 · Workspace · 文件 · Daemon 日志'],
       doctor: ['诊断', '检查与修复'],
       logs: ['日志', '应用发出的每一次 LayerFS 调用'],
-      presets: ['预设', '演示库与重置'],
       components: ['组件', '多个页面共用的部件'],
       calls: ['按 LayerFS 调用', '每个调用，以及触发它的操作'],
       'cli-map': ['CLI 对照表', '每个操作 → 路由 → 调用'],

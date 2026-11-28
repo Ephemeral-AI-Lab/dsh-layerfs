@@ -106,7 +106,7 @@ Links to the pages this one leads to.
   are updated before the phone pass, the guide describes the phone behaviour in prose;
   the shot comes later and no other page's image needs re-shooting for it.
 - Name images `<page>-<what>.png`. Delete `img/_failed-*.png` once a shot passes.
-- The fixture: the Starter preset Store `demo-starter` (project `bookshelf`, Sandbox
+- The fixture: the SQLite Store `demo-starter` (project `bookshelf`, Sandbox
   `guide-box` on the Docker machine), the Store `guide-notes` on `macos-host` (project
   `handbook`, a project conversation from `fixture-session.mjs`), and the bucket
   `guide-backups` (a local MinIO) holding one backup of `guide-notes`.
@@ -121,9 +121,10 @@ scripted model. To build it from nothing:
    ```bash
    DSH_LAYERFS_DEV_DIR=$PWD/.dev-guide DSH_LAYERFS_DEV_OVERLAY=<a copy of dev/fake-llm.overlay.yml naming this checkout's dev/fake-llm/index.js> node scripts/dev.mjs --port 3097
    ```
-2. Build the Starter preset from the Presets dialog (Home › Try a preset › Starter), or read
-   its plan with `GET /api/demo-presets/quickstart/build-plan` and post it to
-   `/api/demo-presets/quickstart/environment-reset` through `tools/guide/calls.mjs`.
+2. Through `tools/guide/calls.mjs`, make the Store `demo-starter` on the Docker machine
+   (`POST /api/stores`) and import a folder of sample files as its project `bookshelf`
+   (`POST /api/projects` with a `source` folder). Give it a few Branches and Commits so
+   History has something to draw.
 3. Through `tools/guide/calls.mjs`:
    - make the Sandbox `guide-box` (`POST /api/projects/demo-starter%2Fbookshelf/sandboxes`);
    - make the Store `guide-notes` (`POST /api/stores`) and its project `handbook` (`POST /api/projects` with a `source` folder);
