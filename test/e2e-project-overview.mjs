@@ -88,7 +88,7 @@ try {
   await setup.getByText('demo-store', { exact: true }).waitFor()
   await setup.locator('[data-machine="build"][aria-checked="true"]').getByText(/Store is here/).waitFor()
   await setup.locator('[data-machine="macos-host"]').click()
-  await setup.getByText(/^Moves the whole Store demo-store to /).waitFor()
+  await setup.getByText(/^Transfers the demo-store file/).waitFor()
   await setup.getByRole('button', { name: 'Cancel', exact: true }).click()
   await page.setViewportSize({ width: 390, height: 844 })
   await page.waitForTimeout(300)

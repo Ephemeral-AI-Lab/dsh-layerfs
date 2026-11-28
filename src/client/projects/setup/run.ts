@@ -31,6 +31,19 @@ export async function placeStore(api: LayerfsApi, store: string, machine: string
   if (job && typeof job === 'object' && 'id' in job && 'ended' in job) await waitJob(api, job)
 }
 
+/** Attach machines to a PostgreSQL Store (each checked from there); throws the first refusal after trying them all. */
+export async function attachMachines(api: LayerfsApi, store: string, machines: readonly string[]): Promise<void> {
+  if (!machines.length) return
+  const answer = await api.call<PgAttachResult>('POST', `/api/stores/${enc(store)}/attach`, { machines })
+  const failed = answer?.results?.find((r) => !r.ok)
+  if (failed && !failed.ok) throw Object.assign(new Error(`${failed.machine}: ${failed.error.message}`), failed.error)
+}
+
+/** Detach one machine from a PostgreSQL Store (refused while its Sandboxes run there). */
+export async function detachMachine(api: LayerfsApi, store: string, machine: string): Promise<void> {
+  await api.call('POST', `/api/stores/${enc(store)}/detach`, { machine })
+}
+
 /** The Store a plan creates in or uses. */
 export const storeOfPlan = (plan: CreatePlan): string => plan.store?.name ?? plan.newStore?.name ?? ''
 

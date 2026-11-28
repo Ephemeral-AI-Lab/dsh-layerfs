@@ -19,7 +19,7 @@ import { slugify } from '../../picker/location.ts'
 import { useHostEvents } from '../../storage/hooks.ts'
 import { hasPgUrlLogin, isLinuxLocalhostUrl, PgLocalhostNotice, replaceLocalhostWithIpv4 } from '../../storage/pg-fields.tsx'
 import { Signal } from '../../storage/Signal.tsx'
-import type { StorageView, StoreRow } from '../../storage/types.ts'
+import type { PgAttached, StorageView, StoreRow } from '../../storage/types.ts'
 import { refusalOf, usePressGuard } from '../../ui/index.tsx'
 import { projectDialog, type DialogRequest, type ProjectRef } from '../dialog.ts'
 import type { ListT } from '../list-locale.ts'
@@ -32,10 +32,10 @@ import { setupStateWord, type SetupT } from './locale.ts'
 import type { MachinePlatformInfo } from '../../machines/model.ts'
 import { createSteps, defaultMachine, machinesFor, needsStart, pgLoginProblem, pickable, resolveNewStoreName, stoppedOf, tileBlocks, lastUsedStore, defaultStoreChoice, type StoreChoice, type CreatePlan, type PgLogin, type PgLoginProblem, type Step, type StoreKind, isRunning, type Machine, type TileBlock } from './model.ts'
 import { pgDefaultMachine, pgPlaceable } from '../../storage/model.ts'
-import { StartFirst, type LocationWords } from './MachineTiles.tsx'
-import { capWith, ChoiceList, ChoiceTile, ListFoot, MachineGrid, machineOrder, machineTileParts, TILE_CAP, TileActions, TileGrid, type ListGroup } from './Tiles.tsx'
+import { machineNote, StartFirst, type LocationWords } from './MachineTiles.tsx'
+import { capChecked, capWith, CheckGrid, ChoiceList, ChoiceTile, ListFoot, MachineGrid, machineOrder, machineTileParts, TILE_CAP, TileActions, TileGrid, type ListGroup } from './Tiles.tsx'
 import { bytes } from '../../files/format.ts'
-import { placeStore, runStep, startMachine } from './run.ts'
+import { attachMachines, detachMachine, placeStore, runStep, startMachine } from './run.ts'
 import css from './dialog.module.css'
 import { isHostName } from '../../../shared/host-machine.ts'
 
@@ -290,7 +290,9 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const [pgUser, setPgUser] = useState('')
   const [pgPassword, setPgPassword] = useState('')
   const [sqliteMachine, setSqliteMachine] = useState<string | null>(null)
+  // PostgreSQL: where the first session runs, and the machines the person checked to attach
   const [pgChoice, setPgChoice] = useState<string | null>(null)
+  const [pgAdds, setPgAdds] = useState<string[]>([])
   const [steps, setSteps] = useState<StepState[] | null>(null)
   const [shown, setShown] = useState<CreatePlan | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -313,13 +315,18 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const fallback = defaultMachine(offered, blocks)
   const slug = slugify(name)
   const chosenSqlite = sqliteMachine ?? (existing?.machine ?? fallback)
-  // PostgreSQL: the first session's own machine (spec v23: nothing Store-wide)
-  const pgPicked = pgChoice && offered.some((m) => m.name === pgChoice) ? pgChoice : null
-  // the project's last attached machine, else the only attached one, else none: the person picks (never a guessed default)
-  const chosenPg = pgPicked ?? (existing ? pgDefaultMachine(existing, (data?.machines ?? []).filter((m) => !blocks.has(m.name))) : null)
-  const chosen = kind === 'sqlite' ? [chosenSqlite] : chosenPg ? [chosenPg] : []
-  // a pick not attached yet is attached by Create (createSteps); the dialog says so
-  const willAttach = kind === 'postgresql' && chosenPg && !(existing?.attached ?? []).some((a) => a.machine === chosenPg) ? chosenPg : null
+  // PostgreSQL: the machines already attached (kept: detaching is the project settings' job) and the ones checked to attach
+  const attachedNow = kind === 'postgresql' ? (existing?.attached ?? []).map((a) => a.machine) : []
+  const adds = kind === 'postgresql' ? pgAdds.filter((m) => offered.some((x) => x.name === m) && !attachedNow.includes(m)) : []
+  const pgChecked = [...attachedNow, ...adds]
+  // where the first session can run: a checked machine that is not broken and can run here (a stopped one has its Start)
+  const firstOptions = pgChecked.filter((m) => { const mm = data?.machines.find((x) => x.name === m); return !!mm && mm.state !== 'broken' && pickable(m, blocks) })
+  // the person's pick, else the project's last attached machine (or the only one), else the only option: never a guessed default
+  const pgDefault = existing ? pgDefaultMachine(existing, (data?.machines ?? []).filter((m) => !blocks.has(m.name))) : null
+  const chosenPg = pgChoice && firstOptions.includes(pgChoice) ? pgChoice
+    : pgDefault && firstOptions.includes(pgDefault) ? pgDefault : firstOptions.length === 1 ? firstOptions[0]! : null
+  // the first session's machine first, then the rest to attach (createSteps attaches each one not attached yet)
+  const chosen = kind === 'sqlite' ? [chosenSqlite] : chosenPg ? [chosenPg, ...adds.filter((m) => m !== chosenPg)] : []
   const running = steps !== null && !error && !failure
   useEffect(() => { onBusy(running) }, [running])
   const words = wordsOf(t, data?.computer?.os)
@@ -373,7 +380,9 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const ok: Record<Part, boolean> = {
     0: NAME.test(slug) && !nameError && !folderError && (!importing || !!source.trim()),
     1: existing ? storeUsable(existing) : NAME.test(chosenStoreName) && !storeNameError && (kind === 'sqlite' || (!!url.trim() && !urlError && !loginProblem)),
-    2: chosen.length > 0 && chosen.every((m) => offered.some((x) => x.name === m) && pickable(m, blocks)) && stopped.length === 0,
+    2: kind === 'sqlite'
+      ? chosen.length > 0 && chosen.every((m) => offered.some((x) => x.name === m) && pickable(m, blocks)) && stopped.length === 0
+      : !!chosenPg && adds.every((m) => offered.some((x) => x.name === m)) && stopped.length === 0,
   }
   const valid = !!data && ok[0] && ok[1] && ok[2]
 
@@ -411,7 +420,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   }
 
   const choose = (next: StoreChoice) => {
-    setChoice(next); setStoreName(null); setPgChoice(null); setSqliteMachine(null)
+    setChoice(next); setStoreName(null); setPgChoice(null); setPgAdds([]); setSqliteMachine(null)
     // a new Store's panel opens under the tiles: bring it into view
     if (next.kind !== 'existing') requestAnimationFrame(() => details.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))
   }
@@ -434,27 +443,35 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
     usedAt.set(s, Math.max(usedAt.get(s) ?? 0, r.lastActivity))
   }
   const ordered = [...stores].sort((a, b) => Number(b.name === last?.name) - Number(a.name === last?.name) || (usedAt.get(b.name) ?? 0) - (usedAt.get(a.name) ?? 0) || a.name.localeCompare(b.name))
-  // tiles hold usable Stores only (a broken one shows in All N Stores with its fix)
-  const tileStores = capWith(ordered.filter(storeUsable), TILE_CAP, (s) => s.name === existing?.name)
+  const storeKindOf = (s: StoreRow): StoreKind => (s.kind === 'postgresql' ? 'postgresql' : 'sqlite')
+  // the tab: only this kind's Stores; tiles hold usable ones (a broken one shows in All N with its fix)
+  const kindStores = ordered.filter((s) => storeKindOf(s) === kind)
+  const tileStores = capWith(kindStores.filter(storeUsable), TILE_CAP, (s) => s.name === existing?.name)
+  const kindTitle = kind === 'postgresql' ? t('kindPgTitle') : t('kindSqliteTitle')
+  // switching the tab chooses that kind's last-used Store, else a new one of that kind
+  const switchKind = (k: StoreKind) => {
+    if (k === kind) return
+    const first = ordered.find((s) => storeKindOf(s) === k && storeUsable(s))
+    choose(first ? { kind: 'existing', store: first.name } : { kind: k === 'postgresql' ? 'pg' : 'sqlite' })
+  }
   const moving = kind === 'sqlite' && existing && existing.machine !== chosenSqlite
   const fellBack = choice === null && auto.fellBack && last
-  const storeKindOf = (s: StoreRow): StoreKind => (s.kind === 'postgresql' ? 'postgresql' : 'sqlite')
   const countWords = (s: StoreRow) => { const n = s.projectsCount ?? s.projects.length; return n === 1 ? t('oneProject') : t('projects', { n }) }
   const storeNote = (s: StoreRow) => storeKindOf(s) === 'postgresql'
-    ? `${t('kindPgTitle')} · ${s.postgresql?.target ?? ''}`
-    : `${t('kindSqliteTitle')} · ${machineWord(s.machine ?? '')} · ${s.name === last?.name ? t('lastUsedNote') : countWords(s)}`
+    ? `${s.postgresql?.target ?? ''}${s.name === last?.name ? ` · ${t('lastUsedNote')}` : ''}`
+    : `${machineWord(s.machine ?? '')} · ${s.name === last?.name ? t('lastUsedNote') : countWords(s)}`
   const mlist = kind === 'sqlite' ? machines : offered
-  const mvalue = kind === 'sqlite' ? chosenSqlite : chosenPg ?? ''
-  const setMachine = kind === 'sqlite' ? setSqliteMachine : setPgChoice
-  const mcurrent = kind === 'sqlite' ? existing?.machine ?? null : null
-  const mfallback = kind === 'sqlite' && !existing ? fallback : null
+  const mcurrent = existing?.machine ?? null
+  const mfallback = !existing ? fallback : null
+  const toggleAdd = (m: string) => setPgAdds((had) => (had.includes(m) ? had.filter((x) => x !== m) : [...had, m]))
+  const pgTileList = kind === 'postgresql' ? pgTilesOf({ all: pgMachinesOf(data, existing), attached: existing?.attached ?? [], adds, removes: [], offered, blocks, words, t, lock: true }) : []
 
   // All N Stores / All N machines: the whole list in place of the form; picking one goes back
   if (sub && !running) {
     const back = () => setSub(null)
     if (sub === 'stores') {
       const groups = new Map<string, ListGroup>()
-      for (const s of [...ordered].sort((a, b) => Number(b.name === last?.name) - Number(a.name === last?.name) || a.name.localeCompare(b.name))) {
+      for (const s of [...kindStores].sort((a, b) => Number(b.name === last?.name) - Number(a.name === last?.name) || a.name.localeCompare(b.name))) {
         const sKind = storeKindOf(s)
         const label = sKind === 'postgresql' ? t('kindPgTitle') : machineWord(s.machine ?? '')
         const fail = sKind === 'postgresql' ? formatSessionFailure(pgStoreFailure(s), null, t, s.name, s) : null
@@ -472,11 +489,12 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
       return <>
         <Head title={t('chooseStore')} sub={t('forProject', { name: slug || t('notNamed') })} t={t} onBack={back} />
         <ChoiceList groups={[...groups.values()]} label={t('chooseStore')} placeholder={t('filterStoresList')} empty={t('noStoreMatch')} />
-        <ListFoot addLabel={t('newStore')} onAdd={() => { choose({ kind: picked.kind === 'pg' ? 'pg' : 'sqlite' }); back() }} backLabel={t('back')} onBack={back} />
+        <ListFoot addLabel={kind === 'postgresql' ? t('connectPg') : t('newSqlite')} onAdd={() => { choose({ kind: kind === 'postgresql' ? 'pg' : 'sqlite' }); back() }} backLabel={t('back')} onBack={back} />
       </>
     }
-    return <MachineListView t={t} api={api} machines={mlist} value={mvalue} current={mcurrent} fallback={mfallback} blocks={blocks} words={words}
-      sub={t('forProject', { name: slug || t('notNamed') })} onPick={(m) => { setMachine(m); back() }} onBack={back} />
+    if (kind === 'postgresql') return <PgListView t={t} api={api} tiles={pgTileList} sub={t('forProject', { name: slug || t('notNamed') })} onToggle={toggleAdd} onBack={back} />
+    return <MachineListView t={t} api={api} machines={mlist} value={chosenSqlite} current={mcurrent} fallback={mfallback} blocks={blocks} words={words}
+      sub={t('forProject', { name: slug || t('notNamed') })} onPick={(m) => { setSqliteMachine(m); back() }} onBack={back} />
   }
 
   return <form className={css.form} aria-busy={running}
@@ -505,21 +523,23 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
           </Field>
 
           <section ref={storeSection} className={css.field} aria-labelledby={`${id}-store`}>
-            <h3 id={`${id}-store`} className={css.label}>{t('store')}</h3>
+            <div className={css.labelRow}>
+              <h3 id={`${id}-store`} className={css.label}>{t('store')}</h3>
+              <div className={css.kindTabs} role="tablist" aria-label={t('storeKind')}>
+                {(['sqlite', 'postgresql'] as const).map((k) => <button key={k} type="button" role="tab" aria-selected={kind === k} className={css.kindTab} onClick={() => switchKind(k)}>
+                  <StoreKindGlyph kind={k} size={12} />{k === 'postgresql' ? t('kindPgTitle') : t('kindSqliteTitle')}
+                  <span className={css.kindCount}>{stores.filter((s) => storeKindOf(s) === k).length}</span>
+                </button>)}
+              </div>
+            </div>
             {fellBack ? <SectionNote>{t('lastFellBack', { store: last.name })}</SectionNote> : null}
             {tileStores.length ? <TileGrid label={t('store')}>
               {tileStores.map((s) => <ChoiceTile key={s.name} mark={<StoreKindGlyph kind={storeKindOf(s)} size={15} />} name={s.name} note={storeNote(s)}
                 selected={existing?.name === s.name} onSelect={() => choose({ kind: 'existing', store: s.name })} data={{ 'data-store': s.name }} />)}
             </TileGrid> : null}
-            <TileActions all={stores.length > tileStores.length ? { label: t('allStores', { n: stores.length }), onClick: () => setSub('stores') } : null}
-              add={{ label: t('newStore'), selected: creatingStore, onClick: () => { if (!creatingStore) choose({ kind: 'sqlite' }) } }} />
+            <TileActions all={kindStores.length > tileStores.length ? { label: t('allStoresKind', { n: kindStores.length, kind: kindTitle }), onClick: () => setSub('stores') } : null}
+              add={{ label: kind === 'postgresql' ? t('connectPg') : t('newSqlite'), selected: creatingStore, onClick: () => { if (!creatingStore) choose({ kind: kind === 'postgresql' ? 'pg' : 'sqlite' }) } }} />
             {creatingStore ? <div ref={details} className={css.newStorePanel}>
-              <div className={css.kindSwitch} role="radiogroup" aria-label={t('storeKind')}>
-                {(['sqlite', 'pg'] as const).map((k) => <button key={k} type="button" role="radio" aria-checked={picked.kind === k} className={css.kindOpt}
-                  onClick={() => { if (picked.kind !== k) choose({ kind: k }) }}>
-                  <StoreKindGlyph kind={k === 'pg' ? 'postgresql' : 'sqlite'} size={13} />{k === 'pg' ? t('kindPgTitle') : t('kindSqliteTitle')}
-                </button>)}
-              </div>
               <Field label={t('storeName')} error={storeNameError} hint={storeConflictNotice ? null : t('storeNameHint')}>
                 <Input value={storeName ?? autoStoreName} className={css.mono} placeholder={autoStoreName || 'projects'} autoComplete="off" spellCheck={false}
                   onChange={(e) => setStoreName(e.target.value)} />
@@ -545,15 +565,26 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
           </section>
 
           <section ref={machineSection} className={css.field} aria-labelledby={`${id}-machine`}>
-            <h3 id={`${id}-machine`} className={css.label}>{kind === 'sqlite' ? t('stepMachine') : t('sessionRunsOn')}</h3>
-            <MachineGrid machines={mlist} value={mvalue} onChange={setMachine} words={words} label={kind === 'sqlite' ? t('stepMachine') : t('sessionRunsOn')}
-              current={mcurrent} fallback={mfallback} blocks={blocks}
-              allLabel={t('allMachines', { n: mlist.length })} onAll={() => setSub('machines')} newLabel={t('newMachine')} onNew={newMachine(api)} />
-            {moving
-              ? <SectionNote tone="warn">{t('moveWarn', { store: existing!.name, machine: machineWord(chosenSqlite), n: Math.max(0, existing!.projectsCount ?? existing!.projects.length) })}</SectionNote>
-              : willAttach ? <SectionNote>{t('pgWillAttach', { machine: willAttach })}</SectionNote>
-                : <SectionNote>{kind === 'sqlite' ? t('locationHint') : t('runsOnPg')}</SectionNote>}
-            {offered.length === 0 ? <p className={css.notice}>{t('noMachines')}</p> : null}
+            <h3 id={`${id}-machine`} className={css.label}>{kind === 'sqlite' ? t('stepMachine') : t('attachedMachines')}</h3>
+            {kind === 'sqlite' ? <>
+              <MachineGrid machines={machines} value={chosenSqlite} onChange={setSqliteMachine} words={words} label={t('stepMachine')}
+                current={mcurrent} fallback={mfallback} blocks={blocks} targetNote={t('transferHere')}
+                allLabel={t('allMachines', { n: machines.length })} onAll={() => setSub('machines')} newLabel={t('newMachine')} onNew={newMachine(api)} />
+              {moving
+                ? <TransferBox>{transferWords(t, existing!, machineWord(existing!.machine ?? ''), machineWord(chosenSqlite), Math.max(0, existing!.projectsCount ?? existing!.projects.length))}</TransferBox>
+                : <SectionNote>{t('locationHint')}</SectionNote>}
+            </> : <>
+              <PgGrid t={t} api={api} tiles={pgTileList} onToggle={toggleAdd} onAll={() => setSub('machines')} />
+              {firstOptions.length > 1 ? <div className={css.firstOn}>
+                <span>{t('firstSessionOn')}</span>
+                <div className={css.kindTabs} role="radiogroup" aria-label={t('firstSessionOn')}>
+                  {firstOptions.map((m) => <button key={m} type="button" role="radio" aria-checked={chosenPg === m} className={css.kindTab} onClick={() => setPgChoice(m)}>{m}</button>)}
+                </div>
+              </div> : null}
+              <SectionNote>{t('pgAnyAttached')}</SectionNote>
+              {attempted && !chosenPg ? <span className={css.error} role="alert">{pgChecked.length ? t('pickFirst') : t('needAttach')}</span> : null}
+            </>}
+            {(kind === 'sqlite' ? machines.length : pgTileList.length) === 0 ? <p className={css.notice}>{t('noMachines')}</p> : null}
             {/* Create starts no machine: each stopped one it needs has its own Start here */}
             <StartFirst names={stopped} words={startWords} start={(m) => startMachine(api, m)} onStarted={view.reload} />
           </section>
@@ -565,7 +596,10 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
       <div className={css.footActions}>
         <Button type="button" variant="outline" disabled={running} onClick={() => projectDialog.close()}>{t('cancel')}</Button>
         <Button type="submit" variant="primary" disabled={running || !data} aria-busy={running} icon={running ? <StatusDot state="ongoing" size={13} /> : undefined}>
-          {running ? t('creating') : importing ? t('import') : t('create')}
+          {running ? t('creating')
+            : moving ? t(importing ? 'transferAndImport' : 'transferAndCreate')
+              : adds.length ? t(importing ? 'attachAndImport' : 'attachAndCreate', { n: adds.length })
+                : importing ? t('import') : t('create')}
         </Button>
       </div>
     </footer>
@@ -591,6 +625,84 @@ function MachineListView({ t, api, machines, value, current, fallback, blocks, w
   </>
 }
 
+/** The SQLite transfer's words: the file, its size, from and to, and who moves with it. */
+function transferWords(t: SetupT, store: StoreRow, from: string, to: string, others: number): string {
+  const size = store.size ? ` (${bytes(store.size.bytes)})` : ''
+  return t(others > 1 ? 'transferWarn' : others === 1 ? 'transferWarnOne' : 'transferWarnAlone', { store: store.name, size, from, to, n: others })
+}
+
+/** A choice with a cost (a SQLite Store transfers, PostgreSQL machines detach): a box under the tiles. */
+function TransferBox({ children }: { children: ReactNode }): ReactNode {
+  return <p className={css.transferBox} role="note"><IconInfoOutlineRegular size={14} /><span>{children}</span></p>
+}
+
+/** One PostgreSQL machine tile: checked (attached, or to attach), what it shows, and whether it can change here. */
+interface PgTile { m: Machine, mark: ReactNode, checked: boolean, locked: boolean, disabled: boolean, note: string, tone?: 'warn' | 'accent' | undefined, group: 0 | 1 | 2 }
+
+/** The machines a PostgreSQL Store can be attached to (those that run PostgreSQL Sandboxes), and every one attached already. */
+function pgMachinesOf(data: StorageView | undefined, store: StoreRow | null | undefined): Machine[] {
+  const can = machinesFor(data, 'postgresql')
+  const extra = (store?.attached ?? []).map((a) => data?.machines.find((m) => m.name === a.machine)).filter((m): m is Machine => !!m && !can.some((x) => x.name === m.name))
+  return [...can, ...extra]
+}
+
+/**
+ * The PostgreSQL machine tiles: attached first (with how the Store answered
+ * from there), then those that can be attached now, then the rest (stopped,
+ * or not runnable here), which cannot be checked. `lock`: attached machines
+ * stay attached here (New project); otherwise unchecking one detaches it.
+ */
+function pgTilesOf({ all, attached, adds, removes, offered, blocks, words, t, lock }: {
+  all: readonly Machine[], attached: readonly PgAttached[], adds: readonly string[], removes: readonly string[], offered: readonly Machine[]
+  blocks: ReadonlyMap<string, TileBlock>, words: LocationWords, t: SetupT, lock: boolean
+}): PgTile[] {
+  const tiles = all.map((m): PgTile => {
+    const mark = <MachineGlyph platform={m.platform || m.name} os={isHostName(m.name) ? words.hostOs : undefined} size={15} />
+    const row = attached.find((a) => a.machine === m.name)
+    if (row) {
+      const removing = removes.includes(m.name)
+      const reach = row.reached === 'ok' ? (row.reach?.latencyMs != null ? t('reachableMs', { ms: row.reach.latencyMs }) : t('reachable'))
+        : row.reached === 'failed' ? t('cantReach') : t('attachedUnchecked')
+      const note = removing ? t('willDetach') : isRunning(m) ? reach : `${t('stopped')} · ${reach}`
+      return { m, mark, checked: !removing, locked: lock, disabled: false, note, tone: removing || row.reached === 'failed' ? 'warn' : undefined, group: 0 }
+    }
+    if (offered.some((x) => x.name === m.name)) {
+      const adding = adds.includes(m.name)
+      return { m, mark, checked: adding, locked: false, disabled: false, note: adding ? t('willAttach') : t('notAttached'), tone: adding ? 'accent' : undefined, group: 1 }
+    }
+    const block = blocks.get(m.name)
+    return { m, mark, checked: false, locked: false, disabled: true, note: block ? machineNote(m, words, block) : m.state === 'broken' ? setupStateWord('broken', t) : t('startToAttach'), tone: block ? 'warn' : undefined, group: 2 }
+  })
+  return tiles.sort((a, b) => a.group - b.group || Number(isHostName(b.m.name)) - Number(isHostName(a.m.name)) || a.m.name.localeCompare(b.m.name))
+}
+
+/** The PostgreSQL machine tiles (checkboxes): at most TILE_CAP, every checked one shown, then All N machines and New machine. */
+function PgGrid({ t, api, tiles, onToggle, onAll, disabled }: { t: SetupT, api: LayerfsApi, tiles: PgTile[], onToggle: (machine: string) => void, onAll: () => void, disabled?: boolean | undefined }): ReactNode {
+  const shown = capChecked(tiles, TILE_CAP, (x) => x.checked)
+  return <>
+    {shown.length ? <CheckGrid label={t('attachedMachines')}>
+      {shown.map((x) => <ChoiceTile key={x.m.name} multi locked={x.locked} mark={x.mark}
+        name={x.m.name} note={x.note} tone={x.tone} selected={x.checked} disabled={disabled || x.disabled} title={x.locked ? `${x.m.name} · ${t('detachInSettings')}` : undefined}
+        onSelect={() => onToggle(x.m.name)} data={{ 'data-machine': x.m.name }} />)}
+    </CheckGrid> : null}
+    <TileActions all={tiles.length > shown.length ? { label: t('allMachines', { n: tiles.length }), onClick: onAll } : null} add={{ label: t('newMachine'), onClick: newMachine(api) }} />
+  </>
+}
+
+/** All N machines for a PostgreSQL Store: checkboxes grouped Attached, Can attach and Can't attach now; the list stays open. */
+function PgListView({ t, api, tiles, sub, onToggle, onBack }: { t: SetupT, api: LayerfsApi, tiles: PgTile[], sub: string, onToggle: (machine: string) => void, onBack: () => void }): ReactNode {
+  const groups: ListGroup[] = [{ label: t('grpAttached'), items: [] }, { label: t('grpCanAttach'), items: [] }, { label: t('grpCantAttach'), items: [] }]
+  for (const x of tiles) {
+    groups[x.group]!.items.push({ key: x.m.name, mark: x.mark, name: x.m.name, note: x.note, tone: x.tone,
+      selected: x.checked, disabled: x.disabled, locked: x.locked, search: x.m.platform ?? '', onPick: () => onToggle(x.m.name) })
+  }
+  return <>
+    <Head title={t('chooseMachines')} sub={sub} t={t} onBack={onBack} />
+    <ChoiceList multi groups={groups.filter((g) => g.items.length)} label={t('attachedMachines')} placeholder={t('filterMachines')} empty={t('noMachineMatch')} />
+    <ListFoot addLabel={t('newMachine')} onAdd={newMachine(api)} backLabel={t('done')} onBack={onBack} />
+  </>
+}
+
 // ---------- configure ----------
 
 /** Configure: the Store, where it runs (a SQLite Store moves; a PostgreSQL Store's sessions run there), and Hide from sidebar. */
@@ -603,13 +715,16 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
   const [error, setError] = useState<string | null>(null)
   const [hidden, setHidden] = useState(false)
   const [sub, setSub] = useState(false)
+  // PostgreSQL: machines checked to attach and attached ones unchecked to detach, saved together
+  const [pgAdds, setPgAdds] = useState<string[]>([])
+  const [pgRemoves, setPgRemoves] = useState<string[]>([])
   const name = project.name ?? project.key.split('/')[1] ?? project.key
   const storeName = project.store ?? project.key.split('/')[0] ?? ''
   const store: StoreRow | undefined = view.data?.stores.find((s) => s.name === storeName)
   const setBusy = (value: string | null) => { setBusyState(value); onBusy(!!value) }
   const run = async (label: string, work: () => Promise<unknown>) => {
     setBusy(label); setError(null)
-    try { await work(); setTarget(null) } catch (e) { setError(messageOf(e)) } finally { setBusy(null); view.reload() }
+    try { await work(); setTarget(null); setPgAdds([]); setPgRemoves([]) } catch (e) { setError(messageOf(e)) } finally { setBusy(null); view.reload() }
   }
   // the head's line: its sessions and when the last one ran (the key, until there is one)
   const mine = (recent.data?.projects ?? []).filter((r) => (project.projectId && r.projectId === project.projectId) || r.project === project.key)
@@ -658,6 +773,7 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
   </section>
 
   const words = wordsOf(t, view.data?.computer?.os)
+  const hostWord = (m: string) => (isHostName(m) ? t(hostWordKey(view.data?.computer?.os)) : m)
   if (!pg) {
     const current = store.machine ?? ''
     const chosen = target ?? current
@@ -671,9 +787,9 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
         <section className={css.field}>
           <h3 className={css.label}>{t('stepMachine')}</h3>
           <MachineGrid machines={machines} value={chosen} onChange={(m) => setTarget(m === current ? null : m)} words={words} label={t('stepMachine')} current={current}
-            disabled={!!busy} blocks={blocks} allLabel={t('allMachines', { n: machines.length })} onAll={() => setSub(true)} newLabel={t('newMachine')} onNew={newMachine(api)} />
+            disabled={!!busy} blocks={blocks} targetNote={t('transferHere')} allLabel={t('allMachines', { n: machines.length })} onAll={() => setSub(true)} newLabel={t('newMachine')} onNew={newMachine(api)} />
           {chosen !== current
-            ? <SectionNote tone="warn">{t('moveWarn', { store: store.name, machine: isHostName(chosen) ? t(hostWordKey(view.data.computer?.os)) : chosen, n: others })}</SectionNote>
+            ? <TransferBox>{transferWords(t, store, hostWord(current), hostWord(chosen), others)}</TransferBox>
             : <SectionNote>{t('locationHint')}</SectionNote>}
           {/* moving starts no machine: each stopped one it needs has its own Start here */}
           {chosen !== current ? <StartFirst names={stoppedOf([current, chosen], view.data)} words={startWords} start={(m) => startMachine(api, m)} onStarted={view.reload} /> : null}
@@ -697,38 +813,45 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
     </>
   }
   // a PostgreSQL Store has no machine of its own: each session runs on one of the machines attached to it
-  const reaches = store.attached ?? []
+  const attached = store.attached ?? []
+  const pgOffered = machinesFor(view.data, 'postgresql').filter((m) => pgPlaceable(m) && !blocks.has(m.name))
+  const adds = pgAdds.filter((m) => pgOffered.some((x) => x.name === m) && !attached.some((a) => a.machine === m))
+  const removes = pgRemoves.filter((m) => attached.some((a) => a.machine === m))
+  const tiles = pgTilesOf({ all: pgMachinesOf(view.data, store), attached, adds, removes, offered: pgOffered, blocks, words, t, lock: false })
+  const toggle = (m: string) => {
+    if (attached.some((a) => a.machine === m)) setPgRemoves((had) => (had.includes(m) ? had.filter((x) => x !== m) : [...had, m]))
+    else setPgAdds((had) => (had.includes(m) ? had.filter((x) => x !== m) : [...had, m]))
+  }
+  const changed = adds.length > 0 || removes.length > 0
+  const what = [adds.length ? t('attachN', { n: adds.length }) : null, removes.length ? t('detachN', { n: removes.length }) : null].filter(Boolean).join(', ')
+  const save = () => run('save', async () => {
+    await attachMachines(api, store.name, adds)
+    for (const m of removes) await detachMachine(api, store.name, m)
+  })
+  if (sub && !busy) return <PgListView t={t} api={api} tiles={tiles} sub={name} onToggle={toggle} onBack={() => setSub(false)} />
   return <>{head}
     <div className={css.body}><div className={css.fields}>
       {storeCard}
-      <Group label={t('runsOn')} hint={t('pgPlacedPerSession')}>
-        {reaches.length ? (
-          <div className={css.reachList}>
-            {reaches.map((c) => {
-              const machine = c.machine
-              const mInfo = view.data?.machines.find((m) => m.name === machine)
-              const err = c.reach?.error ?? null
-              const statusText = c.reached === 'ok'
-                ? (c.reach?.latencyMs != null ? t('pgReachOk', { ms: c.reach.latencyMs }) : t('pgReachOkPlain'))
-                : c.reached === 'failed'
-                  ? t('pgReachFailed')
-                  : t('pgReachUnchecked')
-              return <span key={machine} className={css.reachChip} data-reach={c.reached} title={err ?? undefined}>
-                <MachineGlyph platform={mInfo?.platform ?? 'unknown'} size={12} mono />
-                <span>{machine}</span>
-                <span className={css.reachSep} aria-hidden="true">·</span>
-                <span className={css.reachState}>{statusText}</span>
-              </span>
-            })}
-          </div>
-        ) : <p className={css.notice}>{t('pgNotConnectedYet')}</p>}
-      </Group>
-      {error ? <p className={css.error} role="alert">{error}</p> : null}
+      <section className={css.field}>
+        <h3 className={css.label}>{t('attachedMachines')}</h3>
+        <PgGrid t={t} api={api} tiles={tiles} onToggle={toggle} onAll={() => setSub(true)} disabled={!!busy} />
+        {removes.length
+          ? <TransferBox>{t(others > 1 ? 'detachWarnShared' : others === 1 ? 'detachWarnSharedOne' : 'detachWarn', { machines: removes.join(', '), n: others })}</TransferBox>
+          : <SectionNote>{attached.length ? t('pgAnyAttached') : t('pgNotConnectedYet')}</SectionNote>}
+        {error ? <p className={css.error} role="alert">{error}</p> : null}
+      </section>
     </div></div>
     <footer className={css.foot}>
       {hide}
       <div className={css.footActions}>
-        <Button variant="primary" disabled={!!busy} onClick={() => projectDialog.close()}>{t('done')}</Button>
+        {changed
+          ? <>
+            <Button variant="outline" disabled={!!busy} onClick={() => { setPgAdds([]); setPgRemoves([]) }}>{t('cancel')}</Button>
+            <Button variant="primary" disabled={!!busy} icon={busy ? <StatusDot state="ongoing" size={13} /> : undefined} onClick={() => void save()}>
+              {busy ? t('saving') : t('saveChanges', { what })}
+            </Button>
+          </>
+          : <Button variant="primary" disabled={!!busy} onClick={() => projectDialog.close()}>{t('done')}</Button>}
       </div>
     </footer>
   </>
