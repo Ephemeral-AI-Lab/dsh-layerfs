@@ -27,8 +27,8 @@ import { existsSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import { traceInvocation } from './tracing.ts'
-import { appendCall, callLine, loggable, renderCall } from './call-log.ts'
-import { outputRecord, outputsDir, outputSink, saveOutput, type OutputSink } from './call-output.ts'
+import { loggable, renderCall } from './call-words.ts'
+import { outputRecord, outputSink, saveOutput, type OutputSink } from './call-output.ts'
 import { hostTag, OUTPUT_MAX, parseSimTag, simTag } from '../../shared/logs.ts'
 
 /** How a call failed: `refusal` = LayerFS answered a refusal; others are transport outcomes. */
@@ -106,15 +106,11 @@ export interface CliSpec {
    */
   readonly cacheHome?: string | null
   /**
-   * The plugin's stand-in call log (`$DSH_HOME/layerfs/trace/calls.jsonl`).
-   * Set: every non-discovery call appends one line there unless the pinned
-   * CLI writes LayerFS's own call log (docs/specs/layerfs-logs.md §3), carries
-   * a `dsh:` tag (a session receipt, else a host tag), and has its output kept
-   * in `trace/outputs/` next to it in both modes.
+   * `<state>/trace/outputs`. Set: every non-discovery call LayerFS's own call
+   * log keeps ({@link loggable}) carries a `dsh:` tag (a session receipt, else
+   * a host tag) and has its output kept there (docs/specs/layerfs-logs.md).
    */
-  readonly callLog?: string | null
-  /** Whether the CLI has the native `logs` family; undefined: detect from its call table. */
-  readonly nativeLogs?: boolean
+  readonly outputs?: string | null
   /**
    * The home gate, awaited before every call but discovery and the `home`
    * family (and an `execute` given `gated`): it may set the home up first (a
@@ -166,14 +162,15 @@ export interface Discovery {
 
 /**
  * The calls dsh-layerfs relies on, by their LayerFS 2.0 names; a CLI missing
- * one is refused at discovery (the platforms come from `home.get --with platforms`).
+ * one is refused at discovery (the platforms come from `home.get --with platforms`;
+ * `home.log` and `home.clear_log` are LayerFS's own call log, the Logs page's only source).
  */
 export const REQUIRED_CALLS = [
   'project.init', 'project.list', 'project.get', 'project.export', 'branch.fork', 'branch.list', 'commit.list', 'commit.diff',
   'file.read', 'file.list', 'file.apply', 'sandbox.create', 'sandbox.list', 'sandbox.get', 'sandbox.remove',
   'workspace.mount', 'workspace.commit', 'workspace.status', 'workspace.unmount', 'workspace.exec', 'workspace.cancel',
   'store.list', 'store.get', 'store.create',
-  'home.get', 'machine.list', 'machine.get',
+  'home.get', 'home.log', 'home.clear_log', 'machine.list', 'machine.get',
 ] as const
 
 /** `--with` values a required call must list (2.0 `form.with`). */
@@ -267,7 +264,7 @@ interface ExecuteOptions {
   tag?: string
   /** Where the call's output is collected for the output store (set by {@link logged}). */
   capture?: Capture
-  /** Filled by {@link logged} with the call log line's `at` and `ms`. */
+  /** Filled by {@link logged} with the call's start and duration (ms). */
   timing?: Timing
 }
 
@@ -446,7 +443,7 @@ export function execute(spec: CliSpec, argv: readonly string[], options: Execute
   if (options.discovery) return executeRaw(spec, argv, options)
   const target = ['file', 'branch'].includes(argv[0]) || (argv[0] === 'workspace' && argv[1] === 'commit') ? renderCall(argv)[2] : undefined
   // A session receipt's tag wins; else the caller's own `dsh-sim:` tag (simulation setup and verification).
-  // The receipt takes the line's own start and duration when a line is written.
+  // The receipt takes the call's own start and duration when its output is kept.
   const timing: Timing = {}
   return traceInvocation(argv.slice(0, 2).join('.').replaceAll('-', '_'), (tag) => logged(spec, argv, { ...options, tag: tag ?? callerTag(options.tag), timing }),
     argv[0] === 'workspace' ? undefined : target, argv[0] === 'workspace' ? target : undefined,
@@ -460,32 +457,23 @@ function callerTag(tag: string | undefined): string | undefined {
 }
 
 /**
- * Run a call with a `dsh:` tag (the session receipt's, else a host tag); keep
- * its output in `trace/outputs/` and, in stand-in mode, append its call log
- * line, both before answering. Neither ever changes the call's outcome.
+ * Run a call with a `dsh:` tag (the session receipt's, else a host tag) and
+ * keep its output in `trace/outputs/` before answering. Keeping it never
+ * changes the call's outcome.
  */
 async function logged(spec: CliSpec, argv: readonly string[], options: ExecuteOptions): Promise<any> {
-  if (!spec.callLog || !loggable(argv)) return executeRaw(spec, argv, options)
+  if (!spec.outputs || !loggable(argv)) return executeRaw(spec, argv, options)
   const tag = options.tag ?? hostTag(randomUUID().replaceAll('-', ''))
   const capture: Capture = { stdout: outputSink(OUTPUT_MAX, 'head'), stderr: outputSink(OUTPUT_MAX, 'tail') }
   const at = Date.now(), started = performance.now()
-  let result: unknown, error: any, spawned = false
+  let error: any, spawned = false
   const onSpawn = (child: ChildProcess) => { spawned = true; options.onSpawn?.(child) }
-  try { result = await executeRaw(spec, argv, { ...options, tag, capture, onSpawn }); return result } catch (e) { error = e; throw e } finally {
-    // A call refused before the CLI started, or whose syntax it rejected, writes no line (#659 §10).
+  try { return await executeRaw(spec, argv, { ...options, tag, capture, onSpawn }) } catch (e) { error = e; throw e } finally {
+    // A call refused before the CLI started, or whose syntax it rejected, has no line (#659 §10).
     const ran = spawned && (!error || !['unavailable', 'usage-incompatible'].includes(error?.transport))
     if (ran) {
-      // The output first, so a page reloading on the new line already sees it.
-      try { saveOutput(outputsDir(spec.callLog), outputRecord({ tag, exit: capture.exit, stdout: capture.stdout, stderr: capture.stderr, refusal: capture.refusal, max: OUTPUT_MAX })) } catch { /* best effort */ }
-      const ms = performance.now() - started
-      if (options.timing) Object.assign(options.timing, { at, ms: Math.max(0, Math.round(ms)) })
-      if (!(spec.nativeLogs ?? await hasNativeLogs(spec.cli))) {
-        appendCall(spec.callLog, callLine({
-          at, ms, argv, input: options.input ?? null, result, tag,
-          outcome: error ? typeof error.code === 'string' && error.code.length <= 64 ? error.code : 'Failed' : 'ok',
-          bools: boolOptions(spec.cli),
-        }))
-      }
+      try { saveOutput(spec.outputs, outputRecord({ tag, exit: capture.exit, stdout: capture.stdout, stderr: capture.stderr, refusal: capture.refusal, max: OUTPUT_MAX })) } catch { /* best effort */ }
+      if (options.timing) Object.assign(options.timing, { at, ms: Math.max(0, Math.round(performance.now() - started)) })
     }
   }
 }
@@ -631,35 +619,6 @@ function tagged(options: ExecuteOptions): NodeJS.ProcessEnv {
 
 const known = new Map<string, Promise<Discovery>>()
 const settled = new Map<string, Discovery>()
-const nativeLogs = new Map<string, Promise<boolean>>()
-const nativeKnown = new Map<string, boolean>()
-
-/** Whether a call table has LayerFS's own call log reader (2.0: `home.log` and `home.clear_log`). */
-export const tableHasLogs = (calls: readonly CallEntry[]): boolean =>
-  calls.some((c) => c.family === 'home' && c.call === 'log') && calls.some((c) => c.family === 'home' && c.call === 'clear_log')
-
-/**
- * Whether the pinned CLI writes LayerFS's own call log: `home log` in
- * its discovered call table (no extra process; cached with the discovery,
- * refreshed when the pin changes). A failed discovery answers false and is
- * retried after a minute.
- */
-export function hasNativeLogs(cli: string): Promise<boolean> {
-  let pending = nativeLogs.get(cli)
-  if (!pending) {
-    pending = discover({ cli }).then((d) => tableHasLogs(d.calls), () => {
-      setTimeout(() => { if (nativeLogs.get(cli) === pending) nativeLogs.delete(cli) }, 60_000).unref()
-      return false
-    })
-    nativeLogs.set(cli, pending)
-    void pending.then((value) => { if (nativeLogs.get(cli) === pending) nativeKnown.set(cli, value) })
-  }
-  return pending
-}
-
-/** {@link hasNativeLogs} without waiting: undefined until it is known. */
-export function knownNativeLogs(cli: string): boolean | undefined { return nativeKnown.get(cli) }
-
 /** The identity (`--version --json`) of an already discovered CLI, without waiting. */
 export function knownIdentity(cli: string): Discovery['identity'] | undefined { return settled.get(cli)?.identity }
 
@@ -675,7 +634,7 @@ export function boolOptions(cli: string): string[] | undefined {
  * @param fresh - forget a cached discovery (after a pin change).
  */
 export function discover(spec: Pick<CliSpec, 'cli'>, fresh = false): Promise<Discovery> {
-  if (fresh) { known.delete(spec.cli); settled.delete(spec.cli); nativeLogs.delete(spec.cli); nativeKnown.delete(spec.cli) }
+  if (fresh) { known.delete(spec.cli); settled.delete(spec.cli) }
   if (!known.has(spec.cli)) {
     const pending = (async () => {
       const s = { cli: spec.cli, home: '' }

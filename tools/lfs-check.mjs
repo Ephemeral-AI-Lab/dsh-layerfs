@@ -1,26 +1,28 @@
 #!/usr/bin/env node
 // LayerFS state before/after a test (docs/specs/backend-e2e-tests.md §3.4): a
-// read-only snapshot of a dev server's PRIVATE LayerFS home and plugin call log,
-// and the difference between two snapshots.
+// read-only snapshot of a dev server's PRIVATE LayerFS home, and the difference
+// between two snapshots, with the calls the dev server made between them (the
+// `dsh`-tagged lines of LayerFS's own call log, `home log`).
 //
 //   node tools/lfs-check.mjs [<dev dir>] [--save <file>] [--diff <before.json>] [--json]
 //
 // <dev dir> defaults to $DSH_LAYERFS_DEV_DIR, else .dev. The home is
 // <dev dir>/layerfs-home (never ~/.layerfs); the pinned CLI is $DSH_LAYERFS_CLI,
 // else the newest runtime installed in ~/.layerfs (scripts/runtime-pin.mjs, read only).
-// Every CLI call made here is a read (`list`, `get`, `doctor`); none is logged in the
-// plugin's call log (that log is written by the dev server's host only).
+// Every CLI call made here is a read (`list`, `get`, `doctor`) without a `dsh` tag, so
+// none of them counts as one of the dev server's calls.
 //
 // snapshot(devDir) → { at, home, machines, stores, projects, sandboxes, workspaces, branches,
 //   mounts, doctor, daemonLogs, calls, errors }
 // diff(before, after) → { failures: [{ kind, message }], notes: [{ kind, message }] }
 import { execFileSync } from 'node:child_process'
-import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { runtimePin } from '../scripts/runtime-pin.mjs'
-import { isWrite } from '../src/shared/logs.ts'
+import { isDshTag, isWrite } from '../src/shared/logs.ts'
+import { lineOfItem } from '../src/host/logs/source.ts'
 
 /** A call-log line is a write unless the Logs page counts it as a read (one rule for both). */
 export const isWriteCall = (argv) => isWrite((argv ?? []).map(String))
@@ -33,8 +35,6 @@ const LOG_ERROR = /\bpanic(?:ked)?\b|\bERROR\b|\bFATAL\b|\bAbort(?:ed)?\b/
  * request `end-session`), i.e. on every ordinary CLI read; reported as a note with the count.
  */
 const LOG_NOTED = [{ re: /^ConnectionFailure \{/, kind: 'ConnectionFailure' }]
-
-const sizeOf = (path) => { try { return statSync(path).size } catch { return null } }
 
 /** The pinned CLI the dev server uses (env, else newest installed runtime; never with the private home's LAYERFS_HOME). */
 export function pinnedCli(env = process.env) {
@@ -53,9 +53,6 @@ export function privateHome(devDir) {
   if (real(home) === real(user) || real(home).startsWith(`${real(user)}/`)) throw new Error(`lfs-check: refusing the user's LayerFS home ${user}`)
   return home
 }
-
-/** The plugin call log (src/host/layerfs/call-log.ts: `<state>/trace/calls.jsonl`; dev state = <dev dir>/layerfs/dsh). */
-export const callLogPath = (devDir) => join(resolve(devDir), 'layerfs', 'dsh', 'trace', 'calls.jsonl')
 
 /** Files named like logs under the home, skipping Workspace mount trees. */
 function daemonLogFiles(home, mounted) {
@@ -159,24 +156,35 @@ export async function snapshot(devDir, { cli = pinnedCli(), sandboxDetail = true
   }))
   const daemonLogs = {}
   for (const file of daemonLogFiles(home, mountPoints)) daemonLogs[file] = scanLog(file)
-  const logPath = callLogPath(devDir)
-  const calls = { path: logPath, size: sizeOf(logPath) ?? 0, rotated: sizeOf(join(logPath, '..', 'calls.1.jsonl')) }
+  const calls = { at: Date.now() }
   return { at: Date.now(), home, cli, machines, stores, projects, sandboxes, workspaces, branches, mounts, doctor, daemonLogs, calls, errors }
 }
 
-/** Call-log lines written after `before` (reads from the start when the log was reset or rotated). */
+/**
+ * The dev server's calls between two snapshots, oldest first: the lines of LayerFS's own
+ * call log (`home log --detail`, newest first, paged) with a `dsh` tag, logged from
+ * `before.calls.at` to `after.calls.at`. `home log` is quiet: reading it adds no line.
+ */
 export function callsSince(before, after) {
-  const path = after.calls.path
-  const size = sizeOf(path) ?? 0
-  const start = size >= before.calls.size && after.calls.rotated === before.calls.rotated ? before.calls.size : 0
-  const end = Math.max(after.calls.size, start)
-  if (end <= start) return []
-  const fd = openSync(path, 'r')
-  try {
-    const buf = Buffer.alloc(end - start)
-    readSync(fd, buf, 0, buf.length, start)
-    return buf.toString('utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l) } catch { return { malformed: l.slice(0, 200) } } })
-  } finally { closeSync(fd) }
+  const env = { ...process.env, LAYERFS_HOME: after.home }
+  delete env.LAYERFS_LOGS_TAG
+  const from = before.calls?.at ?? 0, to = after.calls?.at ?? Date.now()
+  const out = []
+  let cursor = null
+  for (let page = 0; page < 100; page++) {
+    const text = execFileSync(after.cli, ['home', 'log', '--detail', '--limit', '1000', ...(cursor ? ['--cursor', cursor] : [])], { env, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] })
+    const answer = JSON.parse(text)
+    let older = false
+    for (const item of answer?.items ?? []) {
+      const line = lineOfItem(item)
+      if (!line) { out.push({ malformed: JSON.stringify(item).slice(0, 200) }); continue }
+      if (line.at < from) { older = true; continue }
+      if (line.at <= to && isDshTag(line.tag)) out.push(line)
+    }
+    cursor = typeof answer?.next_cursor === 'string' && answer.next_cursor ? answer.next_cursor : null
+    if (older || !cursor) break
+  }
+  return out.reverse()
 }
 
 const keysAdded = (a, b) => Object.keys(b ?? {}).filter((k) => !(k in (a ?? {})))
@@ -283,7 +291,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
       console.log(`stores ${Object.keys(snap.stores).length} · projects ${Object.keys(snap.projects).length} · sandboxes ${Object.keys(snap.sandboxes).length} · workspaces ${Object.keys(snap.workspaces).length} · branches ${Object.values(snap.branches).reduce((n, b) => n + b.length, 0)} · mounts ${snap.mounts.length}`)
       console.log(`doctor ${snap.doctor.length} finding(s): ${snap.doctor.map((f) => f.severity).join(', ') || 'none'}`)
       console.log(`daemon logs ${Object.keys(snap.daemonLogs).length}: ${Object.values(snap.daemonLogs).reduce((n, l) => n + Object.values(l.errors).reduce((a, b) => a + b, 0), 0)} error line(s)`)
-      console.log(`call log ${snap.calls.path} (${snap.calls.size} bytes)`)
+      console.log(`call log read at ${new Date(snap.calls.at).toISOString()}`)
       if (snap.errors.length) console.log(`CLI errors:\n${snap.errors.map((e) => `  ${e.argv}: ${e.code ?? e.status} ${e.message}`).join('\n')}`)
     }
   }

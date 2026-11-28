@@ -10,9 +10,9 @@ import { createHash, randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
-import { isWrite, OUTPUT_MAX, operationOf, type CallLine, type CallOutput, type SimulationStep } from '../../shared/logs.ts'
-import { appendCallLine, makeReceipt, renderCall, ROTATE_BYTES, savedFields } from './call-log.ts'
-import { DEFAULT_BOUNDS, RAW_DIR, outputName, outputRecord, outputsDir, outputSink, writeOutput, type OutputBounds } from './call-output.ts'
+import { isWrite, operationOf, type CallLine, type CallOutput, type SimulationStep } from '../../shared/logs.ts'
+import { makeReceipt, renderCall, savedFields } from './call-words.ts'
+import { RAW_DIR } from './call-output.ts'
 import { displayKind, RECEIPT_META_FIELD, receiptAggregateLines, versionEffect, type ReceiptMeta } from '../../shared/trajectory.ts'
 export { receiptAggregateLines, RECEIPT_META_FIELD, type ReadCount, type ReceiptMeta } from '../../shared/trajectory.ts'
 
@@ -61,9 +61,8 @@ export interface TraceContext extends TraceIdentity {
   /**
    * Fold a successful host read into the session's receipt counter instead of
    * `record`ing it (see {@link receiptDisposition}). Persistence implements it
-   * (one counter per session, in the sidecar metadata); without it the counter
-   * is still kept in this process, so a dropped observation is never lost
-   * silently, but it does not survive a reload.
+   * (one counter per session, in the sidecar metadata); without it the read is
+   * not counted.
    */
   aggregate?: (invocation: Invocation) => void | Promise<void>
   onError?: (error: unknown) => void
@@ -237,12 +236,9 @@ export function receiptFromLine(line: CallLine, identity: TraceIdentity, id: str
  *
  * The policy here records a call only when it is history — a mutation, any
  * refusal or unknown outcome, or an agent command — and folds the observation
- * into a per-session counter kept in the sidecar metadata. Compatibility is
- * one-way and idempotent: a legacy sidecar still loads as it is, and its first
- * write folds every read-only receipt into the counter (see
- * {@link compactInvocations}); the aggregate remembers the last receipt it
- * folded ({@link ReceiptMeta.foldedThrough}), so a migration interrupted after
- * the metadata landed never counts a receipt twice.
+ * into a per-session counter kept in the sidecar metadata (see
+ * {@link receiptDisposition}); {@link compactInvocations} only trims the oldest
+ * receipts past the cap.
  *
  * "Agent command" is a receipt's *producer*, not its async context: a receipt
  * built from a tool's tagged call-log line ({@link receiptFromLine}, the agent's
@@ -276,7 +272,6 @@ function normalizeMeta(raw: unknown, cap: number): ReceiptMeta {
   meta.truncated = raw.truncated === true || meta.dropped > 0
   if (Number.isFinite(raw.firstAt)) meta.firstAt = raw.firstAt
   if (Number.isFinite(raw.lastAt)) meta.lastAt = raw.lastAt
-  if (typeof raw.foldedThrough === 'string' && raw.foldedThrough) meta.foldedThrough = raw.foldedThrough
   if (isRecord(raw.reads)) {
     for (const [operation, value] of Object.entries(raw.reads)) {
       if (!operation || !isRecord(value) || !isCount(value.count) || value.count < 1) continue
@@ -290,9 +285,6 @@ function normalizeMeta(raw: unknown, cap: number): ReceiptMeta {
   }
   return meta
 }
-
-/** A receipt's start, as `at` when the writer recorded one. */
-const receiptAt = (receipt: any): number => Number.isFinite(receipt?.at) ? receipt.at : 0
 
 /**
  * Fold one observation into a counter. With `count: true` it is a successful
@@ -377,141 +369,35 @@ export function receiptDisposition(receipt: Pick<Invocation, 'operation' | 'outc
   return readOnlyOperation(receipt.operation, receipt.argv) ? 'aggregate' : 'keep'
 }
 
-/** Whether a stored/legacy receipt is a successful read-only call to fold, never a write or a refusal. */
-function observableRead(receipt: any): boolean {
-  if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt)) return false
-  if (receipt.outcome !== 'success') return false
-  if (Array.isArray(receipt.versions) && receipt.versions.length > 0) return false
-  const operation = typeof receipt.operation === 'string' ? receipt.operation : ''
-  if (!operation || historyOperation(operation)) return false
-  const argv = Array.isArray(receipt.argv) ? receipt.argv.filter((word: unknown) => typeof word === 'string') : undefined
-  return readOnlyOperation(operation, argv)
-}
-
-/** One compaction's result: the new counter, the receipts kept, and what moved. */
+/** One compaction's result: the counter, the receipts kept, and what moved. */
 export interface ReceiptCompaction {
   meta: ReceiptMeta
-  /** Receipts kept, in their original order (reads folded, the oldest trimmed past the cap). */
+  /** Receipts kept, in their original order (the oldest trimmed past the cap). */
   invocations: any[]
   /** Receipt objects the compaction saw. */
   before: number
   /** Receipts kept. */
   after: number
-  /** Read-only receipts folded by this run. */
-  folded: number
   /** Receipts this run trimmed past the cap. */
   dropped: number
 }
 
 /**
- * Fold every successful read-only receipt into `meta` and keep the rest, oldest
- * trimmed past the cap. Pure: the caller writes both halves. Idempotent — a
- * second run over the result folds nothing and keeps the same receipts — and
- * safe to retry after a crash between writing the metadata and the receipts:
- * `meta.foldedThrough` names the last receipt already counted, so a second run
- * skips (and drops) the rows up to it instead of counting them again.
+ * Keep a session's receipts within the cap: the oldest past it are trimmed and
+ * counted in `meta.dropped`. Pure: the caller writes both halves. Reads were
+ * already folded into the counter when they were made ({@link receiptDisposition}),
+ * so every receipt here is history and none is folded again.
  */
 export function compactInvocations(meta: unknown, invocations: readonly unknown[], options: { cap?: number } = {}): ReceiptCompaction {
   const next = normalizeMeta(meta, options.cap ?? RECEIPT_CAP)
   const cap = options.cap ?? next.cap
-  const rows = invocations.filter((row): row is any => !!row && typeof row === 'object' && !Array.isArray(row))
-  const through = next.foldedThrough
-  const throughAt = through ? rows.findIndex((row) => row?.id === through) : -1
-  const kept: any[] = []
-  let folded = 0
-  rows.forEach((row, index) => {
-    if (!observableRead(row)) { kept.push(row); return }
-    // A row at or before the retry watermark was folded by the interrupted run.
-    if (throughAt < 0 || index > throughAt) {
-      noteRead(next, { operation: row.operation, at: receiptAt(row), outcome: 'success' })
-      if (typeof row.id === 'string' && row.id) next.foldedThrough = row.id
-      folded++
-    }
-  })
+  const kept = invocations.filter((row): row is any => !!row && typeof row === 'object' && !Array.isArray(row))
+  const before = kept.length
   next.cap = cap
   let dropped = 0
   if (kept.length > cap) { dropped = kept.length - cap; kept.splice(0, dropped) }
   if (dropped > 0) { next.dropped += dropped; next.truncated = true }
-  return { meta: next, invocations: kept, before: rows.length, after: kept.length, folded, dropped }
-}
-
-/** What a sidecar file compaction measured and changed. */
-export interface SidecarCompaction extends ReceiptCompaction {
-  path: string
-  /** File sizes before and after; equal when the file was already compact. */
-  bytes: { before: number, after: number }
-}
-
-/**
- * Compact one session's sidecar on disk: fold its read-only receipts into the
- * `receipts` metadata, keep the written history, trim the oldest past the cap,
- * and write the result atomically (the original is kept once as `.bak`). This
- * is the migration an existing sidecar gets on its next write: after it, a list
- * or trajectory read parses kilobytes, not tens of megabytes. A second call
- * finds nothing to fold and rewrites nothing.
- */
-export function compactSidecarFile(path: string, options: { cap?: number, backup?: boolean } = {}): SidecarCompaction | undefined {
-  if (!existsSync(path)) return undefined
-  const text = readFileSync(path, 'utf8')
-  let raw: any
-  try { raw = JSON.parse(text) } catch { return undefined }
-  if (!isRecord(raw)) return undefined
-  if (!Array.isArray(raw.invocations)) return undefined
-  const compaction = compactInvocations(raw[RECEIPT_META], raw.invocations, options)
-  const next: any = { ...raw, [RECEIPT_META]: compaction.meta, invocations: compaction.invocations }
-  const out = `${JSON.stringify(next, null, 2)}\n`
-  const before = Buffer.byteLength(text), after = Buffer.byteLength(out)
-  if (out !== text) {
-    if (options.backup !== false && !existsSync(`${path}.bak`)) writeFileSync(`${path}.bak`, text, { mode: 0o600 })
-    const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`
-    writeFileSync(tmp, out, { mode: 0o600 })
-    renameSync(tmp, path)
-  }
-  return { ...compaction, path, bytes: { before, after } }
-}
-
-/**
- * An in-process counter sink for a trace context that provides no `aggregate`
- * of its own. It only reaches calls that share this module instance: the
- * persistence plugin runs as a separate bundle with its own copy of this file,
- * so production contexts (`hostOperation` and the tool-call hook) hand their
- * folded reads to `aggregateInvocation` explicitly through the context, and a
- * registration made by another bundle could not reach them.
- */
-type ReceiptAggregate = (invocation: Invocation) => void | Promise<void>
-let registeredAggregate: ReceiptAggregate | undefined
-/** Register (or clear) the in-process counter sink; a trace context's own `aggregate` wins. */
-export function setReceiptAggregate(aggregate: ReceiptAggregate | undefined): void { registeredAggregate = aggregate }
-
-/** In-process counters for sessions whose persistence has not adopted {@link compactSidecarFile} yet. */
-const READ_AGGREGATES = new Map<string, ReceiptMeta>()
-/** Sessions kept hot; a counter is tiny, the map still must not grow forever. */
-const READ_AGGREGATE_SESSIONS = 256
-
-/** The live counter of one session, when a policy dropped a read this process (tests and the inspector). */
-export function aggregatedReads(sessionId: string): ReceiptMeta | undefined {
-  return READ_AGGREGATES.get(sessionId)
-}
-
-/** Forget the live counters: one session, or every one (test isolation). */
-export function resetAggregatedReads(sessionId?: string): void {
-  if (sessionId === undefined) READ_AGGREGATES.clear()
-  else READ_AGGREGATES.delete(sessionId)
-}
-
-/** Fold a dropped host read (or note a recorded read refusal) into the session's live counter. */
-function aggregateRead(sessionId: string, receipt: Invocation): void {
-  let meta = READ_AGGREGATES.get(sessionId)
-  if (!meta) {
-    meta = emptyReceiptMeta()
-    READ_AGGREGATES.set(sessionId, meta)
-    while (READ_AGGREGATES.size > READ_AGGREGATE_SESSIONS) {
-      const oldest = READ_AGGREGATES.keys().next().value
-      if (oldest === undefined) break
-      READ_AGGREGATES.delete(oldest)
-    }
-  }
-  noteRead(meta, { operation: receipt.operation, at: receipt.at ?? 0, outcome: receipt.outcome }, { count: receipt.outcome === 'success' })
+  return { meta: next, invocations: kept, before, after: kept.length, dropped }
 }
 
 /** The call an SDK invocation makes, for its receipt (computed only inside a trace context). */
@@ -551,9 +437,8 @@ export async function traceInvocation<T>(operation: string, run: (tag?: string) 
     // History first: a mutation, any refusal/unknown, and every agent command get
     // their receipt. A successful host read is observation: it folds into the
     // session's counter, so 31,597 polls cost 31,597 increments, not 31,597 rows.
-    const aggregate = trace.aggregate ?? registeredAggregate
+    const aggregate = trace.aggregate
     if (receiptDisposition(receipt, 'host') === 'aggregate') {
-      aggregateRead(trace.sessionId, receipt)
       if (aggregate) {
         try { await aggregate(receipt) } catch (aggregateError) { trace.onError?.(aggregateError) }
       }
@@ -561,7 +446,6 @@ export async function traceInvocation<T>(operation: string, run: (tag?: string) 
       // A refused read is history (its receipt follows) and also moves the
       // counter's last outcome, so the aggregate line stays truthful.
       if (receipt.outcome !== 'success' && readOnlyOperation(receipt.operation, receipt.argv)) {
-        aggregateRead(trace.sessionId, receipt)
         if (aggregate) {
           try { await aggregate(receipt) } catch (aggregateError) { trace.onError?.(aggregateError) }
         }
@@ -593,140 +477,34 @@ export function mergeInvocations(local: unknown, incoming: unknown): any[] {
 /** Only serializable provenance crosses into a shell. No shared current-tool variable. */
 export function traceEnvironment(identity: TraceIdentity): string { return JSON.stringify(identity) }
 
-/** Calls whose content travels on stdin (`content`/`json` arguments), for the stand-in's `<N bytes>`. */
-export const CONTENT_CALLS = ['file.write', 'file.apply', 'project.storage_report', 'store.storage_report']
-
 export interface ManagedCliOptions {
   root: string; cli: string; home: string; bundle?: string | null; cacheHome?: string | null
-  /** The stand-in call log; without it (or with `native`) the wrapper writes no line. */
-  callLog?: string | null
-  /** The pinned CLI writes its own call log (#659): only set the tag. */
-  native?: boolean
-  /** Bool option names from the call table (rendering only). */
-  bools?: readonly string[]
-  /** `family.call` names whose content travels on stdin. */
-  content?: readonly string[]
-  /** Stand-in rotation threshold (tests). */
-  rotateBytes?: number
-  /** Output store bounds (tests). */
-  outputBounds?: OutputBounds
+  /** `<state>/trace/outputs`: a tagged call's output goes to its `raw/`; without it outputs are not kept. */
+  outputs?: string | null
 }
 
 /**
- * Generate the managed CLI. It forwards stdin/stdout/stderr, exit status and
- * signals; sets `LAYERFS_LOGS_TAG` from the shell's `DSH_LAYERFS_TRACE_CONTEXT`
- * with a new receipt id per invocation (removing an inherited tag otherwise);
- * for a tagged call, tees the child's stdout/stderr into bounded buffers (still
- * passing every byte through, with backpressure) and writes the call's output
- * to `trace/outputs/` on close, in both modes; and, in stand-in mode, appends
- * the call log line itself. Bypassing this entry point is outside capture coverage.
+ * Generate the managed CLI, `<root>/bin/layerfs`: a bash script ({@link nativeWrapper})
+ * that sets `LAYERFS_LOGS_TAG` from the shell's `DSH_LAYERFS_TRACE_CONTEXT` with a
+ * new receipt id per invocation (removing an inherited tag otherwise) and keeps a
+ * tagged call's output in `trace/outputs/raw/`. LayerFS writes the call log line
+ * itself. Bypassing this entry point is outside capture coverage.
  */
 export function managedCli(options: ManagedCliOptions): string {
   const file = join(options.root, 'bin', 'layerfs')
-  const implementation = `${file}.mjs`
   const pinned = canonicalPath(options.cli)
   // Never overwrite or recursively invoke the pin, even through a symlinked
   // root, output directory, CLI alias, or existing hardlink. Refuse before writes.
-  for (const output of [file, implementation]) {
-    const samePath = canonicalPath(output) === pinned
-    const sameInode = existsSync(options.cli) && existsSync(output) && (() => {
-      const source = statSync(options.cli), destination = statSync(output)
-      return source.dev === destination.dev && source.ino === destination.ino
-    })()
-    if (samePath || sameInode) throw new Error('Managed CLI self-reference: select the installed LayerFS binary instead of the managed CLI entry point')
-  }
-  const standIn = !!options.callLog && !options.native
-  const outputs = options.callLog ? outputsDir(options.callLog) : null
+  const samePath = canonicalPath(file) === pinned
+  const sameInode = existsSync(options.cli) && existsSync(file) && (() => {
+    const source = statSync(options.cli), destination = statSync(file)
+    return source.dev === destination.dev && source.ino === destination.ino
+  })()
+  if (samePath || sameInode) throw new Error('Managed CLI self-reference: select the installed LayerFS binary instead of the managed CLI entry point')
+  const outputs = options.outputs ?? null
   mkdirSync(join(options.root, 'bin'), { recursive: true })
-  if (options.callLog) mkdirSync(dirname(options.callLog), { recursive: true, mode: 0o700 })
-  if (options.native) {
-    // LayerFS writes the line: no node per call (about 45 ms each), only bash.
-    writeIfChanged(file, nativeWrapper({ cli: options.cli, home: options.home, bundle: options.bundle ?? null, cacheHome: options.cacheHome ?? null, raw: outputs ? join(outputs, RAW_DIR) : null }))
-    chmodSync(file, 0o700)
-    return file
-  }
-  const config = {
-    cli: options.cli, home: options.home, bundle: options.bundle ?? null, cacheHome: options.cacheHome ?? null,
-    callLog: standIn ? options.callLog : null, bools: options.bools ?? [], content: options.content ?? CONTENT_CALLS, rotate: options.rotateBytes ?? ROTATE_BYTES,
-    outputs, max: OUTPUT_MAX, bounds: options.outputBounds ?? DEFAULT_BOUNDS,
-  }
-  const prelude = [
-    `#!${process.execPath}`,
-    `import {spawn} from 'node:child_process';`,
-    `import * as fs from 'node:fs';`,
-    `import {randomUUID,createHash} from 'node:crypto';`,
-    `const makeReceipt = ${makeReceipt.toString()};`,
-    `const config=${JSON.stringify(config)};`,
-    `let identity; try { identity=JSON.parse(process.env.DSH_LAYERFS_TRACE_CONTEXT || 'null') } catch {}`,
-    `const argv=process.argv.slice(2);`,
-    `const receipt=identity&&typeof identity.sessionId==='string'&&identity.sessionId?makeReceipt(identity.sessionId,typeof identity.scope==='string'&&/^[a-f0-9]{1,16}$/.test(identity.scope)?identity.scope:undefined,randomUUID().replaceAll('-','')):undefined;`,
-    `const env={...process.env,LAYERFS_HOME:config.home,...(config.bundle?{LAYERFS_BUNDLE:config.bundle}:{}),...(config.cacheHome?{XDG_CACHE_HOME:config.cacheHome}:{})};`,
-    `delete env.LAYERFS_LOGS_TAG; if(receipt&&receipt.tag)env.LAYERFS_LOGS_TAG=receipt.tag;`,
-    `const finish=(code,signal)=>{if(signal){process.removeAllListeners(signal);process.kill(process.pid,signal)}else process.exitCode=code??1};`,
-    `const logged=argv.length>=2&&/^[a-z][a-z_]*$/.test(argv[0])&&/^[a-z][a-z_-]*$/.test(argv[1])&&argv[0]!=='help'&&argv[0]!=='logs';`,
-    `const capture=!!(config.outputs&&logged&&receipt&&receipt.tag);`,
-  ]
-  const passthrough = [
-    `const child=spawn(config.cli,argv,{stdio:'inherit',env});`,
-    `for(const signal of ['SIGINT','SIGTERM','SIGHUP'])process.on(signal,()=>child.kill(signal));`,
-    `child.on('error',()=>{process.stderr.write('The LayerFS CLI could not be started\\n');process.exitCode=127});`,
-    `child.on('close',finish);`,
-  ]
-  // Piped: a stand-in line or a tagged call's output needs the child's streams.
-  const piping = [
-    `const renderCall = ${renderCall.toString()};`,
-    `const savedFields = ${savedFields.toString()};`,
-    `const appendCallLine = ${appendCallLine.toString()};`,
-    `const outputSink = ${outputSink.toString()};`,
-    `const outputRecord = ${outputRecord.toString()};`,
-    `const outputName = ${outputName.toString()};`,
-    `const writeOutput = ${writeOutput.toString()};`,
-    `const operation=(argv[0]??'')+'.'+(argv[1]??'').replaceAll('-','_');`,
-    // 2.0 `workspace exec` exits with the command's own code (125 with a refusal JSON on
-    // stderr means LayerFS refused; 125 with a result and no refusal is the command's own):
-    // a non-zero exit is the command's result, not an
-    // unknown outcome; the line keeps it as `kind: "exit:<code>"` (FIX-LOG F13). With `--stream`
-    // stdout is the command's own output, not the result JSON.
-    `const execCall=operation==='workspace.exec',streamedExec=execCall&&argv.includes('--stream');`,
-    `const piped=logged&&config.content.includes(operation)&&!argv.some(word=>word==='--from'||word.startsWith('--from='));`,
-    `const at=Date.now(),started=performance.now();`,
-    `let stdout='',stderr='',overflow=false,spawnError=false,inputBytes=0;`,
-    `const sinks=capture?{stdout:outputSink(config.max,'head'),stderr:outputSink(config.max,'tail')}:undefined;`,
-    `const child=spawn(config.cli,argv,{stdio:[piped?'pipe':'inherit','pipe','pipe'],env});`,
-    `if(piped){child.stdin.on('error',()=>{});process.stdin.on('data',chunk=>{inputBytes+=chunk.length;if(!child.stdin.write(chunk))process.stdin.pause()});child.stdin.on('drain',()=>process.stdin.resume());process.stdin.on('end',()=>child.stdin.end());process.stdin.on('error',()=>child.stdin.end())}`,
-    `child.stdout.on('data',chunk=>{if(!process.stdout.write(chunk))child.stdout.pause();if(sinks)sinks.stdout.push(chunk);if(!config.callLog)return;if(stdout.length+chunk.length<4194304)stdout+=chunk.toString();else overflow=true});`,
-    `process.stdout.on('drain',()=>child.stdout.resume());`,
-    `child.stderr.on('data',chunk=>{if(!process.stderr.write(chunk))child.stderr.pause();if(sinks)sinks.stderr.push(chunk);if(stderr.length<65536)stderr+=chunk.toString()});`,
-    `process.stderr.on('drain',()=>child.stderr.resume());`,
-    `for(const signal of ['SIGINT','SIGTERM','SIGHUP'])process.on(signal,()=>child.kill(signal));`,
-    `child.on('error',()=>{spawnError=true;process.stderr.write('The LayerFS CLI could not be started\\n');process.exitCode=127});`,
-    `child.on('close',(code,signal)=>{`,
-    ` if(piped)process.stdin.destroy();`,
-    ` if(spawnError){process.exitCode=127;return}`,
-    ` if(logged&&(code!==2||execCall)&&(capture||config.callLog)){`,
-    `  let result,valid=false,refusal;`,
-    `  if(config.callLog&&!overflow&&!streamedExec)try{const frames=stdout.trim().split('\\n').filter(Boolean).map(line=>JSON.parse(line));`,
-    `   if(frames.length===1){result=frames[0];valid=true}`,
-    `  }catch{}`,
-    `  if(!refusal)for(const line of stderr.trim().split('\\n').reverse()){try{const frame=JSON.parse(line);if(frame&&typeof frame.error==='string'){refusal=frame;break}}catch{}}`,
-    // The output first, so a page reloading on the new line already sees it.
-    `  if(capture)writeOutput(fs,config.outputs,outputName(createHash,receipt.tag),outputRecord({tag:receipt.tag,exit:signal?null:code,stdout:sinks.stdout,stderr:sinks.stderr,refusal,max:config.max}),config.bounds);`,
-    `  if(config.callLog){`,
-    `   const own125=execCall&&code===125&&!refusal&&(streamedExec||(valid&&result&&result.exit_code===125));`,
-    `   const outcome=signal?'Unknown':code===125&&!own125?((c=>typeof c==='string'&&c.length<=64?c:'Failed')(refusal&&(typeof refusal.error==='string'?refusal.error:refusal.code))):code===0||execCall?'ok':'Unknown';`,
-    `   const words=renderCall(argv,piped?inputBytes:null,config.bools);`,
-    `   appendCallLine(fs,config.callLog,{v:1,at,ms:Math.max(0,Math.round(performance.now()-started)),client:'cli',argv:words,outcome,...(outcome==='ok'&&execCall?{kind:'exit:'+code}:outcome==='ok'&&valid?savedFields(words,result):{}),...(receipt&&receipt.tag?{tag:receipt.tag}:{})},config.rotate);`,
-    `  }`,
-    ` }`,
-    ` finish(code,signal);`,
-    `});`,
-  ]
-  // Native mode spawns and pipes too (never exec) whenever the call is tagged, to capture it.
-  const body = [...prelude, `if(config.callLog||capture){`, ...piping, `}else{`, ...passthrough, `}`, ''].join('\n')
-  // A .mjs implementation preserves the invoked command's stdin (no heredoc).
-  const script = `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(implementation)} "$@"\n`
-  writeIfChanged(implementation, body)
-  writeIfChanged(file, script)
+  if (outputs) mkdirSync(outputs, { recursive: true, mode: 0o700 })
+  writeIfChanged(file, nativeWrapper({ cli: options.cli, home: options.home, bundle: options.bundle ?? null, cacheHome: options.cacheHome ?? null, raw: outputs ? join(outputs, RAW_DIR) : null }))
   chmodSync(file, 0o700)
   return file
 }
@@ -739,9 +517,8 @@ function writeIfChanged(path: string, text: string): void {
 }
 
 /**
- * The managed CLI when LayerFS writes its own call log (#659): a bash script,
- * since starting node for every call cost about 45 ms. Like the node wrapper
- * it sets `LAYERFS_LOGS_TAG` to `dsh:<sessionId>:<scope>.<random>` (the
+ * The managed CLI's text: a bash script, since starting node for every call
+ * cost about 45 ms. It sets `LAYERFS_LOGS_TAG` to `dsh:<sessionId>:<scope>.<random>` (the
  * `makeReceipt` shape) from `DSH_LAYERFS_TRACE_CONTEXT`, removing an inherited
  * tag otherwise, and keeps a tagged call's output: stdout and stderr are teed
  * to `raw/<tag>.out` and `.err` while passing through, and the exit code goes
@@ -752,7 +529,7 @@ function writeIfChanged(path: string, text: string): void {
 export function nativeWrapper(o: { cli: string, home: string, bundle: string | null, cacheHome: string | null, raw: string | null }): string {
   return [
     '#!/bin/bash',
-    '# dsh-layerfs managed LayerFS CLI (native call log). Generated; do not edit.',
+    '# dsh-layerfs managed LayerFS CLI. Generated; do not edit.',
     'umask 077',
     `export LAYERFS_HOME=${shellQuote(o.home)}`,
     ...(o.bundle ? [`export LAYERFS_BUNDLE=${shellQuote(o.bundle)}`] : []),

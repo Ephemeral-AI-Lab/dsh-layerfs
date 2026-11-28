@@ -220,7 +220,7 @@ test('sessions.list returns while the walk is still reading manifests, then the 
   const f = sessions({ state: S.initialState() })
   const ops = {}
   const ctx = {
-    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs, emit: (type, data) => events.push({ type, data }), callLog: {} },
+    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs, emit: (type, data) => events.push({ type, data }), outputs: '/lfs-root/trace/outputs' },
     layerfsSessions: f.s,
     layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
     plugin() {}, inject: (deps, callback) => { if (deps.includes('layerfsSessions')) callback(ctx) }, on() {}, effect() {},

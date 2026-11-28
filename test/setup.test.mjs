@@ -107,7 +107,7 @@ function fakeCli(dir, { homeGetFails = false, slowGetMs = 0, recorded = null }) 
   const required = ['project.init', 'project.list', 'project.get', 'project.export', 'branch.fork', 'branch.list', 'commit.list', 'commit.diff',
     'file.read', 'file.list', 'file.apply', 'sandbox.create', 'sandbox.list', 'sandbox.get', 'sandbox.remove',
     'workspace.mount', 'workspace.commit', 'workspace.status', 'workspace.unmount', 'workspace.exec', 'workspace.cancel',
-    'machine.list', 'store.list', 'store.get', 'store.create', 'machine.get', 'machine.update', 'home.get', 'home.init']
+    'machine.list', 'store.list', 'store.get', 'store.create', 'machine.get', 'machine.update', 'home.get', 'home.log', 'home.clear_log', 'home.init']
   const calls = required.map((n) => ({ family: n.split('.')[0], call: n.split('.')[1], args: n === 'machine.get' || n === 'machine.update' ? [{ name: 'name', kind: 'text' }] : [], options: [], ...(n === 'home.get' ? { form: { with: { platforms: {}, tree: {} } } } : {}) }))
   const cli = join(dir, 'layerfs')
   writeFileSync(cli, `#!/usr/bin/env node

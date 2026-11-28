@@ -174,7 +174,7 @@ export class SimulationRuntime {
     try {
       await this.ctx.layerfs.ensureHostDaemon()
       for (const step of run.plan.steps.filter(step => step.phase === 'setup')) {
-        await run.execution.execute(step.key, { origin: 'host', runId: run.manifest.runId }, (argv, definition, executionSignal) => execute({ cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome, callLog: this.ctx.layerfs.callLog, gate: this.ctx.layerfs.lfs.spec.gate }, argv, { input: definition.input, tag: `dsh-sim:${run.manifest.runId}:${step.key}`, beforeSpawn: () => executionSignal.throwIfAborted(), onSpawn: child => {
+        await run.execution.execute(step.key, { origin: 'host', runId: run.manifest.runId }, (argv, definition, executionSignal) => execute({ cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome, outputs: this.ctx.layerfs.outputs, gate: this.ctx.layerfs.lfs.spec.gate }, argv, { input: definition.input, tag: `dsh-sim:${run.manifest.runId}:${step.key}`, beforeSpawn: () => executionSignal.throwIfAborted(), onSpawn: child => {
           const cancel = () => child.kill('SIGTERM')
           executionSignal.addEventListener('abort', cancel, { once: true })
           if (executionSignal.aborted) cancel()
@@ -421,7 +421,7 @@ export class SimulationRuntime {
           const argv = resolveSimulationStep(step, run.journal.receipts, run.directory)
           // A bound session's shell has `$DSH_LAYERFS_CLI` (the same managed, tracing
           // wrapper as agentCli()), as real models are told; else the wrapper's path.
-          const cli = (this.ctx.layerfs.agentCli?.() ?? managedCli({ root: this.ctx.layerfs.state, cli: this.ctx.layerfs.cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome, callLog: this.ctx.layerfs.callLog, gate: this.ctx.layerfs.lfs.spec.gate }))
+          const cli = (this.ctx.layerfs.agentCli?.() ?? managedCli({ root: this.ctx.layerfs.state, cli: this.ctx.layerfs.cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome, outputs: this.ctx.layerfs.outputs, gate: this.ctx.layerfs.lfs.spec.gate }))
           let bound = this.ctx.layerfsSessions?.binding?.(binding.sessionId)
           if (bound?.kind === 'shared' && bound.parent) bound = this.ctx.layerfsSessions.binding(bound.parent) ?? bound
           const command = renderSimulationCommand(step, argv, bound?.state === 'bound' ? SIMULATION_CLI : cli)
@@ -471,7 +471,7 @@ export class SimulationRuntime {
     await Promise.all([...run.bindings.values()].filter(item => item.script.agentId && item.script.conversationId === script.conversationId).map(item => item.agent?.whenIdle()))
     const complete = run.plan.tasks.every(task => task.stepKeys.every(key => Object.hasOwn(run.journal.receipts, key)))
     if (!complete) return
-    if (!run.verification) run.verification = verifySimulation(run.manifest, run.plan, run.journal, argv => run.execution.globalBudget.run(() => execute({ cli: this.ctx.layerfs.cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome, callLog: this.ctx.layerfs.callLog, gate: this.ctx.layerfs.lfs.spec.gate }, argv, { read: true, tag: `dsh-sim:${run.manifest.runId}:verify` })))
+    if (!run.verification) run.verification = verifySimulation(run.manifest, run.plan, run.journal, argv => run.execution.globalBudget.run(() => execute({ cli: this.ctx.layerfs.cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome, outputs: this.ctx.layerfs.outputs, gate: this.ctx.layerfs.lfs.spec.gate }, argv, { read: true, tag: `dsh-sim:${run.manifest.runId}:verify` })))
     await run.verification
   }
   workspaceOfCall(sessionId, callId) {
@@ -504,7 +504,7 @@ export class SimulationRuntime {
         if (argv[0] !== 'workspace' || argv[1] !== 'exec' || cancellation) return
         cancellation = (async () => {
           // 2.0 `workspace cancel <ws>`: every command in the Workspace (a simulation runs one exec per Workspace at a time)
-          const receipt = await execute({ cli: this.ctx.layerfs.cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome, callLog: this.ctx.layerfs.callLog, gate: this.ctx.layerfs.lfs.spec.gate }, ['workspace', 'cancel', argv[2], '--detail'], { timeout: 30000 })
+          const receipt = await execute({ cli: this.ctx.layerfs.cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome, outputs: this.ctx.layerfs.outputs, gate: this.ctx.layerfs.lfs.spec.gate }, ['workspace', 'cancel', argv[2], '--detail'], { timeout: 30000 })
           if (receipt?.unknown === true || !(receipt?.already_ended === true || ['SIGTERM', 'SIGKILL'].includes(receipt?.signal))) throw new Error(`Execution cancellation was not confirmed: ${receipt?.outcome ?? 'missing outcome'}`)
           await binding.run.journal.append({ type: 'execution.cancelled', stepKey: step.key, agentKey: binding.script.agentKey, origin: 'host', receipt })
         })().catch(async error => {

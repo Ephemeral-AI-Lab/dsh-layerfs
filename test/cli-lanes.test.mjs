@@ -396,21 +396,18 @@ test('monitoring reads run once, keep nothing, clear nothing and are not shared'
   await assert.rejects(lfs.machine.get('vm', { signal: new AbortController().signal }), (error) => error.code === 'InvalidInput' && /unknown option signal/.test(error.message))
 })
 
-test('monitoring reads write no call log line and keep no output, in stand-in mode too', { timeout: 20000 }, async () => {
+test('monitoring reads are untagged and keep no output', { timeout: 20000 }, async () => {
   const f = fresh()
-  const callLog = join(f.dir, 'trace', 'calls.jsonl')
-  const lfs = C.client({ cli: f.cli, home: f.home, callLog, nativeLogs: false })
+  const outputs = join(f.dir, 'trace', 'outputs')
+  const lfs = C.client({ cli: f.cli, home: f.home, outputs })
   await lfs.machine.log('vm')
   await lfs.sandbox.log('sb', { cursor: 'c' })
   await lfs.sandbox.files('sb')
   await lfs.machine.files('vm', '/layerfs')
-  assert.equal(existsSync(callLog), false, 'no call log line')
-  assert.equal(existsSync(join(f.dir, 'trace', 'outputs')), false, 'no output kept')
-  // the same client does log an ordinary call
+  assert.equal(existsSync(outputs), false, 'no output kept')
+  // the same client does keep an ordinary call's output
   await lfs.machine.get('vm')
-  const lines = readFileSync(callLog, 'utf8').trim().split('\n').map(JSON.parse)
-  assert.deepEqual(lines.map((l) => l.argv.slice(0, 2)), [['machine', 'get']])
-  assert.equal(existsSync(join(f.dir, 'trace', 'outputs')), true)
+  assert.equal(existsSync(outputs), true)
 })
 
 test('a monitoring read has at most 15 s: a longer budget is cut to it, and running out is Timeout, not Unknown', { timeout: 40000 }, async (t) => {

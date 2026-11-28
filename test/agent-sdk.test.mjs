@@ -1,7 +1,7 @@
 // The LayerFS Node SDK agents import as $DSH_LAYERFS_SDK (src/host/layerfs/agent-sdk.ts):
 // finding an installed SDK by commit, the generated module's families and call shapes,
-// receipt tags, the stand-in call log line (client "node"), output records, native
-// mode's log_tag, and no line for arguments the SDK refuses before calling.
+// receipt tags passed as `log_tag` (LayerFS writes the call log line), output records,
+// and no output for arguments the SDK refuses before calling.
 // A stub @layerfs/node stands in for the real one (no addon needed); test/agent-sdk-live
 // runs the installed SDK when one is present.
 //   node --test test/agent-sdk.test.mjs
@@ -61,7 +61,10 @@ function run(file, script, env = {}) {
   return r.stdout.trim() ? JSON.parse(r.stdout.trim().split('\n').at(-1)) : null
 }
 
-const lines = (callLog) => existsSync(callLog) ? readFileSync(callLog, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []
+const records = (base) => {
+  const dir = join(base, 'trace', 'outputs')
+  return existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(readFileSync(join(dir, f), 'utf8'))) : []
+}
 const trace = (sessionId = 'session-1') => JSON.stringify({ sessionId, scope: 'ab12' })
 
 test('findSdk answers an install only for its own commit', () => {
@@ -74,7 +77,7 @@ test('findSdk answers an install only for its own commit', () => {
 
 test('the module binds the home and addon and exposes the six families only', () => {
   const dir = install(mkdtempSync(join(root, 'bind-'))), base = mkdtempSync(join(root, 'r-'))
-  const file = S.managedSdk({ root: base, sdk: S.findSdk(dir, commit), home: '/home/lfs', callLog: join(base, 'trace', 'calls.jsonl') })
+  const file = S.managedSdk({ root: base, sdk: S.findSdk(dir, commit), home: '/home/lfs', outputs: join(base, 'trace', 'outputs') })
   assert.equal(file, join(base, 'bin', 'sdk.mjs'))
   const out = run(file, `const r = await m.default.file.read('s/p', 'work', '/a.js'); console.log(JSON.stringify({ r, keys: Object.keys(m.default).sort(), store: 'store' in m.default, seen: globalThis.__seen, table: m.table.map((t) => t.family) }))`)
   assert.deepEqual(out.r, { kind: 'ok', text: 'hi' })
@@ -85,91 +88,58 @@ test('the module binds the home and addon and exposes the six families only', ()
   assert.equal(out.seen[0].env.addon, join(dir, 'layerfs.node'))
   // Rewriting the same options keeps the file as it is.
   const before = S.sdkDigest(file)
-  S.managedSdk({ root: base, sdk: S.findSdk(dir, commit), home: '/home/lfs', callLog: join(base, 'trace', 'calls.jsonl') })
+  S.managedSdk({ root: base, sdk: S.findSdk(dir, commit), home: '/home/lfs', outputs: join(base, 'trace', 'outputs') })
   assert.equal(S.sdkDigest(file), before)
 })
 
-test('stand-in mode writes one tagged node line per call, and the output record', () => {
-  const dir = install(mkdtempSync(join(root, 'stand-'))), base = mkdtempSync(join(root, 'r-')), callLog = join(base, 'trace', 'calls.jsonl')
-  const file = S.managedSdk({ root: base, sdk: S.findSdk(dir, commit), home: '/h', callLog, bools: ['stream'] })
-  run(file, `
+test('each traced call passes its receipt tag as log_tag and keeps its output record', () => {
+  const dir = install(mkdtempSync(join(root, 'tagged-'))), base = mkdtempSync(join(root, 'r-'))
+  const file = S.managedSdk({ root: base, sdk: S.findSdk(dir, commit), home: '/h', outputs: join(base, 'trace', 'outputs') })
+  const out = run(file, `
     const l = m.default;
     await l.file.write('s/p', 'work', '/notes.md', 'hello', { message: 'secret words' });
     await l.workspace.exec('sb:w', 'npm test --token=abc', { stream: false });
+    await l.file.read('s/p', 'work', '/a.js', { start_line: 2 });
     try { await l.file.read('s/p', 'work', '/missing') } catch (e) { if (e.code !== 'NoSuchPath' || e.name !== 'LayerFSError') throw e }
-    console.log('null')`, { DSH_LAYERFS_TRACE_CONTEXT: trace() })
-  const got = lines(callLog)
-  assert.equal(got.length, 3)
-  for (const line of got) { assert.equal(line.client, 'node'); assert.match(line.tag, /^dsh:session-1:ab12\./) }
-  assert.deepEqual(got[0].argv, ['file', 'write', 's/p', 'work', '/notes.md', '<5 bytes>', '--message', '<12 bytes>'])
-  assert.equal(got[0].outcome, 'ok'); assert.equal(got[0].kind, 'Committed'); assert.equal(got[0].commit, head)
-  assert.deepEqual(got[1].argv, ['workspace', 'exec', 'sb:w', '<20 bytes>'])
-  assert.equal(got[2].outcome, 'NoSuchPath')
-  const outputs = readdirSync(join(base, 'trace', 'outputs')).filter((f) => f.endsWith('.json'))
-  assert.equal(outputs.length, 3)
-  const records = outputs.map((f) => JSON.parse(readFileSync(join(base, 'trace', 'outputs', f), 'utf8')))
-  const refused = records.find((r) => r.exit === 125)
-  assert.ok(refused, 'the refusal has an output record with exit 125')
-  assert.ok(records.some((r) => r.exit === 0 && r.stdout.includes(head)), 'the write\'s record holds its 2.0 answer')
-  assert.ok(records.some((r) => r.exit === 3), 'the exec\'s record exits with the command\'s code')
-})
-
-test('no trace context: lines are untagged and no output record is written', () => {
-  const dir = install(mkdtempSync(join(root, 'untag-'))), base = mkdtempSync(join(root, 'r-')), callLog = join(base, 'trace', 'calls.jsonl')
-  const file = S.managedSdk({ root: base, sdk: S.findSdk(dir, commit), home: '/h', callLog })
-  run(file, `await m.default.file.read('s/p', 'work', '/a.js'); console.log('null')`)
-  const got = lines(callLog)
-  assert.equal(got.length, 1)
-  assert.equal(got[0].tag, undefined)
-  assert.equal(existsSync(join(base, 'trace', 'outputs')), false)
-})
-
-test('arguments the SDK refuses before calling write no line', () => {
-  const dir = install(mkdtempSync(join(root, 'bad-'))), base = mkdtempSync(join(root, 'r-')), callLog = join(base, 'trace', 'calls.jsonl')
-  const file = S.managedSdk({ root: base, sdk: S.findSdk(dir, commit), home: '/h', callLog })
-  run(file, `try { await m.default.file.read('s/p', 'work', '/a.js', { nope: 1 }) } catch (e) { if (e.code !== 'InvalidInput') throw e } console.log('null')`, { DSH_LAYERFS_TRACE_CONTEXT: trace() })
-  assert.deepEqual(lines(callLog), [])
-})
-
-test('native mode passes the tag as log_tag and writes no stand-in line', () => {
-  const dir = install(mkdtempSync(join(root, 'native-'))), base = mkdtempSync(join(root, 'r-')), callLog = join(base, 'trace', 'calls.jsonl')
-  const file = S.managedSdk({ root: base, sdk: S.findSdk(dir, commit), home: '/h', callLog, native: true })
-  const out = run(file, `
-    await m.default.file.read('s/p', 'work', '/a.js');
-    await m.default.file.read('s/p', 'work', '/a.js', { start_line: 2 });
     console.log(JSON.stringify(globalThis.__seen.map((s) => s.given)))`, { DSH_LAYERFS_TRACE_CONTEXT: trace() })
-  assert.match(out[0][3].log_tag, /^dsh:session-1:ab12\./)
-  assert.equal(out[1][3].start_line, 2)
-  assert.match(out[1][3].log_tag, /^dsh:session-1:/)
-  assert.deepEqual(lines(callLog), [])
-  assert.equal(readdirSync(join(base, 'trace', 'outputs')).filter((f) => f.endsWith('.json')).length, 2)
+  const tags = out.map((given) => given.at(-1).log_tag)
+  for (const tag of tags) assert.match(tag, /^dsh:session-1:ab12\./)
+  assert.equal(new Set(tags).size, 4)
+  assert.equal(out[0].at(-1).message, 'secret words'); assert.equal(out[2].at(-1).start_line, 2, 'the caller\'s options stay')
+  const got = records(base)
+  assert.equal(got.length, 4)
+  assert.deepEqual(new Set(got.map((r) => r.tag)), new Set(tags), 'each record is the call\'s tag')
+  assert.ok(got.find((r) => r.exit === 125), 'the refusal has an output record with exit 125')
+  assert.ok(got.some((r) => r.exit === 0 && r.stdout.includes(head)), 'the write\'s record holds its 2.0 answer')
+  assert.ok(got.some((r) => r.exit === 3), 'the exec\'s record exits with the command\'s code')
+})
+
+test('no trace context: no log_tag and no output record', () => {
+  const dir = install(mkdtempSync(join(root, 'untag-'))), base = mkdtempSync(join(root, 'r-'))
+  const file = S.managedSdk({ root: base, sdk: S.findSdk(dir, commit), home: '/h', outputs: join(base, 'trace', 'outputs') })
+  const out = run(file, `await m.default.file.read('s/p', 'work', '/a.js'); console.log(JSON.stringify(globalThis.__seen.map((s) => s.given)))`)
+  assert.deepEqual(out, [['s/p', 'work', '/a.js']])
+  assert.deepEqual(records(base), [])
+})
+
+test('arguments the SDK refuses before calling keep no output', () => {
+  const dir = install(mkdtempSync(join(root, 'bad-'))), base = mkdtempSync(join(root, 'r-'))
+  const file = S.managedSdk({ root: base, sdk: S.findSdk(dir, commit), home: '/h', outputs: join(base, 'trace', 'outputs') })
+  run(file, `try { await m.default.file.read('s/p', 'work', '/a.js', { nope: 1 }) } catch (e) { if (e.code !== 'InvalidInput') throw e } console.log('null')`, { DSH_LAYERFS_TRACE_CONTEXT: trace() })
+  assert.deepEqual(records(base), [])
 })
 
 test('the Stores close when the script ends', () => {
   const dir = install(mkdtempSync(join(root, 'close-'))), base = mkdtempSync(join(root, 'r-'))
-  const file = S.managedSdk({ root: base, sdk: S.findSdk(dir, commit), home: '/h', callLog: null })
+  const file = S.managedSdk({ root: base, sdk: S.findSdk(dir, commit), home: '/h', outputs: null })
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(pathToFileURL(file).href)}); process.on('exit', () => console.log('closed=' + globalThis.__closed))`], { encoding: 'utf8', env: { PATH: process.env.PATH } })
   assert.equal(r.status, 0, r.stderr)
   assert.match(r.stdout, /closed=[1-9]/)
 })
 
-test('an SDK that refuses log_tag falls back to the stand-in line, once', () => {
-  const dir = install(mkdtempSync(join(root, 'notag-'))), base = mkdtempSync(join(root, 'r-')), callLog = join(base, 'trace', 'calls.jsonl')
-  const index = join(dir, 'api', 'node', 'src', 'index.js')
-  writeFileSync(index, readFileSync(index, 'utf8').replace("'stdout', 'log_tag']", "'stdout']"))
-  const file = S.managedSdk({ root: base, sdk: S.findSdk(dir, commit), home: '/h', callLog, native: true })
-  const out = run(file, `
-    const a = await m.default.file.read('s/p', 'work', '/a.js');
-    const b = await m.default.file.read('s/p', 'work', '/b.js');
-    console.log(JSON.stringify({ a, b, calls: globalThis.__seen.length }))`, { DSH_LAYERFS_TRACE_CONTEXT: trace() })
-  assert.equal(out.a.kind, 'ok')
-  assert.equal(out.calls, 3, 'one refused try, then one call each')
-  assert.deepEqual(lines(callLog).map((l) => l.argv[4]), ['/a.js', '/b.js'])
-})
-
 test('a workspace exec output record is its one result JSON, exiting with the command\'s code (2.0)', () => {
-  const dir = install(mkdtempSync(join(root, 'exec-'))), base = mkdtempSync(join(root, 'r-')), callLog = join(base, 'trace', 'calls.jsonl')
-  const file = S.managedSdk({ root: base, sdk: S.findSdk(dir, commit), home: '/h', callLog })
+  const dir = install(mkdtempSync(join(root, 'exec-'))), base = mkdtempSync(join(root, 'r-'))
+  const file = S.managedSdk({ root: base, sdk: S.findSdk(dir, commit), home: '/h', outputs: join(base, 'trace', 'outputs') })
   run(file, `await m.default.workspace.exec('sb:w', 'false'); console.log('null')`, { DSH_LAYERFS_TRACE_CONTEXT: trace() })
   const [name] = readdirSync(join(base, 'trace', 'outputs')).filter((f) => f.endsWith('.json'))
   const record = JSON.parse(readFileSync(join(base, 'trace', 'outputs', name), 'utf8'))

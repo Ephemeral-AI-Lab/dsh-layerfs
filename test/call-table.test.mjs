@@ -227,8 +227,6 @@ const GATED = [
   { site: /^machine\.prune$/, file: 'src/host/routes/machines.ts', gate: /cliFeatures\(this\.host\)\)\.imagePrune\b/, lines: 16 },
   // machine.stop --force: Machines.stop refuses 501 without forceStop
   { site: /^machine\.stop (option force|--force)$/, file: 'src/host/routes/machines.ts', gate: /cliFeatures\(this\.host\)\)\.forceStop\b/, lines: 3 },
-  // the native call log: only when the CLI's table has home.log and home.clear_log (else the stand-in)
-  { site: /^home\.(log|clear_log)$/, file: 'src/host/logs/source.ts', gate: /await layerfs\.nativeLogs\(\)/, lines: 20 },
   // the worker and daemon logs (layerfs-project#178): Machines.machineLog / sandboxLog refuse 501 without the call
   { site: /^machine\.log$/, file: 'src/host/routes/machines.ts', gate: /cliFeatures\(this\.host\)\)\.inspect\.machineLog\b/, lines: 4 },
   { site: /^sandbox\.log$/, file: 'src/host/routes/machines.ts', gate: /cliFeatures\(this\.host\)\)\.inspect\.sandboxLog\b/, lines: 4 },
@@ -332,7 +330,6 @@ test('calls the pinned CLI may lack stay behind their discovery gates', { skip }
   // against the 2.0.0 table (no stop force, no logs family) these are gated sites; Stage 0 makes no machine.images call
   const lacks = (family, call, option) => { const c = help.calls.find((x) => x.family === family && x.call === call); return !c || (option && !c.options.some((o) => o.name === option)) }
   const expected = [lacks('machine', 'stop', 'force') && 'machine.stop option force',
-    lacks('home', 'log') && 'home.log', lacks('home', 'clear_log') && 'home.clear_log',
     lacks('machine', 'log') && 'machine.log', lacks('sandbox', 'log') && 'sandbox.log',
     lacks('sandbox', 'files') && 'sandbox.files', lacks('machine', 'stats') && 'machine.stats',
     lacks('home', 'get') && 'home.get', lacks('home', 'init') && 'home.init'].filter(Boolean)

@@ -271,7 +271,7 @@ test('the annotations op stays metadata-sized on an 83,250-receipt session', asy
   const reads = countingReceiptReads(w)
   const ops = {}
   const ctx = {
-    layerfs: { state: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
+    layerfs: { state: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, outputs: '/lfs-root/trace/outputs' },
     layerfsSessions: {},
     layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
     plugin() {},

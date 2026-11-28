@@ -63,7 +63,7 @@ function harness({ state = S.initialState(), logs = {}, sidecars = {}, loaded = 
   const catalog = { get: (id) => loaded.has(id) ? { id, header: { id }, snapshotEvents: () => logs[id] ?? [] } : undefined }
   const ops = {}
   const ctx = {
-    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit: (type, data) => events.push({ type, data }), callLog: {}, ensureHostDaemon: async () => {} },
+    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit: (type, data) => events.push({ type, data }), outputs: '/lfs-root/trace/outputs', ensureHostDaemon: async () => {} },
     layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
     plugin() {},
     inject: (deps, callback) => { if (deps.includes('layerfsSessions')) callback(ctx) },

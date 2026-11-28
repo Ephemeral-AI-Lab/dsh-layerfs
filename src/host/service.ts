@@ -8,8 +8,9 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync,
 import { spawn } from 'node:child_process'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
-import { boolOptions, CliError, client, discover, execute, hasNativeLogs, knownIdentity, knownNativeLogs, plain, uninitialized, type Discovery, type Lfs } from './layerfs/cli.ts'
+import { CliError, client, discover, execute, knownIdentity, plain, uninitialized, type Discovery, type Lfs } from './layerfs/cli.ts'
 import { managedCli } from './layerfs/tracing.ts'
+import { outputsDir } from './layerfs/call-output.ts'
 import { checkFolder, resolveFolder, writeJson, type FolderSource } from './folder.ts'
 import { HOST_MACHINE, isHostMachine, machineRows } from './layerfs/machine-records.ts'
 import { findSdk, managedSdk } from './layerfs/agent-sdk.ts'
@@ -277,8 +278,8 @@ export class LayerfsService extends Service {
   readonly migratedFrom: string | null
   /** `$DSH_HOME/layerfs.json`: the folder chosen in the setup modal. */
   readonly pointer: string
-  /** The stand-in call log, `<state>/trace/calls.jsonl` (docs/specs/layerfs-logs.md §3). */
-  readonly callLog: string
+  /** `<state>/trace/outputs`: what calls made through DSH printed (docs/specs/layerfs-logs.md "Outputs"). */
+  readonly outputs: string
   readonly projectSessionHome: string
   readonly home: string
   /** The folder entered keys and passwords are saved in (see LayerfsConfig.secrets). */
@@ -325,7 +326,7 @@ export class LayerfsService extends Service {
     this.install = where.install
     this.migratedFrom = where.migratedFrom
     this.pointer = where.pointer
-    this.callLog = join(this.state, 'trace', 'calls.jsonl')
+    this.outputs = outputsDir(this.state)
     this.projectSessionHome = join(this.state, 'sessions')
     this.home = where.home
     this.secrets = abs(config.secrets) ?? abs(process.env.DSH_LAYERFS_SECRETS) ?? join(this.home, 'secret')
@@ -412,14 +413,14 @@ export class LayerfsService extends Service {
     this.hostDaemonRecorded = undefined
     // this host's lease on the runtime folder it pins, so no host's cleanup removes it (only once the plugin runs: never from a test)
     if (this.started) leasePin(this.home, this.state, cli, this.install)
-    // Discover the CLI (identity, call log kind) now, so the first agent shell already gets $DSH_LAYERFS_SDK.
-    if (cli) void hasNativeLogs(cli)
+    // Discover the CLI now, so the first agent shell already gets $DSH_LAYERFS_SDK.
+    if (cli) void discover({ cli }).catch(() => {})
   }
 
   /** The SDK over the pinned CLI. Throws `CliUnavailable` when nothing is pinned. */
   get lfs(): Lfs {
     if (!this.pin.cli) throw new CliError('CliUnavailable', 'No LayerFS runtime is chosen yet. Open Set up LayerFS in Center, or set DSH_LAYERFS_CLI.', null, 'unavailable')
-    return this.sdk ??= client({ cli: this.pin.cli, home: this.home, bundle: this.pin.bundle, cacheHome: this.pin.cacheHome, callLog: this.callLog, gate: (call) => this.gate(call) })
+    return this.sdk ??= client({ cli: this.pin.cli, home: this.home, bundle: this.pin.bundle, cacheHome: this.pin.cacheHome, outputs: this.outputs, gate: (call) => this.gate(call) })
   }
 
   /** The gate's refusal for a folder this LayerFS can't use as it is. */
@@ -681,19 +682,17 @@ export class LayerfsService extends Service {
   }
 
   /**
-   * `<root>/agent-bin/layerfs`, the managed CLI agent shells run (rewritten when
-   * the pin or the call log source changes), or null when nothing is pinned.
+   * `<state>/bin/layerfs`, the managed CLI agent shells run (rewritten when
+   * the pin changes), or null when nothing is pinned.
    */
   agentCli(): string | null {
     const cli = this.pin.cli
     if (!cli) return null
-    const native = knownNativeLogs(cli)
-    if (native === undefined) void hasNativeLogs(cli)
-    return managedCli({ root: this.state, cli, home: this.home, bundle: this.pin.bundle, cacheHome: this.pin.cacheHome, callLog: this.callLog, native: native ?? false, bools: boolOptions(cli) })
+    return managedCli({ root: this.state, cli, home: this.home, bundle: this.pin.bundle, cacheHome: this.pin.cacheHome, outputs: this.outputs })
   }
 
   /**
-   * `<root>/agent-bin/sdk.mjs`, the LayerFS Node SDK agent shells import as
+   * `<state>/bin/sdk.mjs`, the LayerFS Node SDK agent shells import as
    * `$DSH_LAYERFS_SDK`, or null when no SDK built from the pinned CLI's commit is
    * installed (`DSH_LAYERFS_SDK_DIR`, else `.layerfs-sdk/<commit>/` in this
    * package; `scripts/install-sdk.mjs`) or the CLI is not discovered yet.
@@ -705,19 +704,13 @@ export class LayerfsService extends Service {
     if (!commit) { void discover({ cli }).catch(() => {}); return null }
     const sdk = findSdk(this.sdkDir(), commit)
     if (!sdk) return null
-    // As agentCli: until the call log kind is known, the stand-in log (the SDK falls back on its own).
-    const native = knownNativeLogs(cli)
-    if (native === undefined) void hasNativeLogs(cli)
-    return managedSdk({ root: this.state, sdk, home: this.home, bundle: this.pin.bundle, cacheHome: this.pin.cacheHome, callLog: this.callLog, native: native ?? false, bools: boolOptions(cli) })
+    return managedSdk({ root: this.state, sdk, home: this.home, bundle: this.pin.bundle, cacheHome: this.pin.cacheHome, outputs: this.outputs })
   }
 
   /** Where Node SDK installs are looked for (`<dir>/<commit>/`, or `<dir>` itself): `DSH_LAYERFS_SDK_DIR`, else `.layerfs-sdk/` in this package. */
   private sdkDir(): string {
     return process.env.DSH_LAYERFS_SDK_DIR || join(packageRoot(), '.layerfs-sdk')
   }
-
-  /** Whether the pinned CLI keeps LayerFS's own call log (else the plugin's stand-in). */
-  async nativeLogs(): Promise<boolean> { return !!this.pin.cli && await hasNativeLogs(this.pin.cli) }
 
   /** The pinned CLI path, if any. */
   get cli(): string | null { return this.pin.cli }

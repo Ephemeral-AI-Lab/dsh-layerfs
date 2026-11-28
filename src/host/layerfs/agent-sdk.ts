@@ -1,17 +1,15 @@
 /**
  * The LayerFS Node SDK agents get in bash as `$DSH_LAYERFS_SDK`: a generated
- * module, `<root>/agent-bin/sdk.mjs`, over the real `@layerfs/node` built from the
+ * module, `<root>/bin/sdk.mjs`, over the real `@layerfs/node` built from the
  * pinned CLI's commit (installed by `scripts/install-sdk.mjs`).
  *
- * It does for SDK calls what the managed CLI (`agent-bin/layerfs`, tracing.ts)
- * does for CLI calls: binds this plugin's LayerFS home (model shells get a
- * scrubbed environment), gives each call a receipt tag from the shell's
- * `DSH_LAYERFS_TRACE_CONTEXT`, writes a tagged call's output record to
- * `trace/outputs/`, and, while the pinned build has no native call log, appends
- * the stand-in call log line itself (`client: "node"`, the call rendered as CLI
- * words). With a native call log the tag travels as the call's `log_tag` option
- * (LayerFS #659) and LayerFS writes the line. Tracing never changes a call's
- * outcome: a failure to record is swallowed.
+ * It does for SDK calls what the managed CLI (`bin/layerfs`, tracing.ts) does
+ * for CLI calls: binds this plugin's LayerFS home (model shells get a scrubbed
+ * environment), gives each call a receipt tag from the shell's
+ * `DSH_LAYERFS_TRACE_CONTEXT`, passes it as the call's `log_tag` option (LayerFS
+ * #659: LayerFS writes the call log line) and writes a tagged call's output
+ * record to `trace/outputs/`. Tracing never changes a call's outcome: a failure
+ * to record is swallowed.
  *
  * It exposes the families a project session works with (project, branch, commit,
  * file, sandbox, workspace) with `@layerfs/node`'s own call shapes, and closes the
@@ -22,8 +20,8 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSy
 import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { OUTPUT_MAX } from '../../shared/logs.ts'
-import { appendCallLine, makeReceipt, renderCall, ROTATE_BYTES, savedFields } from './call-log.ts'
-import { DEFAULT_BOUNDS, outputName, outputRecord, outputsDir, outputSink, writeOutput, type OutputBounds } from './call-output.ts'
+import { makeReceipt } from './call-words.ts'
+import { DEFAULT_BOUNDS, outputName, outputRecord, outputSink, writeOutput, type OutputBounds } from './call-output.ts'
 
 /** The families `$DSH_LAYERFS_SDK` exposes. */
 export const SDK_FAMILIES = ['project', 'branch', 'commit', 'file', 'sandbox', 'workspace'] as const
@@ -52,31 +50,22 @@ export function findSdk(dir: string | null | undefined, commit: string | null | 
 
 export interface ManagedSdkOptions {
   root: string; sdk: InstalledSdk; home: string; bundle?: string | null; cacheHome?: string | null
-  /** The stand-in call log; with `native` the SDK's library writes LayerFS's own. */
-  callLog?: string | null
-  /** The pinned build keeps LayerFS's own call log (#659): pass the tag as `log_tag`. */
-  native?: boolean
-  /** Bool option names from the call table (rendering only). */
-  bools?: readonly string[]
-  /** Stand-in rotation threshold (tests). */
-  rotateBytes?: number
+  /** `<state>/trace/outputs`: where a tagged call's output record goes; without it outputs are not kept. */
+  outputs?: string | null
   /** Output store bounds (tests). */
   outputBounds?: OutputBounds
 }
 
 /**
- * Write `<root>/agent-bin/sdk.mjs` (only when its text changed) and answer its path.
- * @param options - the installed SDK, the LayerFS home and the call log mode.
+ * Write `<root>/bin/sdk.mjs` (only when its text changed) and answer its path.
+ * @param options - the installed SDK, the LayerFS home and the outputs folder.
  */
 export function managedSdk(options: ManagedSdkOptions): string {
   const file = join(options.root, 'bin', 'sdk.mjs')
-  const outputs = options.callLog ? outputsDir(options.callLog) : null
   const config = {
     entry: pathToFileURL(options.sdk.entry).href, addon: options.sdk.addon, commit: options.sdk.commit,
     home: options.home, bundle: options.bundle ?? null, cacheHome: options.cacheHome ?? null,
-    // The stand-in log stays known in native mode: an SDK that refuses `log_tag` falls back to it.
-    callLog: options.callLog ?? null, native: !!options.native,
-    outputs, families: SDK_FAMILIES, bools: options.bools ?? [], rotate: options.rotateBytes ?? ROTATE_BYTES,
+    outputs: options.outputs ?? null, families: SDK_FAMILIES,
     max: OUTPUT_MAX, bounds: options.outputBounds ?? DEFAULT_BOUNDS,
   }
   const text = [
@@ -87,9 +76,6 @@ export function managedSdk(options: ManagedSdkOptions): string {
     `import {randomUUID,createHash} from 'node:crypto';`,
     `const config=${JSON.stringify(config)};`,
     `const makeReceipt = ${makeReceipt.toString()};`,
-    `const renderCall = ${renderCall.toString()};`,
-    `const savedFields = ${savedFields.toString()};`,
-    `const appendCallLine = ${appendCallLine.toString()};`,
     `const outputSink = ${outputSink.toString()};`,
     `const outputRecord = ${outputRecord.toString()};`,
     `const outputName = ${outputName.toString()};`,
@@ -125,7 +111,6 @@ let identity; try { identity = JSON.parse(process.env.DSH_LAYERFS_TRACE_CONTEXT 
 const isPlain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value) && !ArrayBuffer.isView(value);
 // JSON for records: bigints as numbers' text, bytes by size (never their whole content).
 const json = (value) => JSON.stringify(value, (key, item) => typeof item === 'bigint' ? item.toString() : (item && typeof item === 'object' && (ArrayBuffer.isView(item) || item.type === 'Buffer' && Array.isArray(item.data))) ? '<' + (item.byteLength ?? item.data.length) + ' bytes>' : item);
-let tagWorks = config.native;
 
 // Split given arguments as @layerfs/node does: positionals, then an options object.
 function split(spec, given) {
@@ -136,29 +121,7 @@ function split(spec, given) {
   return { args, options };
 }
 
-// The call as CLI words (family, call, --flags, --, positionals) and its stdin size.
-function words(spec, args, options) {
-  const out = [spec.family, spec.call.replaceAll('_', '-')], positionals = [];
-  let input = null, skipped = 0;
-  spec.args.forEach((arg, i) => {
-    const value = args[i];
-    if (value === undefined || value === null) { if (arg.kind !== 'content' && arg.kind !== 'json') skipped++; return }
-    if (arg.kind === 'content') input = typeof value === 'string' ? Buffer.byteLength(value) : (value.byteLength ?? Buffer.byteLength(String(value)));
-    else if (arg.kind === 'json') input = Buffer.byteLength(json(value));
-    else { for (; skipped > 0; skipped--) positionals.push('-'); positionals.push(String(value)) }
-  });
-  for (const [name, value] of Object.entries(isPlain(options) ? options : {})) {
-    if (value === undefined || value === null || typeof value === 'function' || name === 'log_tag') continue;
-    const flag = '--' + name.replaceAll('_', '-');
-    if (spec.options.find((o) => o.name === name)?.kind === 'bool') out.push(flag + '=' + value);
-    else out.push(flag, typeof value === 'object' ? json(value) : String(value));
-  }
-  out.push('--', ...positionals);
-  return { argv: out, input };
-}
-
-function record(spec, args, options, o) {
-  const call = words(spec, args, options);
+function record(spec, o) {
   const exec = spec.family === 'workspace' && spec.call === 'exec';
   if (o.tag && config.outputs) {
     const stdout = outputSink(config.max, 'head'), stderr = outputSink(config.max, 'tail');
@@ -167,10 +130,6 @@ function record(spec, args, options, o) {
     // As the 2.0 CLI: \`workspace exec\` prints its one result JSON and exits with the command's own code.
     const code = exec && o.outcome === 'ok' && Number.isInteger(o.value?.exit_code) ? o.value.exit_code : 0;
     writeOutput(fs, config.outputs, outputName(createHash, o.tag), outputRecord({ tag: o.tag, exit: o.outcome === 'ok' ? code : o.refusal ? 125 : null, stdout, stderr, refusal: o.refusal, max: config.max }), config.bounds);
-  }
-  if (config.callLog && !o.native) {
-    const rendered = renderCall(call.argv, call.input, config.bools);
-    appendCallLine(fs, config.callLog, { v: 1, at: o.at, ms: Math.max(0, Math.round(o.ms)), client: 'node', argv: rendered, outcome: o.outcome, ...(o.outcome === 'ok' ? savedFields(rendered, o.value) : {}), ...(o.tag ? { tag: o.tag } : {}) }, config.rotate);
   }
 }
 
@@ -181,16 +140,10 @@ function traced(spec, call) {
     const receipt = identity && typeof identity.sessionId === 'string' && identity.sessionId ? makeReceipt(identity.sessionId, scope, randomUUID().replaceAll('-', '')) : undefined;
     const tag = receipt && receipt.tag;
     const { args, options } = split(spec, given);
-    let native = tagWorks && !!tag && isPlain(options);
-    const at = Date.now(), started = performance.now();
+    const tagged = !!tag && isPlain(options);
     let value, refusal, outcome = 'ok', thrown, checked = true;
     try {
-      try { value = await call(...(native ? [...args, { ...options, log_tag: tag }] : given)) } catch (error) {
-        // A build without #659 refuses the tag before calling: use the stand-in log from now on.
-        if (!native || error?.code !== 'InvalidInput' || !String(error.message ?? '').includes('"log_tag"')) throw error;
-        tagWorks = native = false;
-        value = await call(...given);
-      }
+      value = await call(...(tagged ? [...args, { ...options, log_tag: tag }] : given));
     } catch (error) {
       thrown = error;
       if (error && typeof error.code === 'string') {
@@ -200,7 +153,7 @@ function traced(spec, call) {
         if (error.code === 'InvalidInput' && String(error.message ?? '').startsWith(name + ':')) checked = false;
       } else outcome = 'Unknown';
     }
-    if (checked) { try { record(spec, args, options, { tag, at, ms: performance.now() - started, outcome, value, refusal, native }) } catch {} }
+    if (checked) { try { record(spec, { tag, outcome, value, refusal }) } catch {} }
     if (thrown) throw thrown;
     return value;
   };

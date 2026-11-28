@@ -1,18 +1,18 @@
-/** `logs.project`'s scan (`projectCalls`) over the stand-in call log. */
+/** `logs.project`'s scan (`projectCalls`) over LayerFS's call log (`home log --detail`, paged). */
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { projectCalls } from '../src/host/logs/source.ts'
 
 const line = (at, argv, tag = 'dsh:-:x', outcome = 'ok') => ({ v: 1, at, ms: 5, client: 'cli', argv, outcome, tag })
 
+/** A layerfs whose call log holds `lines` (oldest first); `home log` pages newest first by an offset cursor. */
 function home(lines) {
-  const dir = mkdtempSync(join(tmpdir(), 'lfs-logs-project-'))
-  const callLog = join(dir, 'calls.jsonl')
-  writeFileSync(callLog, lines.map((l) => JSON.stringify(l)).join('\n') + '\n')
-  return { nativeLogs: async () => false, callLog }
+  const items = [...lines].reverse().map((l) => ({ logged_at: new Date(l.at).toISOString(), duration_ms: l.ms, client: l.client, argv: l.argv, outcome: l.outcome, tag: l.tag }))
+  const log = async ({ cursor, limit }) => {
+    const from = Number(cursor ?? 0), page = items.slice(from, from + limit)
+    return { items: page, ...(from + page.length < items.length ? { next_cursor: String(from + page.length) } : {}) }
+  }
+  return { lfs: { home: { log } }, discovery: async () => ({ calls: [] }) }
 }
 
 test('projectCalls keeps the project\'s calls and its Sandboxes\' calls, newest first', async () => {
@@ -31,7 +31,7 @@ test('projectCalls keeps the project\'s calls and its Sandboxes\' calls, newest 
   const answer = await projectCalls(layerfs, 's/p', ['known'])
   assert.deepEqual(answer.lines.map((l) => l.at), [10, 9, 6, 3, 2, 1],
     'Sandboxes made in the scan or listed count; a read outside a session (branch commits) is left out; a session\'s read is kept')
-  assert.equal(answer.source, 'plugin')
+  assert.equal(answer.source, 'layerfs')
   assert.equal(answer.has_more, false)
   const limited = await projectCalls(layerfs, 's/p', ['known'], 2)
   assert.deepEqual(limited.lines.map((l) => l.at), [10, 9])

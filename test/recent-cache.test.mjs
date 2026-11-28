@@ -84,7 +84,7 @@ function harness(state, records) {
   Object.defineProperty(s, 'serverChecked', { value: new Map() })
   const ops = {}
   const ctx = {
-    layerfs: { state: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
+    layerfs: { state: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, outputs: '/lfs-root/trace/outputs' },
     layerfsSessions: s,
     layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
     plugin() {},

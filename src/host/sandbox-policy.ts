@@ -74,7 +74,7 @@ export default class LayerfsSandboxPolicy extends (SandboxPolicyService as any) 
       owned = scripted
     }
     const extra = [...(base.additionalWritableRoots ?? [])]
-    // Call log lines the managed CLI writes: the stand-in (`<root>/trace`) or LayerFS's own (`<home>/trace`).
+    // What the managed CLI and SDK write: call outputs (`<state>/trace/outputs`) and LayerFS's own call log (`<home>/trace`).
     const trace = layerfs?.state ? ensureDir(join(layerfs.state, 'trace')) : undefined
     const homeTrace = layerfs?.home && isDir(join(layerfs.home, 'trace')) ? join(layerfs.home, 'trace') : undefined
     for (const dir of [mount, trace, homeTrace, ...owned]) if (dir && dir !== root && !extra.includes(dir)) extra.push(dir)
