@@ -11,6 +11,7 @@ import { dirname, isAbsolute, join } from 'node:path'
 import { boolOptions, CliError, client, discover, execute, hasNativeLogs, knownIdentity, knownNativeLogs, plain, uninitialized, type Discovery, type Lfs } from './layerfs/cli.ts'
 import { managedCli } from './layerfs/tracing.ts'
 import { checkFolder, resolveFolder, writeJson, type FolderSource } from './folder.ts'
+import { migrateLayout } from './migrate.ts'
 import { HOST_MACHINE, isHostMachine, machineRows } from './layerfs/machine-records.ts'
 import { findSdk, managedSdk } from './layerfs/agent-sdk.ts'
 import { fileURLToPath } from 'node:url'
@@ -318,6 +319,7 @@ export class LayerfsService extends Service {
   constructor(ctx: Context, private readonly config: LayerfsConfig = {}) {
     super(ctx, 'layerfs')
     const where = resolveFolder(config, process.env, (message) => ctx.logger('layerfs').info(message))
+    migrateLayout(where.state, (message) => ctx.logger('layerfs').info(message))
     this.folder = where.folder
     this.folderSource = where.folderSource
     this.state = where.state
