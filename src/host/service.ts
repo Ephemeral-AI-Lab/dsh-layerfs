@@ -28,6 +28,7 @@ function packageRoot(): string {
 }
 import { bundleStamp, cleanRuntimes, daemonStamp, installRuntime, installedRuntimes, leasePin, runningCommands, runtimePieces, runtimeRoot, verdictOf, type BuildStamp, type RuntimeCleanup, type Verdict } from './layerfs/runtime-home.ts'
 import type { LayerfsRemote } from './remote.ts'
+import { FOLDER_PARTS, isFolderPart, type FolderContents, type FolderEntry } from '../shared/folder-parts.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -499,9 +500,15 @@ export class LayerfsService extends Service {
     return await this.setup()
   }
 
-  /** Opens the LayerFS folder in the file manager (Finder on macOS); the setup modal's Open. */
-  openFolder(which: unknown): { ok: true } {
-    const path = which === 'home' ? this.home : which === 'dsh' ? this.state : this.folder
+  /**
+   * Opens the LayerFS folder, a home, or one of a home's listed folders
+   * (`FOLDER_PARTS`, by name only) in the file manager (Finder on macOS):
+   * the setup modal's Open and its folder tree.
+   */
+  openFolder(which: unknown, part?: unknown): { ok: true } {
+    if (part != null && !isFolderPart(which, part)) throw new CliError('InvalidInput', `${String(part)} is not a folder the setup modal opens`)
+    const base = which === 'home' ? this.home : which === 'dsh' ? this.state : this.folder
+    const path = part != null ? join(base, part) : base
     if (!statSync(path, { throwIfNoEntry: false })?.isDirectory()) throw new CliError('NotFound', `${path} is not there yet`)
     const [cmd, args] = process.platform === 'darwin' ? ['open', [path]]
       : process.platform === 'win32' ? ['explorer', [path]]
@@ -510,6 +517,16 @@ export class LayerfsService extends Service {
     child.on('error', () => {})
     child.unref()
     return { ok: true }
+  }
+
+  /** What each home holds, for the setup modal's folder tree: one directory listing per listed folder, nothing read inside. */
+  folderContents(): FolderContents {
+    const list = (base: string, names: readonly FolderEntry['name'][]): FolderEntry[] => names.flatMap((name) => {
+      let entries: string[]
+      try { entries = readdirSync(join(base, name)).filter((n) => !n.startsWith('.')).sort() } catch { return [] }
+      return [{ name, count: entries.length, names: entries.slice(0, 6) }]
+    })
+    return { home: list(this.home, FOLDER_PARTS.home), dsh: list(this.state, FOLDER_PARTS.dsh) }
   }
 
   /** The folder the pointer names when it is not the one in use (it takes effect after a restart), else null. */

@@ -30,6 +30,7 @@ import { useQuery } from '../ui/use-query.ts'
 import { useHostEvents } from '../storage/hooks.ts'
 import type { SetupModalT } from './locale.ts'
 import { RuntimePicker } from './RuntimePicker.tsx'
+import { FolderTree } from './FolderTree.tsx'
 import { buildWords, canRun, platformRows, short, type PlatformRow } from './summary.ts'
 import { verdictWords } from './verdict.ts'
 import { lately, setupDialog, useSetupStatus, type Piece, type SetupSection, type SetupStatus } from './store.ts'
@@ -173,8 +174,8 @@ function LayerfsSection({ api, s, t }: { api: LayerfsApi, s: SetupStatus, t: Set
   return (
     <div className={css.rows}>
       <FolderRow api={api} s={s} t={t} />
-      <Row data="build" tile={<LayerfsGlyph size={16} />} title={title} line={line} lineWarn={b.state !== 'ready'} state={t(b.word)} warn={b.state !== 'ready'}
-        action={changing ? null : <Button variant="outline" size="sm" onClick={() => setChanging('pick')}>{r.cli ? t('change') : t('choose')}</Button>} />
+      <Row data="build" wide tile={<LayerfsGlyph size={16} />} title={title} line={line} lineWarn={b.state !== 'ready'} state={b.state === 'ready' ? '' : t(b.word)} warn={b.state !== 'ready'}
+        action={changing ? null : <Button variant="outline" size="sm" onClick={() => setChanging('pick')}>{r.cli ? t('changeVersion') : t('choose')}</Button>} />
       {s.daemonRecordable ? <RecordDaemon api={api} t={t} /> : null}
       {b.state === 'mixed' && s.mixedAllowed ? <p className={css.rowNote}>{t('mixedAllowedNote')}</p> : null}
       {formatsLine(r.formats, t) ? <p className={css.rowNote} data-formats>{formatsLine(r.formats, t)}</p> : null}
@@ -202,7 +203,7 @@ function FolderRow({ api, s, t }: { api: LayerfsApi, s: SetupStatus, t: SetupMod
   const f = s.folder
   const [error, setError] = useState<unknown>(null)
   const [changing, setChanging] = useState(false)
-  const open = (which: 'folder' | 'home' | 'dsh') => { setError(null); api.op('setup.open', { which }).catch((e: unknown) => setError(e)) }
+  const open = () => { setError(null); api.op('setup.open', { which: 'folder' }).catch((e: unknown) => setError(e)) }
   const did = lately(s)
   const word = f.state === 'current' ? (did === 'created' ? t('sumFolderCreated') : t('stateReady'))
     : f.state === 'outdated' ? t('sumFolderOld')
@@ -211,25 +212,14 @@ function FolderRow({ api, s, t }: { api: LayerfsApi, s: SetupStatus, t: SetupMod
   const locked = f.rootSource === 'config' || f.rootSource === 'env'
   const actions = (
     <>
-      <Button variant="outline" size="sm" onClick={() => open('folder')}>{t('openFolder')}</Button>
-      {locked ? null : <Button variant="outline" size="sm" onClick={() => setChanging(true)} disabled={changing}>{t('change')}</Button>}
+      <Button variant="outline" size="sm" onClick={open}>{t('openFolder')}</Button>
+      {locked ? null : <Button variant="outline" size="sm" onClick={() => setChanging(true)} disabled={changing}>{t('changeFolder')}</Button>}
     </>
   )
   return (
     <>
-      <Row data="folder" wide tile={<IconFolderCloseRegular size={16} />} title={t('folderTitle')} line={f.root} lineMono state={word} warn={f.state !== 'current'} action={actions} />
-      <dl className={css.subRows}>
-        <div className={css.subRow} data-row="home">
-          <dt>{t('folderHome')}</dt>
-          <dd className={css.mono} title={f.path}>{f.path}</dd>
-          <dd className={css.subState} data-warn={f.state !== 'current' || undefined}>{word}</dd>
-        </div>
-        <div className={css.subRow} data-row="dsh">
-          <dt>{t('folderDsh')}</dt>
-          <dd className={css.mono} title={f.dsh.path}>{f.dsh.path}</dd>
-          <dd className={css.subState}>{t('stateReady')}</dd>
-        </div>
-      </dl>
+      <Row data="folder" wide tile={<IconFolderCloseRegular size={16} />} title={t('folderTitle')} line={f.root} lineMono state={f.state === 'current' && did !== 'created' ? '' : word} warn={f.state !== 'current'} action={actions} />
+      <FolderTree api={api} s={s} t={t} onError={setError} />
       {locked ? <p className={css.rowNote}>{t(f.rootSource === 'env' ? 'folderSetByEnv' : 'folderSetByConfig')}</p> : null}
       {f.dsh.taken ? <p className={css.rowNote}>{t('folderDshTaken', { taken: f.dsh.taken })}</p> : null}
       {f.next ? <p className={css.rowNote} data-warn="">{t('folderNext', { next: f.next })}</p> : null}

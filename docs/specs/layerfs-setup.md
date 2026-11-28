@@ -224,12 +224,13 @@ Settings (Check setup…) and Health fixes. Later is remembered per viewer
 (`localStorage`) and leaves a "Finish setting up LayerFS" card in Center.
 
 **Sections**: one scrolling column (no rail: the user dropped it on
-2026-11-17), each section's state in words beside its title:
+2026-11-17), each section's state in words beside its title. A row says
+its own state only when it needs attention (Ready is said once, by the section):
 
 | Section | Content | Actions |
 |---|---|---|
-| Runtime | One line for the chosen runtime; Change… opens the shared runtime picker. Its CLI, daemon, bundle and SDK each say Matches, From another build, or Can't tell | Change…, Other build… |
-| LayerFS folder | Path and state: "Created just now", "Made by an older LayerFS" (LayerFS's sentence as the tip), "Other users can read it" | Copy LayerFS's fix (`mv <home> <home>.old && layerfs home init`: LayerFS 2.0 converts no older home since the CUT of 2026-11-19, and the page never moves a folder), Copy `chmod` |
+| Runtime | One line for the chosen runtime; Change version… opens the shared runtime picker. Its CLI, daemon, bundle and SDK each say Matches, From another build, or Can't tell | Change version…, Other build… |
+| LayerFS folder | Path and state: "Created just now", "Made by an older LayerFS" (LayerFS's sentence as the tip), "Other users can read it". Under it a tree: the LayerFS home and the DSH x LayerFS home, named relative to the folder (`home/`, `dsh/`), each with a summary (Stores and machines; project conversations, `sessions.count`), expanding to the folders it holds (`setup.contents`: one listing per folder of a fixed list, `src/shared/folder-parts.ts`; `secret/` is never listed) | Open, Change folder…; on each tree line (on hover or focus) Copy path and Open (`setup.open {which, part}`: the host opens only listed names); Copy LayerFS's fix (`mv <home> <home>.old && layerfs home init`: LayerFS 2.0 converts no older home since the CUT of 2026-11-19, and the page never moves a folder), Copy `chmod` |
 | Machines | The host machine (required) and Docker (optional) as two cards: mark, name, state tag, role, facts (OS and architecture; Docker's socket or what blocks it), with readiness from `needs.ts` | Start Docker; Socket… opens docker's socket setting |
 
 No Environment section. Lima and Apple Container are one line pointing to

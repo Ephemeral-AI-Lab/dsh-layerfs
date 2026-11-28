@@ -845,6 +845,7 @@ export function apply(ctx: Context): void {
       'sessions.forget': async (args: any) => { await sessions.forget(need(args, 'sessionId')); return { ok: true } },
       // `observe: true` (the views' polls and effect reads): a read that changes nothing
       'session.state': (args: any) => sessions.view(need(args, 'sessionId'), { observe: args?.observe === true, debug: args?.debug === true }),
+      'sessions.count': () => ({ project: sessions.projectCount() }),
       'sessions.availability': async () => { await sessions.refreshAvailability(); return { stores: sessions.availability() } },
       // Metadata only. The receipts array is deliberately omitted, not
       // materialized: `readSidecar` keeps it lazy (a long session holds tens of

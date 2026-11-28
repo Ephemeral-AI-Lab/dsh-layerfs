@@ -104,3 +104,10 @@ export function platformRows(platforms: readonly MachinePlatformInfo[], os: Host
 
 /** How many rows can run now, of how many. */
 export const canRun = (rows: readonly PlatformRow[]): { n: number, total: number } => ({ n: rows.filter((r) => r.state === 'ready' || r.state === 'available').length, total: rows.length })
+
+/** `<root>/x` as `x/`, the root itself as `./`, anything else as its full path. */
+export function relativeName(root: string, path: string): string {
+  const r = root.replace(/\/+$/, '')
+  if (path === r) return './'
+  return path.startsWith(`${r}/`) ? `${path.slice(r.length + 1)}/` : path
+}

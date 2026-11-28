@@ -390,36 +390,79 @@
 
 .rowWide .rowAction { gap: 8px; }
 
-/* the folder row's two homes, aligned with its text */
-.subRows {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin: -4px 0 8px 44px;
+/* the folder row's tree: its two homes, aligned with its text, each opening to the folders it holds */
+.tree,
+.treeGroup {
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
-.subRow {
+.tree { margin: -6px 0 8px 36px; }
+
+.treeGroup {
+  margin-inline-start: 15px;
+  padding-inline-start: 8px;
+  border-inline-start: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.treeLine {
   display: grid;
-  grid-template-columns: 140px minmax(0, 1fr) max-content;
-  gap: 12px;
-  align-items: baseline;
+  grid-template-columns: 16px max-content minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 0 4px 0 6px;
+  border-radius: var(--dsw-radius-md);
   font-size: 12px;
   line-height: 18px;
   color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
 }
 
-.subRow dt { color: var(--dsw-alias-label-primary); }
+.treeLine:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: -2px;
+}
 
-.subRow dd {
-  margin: 0;
+.treeChevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--dsw-alias-label-tertiary);
+  transition: transform 120ms ease;
+}
+
+.treeChevron[data-state='open'] { transform: rotate(90deg); }
+
+.treeName {
+  font-family: var(--ds-font-family-code);
+  color: var(--dsw-alias-label-primary);
+}
+
+.treeText {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.subState { text-align: right; }
-.subState[data-warn] { color: var(--lf-tone-warning-fg); }
+.treeText[data-warn] { color: var(--lf-tone-warning-fg); }
+
+.treeActions {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.treeButton { color: var(--dsw-alias-label-secondary); }
+
+/* the actions show on the line under the pointer or with focus; without hover (touch) they always show */
+@media (hover: hover) {
+  .treeLine:hover { background: var(--dsw-alias-interactive-bg-hover); }
+  .treeActions { opacity: 0; transition: opacity 120ms ease; }
+  .treeLine:hover .treeActions,
+  .treeLine:focus-within .treeActions { opacity: 1; }
+}
 
 .rowNote {
   margin: 0 0 0 44px;

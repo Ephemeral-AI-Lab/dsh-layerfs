@@ -16,7 +16,7 @@ await build({
   stdin: { contents: "export * from './src/client/setup/summary.ts'; export { locales } from './src/client/setup/locale.ts'", resolveDir: root, loader: 'ts' },
   outfile: join(out, 'summary.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', logLevel: 'warning',
 })
-const { buildWords, platformRows, canRun, locales } = await import(pathToFileURL(join(out, 'summary.mjs')).href)
+const { buildWords, platformRows, canRun, locales, relativeName } = await import(pathToFileURL(join(out, 'summary.mjs')).href)
 rmSync(out, { recursive: true, force: true })
 
 const CLI = 'dd4a2cc40f5c5c23c903fcd8b1de90575663d71d'
@@ -86,4 +86,11 @@ test('machines: not ready with nothing reported offers Check, not an empty how-t
 test('every key the sections name exists in en and zh', () => {
   const keys = ['sectionLayerfs', 'toFix', 'canRunCount', 'folderTitle', 'runtimeTitle', 'runtimeUnnamed', 'choose', 'details', 'buildMixedOne', 'buildMixedBoth', 'buildNoBundle', 'buildNoDaemon', 'buildIncomplete', 'buildFailed', 'daemonRecordShort', 'stateReady', 'stateAvailable', 'stateNotInstalled', 'stateNotRunning', 'stateNeedsSetup', 'stateNeedsBundle', 'check', 'install', 'setUp', 'machinesNone', 'sumMixed', 'sumNoRuntime', 'sumRuntimeFailed', 'terminal']
   for (const lang of ['en', 'zh']) for (const k of keys) assert.ok(typeof locales[lang][k] === 'string' && locales[lang][k].length > 0, `${lang}.${k}`)
+})
+
+test('folder tree names: a home inside the folder is relative, the folder itself is ./, elsewhere is its full path', () => {
+  assert.equal(relativeName('/u/.layerfs', '/u/.layerfs/home'), 'home/')
+  assert.equal(relativeName('/u/.layerfs/', '/u/.layerfs/dsh'), 'dsh/')
+  assert.equal(relativeName('/u/.layerfs', '/u/.layerfs'), './')
+  assert.equal(relativeName('/u/.layerfs', '/u/.layerfs-other/dsh'), '/u/.layerfs-other/dsh')
 })

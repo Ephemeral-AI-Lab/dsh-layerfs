@@ -1358,6 +1358,11 @@ export class LayerfsSessions extends Service {
     }
   }
 
+  /** How many project conversations this host owns (the setup modal's folder tree). */
+  projectCount(): number {
+    return this.owners(() => true).length
+  }
+
   /** Owner bindings (not subagents' shared ones) matching `test`. */
   private owners(test: (binding: Binding) => boolean): Binding[] {
     return Object.values(this.state.read().sessions).filter((b) => b.kind === 'project' && test(b))

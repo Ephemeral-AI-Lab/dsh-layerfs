@@ -116,6 +116,39 @@ test('a saved pin names an installed runtime by id: it follows the home when the
   }
 })
 
+test('the setup modal\'s folder tree: each home\'s listed folders with counts and first names; open takes listed names only', () => {
+  const f = fixture()
+  const keys = ['DSH_HOME', 'LAYERFS_ROOT', 'DSH_LAYERFS_CLI', 'DSH_LAYERFS_SESSION_HOME', 'DSH_LAYERFS_SECRETS', 'DSH_LAYERFS_FOLDER', 'DSH_LAYERFS_STATE']
+  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]))
+  try {
+    for (const k of keys) delete process.env[k]
+    process.env.DSH_HOME = join(f.dir, 'dsh')
+    const folder = join(f.dir, 'folder')
+    process.env.DSH_LAYERFS_FOLDER = folder
+    for (const m of ['lima1', 'docker', 'macos-host']) mkdirSync(join(folder, 'home', 'machine', m), { recursive: true })
+    for (let i = 0; i < 8; i++) mkdirSync(join(folder, 'home', 'store', `s${i}`), { recursive: true })
+    mkdirSync(join(folder, 'home', 'secret'), { recursive: true })
+    writeFileSync(join(folder, 'home', 'store', '.hidden'), '')
+    mkdirSync(join(folder, 'dsh', 'scratch', 'a'), { recursive: true })
+    const s = new H.LayerfsService(new H.Context(), {})
+    const c = s.folderContents()
+    // only listed folders that are there, in the list's order; dotfiles and secret/ left out; six names at most
+    assert.deepEqual(c.home.map((e) => e.name), ['store', 'machine'])
+    assert.deepEqual(c.home[0], { name: 'store', count: 8, names: ['s0', 's1', 's2', 's3', 's4', 's5'] })
+    assert.deepEqual(c.home[1], { name: 'machine', count: 3, names: ['docker', 'lima1', 'macos-host'] })
+    assert.deepEqual(c.dsh.map((e) => e.name), ['scratch'])
+    // a name outside the list, or a path, is refused before anything runs
+    for (const [which, part] of [['home', 'secret'], ['home', '../dsh'], ['dsh', 'store'], ['folder', 'store'], ['home', '/etc']]) {
+      assert.throws(() => s.openFolder(which, part), (e) => e.code === 'InvalidInput', `${which}/${part}`)
+    }
+    // a listed folder that is not there yet
+    assert.throws(() => s.openFolder('home', 'backup'), (e) => e.code === 'NotFound')
+  } finally {
+    for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v }
+    f.done()
+  }
+})
+
 test('service defaults: the LayerFS home is <folder>/home (or the folder itself while it holds layerfs.json) and apart from DSH_HOME; secrets in <home>/secret; plugin state in <folder>/dsh', () => {
   const f = fixture()
   const keys = ['DSH_HOME', 'LAYERFS_ROOT', 'DSH_LAYERFS_CLI', 'DSH_LAYERFS_SESSION_HOME', 'DSH_LAYERFS_SECRETS', 'DSH_LAYERFS_FOLDER', 'DSH_LAYERFS_STATE']
