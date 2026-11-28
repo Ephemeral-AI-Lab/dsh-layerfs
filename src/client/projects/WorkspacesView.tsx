@@ -1,13 +1,14 @@
 /** The public footer action selects the LayerFS Workspaces occupant. */
 import { useState, useSyncExternalStore, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { Button, IconFolderCloseRegular, IconFolderOpenOutlineRegular, IconPlusOutlineRegular, IconSearchOutlineRegular, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChecklistOutlineRegular, IconFolderCloseRegular, IconFolderOpenOutlineRegular, IconPlusOutlineRegular, IconSearchOutlineRegular, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { NS as LIST_NS, type ListT } from './list-locale.ts'
 import { projectDialog } from './dialog.ts'
 import { SidebarProjects, useSidebarProjects, type SessionSource, type SidebarData } from './ProjectList.tsx'
+import { ManageSidebar } from './ManageSidebar.tsx'
 import { workspacesView, type WorkspacesView } from './view-mode.ts'
 import css from './workspaces.module.css'
 
@@ -66,11 +67,15 @@ function NewMenu({ api, t, data, onError }: { api: LayerfsApi, t: ListT, data: S
 function WideWorkspaces({ api, sessionSource, dshT, t }: { api: LayerfsApi, sessionSource: SessionSource, dshT: (key: string) => string, t: ListT }): ReactNode {
   const data = useSidebarProjects(api, sessionSource)
   const [error, setError] = useState<string | null>(null)
+  const [managing, setManaging] = useState(false)
   return <div className={css.region} data-layerfs-workspaces-view="">
     <div className={css.header}>
-      <span className={css.label}>{dshT('section.workspaces')}</span>
+      {/* LayerFS mode lists projects, so the section says so (DSH's own view keeps Workspaces) */}
+      <span className={css.label}>{t('projectsHeader')}</span>
       <div className={css.actions}>
         <ViewSwitch t={t} />
+        <Button className={css.newMenu} variant="ghost" size="sm" icon={<IconChecklistOutlineRegular size={16} />} aria-label={t('manageSidebar')} title={t('manageSidebar')}
+          aria-haspopup="dialog" data-layerfs-manage-sidebar-button="" onClick={() => setManaging(true)} />
         <NewMenu api={api} t={t} data={data} onError={setError} />
       </div>
     </div>
@@ -78,6 +83,7 @@ function WideWorkspaces({ api, sessionSource, dshT, t }: { api: LayerfsApi, sess
     <div className={css.list} aria-label={t('layerfs')} role="region">
       <SidebarProjects api={api} t={t} data={data} />
     </div>
+    {managing ? <ManageSidebar t={t} data={data} onClose={() => setManaging(false)} /> : null}
   </div>
 }
 

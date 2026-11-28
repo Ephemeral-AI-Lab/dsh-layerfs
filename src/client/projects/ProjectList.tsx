@@ -8,7 +8,7 @@
  */
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { Button, IconArchiveOutlineRegular, IconPlusOutlineRegular, IconSettingsOutlineRegular, IconTrashOutlineRegular, IconTriangleRightFillRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconArchiveOutlineRegular, IconChevronDownOutlineRegular, IconChevronUpOutlineRegular, IconCloseOutlineRegular, IconPlusOutlineRegular, IconSettingsOutlineRegular, IconTrashOutlineRegular, IconTriangleRightFillRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { listProjects, type ProjectRow } from '../picker/NewProjectForm.tsx'
@@ -234,7 +234,7 @@ export function SessionLine({ session, title, selected, t, failure, readiness, o
   </>
 }
 
-function refusalLabels(t: ListT): RefusalLabels {
+export function refusalLabels(t: ListT): RefusalLabels {
   return {
     category: (kind) => kind === 'usage' ? t('refusalUsage') : kind === 'unavailable' ? t('refusalUnavailable') : kind === 'unknown' ? t('refusalUnknown') : t('refusalRefusal'),
     inTheWay: t('inTheWay'),
@@ -253,14 +253,11 @@ export function removeProjectConversations(api: Pick<LayerfsApi, 'op'>, project:
 }
 
 /** One sidebar row (§4). */
-function SidebarRow({ item, showStore, sessionCount, api, titles, t, onChanged }: { item: ProjectItem, showStore: boolean, sessionCount: number, api: LayerfsApi, titles: Record<string, SessionSummary>, t: ListT, onChanged: () => void }): ReactNode {
+function SidebarRow({ item, showStore, hideKey, api, titles, t, onChanged }: { item: ProjectItem, showStore: boolean, hideKey: string, api: LayerfsApi, titles: Record<string, SessionSummary>, t: ListT, onChanged: () => void }): ReactNode {
   const { row: project, availability } = item
   const [open, setOpen] = useState(false)
-  const [removing, setRemoving] = useState(false)
-  // Remove deletes the row's conversations on this DSH; a project LayerFS no longer has says so.
+  // a project LayerFS no longer has offers no New session (its settings hold Delete conversations)
   const gone = project.catalogState === 'removed'
-  const removeBody = gone ? (sessionCount === 1 ? t('removeBodyOne') : t('removeBodyMany', { n: sessionCount }))
-    : sessionCount === 1 ? t('removeLiveOne') : t('removeLiveMany', { n: sessionCount })
   const actions = useActions(api, onChanged)
   const storeName = storeOf(project)
   // A name two listed projects share carries its Store, on screen and in every accessible name.
@@ -299,8 +296,9 @@ function SidebarRow({ item, showStore, sessionCount, api, titles, t, onChanged }
       <span className={css.rowActions}>
         <Button className={css.iconButton} variant="ghost" size="sm" icon={<IconSettingsOutlineRegular size={14} />} aria-label={t('configure', { project: label })} title={t('configure', { project: label })}
           onClick={() => projectDialog.open({ mode: 'configure', project: { key: project.key, projectId: project.projectId, name: nameOf(project), store: storeName } })} />
-        <Button className={css.iconButton} variant="ghost" size="sm" icon={<IconTrashOutlineRegular size={14} />} data-remove-project={idOf(project)}
-          aria-label={t('removeProject', { project: label })} title={t('removeProject', { project: label })} onClick={() => setRemoving(true)} />
+        {/* Remove from sidebar only hides the row in this browser: nothing is deleted (a newer session shows it again) */}
+        <Button className={css.iconButton} variant="ghost" size="sm" icon={<IconCloseOutlineRegular size={14} />} data-hide-project={idOf(project)}
+          aria-label={t('hideProject', { project: label })} title={t('hideProject', { project: label })} onClick={() => sidebarHidden.hide(hideKey)} />
         {/* While the new session opens the button stays focusable (aria-disabled, presses ignored): disabling it dropped focus to the page. */}
         {availability.canStart || gone ? null : <Button className={css.iconButton} variant="ghost" size="sm" disabled={!availability.canRun} aria-disabled={actions.busy || undefined} icon={<IconPlusOutlineRegular size={14} />}
           aria-label={t('newSession', { project: label })} aria-description={sessionReason} title={sessionReason ?? t('newSession', { project: label })}
@@ -311,10 +309,6 @@ function SidebarRow({ item, showStore, sessionCount, api, titles, t, onChanged }
       </span>
     </div>
     <ActionError api={api} t={t} error={actions.error} store={storeName} storeRow={item.store} />
-    {removing ? <ConfirmDialog onClose={() => setRemoving(false)} title={t('removeTitle', { project: label })}
-      body={removeBody} action={t('removeAction')}
-      labels={{ cancel: t('cancel'), close: t('close'), refusal: refusalLabels(t) }}
-      run={() => removeProjectConversations(api, project).then(onChanged)} /> : null}
     {open ? <ul className={css.sessions}>
       {read.error ? <li className={css.notice}>
         <span role="alert">{t('archiveFailed', { message: archiveFail ? (hasInterruptedFailure ? archiveFail.short : archiveFail.message) : errorMessage(read.error, t) })}</span>
@@ -347,9 +341,10 @@ export function missingKey(rows: readonly { row: { key: string, catalogState?: u
 export function useSidebarProjects(api: LayerfsApi, sessionSource?: SessionSource) {
   const summaries = useSummaries(sessionSource)
   const hidden = useSyncExternalStore(sidebarHidden.subscribe, sidebarHidden.get)
+  const shown = useSyncExternalStore(sidebarHidden.subscribe, sidebarHidden.getShown)
   const data = useProjectData(api)
   const recent = useRecent(api)
-  const rows = recent.data ? sidebarProjects(recent.data.projects, data.catalog.data ? data.catalog.data.rows : null, hidden, data.liveStores) : null
+  const rows = recent.data ? sidebarProjects(recent.data.projects, data.catalog.data ? data.catalog.data.rows : null, hidden, data.liveStores, shown) : null
   // A project with sessions the catalog doesn't list yet (just created): read the catalog again,
   // once per such set of projects. A catalog read that still lacks them (or was refused) is a
   // result, not a reason to read again on the next sessions poll.
@@ -359,6 +354,9 @@ export function useSidebarProjects(api: LayerfsApi, sessionSource?: SessionSourc
   return {
     items: rows?.map((r) => ({ ...data.item(r.row), showStore: r.showStore, hideKey: r.hideKey, sessionCount: r.sessions })) ?? null,
     scratchKey: data.scratchKey,
+    /** Every project LayerFS lists (Projects in sidebar offers them), and when each was last used here. */
+    catalog: data.catalog.data?.rows ?? null,
+    lastUsed: (key: string, projectId?: string) => Math.max(0, ...(recent.data?.projects ?? []).filter((r) => (projectId && r.projectId === projectId) || r.project === key).map((r) => r.lastActivity)),
     error: recent.error ?? data.catalog.error,
     titles: summaries.byId,
     reload: () => { recent.reload(); data.reload() },
@@ -366,9 +364,15 @@ export function useSidebarProjects(api: LayerfsApi, sessionSource?: SessionSourc
 }
 export type SidebarData = ReturnType<typeof useSidebarProjects>
 
-/** The sidebar's LayerFS list (§4): project rows. */
+/** Rows the sidebar shows before Show N more. */
+export const SIDEBAR_FOLD = 8
+
+/** The sidebar's LayerFS list (§4): project rows, folded after SIDEBAR_FOLD (the selected session's project always shows). */
 export function SidebarProjects({ api, t, data }: { api: LayerfsApi, t: ListT, data: SidebarData }): ReactNode {
   const { items } = data
+  const [all, setAll] = useState(false)
+  const folding = !!items && items.length > SIDEBAR_FOLD + 1
+  const listed = items && folding && !all ? items.slice(0, SIDEBAR_FOLD) : items
   return <div className={css.tree}>
     {data.error ? <div className={css.notice} role="alert">{t('failed', { message: errorMessage(data.error, t) })}<Button variant="ghost" size="sm" onClick={data.reload}>{t('retry')}</Button></div> : null}
     {!items && !data.error && <div className={css.notice}>{t('loading')}</div>}
@@ -377,6 +381,12 @@ export function SidebarProjects({ api, t, data }: { api: LayerfsApi, t: ListT, d
       <div className={css.emptyActions}>
         <Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={14} />} onClick={() => projectDialog.open({ mode: 'new' })}>{t('newProject')}</Button>
       </div>
-    </div> : <ul className={css.projects}>{items.map((item) => <SidebarRow key={idOf(item.row)} item={item} showStore={item.showStore} sessionCount={item.sessionCount} api={api} titles={data.titles} t={t} onChanged={data.reload} />)}</ul>)}
+    </div> : <>
+      <ul className={css.projects}>{(listed ?? []).map((item) => <SidebarRow key={idOf(item.row)} item={item} showStore={item.showStore} hideKey={item.hideKey} api={api} titles={data.titles} t={t} onChanged={data.reload} />)}</ul>
+      {folding ? <button type="button" className={css.foldRow} aria-expanded={all} onClick={() => setAll(!all)}>
+        {all ? <IconChevronUpOutlineRegular size={12} /> : <IconChevronDownOutlineRegular size={12} />}
+        <span>{all ? t('showFewer') : t('showMore', { n: items.length - SIDEBAR_FOLD })}</span>
+      </button> : null}
+    </>)}
   </div>
 }

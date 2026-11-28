@@ -8,7 +8,7 @@
  */
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { Button, IconCheckOutlineRegular, IconChevronLeftOutlineRegular, IconCloseOutlineRegular, IconEllipsisOutlineRegular, IconFolderOpenOutlineRegular, IconInfoOutlineRegular, Menu, IconPlusOutlineRegular, IconSearchOutlineRegular, IconSettingsOutlineRegular, Input, Modal, relativeTime } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconCheckOutlineRegular, IconChevronLeftOutlineRegular, IconCloseOutlineRegular, IconEllipsisOutlineRegular, IconFolderOpenOutlineRegular, IconInfoOutlineRegular, IconTrashOutlineRegular, Menu, IconPlusOutlineRegular, IconSearchOutlineRegular, IconSettingsOutlineRegular, Input, Modal, relativeTime } from '@deepseek-ai/dsh-client-ui-primitives'
 import { StatusDot } from '../../ui/StatusDot.tsx'
 import type { LayerfsApi } from '../../api.ts'
 import { useQuery } from '../../files/use-query.ts'
@@ -20,11 +20,11 @@ import { useHostEvents } from '../../storage/hooks.ts'
 import { hasPgUrlLogin, isLinuxLocalhostUrl, PgLocalhostNotice, replaceLocalhostWithIpv4 } from '../../storage/pg-fields.tsx'
 import { Signal } from '../../storage/Signal.tsx'
 import type { PgAttached, StorageView, StoreRow } from '../../storage/types.ts'
-import { refusalOf, usePressGuard } from '../../ui/index.tsx'
+import { ConfirmDialog, refusalOf, usePressGuard } from '../../ui/index.tsx'
 import { projectDialog, type DialogRequest, type ProjectRef } from '../dialog.ts'
 import type { ListT } from '../list-locale.ts'
 import { openStorage } from '../navigation.ts'
-import { useProjectData, useRecent, type ProjectItem } from '../ProjectList.tsx'
+import { refusalLabels, removeProjectConversations, useProjectData, useRecent, type ProjectItem } from '../ProjectList.tsx'
 import { sidebarStatus } from '../readiness.ts'
 import { sidebarHidden } from '../recent.ts'
 import { formatSessionFailure, pgStoreFailure } from '../session-failure.ts'
@@ -72,7 +72,7 @@ export function ProjectDialog({ api, t, tl, request }: { api: LayerfsApi, t: Set
   const close = () => { if (!busy) projectDialog.close() }
   const back = request.mode !== 'pick' ? request.back : undefined
   const body = request.mode === 'configure'
-    ? <Configure api={api} t={t} project={request.project} back={back} onBusy={setBusy} />
+    ? <Configure api={api} t={t} tl={tl} project={request.project} back={back} onBusy={setBusy} />
     : request.mode === 'pick'
       ? <Pick api={api} t={t} tl={tl} />
       : <Create api={api} t={t} startFromFolder={request.mode === 'import'} back={back} onBusy={setBusy} />
@@ -170,12 +170,13 @@ function NoteLine({ children }: { children: ReactNode }): ReactNode {
   return <p className={css.noteLine} role="note"><IconInfoOutlineRegular size={13} /><span>{children}</span></p>
 }
 
-/** The footer's ⋯: Hide from sidebar (and the words once it is hidden). */
-function MoreMenu({ t, hidden, disabled, onHide }: { t: SetupT, hidden: boolean, disabled?: boolean | undefined, onHide: () => void }): ReactNode {
+/** The footer's ⋯: Hide from sidebar (the words once it is hidden) and Delete conversations…. */
+function MoreMenu({ t, hidden, disabled, onHide, onDelete }: { t: SetupT, hidden: boolean, disabled?: boolean | undefined, onHide: () => void, onDelete?: (() => void) | undefined }): ReactNode {
   const [open, setOpen] = useState(false)
-  if (hidden) return <span className={css.footNote}>{t('hidden')}</span>
-  return <Menu open={open} onClose={() => setOpen(false)} portal align="start" items={[{ id: 'hide', label: t('hide') }]}
-    onSelect={(id) => { setOpen(false); if (id === 'hide') onHide() }}
+  const items = [...(hidden ? [] : [{ id: 'hide', label: t('hide') }]), ...(onDelete ? [{ id: 'delete', label: t('deleteConversations'), icon: <IconTrashOutlineRegular size={14} /> }] : [])]
+  if (!items.length) return <span className={css.footNote}>{t('hidden')}</span>
+  return <Menu open={open} onClose={() => setOpen(false)} portal align="start" items={items}
+    onSelect={(id) => { setOpen(false); if (id === 'hide') onHide(); else if (id === 'delete') onDelete?.() }}
     anchor={<Button type="button" variant="ghost" size="sm" icon={<IconEllipsisOutlineRegular size={16} />} aria-label={t('more')} title={t('more')} aria-haspopup="menu" aria-expanded={open}
       disabled={disabled} onClick={() => setOpen((v) => !v)} />} />
 }
@@ -733,7 +734,7 @@ function PgListView({ t, api, tiles, sub, onToggle, onBack }: { t: SetupT, api: 
 // ---------- configure ----------
 
 /** Configure: the Store, where it runs (a SQLite Store moves; a PostgreSQL Store's sessions run there), and Hide from sidebar. */
-function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: SetupT, project: ProjectRef, back?: DialogRequest | undefined, onBusy: (busy: boolean) => void }): ReactNode {
+function Configure({ api, t, tl, project, back, onBusy }: { api: LayerfsApi, t: SetupT, tl: ListT, project: ProjectRef, back?: DialogRequest | undefined, onBusy: (busy: boolean) => void }): ReactNode {
   const view = useStorage(api)
   const platforms = usePlatforms(api)
   const recent = useRecent(api)
@@ -741,6 +742,7 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
   const [busy, setBusyState] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [hidden, setHidden] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [sub, setSub] = useState(false)
   // PostgreSQL: machines checked to attach and attached ones unchecked to detach, saved together
   const [pgAdds, setPgAdds] = useState<string[]>([])
@@ -761,7 +763,17 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
     ? t('sessionsLast', { sessions: sessions === 1 ? t('oneSession') : t('sessions', { n: sessions }), ago: agoWords(lastAt, t) })
     : <span className={css.mono}>{project.key}</span>
   const head = <Head title={name} sub={headLine} subTitle={project.key} t={t} back={busy ? undefined : back} />
-  const hide = <MoreMenu t={t} hidden={hidden} disabled={!!busy} onHide={() => { sidebarHidden.hide(project.projectId ?? project.key); setHidden(true) }} />
+  // Delete conversations (projects.removeConversations, matched by projectId when there is one): the project and its files stay
+  const gone = view.data && !view.data.stores.some((s) => s.name === storeName)
+  const deleteBody = gone ? (sessions === 1 ? tl('removeBodyOne') : tl('removeBodyMany', { n: sessions }))
+    : sessions === 1 ? tl('removeLiveOne') : tl('removeLiveMany', { n: sessions })
+  const hide = <>
+    <MoreMenu t={t} hidden={hidden} disabled={!!busy} onHide={() => { sidebarHidden.hide(project.projectId ?? project.key); setHidden(true) }}
+      onDelete={sessions ? () => setDeleting(true) : undefined} />
+    {deleting ? <ConfirmDialog onClose={() => setDeleting(false)} title={tl('removeTitle', { project: name })} body={deleteBody} action={tl('removeAction')}
+      labels={{ cancel: tl('cancel'), close: tl('close'), refusal: refusalLabels(tl) }}
+      run={() => removeProjectConversations(api, { key: project.key, ...(project.projectId ? { projectId: project.projectId } : {}) }).then(() => projectDialog.close())} /> : null}
+  </>
   if (!view.data) return <>{head}<div className={css.body}><Loading read={view} t={t} /></div></>
   if (!store) {
     return <>{head}

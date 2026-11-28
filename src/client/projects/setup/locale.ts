@@ -82,7 +82,7 @@ const en = {
   detachWarnSharedOne: 'Detaching {machines} is refused while a Sandbox of this Store runs there. The Store is shared: its 1 other project stops running there too.',
   allN: 'All {n}', platDocker: 'Docker', platLima: 'Lima VM', projectNamePlaceholder: 'Project name', firstSession: 'First session', makeFirst: 'Make first',
   transferTo: 'Transfers {store} to {to}', othersGoOne: '1 other project goes too', othersGo: '{n} other projects go too', notChecked: 'Not checked',
-  open: 'Open', loseOne: '1 other project loses {machines}', loseMany: '{n} other projects lose {machines}', save: 'Save', more: 'More',
+  open: 'Open', loseOne: '1 other project loses {machines}', loseMany: '{n} other projects lose {machines}', save: 'Save', more: 'More', deleteConversations: 'Delete conversations…',
 }
 
 const zh: typeof en = {
@@ -164,7 +164,7 @@ const zh: typeof en = {
   detachWarnSharedOne: '此存储的 Sandbox 在 {machines} 上运行时，解除挂接会被拒绝。此存储是共用的：另外 1 个项目也将不再在那里运行。',
   allN: '全部 {n}', platDocker: 'Docker', platLima: 'Lima 虚拟机', projectNamePlaceholder: '项目名称', firstSession: '首个会话', makeFirst: '设为首个',
   transferTo: '把 {store} 转移到 {to}', othersGoOne: '另外 1 个项目一同转移', othersGo: '另外 {n} 个项目一同转移', notChecked: '未检查',
-  open: '打开', loseOne: '另外 1 个项目将失去 {machines}', loseMany: '另外 {n} 个项目将失去 {machines}', save: '保存', more: '更多',
+  open: '打开', loseOne: '另外 1 个项目将失去 {machines}', loseMany: '另外 {n} 个项目将失去 {machines}', save: '保存', more: '更多', deleteConversations: '删除对话…',
 }
 
 export const locales = { en, zh }
