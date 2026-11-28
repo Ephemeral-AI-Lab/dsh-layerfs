@@ -21,7 +21,7 @@ const en = {
   unavailableWhy: 'This conversation can’t run: {reason}',
   machineStopped: 'Machine stopped', machineUnavailable: 'Machine unavailable', storeUnavailable: 'Store unavailable',
   notVerified: 'Not verified', removed: 'Removed', replaced: 'Replaced',
-  removeProject: 'Remove {project}', removeTitle: 'Remove {project}?', removeAction: 'Remove conversations',
+  removeProject: 'Remove {project}', removeTitle: 'Delete conversations in {project}?', removeAction: 'Delete conversations',
   removeBodyOne: 'This project is gone from LayerFS. Its 1 conversation on this DSH is deleted with its checkpoints, and the project leaves the sidebar. This cannot be undone.',
   removeBodyMany: 'This project is gone from LayerFS. Its {n} conversations on this DSH are deleted with their checkpoints, and the project leaves the sidebar. This cannot be undone.',
   removeLiveOne: 'Its 1 conversation on this DSH is deleted with its checkpoints (stopped first if it is running), and the project leaves the sidebar until a new conversation starts in it. The project and its files in LayerFS stay. This cannot be undone.',
@@ -31,6 +31,10 @@ const en = {
   refusalRefusal: 'Refused', refusalUsage: 'This call does not fit the running LayerFS', refusalUnavailable: 'LayerFS is unavailable', refusalUnknown: 'Outcome unknown', inTheWay: 'In the way:', phase: 'phase {phase}', operation: 'operation {op}',
   foldCenter: 'Fold sidebar with LayerFS Center open', reviewStart: 'Review the machine before starting it.', openingSession: 'Opening a session…', openingConversation: 'Opening the conversation…',
   start: 'Start', startNamed: 'Start {machine}', startFailed: 'Could not start the project’s machine.', startMachineFor: 'Start machine {machine} for {project}',
+  projectsHeader: 'Projects', manageSidebar: 'Projects in sidebar', sidebarTitle: 'Projects in sidebar', sidebarSub: 'Only changes this sidebar. Nothing is deleted.',
+  hideProject: 'Remove {project} from sidebar', showMore: 'Show {n} more', showFewer: 'Show fewer', filterProjects: 'Filter {n} projects',
+  shownGroup: 'Shown · {n}', notShownGroup: 'Not shown · {n}', hideRemoved: 'Hide {n} Removed', noSessionsYet: 'No sessions yet', done: 'Done',
+  agoNow: 'just now', agoMinutes: '{n} min ago', agoHours: '{n} h ago', agoDays: '{n} d ago', agoMonths: '{n} mo ago', agoYears: '{n} y ago',
 }
 const zh: typeof en = {
   ...SESSION_FAILURE_ZH,
@@ -51,7 +55,7 @@ const zh: typeof en = {
   unavailableWhy: '此对话无法运行：{reason}',
   machineStopped: '机器已停止', machineUnavailable: '机器不可用', storeUnavailable: '存储不可用',
   notVerified: '未验证', removed: '已移除', replaced: '已被替换',
-  removeProject: '移除 {project}', removeTitle: '移除 {project}？', removeAction: '移除对话',
+  removeProject: '移除 {project}', removeTitle: '删除 {project} 中的对话？', removeAction: '删除对话',
   removeBodyOne: '此项目已从 LayerFS 中移除。它在此 DSH 上的 1 个对话将连同检查点一起删除，项目也会离开侧边栏。此操作无法撤销。',
   removeBodyMany: '此项目已从 LayerFS 中移除。它在此 DSH 上的 {n} 个对话将连同检查点一起删除，项目也会离开侧边栏。此操作无法撤销。',
   removeLiveOne: '它在此 DSH 上的 1 个对话将连同检查点一起删除（若在运行会先停止），项目会离开侧边栏，直到其中开始新的对话。LayerFS 中的项目及其文件保留。此操作无法撤销。',
@@ -61,6 +65,10 @@ const zh: typeof en = {
   refusalRefusal: '已拒绝', refusalUsage: '此调用与运行中的 LayerFS 不匹配', refusalUnavailable: 'LayerFS 不可用', refusalUnknown: '结果未知', inTheWay: '阻碍：', phase: '阶段 {phase}', operation: '操作 {op}',
   foldCenter: '保持 LayerFS 中心打开并折叠侧栏', reviewStart: '请先核对要启动的机器。', openingSession: '正在打开会话…', openingConversation: '正在打开对话…',
   start: '启动', startNamed: '启动 {machine}', startFailed: '无法启动项目所在的机器。', startMachineFor: '为 {project} 启动机器 {machine}',
+  projectsHeader: '项目', manageSidebar: '侧边栏中的项目', sidebarTitle: '侧边栏中的项目', sidebarSub: '只改变此侧边栏，不会删除任何内容。',
+  hideProject: '从侧边栏移除 {project}', showMore: '再显示 {n} 个', showFewer: '收起', filterProjects: '筛选 {n} 个项目',
+  shownGroup: '已显示 · {n}', notShownGroup: '未显示 · {n}', hideRemoved: '隐藏 {n} 个已移除', noSessionsYet: '还没有会话', done: '完成',
+  agoNow: '刚刚', agoMinutes: '{n} 分钟前', agoHours: '{n} 小时前', agoDays: '{n} 天前', agoMonths: '{n} 个月前', agoYears: '{n} 年前',
 }
 export const locales = { en, zh }
 export type ListT = (key: keyof typeof en, params?: Record<string, string | number>) => string

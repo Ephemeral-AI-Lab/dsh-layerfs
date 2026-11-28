@@ -65,6 +65,18 @@ test('sidebar projects: projects with sessions, newest first, hidden ones out', 
   assert.equal(sidebarProjects(recent, null, {}).find((r) => r.row.key === 's1/gone').row.catalogState, undefined)
 })
 
+test('sidebar projects: Projects in sidebar adds a project without sessions, and hiding it again removes it', () => {
+  const catalog = [{ key: 's1/idle', name: 'idle', store: 's1', projectId: 'p-idle' }, { key: 's1/app', name: 'app', store: 's1', projectId: 'p-app' }]
+  const recent = [{ project: 's1/app', projectId: 'p-app', lastActivity: 50, sessionIds: ['b1'] }]
+  const rows = sidebarProjects(recent, catalog, {}, undefined, { 'p-idle': 70 })
+  assert.deepEqual(rows.map((r) => r.row.key), ['s1/idle', 's1/app'], 'listed from when it was added')
+  assert.equal(rows[0].sessions, 0)
+  assert.equal(rows[0].hideKey, 'p-idle')
+  assert.deepEqual(sidebarProjects(recent, catalog, { 'p-idle': 80 }, undefined, { 'p-idle': 70 }).map((r) => r.row.key), ['s1/app'], 'hidden after it was added')
+  assert.deepEqual(sidebarProjects(recent, catalog, {}, undefined, { 'p-app': 90 }).map((r) => r.row.key), ['s1/app'], 'a project with sessions is listed once')
+  assert.deepEqual(sidebarProjects(recent, catalog, {}, undefined, { 'p-gone': 90 }).map((r) => r.row.key), ['s1/app'], 'an added project the catalog lacks is not listed')
+})
+
 // DSH owns these nodes. Catch accidental reintroduction of either DOM workaround.
 test('the Workspaces switch and Center launcher stay inside public extension points', () => {
   for (const path of ['projects/WorkspacesView.tsx', 'projects/workspaces.module.css', 'storage/index.tsx']) {
