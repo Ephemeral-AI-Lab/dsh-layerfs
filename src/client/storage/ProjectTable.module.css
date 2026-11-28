@@ -30,7 +30,21 @@
 
 .table[data-store-column] {
   grid-template-columns:
-    var(--pt-chevron) minmax(168px, 1.5fr) minmax(116px, 1.15fr) repeat(7, minmax(72px, 0.65fr)) var(--pt-menu);
+    var(--pt-chevron) minmax(168px, 1.5fr) minmax(116px, 1.15fr) minmax(104px, 1fr) repeat(7, minmax(72px, 0.65fr)) var(--pt-menu);
+}
+
+/* The machine its Store runs on (Home), "+N" for a PostgreSQL Store attached to more. */
+.colMachine {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.moreMachines {
+  flex: none;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .group {
@@ -574,7 +588,7 @@
   }
 
   .table[data-store-column] {
-    grid-template-columns: var(--pt-chevron) minmax(150px, 1.5fr) minmax(110px, 1.15fr) repeat(4, minmax(72px, 0.65fr)) var(--pt-menu);
+    grid-template-columns: var(--pt-chevron) minmax(150px, 1.5fr) minmax(110px, 1.15fr) minmax(96px, 0.9fr) repeat(4, minmax(72px, 0.65fr)) var(--pt-menu);
   }
 
   .colCommits,
@@ -592,7 +606,8 @@
   }
 
   .colSize,
-  .colStore {
+  .colStore,
+  .colMachine {
     display: none;
   }
 }
@@ -695,6 +710,7 @@
   .colBranches,
   .colSize,
   .colStore,
+  .colMachine,
   .colSessions,
   .colSandboxes {
     display: none;
