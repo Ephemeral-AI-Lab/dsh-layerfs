@@ -28,11 +28,18 @@ export function capWith<T>(items: readonly T[], cap: number, isChosen: (item: T)
   return chosen ? [...head.slice(0, cap - 1), chosen] : head
 }
 
+/** For checkboxes: every checked item, then the rest in order, up to `cap` in all (more when more are checked), in the list's order. */
+export function capChecked<T>(items: readonly T[], cap: number, isChecked: (item: T) => boolean): T[] {
+  const keep = new Set(items.filter(isChecked))
+  for (const item of items) { if (keep.size >= cap) break; keep.add(item) }
+  return items.filter((item) => keep.has(item))
+}
+
 /** Arrow keys move between a group's radios, as in any radio group. */
 function arrows(e: KeyboardEvent<HTMLElement>): void {
   const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0
   if (!step) return
-  const items = [...e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]:not(:disabled)')]
+  const items = [...e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]:not(:disabled), [role="checkbox"]:not(:disabled)')]
   const at = items.indexOf(document.activeElement as HTMLButtonElement)
   if (at < 0) return
   e.preventDefault()
@@ -43,21 +50,36 @@ export function TileGrid({ label, children }: { label: string, children: ReactNo
   return <div className={css.tiles} role="radiogroup" aria-label={label} onKeyDown={arrows}>{children}</div>
 }
 
-/** One choice: its mark, name and one note line; the chosen one has a check. */
-export function ChoiceTile({ mark, name, note, selected, disabled, tone, title, onSelect, data }: {
+/** A group of checkbox tiles (a PostgreSQL Store's attached machines). */
+export function CheckGrid({ label, children }: { label: string, children: ReactNode }): ReactNode {
+  return <div className={css.tiles} role="group" aria-label={label} onKeyDown={arrows}>{children}</div>
+}
+
+/** The chosen mark: a filled circle (one of a group) or a box (`multi`), empty when not checked. */
+function Check({ on, multi }: { on: boolean, multi?: boolean | undefined }): ReactNode {
+  if (multi) return <span className={clsx(css.tileBox, on && css.tileBoxOn)} aria-hidden="true">{on ? <IconCheckOutlineRegular size={10} /> : null}</span>
+  return on ? <span className={css.tileCheck} aria-hidden="true"><IconCheckOutlineRegular size={10} /></span> : null
+}
+
+/** One choice: its mark, name and one note line; the chosen one has a check (a box when `multi`). */
+export function ChoiceTile({ mark, name, note, selected, disabled, tone, title, onSelect, data, multi, locked }: {
   mark: ReactNode, name: string, note: ReactNode, selected: boolean, onSelect: () => void
   disabled?: boolean | undefined
-  /** The note in the warning tone (the item cannot be used now: the note says why). */
-  tone?: 'warn' | undefined
+  /** The note's tone: `warn` (the item cannot be used now, or the choice has a cost), `accent` (a change this dialog will make). */
+  tone?: 'warn' | 'accent' | undefined
   title?: string | undefined
   data?: Record<string, string | undefined>
+  /** A checkbox among checkboxes, not one of a group of radios. */
+  multi?: boolean | undefined
+  /** Checked and kept here (changed elsewhere): shown as it is, not greyed. */
+  locked?: boolean | undefined
 }): ReactNode {
-  return <button type="button" role="radio" aria-checked={selected} disabled={disabled} title={title ?? name}
-    className={clsx(css.tile, selected && css.tileOn)} onClick={onSelect} {...data}>
+  return <button type="button" role={multi ? 'checkbox' : 'radio'} aria-checked={selected} disabled={disabled} aria-readonly={locked || undefined} title={title ?? name}
+    className={clsx(css.tile, selected && css.tileOn, locked && css.tileLocked)} onClick={locked ? undefined : onSelect} {...data}>
     <span className={css.tileTop}>
       <span className={css.tileMark} aria-hidden="true">{mark}</span>
       <span className={css.tileName}>{name}</span>
-      {selected ? <span className={css.tileCheck} aria-hidden="true"><IconCheckOutlineRegular size={10} /></span> : null}
+      <Check on={selected} multi={multi} />
     </span>
     <span className={css.tileNote} data-tone={tone}>{note}</span>
   </button>
@@ -106,8 +128,10 @@ export function machineTileParts(m: Machine, words: LocationWords, block: TileBl
  * machines when there are more, and New machine. `current` is the Store's
  * machine (its badge); without it `fallback` is the default.
  */
-export function MachineGrid({ machines, value, onChange, words, label, current, fallback, blocks, disabled, allLabel, onAll, newLabel, onNew }: {
+export function MachineGrid({ machines, value, onChange, words, label, current, fallback, blocks, disabled, allLabel, onAll, newLabel, onNew, targetNote }: {
   machines: readonly Machine[], value: string, onChange: (machine: string) => void, words: LocationWords, label: string
+  /** The chosen machine's note when it is not `current` (the Store transfers there). */
+  targetNote?: string | undefined
   current?: string | null | undefined, fallback?: string | null | undefined, blocks: ReadonlyMap<string, TileBlock>, disabled?: boolean | undefined
   allLabel: string, onAll: () => void, newLabel: string, onNew: () => void
 }): ReactNode {
@@ -118,7 +142,8 @@ export function MachineGrid({ machines, value, onChange, words, label, current, 
       {shown.map((m) => {
         const badge = current ? (m.name === current ? words.here : null) : m.name === fallback ? words.default : null
         const p = machineTileParts(m, words, blocks.get(m.name), badge, value === m.name)
-        return <ChoiceTile key={m.name} mark={p.mark} name={m.name} note={p.note} tone={p.tone} selected={value === m.name}
+        const target = !!current && !!targetNote && m.name === value && value !== current
+        return <ChoiceTile key={m.name} mark={p.mark} name={m.name} note={target ? `${p.note} · ${targetNote}` : p.note} tone={target ? 'warn' : p.tone} selected={value === m.name}
           disabled={disabled || p.disabled} onSelect={() => onChange(m.name)} data={{ 'data-machine': m.name, 'data-blocked': blocks.has(m.name) ? '' : undefined }} />
       })}
     </TileGrid>
@@ -137,8 +162,10 @@ export interface ListItem {
   search?: string | undefined
   selected: boolean
   disabled?: boolean | undefined
-  tone?: 'warn' | undefined
+  tone?: 'warn' | 'accent' | undefined
   title?: string | undefined
+  /** Checked and kept here (changed elsewhere). */
+  locked?: boolean | undefined
   /** An action beside the row (outside its button): a broken Store's Open Store. */
   after?: ReactNode
   onPick: () => void
@@ -150,7 +177,7 @@ export interface ListGroup { label: string, items: ListItem[] }
  * Every item, grouped, under one filter: what All N… opens in place of the
  * form. Picking a row chooses it (the caller goes back to the form).
  */
-export function ChoiceList({ groups, label, placeholder, empty }: { groups: ListGroup[], label: string, placeholder: string, empty: string }): ReactNode {
+export function ChoiceList({ groups, label, placeholder, empty, multi }: { groups: ListGroup[], label: string, placeholder: string, empty: string, multi?: boolean | undefined }): ReactNode {
   const [query, setQuery] = useState('')
   const q = query.trim().toLowerCase()
   const matched = groups.map((g) => ({ ...g, items: g.items.filter((i) => !q || i.name.toLowerCase().includes(q) || (i.search ?? '').toLowerCase().includes(q)) })).filter((g) => g.items.length)
@@ -160,15 +187,16 @@ export function ChoiceList({ groups, label, placeholder, empty }: { groups: List
       <input className={css.listFilterInput} value={query} placeholder={placeholder} aria-label={placeholder} autoComplete="off" spellCheck={false}
         data-modal-autofocus="" onChange={(e) => setQuery(e.target.value)} />
     </div>
-    <div className={css.listBody} role="radiogroup" aria-label={label} onKeyDown={arrows}>
+    <div className={css.listBody} role={multi ? 'group' : 'radiogroup'} aria-label={label} onKeyDown={arrows}>
       {matched.map((g) => <section key={g.label} className={css.listGroup}>
         <h4 className={css.listGroupLabel}>{g.label}</h4>
         {g.items.map((i) => <div key={i.key} className={clsx(css.listRow, i.selected && css.listRowOn)}>
-          <button type="button" role="radio" aria-checked={i.selected} disabled={i.disabled} title={i.title ?? i.name} className={css.listRowBtn} onClick={i.onPick}>
+          <button type="button" role={multi ? 'checkbox' : 'radio'} aria-checked={i.selected} disabled={i.disabled} aria-readonly={i.locked || undefined} title={i.title ?? i.name}
+            className={css.listRowBtn} onClick={i.locked ? undefined : i.onPick}>
             <span className={css.tileMark} aria-hidden="true">{i.mark}</span>
             <span className={css.listName}>{i.name}</span>
             <span className={css.listNote} data-tone={i.tone}>{i.note}</span>
-            {i.selected ? <IconCheckOutlineRegular size={13} className={css.listCheck} /> : null}
+            {multi ? <Check on={i.selected} multi /> : i.selected ? <IconCheckOutlineRegular size={13} className={css.listCheck} /> : null}
           </button>
           {i.after ?? null}
         </div>)}

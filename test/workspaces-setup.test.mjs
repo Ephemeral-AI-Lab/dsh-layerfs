@@ -124,6 +124,16 @@ test('create steps: a PostgreSQL Store attaches the machine picked when it is no
   assert.equal(picked[1].machine, 'dev')
 })
 
+test('create steps: a PostgreSQL Store attaches every checked machine not attached yet; the session opens on the first', () => {
+  const existing = { name: 'pg', kind: 'postgresql', projects: [], attached: [{ machine: 'dev', reached: 'ok', reach: null }] }
+  const steps = createSteps({ name: 'app', kind: 'postgresql', store: existing, machines: ['dev', 'docker', 'lima1', 'docker'] }, view)
+  assert.deepEqual(ids(steps), ['init', 'attach:docker', 'attach:lima1', 'open'], 'dev is attached already; each other one once')
+  assert.equal(steps.at(-1).machine, 'dev', 'the first session runs on the first machine')
+  const fresh = createSteps({ name: 'app', kind: 'postgresql', store: null, newStore: { name: 'pg' }, machines: ['lima1', 'docker'] }, view)
+  assert.deepEqual(ids(fresh), ['connect', 'init', 'attach:lima1', 'attach:docker', 'open'])
+  assert.equal(fresh.at(-1).machine, 'lima1')
+})
+
 test('create steps: a folder is checked before anything is made', () => {
   assert.deepEqual(ids(createSteps({ name: 'app', kind: 'sqlite', store: null, newStore: { name: 'app' }, machines: ['docker'], source: '/Users/me/code/shop' }, view)),
     ['check', 'store', 'init', 'place:docker', 'open'])

@@ -178,8 +178,10 @@ export function createSteps(plan: CreatePlan, _view?: Pick<StorageView, 'machine
   } else {
     if (!plan.store) steps.push({ id: 'connect' })
     steps.push({ id: 'init' })
-    const first = plan.machines[0]
-    if (first && !(plan.store?.attached ?? []).some((a) => a.machine === first)) steps.push({ id: `attach:${first}`, machine: first })
+    // every machine the person checked that is not attached yet, the first session's machine first
+    for (const m of [...new Set(plan.machines)]) {
+      if (!(plan.store?.attached ?? []).some((a) => a.machine === m)) steps.push({ id: `attach:${m}`, machine: m })
+    }
   }
   const first = plan.kind === 'postgresql' ? plan.machines[0] : undefined
   steps.push({ id: 'open', ...(first ? { machine: first } : {}) })

@@ -554,12 +554,10 @@ test('R1 F3: New project offers a PostgreSQL Store only running, not-broken mach
   assert.equal(M.sm.pgDefaultMachine({ attached: [] }, machines, 'lima1'), null, 'a last machine no longer attached is not the default, and the host machine is no fallback')
   const dialog = src('src/client/projects/setup/ProjectDialog.tsx')
   assert.match(dialog, /const offered = kind === 'postgresql' \? machines\.filter\(\(m\) => pgPlaceable\(m\) && !blocks\.has\(m\.name\)\) : machines/)
-  assert.match(dialog, /const mlist = kind === 'sqlite' \? machines : offered/)
-  assert.match(dialog, /const mvalue = kind === 'sqlite' \? chosenSqlite : chosenPg \?\? ''/)
-  assert.match(dialog, /<MachineGrid machines=\{mlist\} value=\{mvalue\}/)
-  assert.match(dialog, /t\('pgWillAttach', \{ machine: willAttach \}\)/, 'an unattached pick says Create attaches it')
-  assert.match(dialog, /2: chosen\.length > 0 && chosen\.every\(\(m\) => offered\.some/)
-  assert.match(dialog, /const pgPicked = pgChoice && offered\.some\(\(m\) => m\.name === pgChoice\) \? pgChoice : null/)
+  assert.match(dialog, /const adds = kind === 'postgresql' \? pgAdds\.filter\(\(m\) => offered\.some\(\(x\) => x\.name === m\)/, 'only offered machines can be checked to attach')
+  assert.match(dialog, /t\('willAttach'\)/, 'a checked machine says Create attaches it')
+  assert.match(dialog, /: !!chosenPg && adds\.every\(\(m\) => offered\.some\(\(x\) => x\.name === m\)\)/)
+  assert.match(dialog, /pgDefault && firstOptions\.includes\(pgDefault\) \? pgDefault : firstOptions\.length === 1 \? firstOptions\[0\]! : null/, 'never a guessed first machine')
 })
 
 test('R1 F1: Home words an outdated or login-missing PostgreSQL Store as needing its update, with the one fix; never "down"', () => {

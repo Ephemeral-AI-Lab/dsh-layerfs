@@ -1371,3 +1371,105 @@
   flex: none;
   color: var(--dsw-alias-state-business-primary);
 }
+
+/* ---------- kind tabs, checkbox tiles, the transfer box ---------- */
+.tileBox {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border-radius: var(--dsw-radius-xs);
+  border: 1px solid var(--dsw-alias-border-l4);
+  color: var(--dsw-alias-label-primary-inverted);
+}
+
+.tileBoxOn {
+  border-color: var(--dsw-alias-state-business-primary);
+  background: var(--dsw-alias-state-business-primary);
+}
+
+.tileLocked {
+  cursor: default;
+}
+
+.tileNote[data-tone='accent'],
+.listNote[data-tone='accent'] {
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.kindTabs {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  border-radius: var(--dsw-radius-md);
+  background: color-mix(in oklab, var(--dsw-alias-label-primary) 4%, transparent);
+}
+
+.kindTab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border: 0.5px solid transparent;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.kindTab[aria-selected='true'],
+.kindTab[aria-checked='true'] {
+  border-color: var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+}
+
+.kindTab:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color);
+}
+
+.kindCount {
+  color: var(--dsw-alias-label-tertiary);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.transferBox {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 0.5px solid color-mix(in oklab, var(--lf-tone-warning-fg) 45%, transparent);
+  border-radius: var(--dsw-radius-md);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.transferBox > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--lf-tone-warning-fg);
+}
+
+.firstOn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.firstOn .kindTabs {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
