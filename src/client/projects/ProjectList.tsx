@@ -131,6 +131,11 @@ function ActionError({ api, t, error, store, storeRow }: { api: LayerfsApi, t: L
   </div>
 }
 
+/** Deletes one project conversation on this DSH for good (`sessions.delete`). */
+export function deleteConversation(api: Pick<LayerfsApi, 'op'>, sessionId: string): Promise<unknown> {
+  return api.op('sessions.delete', { sessionId })
+}
+
 /** Archives one conversation in DSH (`sessions.archive`): null when archived, else DSH's refusal in its own words. */
 export function archiveConversation(api: Pick<LayerfsApi, 'op'>, sessionId: string): Promise<string | null> {
   return api.op('sessions.archive', { sessionId }).then(() => null, (e: unknown) => String((e as Error)?.message ?? e))
@@ -138,8 +143,9 @@ export function archiveConversation(api: Pick<LayerfsApi, 'op'>, sessionId: stri
 
 /**
  * One conversation under a project: its title (a press opens it), the
- * readiness word beside it, its reason under the row, then Archive where DSH
- * can archive it ({@link archivable}). Readiness is words only: there is no
+ * readiness word beside it, its reason under the row, then Archive and
+ * Delete (confirmed, for good) where DSH can archive it ({@link archivable}):
+ * a running conversation offers neither. Readiness is words only: there is no
  * Open, Start or Open Store button on the row (docs/guide/entry-points.md).
  * A refused Archive reads "Not archived" with DSH's message as the tip and
  * one action, Try again (RV4 FAIL 2: no refusal is dropped).
@@ -149,7 +155,7 @@ export function archiveConversation(api: Pick<LayerfsApi, 'op'>, sessionId: stri
  * `disabled`, so keyboard focus is not dropped mid-open, and it is described
  * by the reason line under it.
  */
-export function SessionLine({ session, title, selected, t, failure, readiness, onOpen, onArchive }: {
+export function SessionLine({ session, title, selected, t, failure, readiness, onOpen, onArchive, onDelete }: {
   session: ProjectSession, title: string, selected: boolean, t: ListT
   /** The interrupted session's failure in words (its tip and failure code). */
   failure?: LocalizedFailure | null
@@ -159,8 +165,11 @@ export function SessionLine({ session, title, selected, t, failure, readiness, o
   onOpen: () => void | Promise<unknown>
   /** Archives it: null when done, else the refusal's message. */
   onArchive: () => Promise<string | null>
+  /** Deletes it for good once confirmed; a refusal rejects and stays in the dialog. */
+  onDelete?: () => Promise<unknown>
 }): ReactNode {
   const [busy, setBusy] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [refusal, setRefusal] = useState<string | null>(null)
   // An open can be refused by DSH (a stored-only row, an identity mismatch):
   // that answer belongs beside this row, not only at the project, and one Retry
@@ -204,7 +213,12 @@ export function SessionLine({ session, title, selected, t, failure, readiness, o
       {archivable(session) ? <Button className={clsx(css.iconButton, css.sessionAction)} variant="ghost" size="sm" icon={<IconArchiveOutlineRegular size={14} />} disabled={busy}
         aria-label={t('archiveSession', { session: title })} title={t('archiveSession', { session: title })} data-archive-session={session.sessionId}
         onClick={archive} /> : null}
+      {onDelete && archivable(session) ? <Button className={clsx(css.iconButton, css.sessionAction)} variant="ghost" size="sm" icon={<IconTrashOutlineRegular size={14} />} disabled={busy}
+        aria-label={t('deleteSession', { session: title })} title={t('deleteSession', { session: title })} data-delete-session={session.sessionId}
+        onClick={() => setDeleting(true)} /> : null}
     </li>
+    {deleting && onDelete ? <ConfirmDialog onClose={() => setDeleting(false)} title={t('deleteTitle', { session: title })} body={t('deleteBody')} action={t('deleteAction')}
+      labels={{ cancel: t('cancel'), close: t('close'), refusal: refusalLabels(t) }} run={onDelete} /> : null}
     {reason ? <li className={css.sessionReason} id={reasonId} data-session-reason={readiness.key} data-session-failure={interrupted ? failure?.code : undefined}>
       <span>{reason}</span>
     </li> : null}
@@ -243,8 +257,10 @@ function SidebarRow({ item, showStore, sessionCount, api, titles, t, onChanged }
   const { row: project, availability } = item
   const [open, setOpen] = useState(false)
   const [removing, setRemoving] = useState(false)
-  // Only a project LayerFS no longer has offers Remove: its conversations can never run again.
+  // Remove deletes the row's conversations on this DSH; a project LayerFS no longer has says so.
   const gone = project.catalogState === 'removed'
+  const removeBody = gone ? (sessionCount === 1 ? t('removeBodyOne') : t('removeBodyMany', { n: sessionCount }))
+    : sessionCount === 1 ? t('removeLiveOne') : t('removeLiveMany', { n: sessionCount })
   const actions = useActions(api, onChanged)
   const storeName = storeOf(project)
   // A name two listed projects share carries its Store, on screen and in every accessible name.
@@ -273,7 +289,7 @@ function SidebarRow({ item, showStore, sessionCount, api, titles, t, onChanged }
   const archiveFail = read.error ? formatSessionFailure(null, errorMessage(read.error, t), t, storeName, item.store) : null
   const hasInterruptedFailure = sessions.some((s) => s.executionState === 'interrupted' && !!formatSessionFailure(s.failure, s.error, t, storeName, item.store))
   return <li data-layerfs-project={idOf(project)} data-ready={availability.canRun || undefined} className={css.projectItem}>
-    <div className={clsx(css.projectRow, !availability.canRun && css.inactive)} data-open={open || undefined} data-actions={availability.canStart ? 1 : 2}>
+    <div className={clsx(css.projectRow, !availability.canRun && css.inactive)} data-open={open || undefined} data-actions={availability.canStart || gone ? 2 : 3}>
       <button className={css.projectToggle} type="button"
         title={`${nameOf(project)} · ${storeName}${where ? ` · ${where}` : ''}`} aria-expanded={open} aria-label={t('expandProject', { project: label })} onClick={() => setOpen(!open)}>
         <LeadingSlot open={open} />
@@ -283,8 +299,8 @@ function SidebarRow({ item, showStore, sessionCount, api, titles, t, onChanged }
       <span className={css.rowActions}>
         <Button className={css.iconButton} variant="ghost" size="sm" icon={<IconSettingsOutlineRegular size={14} />} aria-label={t('configure', { project: label })} title={t('configure', { project: label })}
           onClick={() => projectDialog.open({ mode: 'configure', project: { key: project.key, projectId: project.projectId, name: nameOf(project), store: storeName } })} />
-        {gone ? <Button className={css.iconButton} variant="ghost" size="sm" icon={<IconTrashOutlineRegular size={14} />} data-remove-project={idOf(project)}
-          aria-label={t('removeProject', { project: label })} title={t('removeProject', { project: label })} onClick={() => setRemoving(true)} /> : null}
+        <Button className={css.iconButton} variant="ghost" size="sm" icon={<IconTrashOutlineRegular size={14} />} data-remove-project={idOf(project)}
+          aria-label={t('removeProject', { project: label })} title={t('removeProject', { project: label })} onClick={() => setRemoving(true)} />
         {/* While the new session opens the button stays focusable (aria-disabled, presses ignored): disabling it dropped focus to the page. */}
         {availability.canStart || gone ? null : <Button className={css.iconButton} variant="ghost" size="sm" disabled={!availability.canRun} aria-disabled={actions.busy || undefined} icon={<IconPlusOutlineRegular size={14} />}
           aria-label={t('newSession', { project: label })} aria-description={sessionReason} title={sessionReason ?? t('newSession', { project: label })}
@@ -296,7 +312,7 @@ function SidebarRow({ item, showStore, sessionCount, api, titles, t, onChanged }
     </div>
     <ActionError api={api} t={t} error={actions.error} store={storeName} storeRow={item.store} />
     {removing ? <ConfirmDialog onClose={() => setRemoving(false)} title={t('removeTitle', { project: label })}
-      body={sessionCount === 1 ? t('removeBodyOne') : t('removeBodyMany', { n: sessionCount })} action={t('removeAction')}
+      body={removeBody} action={t('removeAction')}
       labels={{ cancel: t('cancel'), close: t('close'), refusal: refusalLabels(t) }}
       run={() => removeProjectConversations(api, project).then(onChanged)} /> : null}
     {open ? <ul className={css.sessions}>
@@ -315,7 +331,8 @@ function SidebarRow({ item, showStore, sessionCount, api, titles, t, onChanged }
           readiness={readiness}
           failure={sessionFail}
           onOpen={() => resume(session.sessionId)}
-          onArchive={() => archiveConversation(api, session.sessionId).then((refusal) => { if (refusal === null) read.reload(); return refusal })} />
+          onArchive={() => archiveConversation(api, session.sessionId).then((refusal) => { if (refusal === null) read.reload(); return refusal })}
+          onDelete={() => deleteConversation(api, session.sessionId).then(() => { read.reload(); onChanged() })} />
       }) : !read.error && !read.loading ? <li className={css.notice}>{t('noSessions')}</li> : null}
     </ul> : null}
   </li>
