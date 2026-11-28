@@ -1159,6 +1159,45 @@ test('Presets Reset deletes this home\'s project sessions only; loaded ones are 
   assert.ok(f.events.some((e) => e.type === 'layerfs-workspaces-changed' && e.data.project === 'demo/app'))
 })
 
+test('Remove on a Removed project deletes its conversations only while LayerFS has no such project', async () => {
+  const state = S.initialState()
+  state.sessions.bound = { sessionId: 'bound', kind: 'project', project: 'gone/app', sandbox: 'dsh-bound', anchor: '/a', scratch: '/s', state: 'failed' }
+  state.sessions.other = { sessionId: 'other', kind: 'project', project: 'live/app', anchor: '/a', scratch: '/s', state: 'closed' }
+  state.pending.draft = { project: 'gone/app' }
+  const live = new Set(['live/app'])
+  const asked = [], deleted = []
+  const notFound = (key) => Object.assign(new Error(`no project ${key}`), { code: 'NotFound' })
+  const f = sessions({ state, lfs: {
+    project: { get: async (key) => { asked.push(key); if (!live.has(key)) throw notFound(key); return { project: key } } },
+    sandbox: { remove: async () => ({ ok: true }) },
+  } })
+  // An owner route under an old address that carries the same project identity.
+  const owners = { routed: { project: 'gone/app' }, renamed: { project: 'gone/old-name' }, foreign: { project: 'live/app' } }
+  const ids = { routed: 'P1', renamed: 'P1', foreign: 'P2', bound: 'P1' }
+  const persistence = {
+    ownedSessionIds: () => Object.keys(owners),
+    ownerOf: (id) => owners[id],
+    projectIdOf: (id) => ids[id],
+    deleteSessions: async (list) => { deleted.push(...list); return list },
+  }
+  Object.assign(f.s.ctx, {
+    get: (name) => (name === 'sessionPersistence' ? persistence : undefined),
+    sessions: { get: () => undefined },
+    workspaceRegistry: { archiveSession: async () => {} },
+  })
+  Object.defineProperty(f.s, 'store', { value: { forget: () => {} } })
+  await assert.rejects(f.s.deleteRemovedProjectConversations('live/app'), /still has project live\/app/, 'a live project is refused')
+  assert.deepEqual(deleted, [])
+  const removed = await f.s.deleteRemovedProjectConversations('gone/app', 'P1')
+  assert.deepEqual(removed, ['bound', 'draft', 'renamed', 'routed'])
+  assert.deepEqual(asked.filter((k) => k !== 'live/app').sort(), ['gone/app', 'gone/old-name'], 'every address is checked gone first')
+  assert.deepEqual(Object.keys(f.state().sessions), ['other'])
+  assert.deepEqual(f.state().pending, {})
+  live.add('gone/old-name')
+  owners.again = { project: 'gone/old-name' }; ids.again = 'P1'
+  await assert.rejects(f.s.deleteRemovedProjectConversations('gone/app', 'P1'), /still has project gone\/old-name/, 'an identity now live elsewhere is refused')
+})
+
 // ---------------------------------------------------------------- checkpoint receipts
 
 const hex = (c) => c.repeat(66)
