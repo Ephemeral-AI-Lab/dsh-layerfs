@@ -274,6 +274,26 @@ export class LayerfsSessions extends Service {
     }
   }
 
+  /**
+   * After a start: a project session that has run is kept out of the folder
+   * workspaces. One still waiting for its first turn stays in the workspace it
+   * was opened in (DSH locks the composer of a session in none), and is put
+   * back when an earlier start took it out: only the workspace at its own
+   * folder accepts it.
+   */
+  async recoverMembership(owned: Iterable<string>): Promise<void> {
+    const { sessions, pending } = this.state.read()
+    for (const id of new Set([...Object.keys(sessions), ...Object.keys(pending), ...owned])) {
+      if (!pending[id] || pending[id].simulation) { await this.detach(id); continue }
+      const workspaces = this.ctx.workspaceRegistry?.list?.() ?? []
+      if (workspaces.some((w) => w.sessionIds.includes(id as never))) continue
+      for (const workspace of workspaces) {
+        // attachSession refuses a session whose folder is not the workspace's
+        if (await workspace.attachSession(id as never).then(() => true, () => false)) break
+      }
+    }
+  }
+
   /** Change the local folder's scratch role without moving project ownership. */
   async selectScratch(sessionId: string, cwd: string): Promise<void> {
     if (!this.placeOfId(sessionId)?.project) throw new CliError('InvalidInput', 'Select a LayerFS project before choosing its scratch folder')
@@ -825,7 +845,9 @@ export class LayerfsSessions extends Service {
     if (!strict) {
       // Opening a log only prepares local ownership metadata. Workspace setup
       // happens at pre-step, never in response to navigation or polling.
-      if (place.kind === 'project' && !this.binding(sessionId)) {
+      // One still waiting for its first turn keeps its folder: no binding, no new scratch folder.
+      const waiting = this.state.read().pending[sessionId]
+      if (place.kind === 'project' && !this.binding(sessionId) && (!waiting || waiting.simulation)) {
         const metadata = await persistence?.readSidecar?.(sessionId).catch(() => undefined)
         const anchor = this.ensureAnchor(place.project)
         const selected = this.selectedScratch(agent, anchor)

@@ -22,6 +22,12 @@ LayerFS Project                 DSH Workspace
 - A normal session belongs to a DSH workspace and retains stock DSH behavior.
 - A project session does not acquire a second owner merely because its selected
   local folder is also registered as a DSH workspace.
+- DSH locks the composer of a session that belongs to no workspace. A project
+  session waiting for its first turn therefore stays listed in the workspace it
+  was opened in, also across restarts (the startup pass puts it back if it was
+  taken out); once it has run it leaves the folder workspaces. If a project
+  session is in none anyway, the New Session row keeps DSH's own "Choose
+  workspace" chip instead of the scratch selector.
 - Both types reuse DSH's conversation runtime and log format. They differ in
   ownership, persistence routing, execution context, and LayerFS annotations.
 - Choose the owner before the first turn. Changing the project, or switching

@@ -8,7 +8,7 @@
  * Retry, never a false "No project". While an import runs, the control shows its
  * progress.
  */
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Button, IconChevronDownOutlineRegular, IconFolderOpenOutlineRegular, IconCheckOutlineRegular, IconPlusOutlineRegular, IconSettingsOutlineRegular, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
@@ -178,7 +178,11 @@ export function HeroProjectControl({ sessionId, api, t, imports, ownership, retr
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [place, rows, switching])
 
-  const project = !!place?.project
+  // A session in no workspace has no folder for DSH: its own "Choose workspace"
+  // chip stays (its picker is anchored there), and the scratch selector waits.
+  const watch = useCallback((changed: () => void) => api.onWorkspaces?.(changed) ?? (() => {}), [api])
+  const unlisted = useSyncExternalStore(watch, () => api.sessionUnlisted?.(sessionId) ?? false)
+  const project = !!place?.project && !unlisted
   useEffect(() => {
     // DSH's order in both modes, the project control right after the preset:
     // folder · preset · project (hero.module.css). Native folder selection
@@ -274,7 +278,7 @@ export function HeroProjectControl({ sessionId, api, t, imports, ownership, retr
   ]
   return (
     <span ref={root} className={css.root} data-layerfs-hero="">
-      {place?.project ? <span className={css.scratchSlot} data-layerfs-scratch=""><ScratchPicker sessionId={sessionId} scratch={place.scratch} api={api} t={t} /></span> : null}
+      {project && place ? <span className={css.scratchSlot} data-layerfs-scratch=""><ScratchPicker sessionId={sessionId} scratch={place.scratch} api={api} t={t} /></span> : null}
       <Menu open={open && !switching} onClose={() => setOpen(false)} portal align="start" items={items} selectedId={current === null ? NONE : undefined} dense listClassName={css.projectMenu}
         onSelect={(id) => {
           setOpen(false)

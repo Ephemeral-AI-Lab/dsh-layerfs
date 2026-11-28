@@ -74,6 +74,19 @@ test('project: the chip names the project', async () => {
   assert.doesNotMatch(M.text(tree), /No project/)
 })
 
+test('a project session in no workspace leaves DSH its own workspace chip: no scratch selector', async () => {
+  const ownership = { state: 'project', project: 'st/app', projectId: 'pid', scratch: '/tmp/scratch' }
+  const scratchShown = (tree) => M.elements(tree).some((e) => e.props && 'data-layerfs-scratch' in e.props)
+  const listed = await M.mount(M.HeroProjectControl, props(ownership)).settle()
+  assert.equal(scratchShown(listed), true)
+  const p = props(ownership)
+  p.api.sessionUnlisted = () => true
+  p.api.onWorkspaces = () => () => {}
+  const tree = await M.mount(M.HeroProjectControl, p).settle()
+  assert.equal(scratchShown(tree), false)
+  assert.ok(chipOf(tree, fill(EN_DICT.chipAria, { project: 'app' })), 'the project chip stays')
+})
+
 test('notProject: the chip says No project', async () => {
   const view = M.mount(M.HeroProjectControl, props({ state: 'notProject' }))
   const tree = await view.settle()

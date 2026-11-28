@@ -71,6 +71,10 @@ export interface LayerfsApi {
   pickDirectory(): Promise<string | null>
   /** Open a project-owned session using the selected local workspace as scratch. */
   /** `machine`: where a PostgreSQL project's Sandbox runs (the person's pick; else the host's default, placement.ts). */
+  /** True when DSH's workspace list is read and holds this session nowhere (DSH then asks for a workspace). */
+  sessionUnlisted?(sessionId: string): boolean
+  /** Runs `listener` when DSH's workspace list changes. */
+  onWorkspaces?(listener: () => void): () => void
   openProjectSession(project: string, workspaceId?: string, projectId?: string, machine?: string): Promise<{ sessionId: string, workspaceId: string }>
   /** The conversation a `sessions.open` is resolving now, if any. */
   openingSession(): OpeningSession | undefined
@@ -613,6 +617,11 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
       return picker.pickDirectory()
     },
     selectedSessionId: () => nav.currentSessionId?.(),
+    sessionUnlisted(sessionId) {
+      const snap = workspace()?.workspaces?.list?.getSnapshot?.()
+      return snap?.phase === 'ready' && !(snap.items ?? []).some((item: any) => item.sessionIds?.includes?.(sessionId))
+    },
+    onWorkspaces: (listener) => workspace()?.workspaces?.list?.subscribe?.(listener) ?? (() => {}),
     async openProjectSession(project: string, workspaceId?: string, projectId?: string, machine?: string) {
       // Refuse before anything is made: identity, project, machine and Store are
       // checked read-only, so a refusal leaves no blank session behind.

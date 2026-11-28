@@ -394,6 +394,28 @@ test('project detach removes its normal workspace membership without changing th
   assert.deepEqual(ids, ['normal'])
 })
 
+test('recovery after a start keeps a never-started project session in its workspace, puts back one an earlier start removed, and takes out the rest', async () => {
+  const state = S.initialState()
+  state.sessions.ran = { sessionId: 'ran', kind: 'project', project: 'st/app', state: 'closed' }
+  state.pending.waiting = { project: 'st/app' }
+  state.pending.removed = { project: 'st/app' }
+  state.pending.elsewhere = { project: 'st/app' }
+  state.pending.script = { project: 'st/app', simulation: { runId: 'r' } }
+  const { s } = sessions({ state })
+  const members = { scratch: ['ran', 'waiting', 'script'], other: [] }
+  // like DSH, a workspace accepts only sessions whose folder is its own
+  const folderOf = { removed: 'scratch' }
+  const workspace = (name) => ({
+    get sessionIds() { return members[name] },
+    detachSession: async (id) => { members[name] = members[name].filter((x) => x !== id) },
+    attachSession: async (id) => { if (folderOf[id] !== name) throw new Error('cwd differs'); members[name] = [id, ...members[name]] },
+  })
+  const all = [workspace('other'), workspace('scratch')]
+  s.ctx.workspaceRegistry = { list: () => all }
+  await s.recoverMembership(['ran', 'waiting'])
+  assert.deepEqual(members, { scratch: ['removed', 'waiting'], other: [] })
+})
+
 test('close refuses to discard unsaved files after an uncertain checkpoint', async () => {
   const state = S.initialState()
   state.sessions.a = { sessionId: 'a', kind: 'project', project: 'st/app', state: 'bound', ws: 'sb:main', sandbox: 'sb', branch: 'internal' }

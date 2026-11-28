@@ -236,8 +236,7 @@ export function apply(ctx: Context): void {
       const timer = setTimeout(() => {
         void store.syncAll().then(async () => {
           const persistence = ctx.get('sessionPersistence' as never) as any
-          const ids = new Set([...Object.keys(sessions.state.read().sessions), ...(persistence?.ownedSessionIds?.() ?? [])])
-          for (const id of ids) await sessions.detach(id)
+          await sessions.recoverMembership(persistence?.ownedSessionIds?.() ?? [])
         }).catch((e) => ctx.logger('layerfs').warn('session recovery: %s', String(e)))
       }, 1500)
       return () => clearTimeout(timer)
