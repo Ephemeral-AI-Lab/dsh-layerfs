@@ -32,9 +32,15 @@ const en = {
   foldCenter: 'Fold sidebar with LayerFS Center open', reviewStart: 'Review the machine before starting it.', openingSession: 'Opening a session…', openingConversation: 'Opening the conversation…',
   start: 'Start', startNamed: 'Start {machine}', startFailed: 'Could not start the project’s machine.', startMachineFor: 'Start machine {machine} for {project}',
   projectsHeader: 'Projects', manageSidebar: 'Projects in sidebar', sidebarTitle: 'Projects in sidebar', sidebarSub: 'Only changes this sidebar. Nothing is deleted.',
-  hideProject: 'Remove {project} from sidebar', showMore: 'Show {n} more', showFewer: 'Show fewer', filterProjects: 'Filter {n} projects',
+  hideProject: 'Hide from sidebar', showMore: 'Show {n} more', showFewer: 'Show fewer', filterProjects: 'Filter {n} projects',
   shownGroup: 'Shown · {n}', notShownGroup: 'Not shown · {n}', hideRemoved: 'Hide {n} Removed', noSessionsYet: 'No sessions yet', done: 'Done',
   agoNow: 'just now', agoMinutes: '{n} min ago', agoHours: '{n} h ago', agoDays: '{n} d ago', agoMonths: '{n} mo ago', agoYears: '{n} y ago',
+  shortNow: 'now', shortMinutes: '{n}m', shortHours: '{n}h', shortDays: '{n}d', shortMonths: '{n}mo', shortYears: '{n}y',
+  hostMac: 'This Mac', hostPc: 'This PC', hostLinux: 'This computer', moreMachines: '+{n}',
+  marksTip: 'Store {store} ({kind}) · runs on {machines}', marksTipStore: 'Store {store} ({kind})', lastSessionTip: 'Last session {ago}',
+  projectMore: 'More for {project}', openInHome: 'Open in Home',
+  colProject: 'Project', colMachine: 'Machine', colSessions: 'Sessions', colLast: 'Last session', shownOf: '{shown} of {n} shown',
+  createdAgo: 'Created {ago}', removedFromLayerfs: 'Removed from LayerFS',
 }
 const zh: typeof en = {
   ...SESSION_FAILURE_ZH,
@@ -66,9 +72,15 @@ const zh: typeof en = {
   foldCenter: '保持 LayerFS 中心打开并折叠侧栏', reviewStart: '请先核对要启动的机器。', openingSession: '正在打开会话…', openingConversation: '正在打开对话…',
   start: '启动', startNamed: '启动 {machine}', startFailed: '无法启动项目所在的机器。', startMachineFor: '为 {project} 启动机器 {machine}',
   projectsHeader: '项目', manageSidebar: '侧边栏中的项目', sidebarTitle: '侧边栏中的项目', sidebarSub: '只改变此侧边栏，不会删除任何内容。',
-  hideProject: '从侧边栏移除 {project}', showMore: '再显示 {n} 个', showFewer: '收起', filterProjects: '筛选 {n} 个项目',
+  hideProject: '从侧边栏隐藏', showMore: '再显示 {n} 个', showFewer: '收起', filterProjects: '筛选 {n} 个项目',
   shownGroup: '已显示 · {n}', notShownGroup: '未显示 · {n}', hideRemoved: '隐藏 {n} 个已移除', noSessionsYet: '还没有会话', done: '完成',
   agoNow: '刚刚', agoMinutes: '{n} 分钟前', agoHours: '{n} 小时前', agoDays: '{n} 天前', agoMonths: '{n} 个月前', agoYears: '{n} 年前',
+  shortNow: '刚刚', shortMinutes: '{n}分', shortHours: '{n}时', shortDays: '{n}天', shortMonths: '{n}月', shortYears: '{n}年',
+  hostMac: '这台 Mac', hostPc: '这台电脑', hostLinux: '这台电脑', moreMachines: '+{n}',
+  marksTip: 'Store {store}（{kind}）· 运行于 {machines}', marksTipStore: 'Store {store}（{kind}）', lastSessionTip: '上次会话 {ago}',
+  projectMore: '{project} 的更多操作', openInHome: '在主页中打开',
+  colProject: '项目', colMachine: '机器', colSessions: '会话', colLast: '上次会话', shownOf: '已显示 {shown} / {n}',
+  createdAgo: '创建于 {ago}', removedFromLayerfs: '已从 LayerFS 移除',
 }
 export const locales = { en, zh }
 export type ListT = (key: keyof typeof en, params?: Record<string, string | number>) => string

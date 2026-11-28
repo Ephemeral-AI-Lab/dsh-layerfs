@@ -1,79 +1,68 @@
 /**
  * Projects in sidebar: which projects this browser's LayerFS sidebar shows.
- * Every project LayerFS lists, checked when the sidebar shows it; checking
- * adds it (even without a session here), unchecking hides it until its next
- * session. Nothing is deleted: only the sidebar changes.
+ * Every project LayerFS lists, as rows borrowed from Home's project table
+ * (Project, Store, Machine, Sessions, Last session), checked when the sidebar
+ * shows it; checking adds it (even without a session here), unchecking hides it
+ * until its next session. Nothing is deleted: only the sidebar changes.
  */
 import { useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { Button, IconCheckOutlineRegular, IconCloseOutlineRegular, IconSearchOutlineRegular, Modal, relativeTime } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconCheckOutlineRegular, IconCloseOutlineRegular, IconSearchOutlineRegular, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StoreKindGlyph } from '../machines/icons.tsx'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import type { ProjectRow } from '../picker/NewProjectForm.tsx'
 import type { ListT } from './list-locale.ts'
-import type { SidebarData } from './ProjectList.tsx'
+import { ago, MachineMark, machineLabel, storeKind, type MarkContext } from './marks.tsx'
+import type { ProjectItem, SidebarData } from './ProjectList.tsx'
 import { sidebarHidden } from './recent.ts'
 import css from './setup/dialog.module.css'
+import table from './manage.module.css'
 
 const nameOf = (row: ProjectRow) => row.name ?? row.key.split('/')[1] ?? row.key
+const storeNameOf = (row: ProjectRow) => row.store ?? row.key.split('/')[0] ?? row.key
 const keyOf = (row: ProjectRow) => row.projectId ?? row.key
 
-/** "2 h ago" in the list's words. */
-function ago(at: number, t: ListT): string {
-  const r = relativeTime(at, Date.now())
-  switch (r.unit) {
-    case 'minutes': return t('agoMinutes', { n: r.n })
-    case 'hours': return t('agoHours', { n: r.n })
-    case 'days': return t('agoDays', { n: r.n })
-    case 'months': return t('agoMonths', { n: r.n })
-    case 'years': return t('agoYears', { n: r.n })
-    default: return t('agoNow')
-  }
-}
-
-interface Entry { row: ProjectRow, key: string, shown: boolean, note: string, removed: boolean }
+interface Entry { item: ProjectItem, key: string, shown: boolean, removed: boolean, sessions: number, last: number }
 
 export function ManageSidebar({ t, data, onClose }: { t: ListT, data: SidebarData, onClose: () => void }): ReactNode {
   const [query, setQuery] = useState('')
+  const ctx: MarkContext = { t, ...data.marks }
   const sidebar = data.items ?? []
   const entries: Entry[] = []
   for (const item of sidebar) {
-    const removed = item.row.catalogState === 'removed'
-    const at = data.lastUsed(item.row.key, item.row.projectId)
-    entries.push({ row: item.row, key: item.hideKey, shown: true, removed, note: removed ? t('removed') : at ? ago(at, t) : t('noSessionsYet') })
+    entries.push({ item, key: item.hideKey, shown: true, removed: item.row.catalogState === 'removed', sessions: data.sessionsOf(item.row.key, item.row.projectId), last: data.lastUsed(item.row.key, item.row.projectId) })
   }
   for (const row of data.catalog ?? []) {
     if (row.key === data.scratchKey || sidebar.some((i) => i.row.key === row.key || (!!row.projectId && i.row.projectId === row.projectId))) continue
-    const at = data.lastUsed(row.key, row.projectId)
-    entries.push({ row, key: keyOf(row), shown: false, removed: false, note: at ? ago(at, t) : t('noSessionsYet') })
+    entries.push({ item: data.item(row), key: keyOf(row), shown: false, removed: false, sessions: data.sessionsOf(row.key, row.projectId), last: data.lastUsed(row.key, row.projectId) })
   }
   // a name two projects share carries its Store
   const count = new Map<string, number>()
-  for (const e of entries) count.set(nameOf(e.row), (count.get(nameOf(e.row)) ?? 0) + 1)
-  const label = (row: ProjectRow) => ((count.get(nameOf(row)) ?? 0) > 1 ? `${nameOf(row)} · ${row.store ?? row.key.split('/')[0]}` : nameOf(row))
-  // the groups stay as they were when the list opened: checking a project changes its box, not its place
-  const placed = useRef<Map<string, boolean> | null>(null)
-  if (!placed.current && data.items && data.catalog) placed.current = new Map(entries.map((e) => [e.key, e.shown]))
-  const wasShown = (e: Entry) => placed.current?.get(e.key) ?? e.shown
-  const q = query.trim().toLowerCase()
-  // shown ones keep the order they had when the list opened (a project shown again goes back to its place)
+  for (const e of entries) count.set(nameOf(e.item.row), (count.get(nameOf(e.item.row)) ?? 0) + 1)
+  const label = (row: ProjectRow) => ((count.get(nameOf(row)) ?? 0) > 1 ? `${nameOf(row)} · ${storeNameOf(row)}` : nameOf(row))
+  // The order is fixed when the list opens (shown first, newest session first, Removed last):
+  // checking a project changes its box, not its place.
   const first = useRef<string[] | null>(null)
-  if (!first.current && placed.current) first.current = entries.map((e) => e.key)
+  if (!first.current && data.items && data.catalog) {
+    const rank = (e: Entry) => (e.removed ? 2 : e.shown ? 0 : 1)
+    first.current = [...entries].sort((a, b) => rank(a) - rank(b) || b.last - a.last || nameOf(a.item.row).localeCompare(nameOf(b.item.row))).map((e) => e.key)
+  }
   const order = (e: Entry) => { const i = first.current?.indexOf(e.key) ?? -1; return i < 0 ? Number.MAX_SAFE_INTEGER : i }
-  const matched = entries.filter((e) => !q || e.row.key.toLowerCase().includes(q) || nameOf(e.row).toLowerCase().includes(q))
-  const groups = [
-    { id: 'shown', label: t('shownGroup', { n: entries.filter((e) => e.shown).length }), items: matched.filter(wasShown).sort((a, b) => order(a) - order(b)) },
-    { id: 'hidden', label: t('notShownGroup', { n: entries.filter((e) => !e.shown).length }), items: matched.filter((e) => !wasShown(e)).sort((a, b) => nameOf(a.row).localeCompare(nameOf(b.row))) },
-  ].filter((g) => g.items.length)
+  const q = query.trim().toLowerCase()
+  const rows = entries
+    .filter((e) => !q || e.item.row.key.toLowerCase().includes(q) || nameOf(e.item.row).toLowerCase().includes(q) || e.item.runsOn.some((m) => m.toLowerCase().includes(q)))
+    .sort((a, b) => order(a) - order(b))
   const removedShown = entries.filter((e) => e.shown && e.removed)
   const toggle = (e: Entry) => (e.shown ? sidebarHidden.hide(e.key) : sidebarHidden.show(e.key))
+  const lastWords = (e: Entry) => (e.last ? ago(e.last, t) : e.item.row.created ? t('createdAgo', { ago: ago(e.item.row.created, t) }) : '—')
 
-  return <Modal open headless onClose={onClose} title={t('sidebarTitle')} className={clsx(css.dialog, css.narrow)}>
+  return <Modal open headless onClose={onClose} title={t('sidebarTitle')} className={clsx(css.dialog, table.wide)}>
     <header className={css.head}>
       <div className={css.headRow}>
         <span className={css.headTile} aria-hidden="true"><LayerfsGlyph size={18} /></span>
         <span className={css.headText}>
           <h2 className={css.title}>{t('sidebarTitle')}</h2>
-          <span className={css.sub}>{t('sidebarSub')}</span>
+          <span className={css.sub}>{data.items && data.catalog ? t('shownOf', { shown: entries.filter((e) => e.shown).length, n: entries.length }) : t('sidebarSub')}</span>
         </span>
         <Button variant="ghost" size="sm" className={css.close} icon={<IconCloseOutlineRegular size={16} />} aria-label={t('close')} title={t('close')} onClick={onClose} />
       </div>
@@ -84,19 +73,40 @@ export function ManageSidebar({ t, data, onClose }: { t: ListT, data: SidebarDat
         <input className={css.listFilterInput} value={query} placeholder={t('filterProjects', { n: entries.length })} aria-label={t('filterProjects', { n: entries.length })}
           autoComplete="off" spellCheck={false} data-modal-autofocus="" onChange={(e) => setQuery(e.target.value)} />
       </div>
+      <div className={clsx(table.row, table.headRow)} aria-hidden="true">
+        <span />
+        <span>{t('colProject')}</span>
+        <span>{t('colStore')}</span>
+        <span>{t('colMachine')}</span>
+        <span className={table.num}>{t('colSessions')}</span>
+        <span className={table.num}>{t('colLast')} ↓</span>
+      </div>
       <div className={css.listBody} role="group" aria-label={t('sidebarTitle')}>
         {!data.catalog && !data.items ? <p className={css.empty}>{t('loading')}</p> : null}
-        {groups.map((g) => <section key={g.id} className={css.listGroup}>
-          <h4 className={css.listGroupLabel}>{g.label}</h4>
-          {g.items.map((e) => <div key={e.key} className={css.listRow}>
-            <button type="button" role="checkbox" aria-checked={e.shown} className={css.listRowBtn} title={e.row.key} onClick={() => toggle(e)} data-sidebar-project={e.key}>
-              <span className={clsx(css.tileBox, e.shown && css.tileBoxOn)} aria-hidden="true">{e.shown ? <IconCheckOutlineRegular size={10} /> : null}</span>
-              <span className={css.listName} style={e.removed ? { color: 'var(--dsw-alias-label-tertiary)' } : undefined}>{label(e.row)}</span>
-              <span className={css.listNote}>{e.note}</span>
-            </button>
-          </div>)}
-        </section>)}
-        {entries.length && !groups.length ? <p className={css.empty}>{t('noMatch')}</p> : null}
+        {rows.map((e) => {
+          const { row, runsOn } = e.item
+          const [machine, ...more] = runsOn
+          const machines = runsOn.map((m) => machineLabel(m, ctx)).join(', ')
+          return <button key={e.key} type="button" role="checkbox" aria-checked={e.shown} className={clsx(table.row, table.item, e.removed && table.removed)}
+            title={row.key} onClick={() => toggle(e)} data-sidebar-project={e.key}>
+            <span className={clsx(css.tileBox, e.shown && css.tileBoxOn)} aria-hidden="true">{e.shown ? <IconCheckOutlineRegular size={10} /> : null}</span>
+            <span className={table.cell}><span className={table.mark}><LayerfsGlyph size={14} /></span><span className={table.name}>{label(row)}</span></span>
+            {e.removed
+              ? <span className={clsx(table.cell, table.span2, table.muted)}>{t('removedFromLayerfs')}</span>
+              : <>
+                <span className={table.cell} title={`${storeNameOf(row)} · ${t(storeKind(e.item) === 'postgresql' ? 'kindPg' : 'kindSqlite')}`}>
+                  <StoreKindGlyph kind={storeKind(e.item)} size={13} /><span className={table.text}>{storeNameOf(row)}</span>
+                </span>
+                <span className={table.cell} title={machines || undefined}>
+                  {machine ? <><MachineMark machine={machine} ctx={ctx} size={13} /><span className={table.text}>{machineLabel(machine, ctx)}</span></> : <span className={table.muted}>—</span>}
+                  {more.length ? <span className={table.more}>{t('moreMachines', { n: more.length })}</span> : null}
+                </span>
+              </>}
+            <span className={clsx(table.num, !e.sessions && table.muted)}>{e.sessions || '—'}</span>
+            <span className={clsx(table.num, table.last, !e.last && table.muted)}>{lastWords(e)}</span>
+          </button>
+        })}
+        {entries.length && !rows.length ? <p className={css.empty}>{t('noMatch')}</p> : null}
       </div>
     </div>
     <footer className={css.foot}>

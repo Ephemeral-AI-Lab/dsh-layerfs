@@ -476,3 +476,65 @@
     color: var(--dsw-alias-label-secondary);
   }
 }
+
+/* Borrowed from Home's project table: the row's Store kind and machine marks
+   and when its newest session ran, at rest. Hover or keyboard focus swaps them
+   for the row's actions (⚙, ⋯, +). Touch shows the actions, not the marks. */
+.meta {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.marks {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.moreMachines {
+  font-size: 11px;
+  line-height: 16px;
+  margin-inline-start: -1px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.when {
+  min-width: 22px;
+  text-align: end;
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.projectRow:has(:focus-visible) .meta { display: none; }
+
+@media (hover: hover) {
+  .projectRow:hover .meta { display: none; }
+}
+
+@media (hover: none) {
+  .meta { display: none; }
+}
+
+/* A project LayerFS no longer has: dimmed, with a small Removed tag. */
+.tag {
+  flex: none;
+  padding: 0 6px;
+  border-radius: var(--dsw-radius-xs, 4px);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.projectRow:has(.tag) .title,
+.projectRow:has(.tag) .mark {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.projectRow:has(.tag) .mark {
+  opacity: 0.55;
+}
