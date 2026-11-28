@@ -12,14 +12,13 @@ test('slugify turns free text into a project name', () => {
   assert.equal(slugify('***'), '')
 })
 
-test('locations: host machine SQLite then PostgreSQL, never Scratch or other machines', () => {
+test('locations: host machine SQLite then PostgreSQL, never other machines', () => {
   const view = { stores: [
-    { name: 'scratch', kind: 'sqlite', machine: 'macos-host' },
     { name: 'team', kind: 'postgresql', postgresql: { target: 'db.lan:5432/app' }, attached: [{ machine: 'macos-host', reached: 'ok' }, { machine: 'vm2', reached: null }] },
     { name: 'local', kind: 'sqlite', machine: 'macos-host' },
     { name: 'far', kind: 'sqlite', machine: 'vm1' },
   ] }
-  assert.deepEqual(locationsOf(view, 'scratch'), [
+  assert.deepEqual(locationsOf(view), [
     { store: 'local', kind: 'sqlite', server: null, attached: [] },
     { store: 'team', kind: 'postgresql', server: 'db.lan:5432/app', attached: ['macos-host', 'vm2'] },
   ])

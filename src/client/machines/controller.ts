@@ -403,12 +403,11 @@ export class MachinesController {
 
   /** GET /api/sandbox-creates: the host's running and failed creates replace what this page knew. */
   private readCreations(): void {
-    this.api.call<{ creations?: Creation[] }>('GET', '/api/sandbox-creates', undefined, { priority: 'background' }).then((answer) => {
-      const list = Array.isArray(answer?.creations) ? answer.creations : []
+    this.api.call<{ creations: Creation[] }>('GET', '/api/sandbox-creates', undefined, { priority: 'background' }).then((answer) => {
       const next: Record<string, Creation> = {}
-      for (const c of list) if (c && typeof c.id === 'string' && c.phase !== 'done') next[c.id] = c
+      for (const c of answer.creations) if (c && typeof c.id === 'string' && c.phase !== 'done') next[c.id] = c
       this.creations.set(next)
-    }, () => { /* an older host has no creates list: rows come from admissions and events */ })
+    }, () => { /* a failed read: rows come from admissions and events */ })
   }
 
   /** A `sandbox-progress { creation }` event: the job's row moves in place; an end reads the machines again. */

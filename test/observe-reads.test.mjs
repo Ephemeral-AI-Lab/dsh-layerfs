@@ -68,7 +68,7 @@ function fixture(state = liveState()) {
   const s = Object.create(S.LayerfsSessions.prototype)
   const events = []
   const ctx = {
-    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs, emit: (type, data) => events.push({ type, data }), ensureHostDaemon: async () => {} },
+    layerfs: { root: '/lfs-root', lfs, emit: (type, data) => events.push({ type, data }), ensureHostDaemon: async () => {} },
     sessions: { get: () => undefined },
     logger: () => ({ warn() {}, info() {} }),
   }

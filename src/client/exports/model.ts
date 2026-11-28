@@ -133,7 +133,7 @@ class Store {
         next.set(job.id, known && known.updatedAt > job.updatedAt ? known : job)
       }
       this.set(next)
-    }, () => { /* an older host has no exports: nothing to show */ }).finally(() => {
+    }, () => { /* a failed read keeps what is shown; the next event reads again */ }).finally(() => {
       this.reading = false
       if (this.again) { this.again = false; this.read() }
     })

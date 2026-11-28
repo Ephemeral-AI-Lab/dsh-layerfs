@@ -231,7 +231,7 @@ test('Files: focus moves into the drawer when it opens and back to the toggle wh
 
 test('hero: a project row\'s check is ours alone (DSH\'s Menu gets no selectedId for it)', async () => {
   const ownership = { state: 'project', project: 'st/app', projectId: 'pid', scratch: '/tmp/scratch' }
-  const api = { op: async () => ({ rows: [], scratchKey: null }), call: async () => ({ stores: [] }), onEvent: () => () => {}, pickDirectory: async () => null }
+  const api = { op: async () => ({ rows: [] }), call: async () => ({ stores: [] }), onEvent: () => () => {}, pickDirectory: async () => null }
   const imports = { get: () => null, subscribe: () => () => {}, set: () => {} }
   const t = (k) => k
   const view = M.mount(M.HeroProjectControl, { sessionId: 'blank-1', api, t, tp: t, imports, ownership, retry: () => {} })

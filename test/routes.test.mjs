@@ -637,7 +637,6 @@ test('storage jobs: compact runs as a job with its steps, phases and report (2.0
   // a runtime whose store.compact declares on_progress
   const { http, root } = fakeGroups(impl('sqlite'), compactCall([{ name: 'on_progress', kind: 'function' }]))
   try {
-    assert.equal((await http('GET', '/api/storage')).body.compact, true)
     const j = await http('POST', '/api/stores/s1/compact')
     assert.equal(j.status, 200)
     assert.equal(j.body.kind, 'compact')

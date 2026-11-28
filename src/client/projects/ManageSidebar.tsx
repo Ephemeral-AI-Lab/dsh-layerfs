@@ -33,7 +33,7 @@ export function ManageSidebar({ t, data, onClose }: { t: ListT, data: SidebarDat
     entries.push({ item, key: item.hideKey, shown: true, removed: item.row.catalogState === 'removed', sessions: data.sessionsOf(item.row.key, item.row.projectId), last: data.lastUsed(item.row.key, item.row.projectId) })
   }
   for (const row of data.catalog ?? []) {
-    if (row.key === data.scratchKey || sidebar.some((i) => i.row.key === row.key || (!!row.projectId && i.row.projectId === row.projectId))) continue
+    if (sidebar.some((i) => i.row.key === row.key || (!!row.projectId && i.row.projectId === row.projectId))) continue
     entries.push({ item: data.item(row), key: keyOf(row), shown: false, removed: false, sessions: data.sessionsOf(row.key, row.projectId), last: data.lastUsed(row.key, row.projectId) })
   }
   // a name two projects share carries its Store

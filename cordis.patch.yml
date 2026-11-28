@@ -6,9 +6,7 @@
 # - `layerfs`: the plugin (host services + browser half). Its state is the DSH
 #   x LayerFS home `<folder>/dsh` and LayerFS's home is `<folder>` (the LayerFS
 #   folder, default ~/.layerfs; docs/specs/layerfs-folder.md). An older
-#   `$DSH_HOME/layerfs` is moved there on first start;
-#   `scratchProject` names the project sessions bound to the Scratch project
-#   used before folder sessions became plain.
+#   `$DSH_HOME/layerfs` is moved there on first start.
 # - `session-persistence-jsonl` is replaced by an owner router over stock JSONL:
 #   normal sessions keep the original root; project logs are unpacked under
 #   <state>/sessions/store (state: the DSH x LayerFS home, default ~/.layerfs/dsh; docs/specs/layerfs-folder.md).
@@ -32,7 +30,6 @@
     - id: layerfs
       name: dsh-layerfs
       config:
-        scratchProject: dsh-scratch/scratch
         checkpoints: turn
         idleMinutes: 30
     - id: layerfs-sandbox-policy

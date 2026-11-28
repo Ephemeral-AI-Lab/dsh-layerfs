@@ -29,9 +29,8 @@ export function useSessionRows(source: SessionsSource | undefined): { byId: Reco
 /** What `session.state` answers, as far as the views read it. */
 export interface SessionStateView {
   sessionId: string
-  binding: (MapBinding & { sessionId: string, kind: 'project' | 'shared', mount?: string, branchKind?: BranchKind, restore?: number }) | null
+  binding: (MapBinding & { sessionId: string, kind: 'project' | 'shared', mount?: string, branchKind: BranchKind, restore?: number }) | null
   project: string | null
-  scratchProject?: boolean
   status: { overlay?: { inode_count?: number, entry_count?: number }, error?: { message: string } } | null
   execution?: { state: string, available: boolean, reason?: string }
 }

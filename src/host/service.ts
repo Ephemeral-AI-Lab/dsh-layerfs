@@ -65,8 +65,6 @@ export interface LayerfsConfig {
    * DSH_LAYERFS_SECRETS.
    */
   secrets?: string
-  /** The `<store>/<name>` project sessions without a project of their own work in (a SQLite Store on the host machine, made on first use). */
-  scratchProject?: string
   /** Checkpoint each turn that changed files. */
   checkpoints?: 'turn' | 'off'
   /** Close an idle session's Sandbox after this many minutes (0 = never). */
@@ -93,7 +91,6 @@ export interface RuntimeStatus {
   /** The LayerFS folder. */
   readonly folder: string
   readonly projectSessionHome: string
-  readonly scratchProject: string
   /** `layerfs`: the bundle's session persistence row runs (missing sessions are imported from LayerFS); `stock`: DSH's own. */
   readonly sessionPersistence: 'layerfs' | 'stock' | 'none'
   readonly checkpoints: 'turn' | 'off'
@@ -287,7 +284,6 @@ export class LayerfsService extends Service {
   readonly jobDir: string
   /** Storage statistics in the LayerFS home: `<home>/stat` (storage-observations/, project-storage/). */
   readonly statDir: string
-  readonly scratchProject: string
   readonly checkpoints: 'turn' | 'off'
   readonly idleMinutes: number
   /** `<root>/runtime.json`: the CLI/daemon chosen in the UI (wins over env). */
@@ -331,10 +327,6 @@ export class LayerfsService extends Service {
     this.secrets = abs(config.secrets) ?? abs(process.env.DSH_LAYERFS_SECRETS) ?? join(this.home, 'secret')
     this.jobDir = join(this.home, 'job')
     this.statDir = join(this.home, 'stat')
-    this.scratchProject = config.scratchProject ?? 'dsh-scratch/scratch'
-    if (!/^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?\/[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/.test(this.scratchProject)) {
-      throw new Error(`dsh-layerfs: scratchProject must be "<store>/<name>" in LayerFS names, not ${JSON.stringify(this.scratchProject)}`)
-    }
     this.checkpoints = config.checkpoints === 'off' ? 'off' : 'turn'
     this.idleMinutes = Number.isFinite(config.idleMinutes) ? Math.max(0, Number(config.idleMinutes)) : 30
     this.settings = new JsonFile(join(this.state, 'runtime.json'), () => ({}))
@@ -793,7 +785,7 @@ export class LayerfsService extends Service {
     const base = {
       cli: this.pin.cli, daemon: this.pin.daemon, bundle: this.pin.bundle, bundleInfo: this.bundleInfo(),
       cacheHome: this.effectiveCacheHome(), cacheHomeSource: this.pin.cacheHomeSource, preparedImages: this.preparedImages(), home: this.home, root: this.state, folder: this.folder, projectSessionHome: this.projectSessionHome, source: this.pin.source,
-      scratchProject: this.scratchProject, checkpoints: this.checkpoints,
+      checkpoints: this.checkpoints,
       sessionPersistence: this.persistenceKind(),
     }
     try {

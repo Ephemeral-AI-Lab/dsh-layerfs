@@ -527,7 +527,7 @@ export function apply(ctx: Context): void {
     ctx.layerfsRemote.operate(ctx, {
       'projects.catalog': async () => {
         const provider = ctx.get('sessionPersistence' as never) as any
-        return { rows: await provider.catalogProjects(), scratchKey: ctx.layerfs.scratchProject }
+        return { rows: await provider.catalogProjects() }
       },
       // Projects with sessions on this DSH, newest activity first (docs/specs/layerfs-workspaces.md §4).
       // Local records only: no LayerFS call, so listing never resolves or claims a project.
@@ -535,10 +535,9 @@ export function apply(ctx: Context): void {
         const provider = ctx.get('sessionPersistence' as never) as any
         const persistence = localPersistence(ctx)
         const state = sessions.state.read()
-        const scratch = ctx.layerfs.scratchProject
         const rows = new Map<string, { project: string, projectId?: string, lastActivity: number, newestSession: number, sessionIds: string[] }>()
         const add = (id: string, project: string | undefined, at: number, created = at, projectId = provider?.projectIdOf?.(id) as string | undefined) => {
-          if (!project || project === scratch) return
+          if (!project) return
           const key = projectId ?? project
           const row = rows.get(key) ?? { project, ...(projectId ? { projectId } : {}), lastActivity: 0, newestSession: 0, sessionIds: [] }
           if (!row.sessionIds.includes(id)) row.sessionIds.push(id)
@@ -614,7 +613,6 @@ export function apply(ctx: Context): void {
       },
       'sessions.prepareScratch': async (args: any) => {
         const out = await sessions.ensureScratchWorkspace()
-        void store.sync(ctx.layerfs.scratchProject).catch(() => {})
         return { ...out, ...(args?.navigate === false ? {} : { navigate: { workspaceId: out.workspaceId } }) }
       },
       'sessions.list': async (args: any) => {

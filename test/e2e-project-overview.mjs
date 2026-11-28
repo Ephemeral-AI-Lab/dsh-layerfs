@@ -41,7 +41,7 @@ try {
       return call(method, path, body)
     }
     api.op = async (name, args) => {
-      if (name === 'projects.catalog') return { rows: [row], scratchKey: null }
+      if (name === 'projects.catalog') return { rows: [row] }
       if (name === 'projects.recent' && fixture.holdRecent) await new Promise((resolve) => { fixture.releaseRecent = resolve })
       if (name === 'projects.recent') return { projects: [{ project: row.key, projectId: null, lastActivity: 1794400000000, newestSession: 1794400000000, sessionIds: ['local-overview-conversation'] }] }
       if (name === 'sessions.list' && args.project === 'demo-store/compiler') return { sessions: [{ sessionId: 'local-overview-conversation', title: 'Saved local conversation', local: true, updatedAt: 1794400000000 }] }

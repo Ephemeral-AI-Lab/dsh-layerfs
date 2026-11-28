@@ -46,7 +46,7 @@ const REFRESH_MS = 1000
 const FOCUS_PAGES = 40
 /** Host events after which the trajectory may have changed (`{sessionId}` or none). */
 const EVENTS = ['layerfs-operation', 'layerfs-checkpoint', 'layerfs-session'] as const
-/** A stable empty set for an older answer/test fixture that predates top-level checkpoints. */
+/** A stable empty set while there is no answer yet. */
 const NO_CHECKPOINTS: readonly TraceCheckpointRow[] = []
 
 /**

@@ -339,7 +339,7 @@ function SessionLinks({ api, t, sessions }: { api: LayerfsApi, t: PresetsT, sess
 /** The last finished operation: its outcome, log and receipt. */
 function Operation({ t, job, home, previous }: { t: PresetsT, job: PresetJob, home: string, previous: boolean }): ReactNode {
   const cleanup = job.cleanup
-  const operationKey = previous ? 'opPreviousBuild' : job.rebuild ? 'opLastBuild' : job.command === 'machine-stop' ? 'opLastStop' : 'opLegacyReset'
+  const operationKey = previous ? 'opPreviousBuild' : job.rebuild ? 'opLastBuild' : 'opLastStop'
   return (
     <section className={css.operation} aria-label={t(operationKey)}>
       <p className={css.runningTitle}>{t(operationKey)}</p>

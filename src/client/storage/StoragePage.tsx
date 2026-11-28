@@ -311,13 +311,10 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
     backupPick: (bucket) => setDialog({ kind: 'backup', store: s, pick: bucket }),
     backupTo: (l) => act(() => api.call('POST', `/api/stores/${enc(s.name)}/backup`, { bucket: l.bucket, file: l.file })),
     restore: (bucket, file) => setDialog({ kind: 'restore', bucket, file, store: s.name }),
-    // only a runtime that has store.compact gets the menu row
-    ...(view?.compact ? {
-      compact: () => setDialog({
-        kind: 'confirm', title: t('confirmTitleCompact', { name: s.name }), body: t('confirmCompactBody'), action: t('compactAction'), plain: true,
-        run: () => api.call('POST', `/api/stores/${enc(s.name)}/compact`).then((job) => { if (job && typeof job === 'object' && 'id' in job && 'kind' in job) take([job as StorageJob]) }),
-      }),
-    } : {}),
+    compact: () => setDialog({
+      kind: 'confirm', title: t('confirmTitleCompact', { name: s.name }), body: t('confirmCompactBody'), action: t('compactAction'), plain: true,
+      run: () => api.call('POST', `/api/stores/${enc(s.name)}/compact`).then((job) => { if (job && typeof job === 'object' && 'id' in job && 'kind' in job) take([job as StorageJob]) }),
+    }),
     // an older-format Store, when the runtime has store.upgrade (#804): the formats, then one Upgrade button
     ...(view?.upgrade ? {
       upgrade: () => {

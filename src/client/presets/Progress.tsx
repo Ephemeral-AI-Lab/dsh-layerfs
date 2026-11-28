@@ -59,7 +59,7 @@ export function PresetProgress({ job, t }: { job: PresetJob, t: PresetsT }): Rea
   const index = Math.max(0, stages.findIndex((value) => value === stage))
   const known = progress?.total != null && progress.total >= 0
   const fraction = complete ? 1 : known ? (progress!.total === 0 ? 1 : Math.min(1, progress!.completed / progress!.total!)) : 0
-  const label = complete ? t(job.rebuild ? 'buildComplete' : job.command === 'machine-stop' ? 'resetComplete' : 'legacyResetComplete') : readable(progress?.label ?? job.phase)
+  const label = complete ? t(job.rebuild ? 'buildComplete' : 'resetComplete') : readable(progress?.label ?? job.phase)
   const unit = progress?.historyTotal != null ? t('unitCommands') : stage === 'verifying' && tasks.length ? t('unitProjects') : t('unitSteps')
   const coverage = progress?.workspaceCoverage
   return (

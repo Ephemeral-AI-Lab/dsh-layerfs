@@ -102,7 +102,6 @@ export function HeroProjectControl({ sessionId, api, t, imports, ownership, retr
   const root = useRef<HTMLSpanElement>(null)
   const anchor = useRef<HTMLButtonElement>(null)
   const [rows, setRows] = useState<ProjectRow[] | null>(null)
-  const [scratchKey, setScratchKey] = useState<string | null>(null)
   const [storage, setStorage] = useState<StorageView | null>(null)
   const [loadError, setLoadError] = useState(false)
   const [open, setOpen] = useState(false)
@@ -117,8 +116,7 @@ export function HeroProjectControl({ sessionId, api, t, imports, ownership, retr
     // two answers to Home's first render (a paint hint; Center reads on mount).
     const started = Date.now()
     listProjects(api, { share: true }).then((catalog) => {
-      const { rows: list, scratchKey: key } = catalog
-      setRows(list); setScratchKey(key)
+      setRows(catalog.rows)
       keepPrefetched('projects.catalog', catalog, started)
     }, () => setLoadError(true))
     // Where each project runs (its SQLite Store's machine, or the machine its PostgreSQL Store's sessions run on).
@@ -238,7 +236,7 @@ export function HeroProjectControl({ sessionId, api, t, imports, ownership, retr
   // chip says the read failed (never "No project").
   const current = place?.projectId ?? place?.project ?? (ownership.state === 'unknown' ? ownership.projectId ?? ownership.project ?? null : null)
   const label = failed ? t('placeUnknown') : place === null ? '' : place.project ? nameOf(place.project) : t('noProject')
-  const projects = (rows ?? []).filter((r) => r.key !== scratchKey && (!r.catalogState || r.catalogState === 'available'))
+  const projects = (rows ?? []).filter((r) => (!r.catalogState || r.catalogState === 'available'))
   const items: MenuEntry[] = [
     { id: NONE, label: t('noProject'), icon: <IconFolderOpenOutlineRegular size={14} /> },
     { type: 'separator', id: 'none' },

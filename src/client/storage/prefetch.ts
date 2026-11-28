@@ -73,7 +73,7 @@ async function run(api: LayerfsApi): Promise<void> {
   const catalog = api.call<ProjectSummary[]>('GET', '/api/projects', undefined, BACKGROUND).then((rows) => {
     keepPrefetched('GET /api/projects', rows, started)
   }, () => {})
-  const picker = api.op<{ rows: ProjectRow[], scratchKey: string | null }>('projects.catalog', undefined, BACKGROUND).then((answer) => {
+  const picker = api.op<{ rows: ProjectRow[] }>('projects.catalog', undefined, BACKGROUND).then((answer) => {
     keepPrefetched('projects.catalog', answer, started)
   }, () => {})
   const view = await storage

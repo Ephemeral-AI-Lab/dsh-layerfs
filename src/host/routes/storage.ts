@@ -403,7 +403,6 @@ export class Storage {
       buckets,
       bucketInventoryComplete: bucketRecords !== null,
       jobs,
-      compact: true,
       upgrade: features.storeUpgrade,
       format: features.storeFormat,
       formats: features.formats,

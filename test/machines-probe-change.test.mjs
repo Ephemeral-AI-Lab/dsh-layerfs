@@ -172,7 +172,7 @@ test('the Machines page reads the view again on a probe event while it is shown'
   const api = {
     connected: () => true,
     onEvent: (type, listener) => { listeners.set(type, [...(listeners.get(type) ?? []), listener]); return () => {} },
-    call: async (method, path) => { if (path === '/api/machines') reads.push(path); return path.startsWith('/api/machines') ? { available: false, machines: [], sandboxes: [] } : {} },
+    call: async (method, path) => { if (path === '/api/machines') reads.push(path); return path.startsWith('/api/machines') ? { available: false, machines: [], sandboxes: [] } : path === '/api/sandbox-creates' ? { creations: [] } : {} },
     op: async () => ({}),
   }
   const controller = new M.MachinesController(api, () => true)

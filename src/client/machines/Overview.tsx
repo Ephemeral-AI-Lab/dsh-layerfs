@@ -109,7 +109,7 @@ function UsageCard({ m, healthy, onDisk, space }: { m: MachineInfo, healthy: boo
   const disk = space.offered ? space.read.data?.space ?? null : null
   const diskTotal = disk?.disk.total ?? r.diskTotal
   const diskFree = disk?.disk.free ?? r.diskFree
-  // absent from an older build's answer, and never readable on macOS: no column
+  // absent when LayerFS's answer has no cpu_busy_ms, and never readable on macOS: no column
   const hasCpu = 'cpuBusyUsec' in r && !(r.reason ?? '').split(',').some((x) => x.trim() === 'cpu_unsupported')
   return (
     <Card className={css.ovUsage} tone={level === 'critical' ? 'danger' : level === 'low' ? 'warning' : undefined} data-ov-usage={m.name}>

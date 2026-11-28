@@ -96,7 +96,6 @@ export function useProjectData(api: LayerfsApi) {
     /** This computer's OS, for the host machine's mark and name. */
     hostOs: storage.data?.computer?.os,
     liveStores: storage.data ? new Set(storage.data.stores.map((x) => x.name)) : undefined,
-    scratchKey: catalog.data?.scratchKey ?? null,
     reload: () => { catalog.reload(); storage.reload(); machines.reload() },
   }
 }
@@ -372,7 +371,6 @@ export function useSidebarProjects(api: LayerfsApi, sessionSource?: SessionSourc
     /** A catalog row joined to its Store and machines (the chooser's rows). */
     item: data.item,
     marks: { platformOf: data.platformOf, hostOs: data.hostOs },
-    scratchKey: data.scratchKey,
     /** Every project LayerFS lists (Projects in sidebar offers them), and when each was last used here. */
     catalog: data.catalog.data?.rows ?? null,
     lastUsed: (key: string, projectId?: string) => Math.max(0, ...(recent.data?.projects ?? []).filter((r) => (projectId && r.projectId === projectId) || r.project === key).map((r) => r.lastActivity)),

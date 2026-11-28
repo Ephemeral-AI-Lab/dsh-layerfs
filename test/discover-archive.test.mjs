@@ -180,7 +180,7 @@ test('a fresh lookup still waits for the Store', async () => {
 function sessions({ state = S.initialState(), lfs = {}, layerfsRoot = '/lfs-root' } = {}) {
   const s = Object.create(S.LayerfsSessions.prototype)
   const ctx = {
-    layerfs: { root: layerfsRoot, scratchProject: 'dsh-scratch/scratch', lfs, emit: () => {}, ensureHostDaemon: async () => {} },
+    layerfs: { root: layerfsRoot, lfs, emit: () => {}, ensureHostDaemon: async () => {} },
     sessions: { get: () => undefined },
     logger: () => ({ warn() {}, info() {} }),
   }
@@ -220,7 +220,7 @@ test('sessions.list returns while the walk is still reading manifests, then the 
   const f = sessions({ state: S.initialState() })
   const ops = {}
   const ctx = {
-    layerfs: { root: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs, emit: (type, data) => events.push({ type, data }), callLog: {} },
+    layerfs: { root: '/lfs-root', lfs, emit: (type, data) => events.push({ type, data }), callLog: {} },
     layerfsSessions: f.s,
     layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
     plugin() {}, inject: (deps, callback) => { if (deps.includes('layerfsSessions')) callback(ctx) }, on() {}, effect() {},

@@ -70,7 +70,7 @@ function recordingApi(storeView) {
     },
     op(name, args, options) {
       calls.push({ kind: 'op', name, args, options })
-      return Promise.resolve(name === 'sessions.list' ? { sessions: [session(args.project)] } : name === 'projects.catalog' ? { rows: [], scratchKey: null } : {})
+      return Promise.resolve(name === 'sessions.list' ? { sessions: [session(args.project)] } : name === 'projects.catalog' ? { rows: [] } : {})
     },
     onEvent: () => () => {},
   }
@@ -166,7 +166,7 @@ test('a mount joins the prefetch in flight, then reads the host again after the 
   const answers = {
     'http GET /api/storage': { hold: true, value: { status: 200, body: storeView } },
     'http GET /api/projects': { value: { status: 200, body: [] } },
-    'projects.catalog': { value: { rows: [], scratchKey: null } },
+    'projects.catalog': { value: { rows: [] } },
     'sessions.list': { hold: true, value: { sessions: [session('perf/demo')] } },
   }
   const rig = await newApi(t, answers)
@@ -284,7 +284,7 @@ test('an event between the prefetch and the mount drops the paint hints and the 
   const answers = {
     'http GET /api/storage': { value: { status: 200, body: before } },
     'http GET /api/projects': { value: { status: 200, body: [] } },
-    'projects.catalog': { value: { rows: [], scratchKey: null } },
+    'projects.catalog': { value: { rows: [] } },
     'sessions.list': { value: { sessions: [session('old-session')] } },
   }
   const rig = await newApi(t, answers)
@@ -363,7 +363,7 @@ test('machine-progress and layerfs-availability drop the hints between the prefe
   const answers = {
     'http GET /api/storage': { value: { status: 200, body: before } },
     'http GET /api/projects': { value: { status: 200, body: [] } },
-    'projects.catalog': { value: { rows: [], scratchKey: null } },
+    'projects.catalog': { value: { rows: [] } },
     'sessions.list': { value: { sessions: [session('old-session')] } },
   }
   const rig = await newApi(t, answers)

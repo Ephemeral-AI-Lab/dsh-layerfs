@@ -37,7 +37,7 @@ const EN_DICT = M.locales.en
 /** The control's own inputs: no store, no session.place, a catalog that answers empty. */
 function props(ownership, retry = () => {}) {
   const api = {
-    op: async (name) => (name === 'projects.catalog' ? { rows: [], scratchKey: null } : {}),
+    op: async (name) => (name === 'projects.catalog' ? { rows: [] } : {}),
     call: async () => ({ stores: [] }),
     onEvent: () => () => {},
     pickDirectory: async () => null,

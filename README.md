@@ -457,7 +457,6 @@ is read from LayerFS's records in the home. This plugin's per-install state
 | `cacheHome` | unset | The XDG cache home holding prepared VM OS images (`<cacheHome>/layerfs/machine-images`, built by LayerFS `tools/machine_image.py`), passed to every CLI as `XDG_CACHE_HOME`. Otherwise the saved setting (Machines → LayerFS runtime), then `DSH_LAYERFS_CACHE_HOME`, then the host's own `XDG_CACHE_HOME`. Without a prepared image, a new Lima machine boots the stock Ubuntu image (about 30 s instead of about 9 s) |
 | `home` | `~/.layerfs` | The LayerFS home (`DSH_LAYERFS_HOME`, then `LAYERFS_HOME`, override the default) |
 | `secrets` | `<home>/secret` | Where bucket keys and PostgreSQL passwords entered in the panel are saved (owner-only files LayerFS reads through `file:` references); `DSH_LAYERFS_SECRETS` overrides the default. A bucket keeps the key file it was connected with; only new saves use a changed folder |
-| `scratchProject` | `dsh-scratch/scratch` | Legacy Scratch-project identity; normal sessions do not bind to it |
 | `checkpoints` | `turn` | `off` disables per-turn commits |
 | `idleMinutes` | `30` | Close an idle session's Sandbox (it reopens on the next turn) |
 

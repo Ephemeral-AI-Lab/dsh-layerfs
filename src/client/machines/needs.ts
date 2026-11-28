@@ -154,7 +154,7 @@ export function blockOf(platforms: readonly Pick<MachinePlatformInfo, 'platform'
 }
 
 /** What keeps machine `m` from running here: its platform's readiness when not ready (Docker quit, Lima removed). */
-export function machineBlock(m: Pick<MachineInfo, 'platform'>, view: { platforms: readonly Pick<MachinePlatformInfo, 'platform' | 'ready' | 'missing' | 'socket' | 'candidates'>[], computer?: Computer | undefined }, ctx: Pick<NeedContext, 'bundleDir'> = {}): Readiness | null {
+export function machineBlock(m: Pick<MachineInfo, 'platform'>, view: { platforms: readonly Pick<MachinePlatformInfo, 'platform' | 'ready' | 'missing' | 'socket' | 'candidates'>[], computer: Computer }, ctx: Pick<NeedContext, 'bundleDir'> = {}): Readiness | null {
   return blockOf(view.platforms, m.platform, osOfView(view), null, ctx)
 }
 
@@ -177,8 +177,8 @@ export function shortVersion(version: string | null | undefined): string | null 
   return /\d+\.\d+(?:\.\d+)?(?:[-+][\w.]+)?/.exec(version)?.[0] ?? version
 }
 
-/** This computer's OS, `macos` when an older host did not say. */
-export const osOfView = (view: { computer?: Computer | undefined }): HostOs => view.computer?.os ?? 'macos'
+/** This computer's OS. */
+export const osOfView = (view: { computer: Computer }): HostOs => view.computer.os
 
 /** The host machine's mark for this OS. */
 export const hostGlyphOs = (os: HostOs): 'mac' | 'linux' | 'pc' => (os === 'macos' ? 'mac' : os === 'linux' ? 'linux' : 'pc')

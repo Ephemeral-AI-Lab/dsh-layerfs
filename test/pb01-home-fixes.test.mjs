@@ -106,6 +106,7 @@ const makeDocT = (lang) => (key, vars) => fill(M.doctorLocales[lang][key] ?? key
 
 const emptyFleet = {
   available: true,
+  computer: { os: 'macos', name: null, arch: 'arm64' },
   machines: [
     { name: 'macos-host', platform: 'host', state: 'ready', stores: [], sandboxes: [], builtIn: true },
     { name: 'docker', platform: 'docker', state: 'stopped', stores: [], sandboxes: [], builtIn: true },

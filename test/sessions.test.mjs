@@ -43,7 +43,7 @@ function sessions({ state = S.initialState(), lfs = {}, layerfsRoot = '/lfs-root
   const s = Object.create(S.LayerfsSessions.prototype)
   const events = []
   const ctx = {
-    layerfs: { state: layerfsRoot, scratchProject: 'dsh-scratch/scratch', lfs, emit: (type, data) => events.push({ type, data }), ensureHostDaemon: async () => {} },
+    layerfs: { state: layerfsRoot, lfs, emit: (type, data) => events.push({ type, data }), ensureHostDaemon: async () => {} },
     sessions: { get: () => undefined },
     logger: () => ({ warn() {}, info() {} }),
   }
@@ -91,11 +91,8 @@ test('placeOf: a folder path never creates ownership, not even a recorded legacy
 test('placeOf: bindings, subagents and forks follow what they come from', () => {
   const state = S.initialState()
   state.sessions.p = { sessionId: 'p', kind: 'project', project: 'st/app', anchor: '/lfs-root/projects/st/app', scratch: '/x', state: 'bound' }
-  state.sessions.old = { sessionId: 'old', kind: 'project', project: 'dsh-scratch/scratch', anchor: '/lfs-root/scratch', scratch: '/y', state: 'bound' }
   const { s } = sessions({ state })
   assert.deepEqual(s.placeOf(session('p', { cwd: '/elsewhere' }, ran)), { kind: 'project', project: 'st/app', anchor: '/lfs-root/projects/st/app' })
-  // A binding from the one-mode era (the Scratch project) still binds to it.
-  assert.deepEqual(s.placeOf(session('old', { cwd: '/lfs-root/scratch' }, ran)), { kind: 'project', project: 'dsh-scratch/scratch', anchor: '/lfs-root/scratch' })
   assert.deepEqual(s.placeOf(session('sub', { cwd: '/lfs-root/projects/st/app', origin: 'subagent', parentSession: 'p' })),
     { kind: 'shared', parent: 'p', anchor: '/lfs-root/projects/st/app' })
   // A subagent of a folder session (no parent binding) is a folder session too.
@@ -625,35 +622,6 @@ test('ensureBound gives a host machine project a new scratch folder, separate fr
   assert.equal(state().sessions.n3.scratchManaged, false)
   assert.equal(existsSync(join(s_root, 'scratch', 'n3')), false, 'no scratch folder is made for it')
   rmSync(s_root, { recursive: true, force: true })
-})
-
-test('ensureScratchProject makes the Store and project once, tolerating Exists', async () => {
-  const calls = []
-  let made = false
-  const lfs = {
-    project: {
-      get: async (key) => { calls.push(`get ${key}`); if (!made) throw new Refusal('NotFound'); return { project: key } },
-      init: async (key, folder) => { calls.push(`init ${key}`); assert.ok(folder.includes('scratch-')); made = true; return {} },
-    },
-    store: { create: async (name) => { calls.push(`create ${name}`); throw new Refusal('Exists') } },
-  }
-  const { s } = sessions({ lfs, layerfsRoot: mkdtempSync(join(tmpdir(), 'dsh-root-')) })
-  await Promise.all([s.ensureScratchProject(), s.ensureScratchProject()])
-  await s.ensureScratchProject()
-  assert.deepEqual(calls, ['get dsh-scratch/scratch', 'create dsh-scratch', 'init dsh-scratch/scratch'])
-  rmSync(s.ctx.layerfs.state, { recursive: true, force: true })
-})
-
-test('ensureScratchProject retries after a failure', async () => {
-  let attempts = 0
-  const lfs = {
-    project: { get: async () => { attempts++; if (attempts === 1) throw new Refusal('Unknown'); return {} } },
-    store: { create: async () => {} },
-  }
-  const { s } = sessions({ lfs })
-  await assert.rejects(s.ensureScratchProject(), (e) => e.code === 'Unknown')
-  await s.ensureScratchProject()
-  assert.equal(attempts, 2)
 })
 
 test('session persistence row: a local miss is imported from LayerFS, then answered', async () => {
@@ -1588,7 +1556,7 @@ test('sessions.list rows carry the branch kind too, from the row\'s branch and i
   state.sessions.plain = row('plain', 'feature/x', 4)
   const ops = {}
   const ctx = {
-    layerfs: { state: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
+    layerfs: { state: '/lfs-root', lfs: {}, emit() {}, callLog: {} },
     layerfsSessions: { state: { read: () => state } },
     layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
     plugin() {},
@@ -1625,7 +1593,7 @@ test('sessions.places: a second batch in the window reuses project ids, and ids 
   f.s.ctx.get = (name) => name === 'sessionPersistence' ? persistence : undefined
   const ops = {}
   const ctx = {
-    layerfs: { state: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
+    layerfs: { state: '/lfs-root', lfs: {}, emit() {}, callLog: {} },
     layerfsSessions: f.s,
     layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
     plugin() {},
@@ -1660,7 +1628,7 @@ test('sessions.places: one read-only batch over placeOfId and projectIdOf; bad i
   const projectIds = { live: 'pid-1' }
   const ops = {}
   const ctx = {
-    layerfs: { state: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
+    layerfs: { state: '/lfs-root', lfs: {}, emit() {}, callLog: {} },
     layerfsSessions: { state: { read: () => S.initialState() }, placeOfId: (id) => places[id] ?? null },
     layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
     plugin() {},
@@ -1702,7 +1670,7 @@ test('sessions.list reads each session\'s log and sidecar once per call', async 
   }
   const ops = {}
   const ctx = {
-    layerfs: { state: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: { branch: { list: async () => ({ items: [] }) } }, emit() {}, callLog: {} },
+    layerfs: { state: '/lfs-root', lfs: { branch: { list: async () => ({ items: [] }) } }, emit() {}, callLog: {} },
     layerfsSessions: sessions({ state }).s,
     layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
     plugin() {}, inject: (deps, callback) => { if (deps.includes('layerfsSessions')) callback(ctx) }, on() {}, effect() {},
@@ -1756,7 +1724,7 @@ test('a cold sessions.list answers known rows at once, then the walk lands and i
   const ops = {}
   const events = []
   const ctx = {
-    layerfs: { state: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs, emit: (type, data) => events.push({ type, data }), callLog: {} },
+    layerfs: { state: '/lfs-root', lfs, emit: (type, data) => events.push({ type, data }), callLog: {} },
     layerfsSessions: f.s,
     layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
     plugin() {}, inject: (deps, callback) => { if (deps.includes('layerfsSessions')) callback(ctx) }, on() {}, effect() {},
@@ -1825,7 +1793,7 @@ test('session.annotations answers sidecar metadata only; session.receipts pages 
     },
   }
   const ctx = {
-    layerfs: { state: '/lfs-root', scratchProject: 'dsh-scratch/scratch', lfs: {}, emit() {}, callLog: {} },
+    layerfs: { state: '/lfs-root', lfs: {}, emit() {}, callLog: {} },
     layerfsSessions: {},
     layerfsRemote: { operate: (_ctx, table) => Object.assign(ops, table) },
     plugin() {},
