@@ -12,8 +12,8 @@ export interface RecentProject { project: string, projectId?: string, lastActivi
   /** When its newest session was made: a project hidden before that shows again. */
   newestSession?: number }
 
-/** One sidebar project. `hideKey` names it in the hidden map. */
-export interface SidebarProject { row: ProjectRow, lastActivity: number, showStore: boolean, hideKey: string }
+/** One sidebar project. `hideKey` names it in the hidden map; `sessions` counts its local conversations. */
+export interface SidebarProject { row: ProjectRow, lastActivity: number, showStore: boolean, hideKey: string, sessions: number }
 
 const nameOf = (row: ProjectRow) => row.name ?? row.key.split('/')[1] ?? row.key
 
@@ -37,7 +37,9 @@ export function sidebarProjects(recent: readonly RecentProject[], catalog: reado
         ...(catalog && !liveStores?.has(r.project.split('/')[0] ?? '') ? { catalogState: 'removed' as const } : {}) }
     const id = row.projectId ?? row.key
     const had = out.get(id)
-    if (!had || had.lastActivity < r.lastActivity) out.set(id, { row, lastActivity: Math.max(r.lastActivity, had?.lastActivity ?? 0), showStore: false, hideKey })
+    const sessions = (had?.sessions ?? 0) + r.sessionIds.length
+    if (!had || had.lastActivity < r.lastActivity) out.set(id, { row, lastActivity: Math.max(r.lastActivity, had?.lastActivity ?? 0), showStore: false, hideKey, sessions })
+    else had.sessions = sessions
   }
   const rows = [...out.values()].sort((a, b) => b.lastActivity - a.lastActivity)
   const count = new Map<string, number>()

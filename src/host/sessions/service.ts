@@ -1715,13 +1715,47 @@ export class LayerfsSessions extends Service {
    * @returns the deleted session ids.
    */
   async deleteProjectConversations(stores: readonly HomeStore[]): Promise<string[]> {
-    const targets = this.projectConversations(stores)
+    return this.deleteConversations(this.projectConversations(stores))
+  }
+
+  /**
+   * Delete the conversations of one project that is gone from this LayerFS
+   * home (the sidebar's Remove on a Removed row): every conversation routed,
+   * bound or pending to that address, or carrying that project identity.
+   * Refused while LayerFS still answers for any of those addresses, so a live
+   * (or recreated) project's conversations are never removed this way. The
+   * deletion itself is {@link deleteProjectConversations}'s.
+   * @returns the deleted session ids.
+   */
+  async deleteRemovedProjectConversations(project: string, projectId?: string): Promise<string[]> {
+    const persistence = this.ctx.get?.('sessionPersistence' as never) as any
+    const state = this.state.read()
+    const found = new Map<string, string>()
+    const mine = (id: string, key: string | null | undefined) => key === project || (!!projectId && persistence?.projectIdOf?.(id) === projectId)
+    for (const id of persistence?.ownedSessionIds?.() ?? []) {
+      const key = persistence.ownerOf?.(id)?.project
+      if (key && mine(id, key)) found.set(id, key)
+    }
+    for (const b of Object.values(state.sessions)) if (b.project && (b.kind === 'project' || b.kind === 'shared') && mine(b.sessionId, b.project)) found.set(b.sessionId, b.project)
+    for (const [id, p] of Object.entries(state.pending)) if (p.project && mine(id, p.project)) found.set(id, p.project)
+    for (const key of new Set([project, ...found.values()])) {
+      let live = true
+      try { await this.lfs.project.get(key) } catch (error: any) {
+        if (error?.code !== 'NotFound') throw error
+        live = false
+      }
+      if (live) throw new CliError('InvalidInput', `LayerFS still has project ${key}: only a removed project's conversations can be removed here`)
+    }
+    return this.deleteConversations([...found].map(([id, key]) => ({ id, project: key })).sort((a, b) => a.id.localeCompare(b.id)))
+  }
+
+  private async deleteConversations(targets: readonly { id: string, project: string }[]): Promise<string[]> {
     if (!targets.length) return []
     const ids = targets.map((t) => t.id)
     for (const id of ids) {
       if (!this.ctx.sessions.get(id as never)) continue
       await this.ctx.workspaceRegistry.archiveSession(id as never, { stopActivity: true }).catch((error: any) => {
-        this.ctx.logger('layerfs').warn('reset: could not stop session %s: %s', id, String(error?.message ?? error))
+        this.ctx.logger('layerfs').warn('delete: could not stop session %s: %s', id, String(error?.message ?? error))
       })
     }
     await Promise.all(ids.map((id) => this.lane(id, async () => {})))
