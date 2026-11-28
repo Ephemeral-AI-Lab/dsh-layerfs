@@ -8,12 +8,12 @@
  */
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { Button, IconArchiveOutlineRegular, IconChevronDownOutlineRegular, IconChevronUpOutlineRegular, IconCloseOutlineRegular, IconPlusOutlineRegular, IconSettingsOutlineRegular, IconTrashOutlineRegular, IconTriangleRightFillRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconArchiveOutlineRegular, IconChevronDownOutlineRegular, IconChevronRightOutlineRegular, IconChevronUpOutlineRegular, IconCloseOutlineRegular, IconPlusOutlineRegular, IconSettingsOutlineRegular, IconTrashOutlineRegular, IconTriangleRightFillRegular, MenuItemButton } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { listProjects, type ProjectRow } from '../picker/NewProjectForm.tsx'
 import { useQuery } from '../files/use-query.ts'
-import { ConfirmDialog, usePressGuard, type RefusalLabels } from '../ui/index.tsx'
+import { ConfirmDialog, MoreMenu, usePressGuard, type RefusalLabels } from '../ui/index.tsx'
 import { useHostEvents } from '../storage/hooks.ts'
 import type { StorageView, StoreRow } from '../storage/types.ts'
 import { projectAvailability, type ProjectAvailability } from './availability.ts'
@@ -29,6 +29,7 @@ import { formatSessionFailure, pgStoreFailure, type LocalizedFailure } from './s
 import { sessionReadiness, type SessionReadiness } from './session-readiness.ts'
 import { archivable, visibleProjectSessions } from './session-visibility.ts'
 import { primaryMachine, runsOn } from './setup/model.ts'
+import { ago, marksTip, ProjectMarks, shortAgo, type MarkContext } from './marks.tsx'
 
 interface SessionSummary { title?: string, blank?: boolean }
 /** DSH's session summaries (`sessions.list`), for live titles and unused drafts. */
@@ -92,6 +93,8 @@ export function useProjectData(api: LayerfsApi) {
     catalog, item,
     /** A machine's platform (docker, lima, …) for its mark. */
     platformOf: (machine: string) => storage.data?.machines.find((m) => m.name === machine)?.platform ?? machine,
+    /** This computer's OS, for the host machine's mark and name. */
+    hostOs: storage.data?.computer?.os,
     liveStores: storage.data ? new Set(storage.data.stores.map((x) => x.name)) : undefined,
     scratchKey: catalog.data?.scratchKey ?? null,
     reload: () => { catalog.reload(); storage.reload(); machines.reload() },
@@ -253,7 +256,7 @@ export function removeProjectConversations(api: Pick<LayerfsApi, 'op'>, project:
 }
 
 /** One sidebar row (§4). */
-function SidebarRow({ item, showStore, hideKey, api, titles, t, onChanged }: { item: ProjectItem, showStore: boolean, hideKey: string, api: LayerfsApi, titles: Record<string, SessionSummary>, t: ListT, onChanged: () => void }): ReactNode {
+function SidebarRow({ item, showStore, hideKey, lastActivity, marks, api, titles, t, onChanged }: { item: ProjectItem, showStore: boolean, hideKey: string, lastActivity: number, marks: MarkContext, api: LayerfsApi, titles: Record<string, SessionSummary>, t: ListT, onChanged: () => void }): ReactNode {
   const { row: project, availability } = item
   const [open, setOpen] = useState(false)
   // a project LayerFS no longer has offers no New session (its settings hold Delete conversations)
@@ -291,14 +294,26 @@ function SidebarRow({ item, showStore, hideKey, api, titles, t, onChanged }: { i
         title={`${nameOf(project)} · ${storeName}${where ? ` · ${where}` : ''}`} aria-expanded={open} aria-label={t('expandProject', { project: label })} onClick={() => setOpen(!open)}>
         <LeadingSlot open={open} />
         <span className={css.title}>{nameOf(project)}{showStore ? <span className={css.store}> · {storeName}</span> : null}</span>
-        {!availability.canRun && availability.state !== 'checking' ? <span className={clsx(css.why, storeFail && css.whyError)} title={blockedTip}>{statusWord}</span> : null}
+        {gone
+          ? <span className={css.tag} title={blockedTip}>{statusWord}</span>
+          : !availability.canRun && availability.state !== 'checking'
+            ? <span className={clsx(css.why, storeFail && css.whyError)} title={blockedTip}>{statusWord}</span>
+            : availability.canStart ? null
+              : <span className={css.meta} title={[marksTip(item, marks), lastActivity ? t('lastSessionTip', { ago: ago(lastActivity, t) }) : ''].filter(Boolean).join(' · ')}>
+                <ProjectMarks item={item} ctx={marks} />
+                {lastActivity ? <span className={css.when}>{shortAgo(lastActivity, t)}</span> : null}
+              </span>}
       </button>
       <span className={css.rowActions}>
         <Button className={css.iconButton} variant="ghost" size="sm" icon={<IconSettingsOutlineRegular size={14} />} aria-label={t('configure', { project: label })} title={t('configure', { project: label })}
           onClick={() => projectDialog.open({ mode: 'configure', project: { key: project.key, projectId: project.projectId, name: nameOf(project), store: storeName } })} />
-        {/* Remove from sidebar only hides the row in this browser: nothing is deleted (a newer session shows it again) */}
-        <Button className={css.iconButton} variant="ghost" size="sm" icon={<IconCloseOutlineRegular size={14} />} data-hide-project={idOf(project)}
-          aria-label={t('hideProject', { project: label })} title={t('hideProject', { project: label })} onClick={() => sidebarHidden.hide(hideKey)} />
+        {/* Home's row menu, plus Hide from sidebar (only hides the row in this browser: nothing is deleted, a newer session shows it again) */}
+        <MoreMenu className={css.iconButton} label={t('projectMore', { project: label })}>
+          {(close) => <>
+            {gone ? null : <MenuItemButton icon={<IconChevronRightOutlineRegular size={14} />} onSelect={() => { close(); openStorage(api, `project:${project.key}`) }}>{t('openInHome')}</MenuItemButton>}
+            <MenuItemButton icon={<IconCloseOutlineRegular size={14} />} onSelect={() => { close(); sidebarHidden.hide(hideKey) }}>{t('hideProject', { project: label })}</MenuItemButton>
+          </>}
+        </MoreMenu>
         {/* While the new session opens the button stays focusable (aria-disabled, presses ignored): disabling it dropped focus to the page. */}
         {availability.canStart || gone ? null : <Button className={css.iconButton} variant="ghost" size="sm" disabled={!availability.canRun} aria-disabled={actions.busy || undefined} icon={<IconPlusOutlineRegular size={14} />}
           aria-label={t('newSession', { project: label })} aria-description={sessionReason} title={sessionReason ?? t('newSession', { project: label })}
@@ -352,11 +367,17 @@ export function useSidebarProjects(api: LayerfsApi, sessionSource?: SessionSourc
   const asked = useRef<string | null>(null)
   useEffect(() => { if (missing && asked.current !== missing) { asked.current = missing; data.catalog.reload() } }, [missing])
   return {
-    items: rows?.map((r) => ({ ...data.item(r.row), showStore: r.showStore, hideKey: r.hideKey, sessionCount: r.sessions })) ?? null,
+    // lastActivity is when its newest session ran; a project added without one has none to show
+    items: rows?.map((r) => ({ ...data.item(r.row), showStore: r.showStore, hideKey: r.hideKey, sessionCount: r.sessions, lastActivity: r.sessions ? r.lastActivity : 0 })) ?? null,
+    /** A catalog row joined to its Store and machines (the chooser's rows). */
+    item: data.item,
+    marks: { platformOf: data.platformOf, hostOs: data.hostOs },
     scratchKey: data.scratchKey,
     /** Every project LayerFS lists (Projects in sidebar offers them), and when each was last used here. */
     catalog: data.catalog.data?.rows ?? null,
     lastUsed: (key: string, projectId?: string) => Math.max(0, ...(recent.data?.projects ?? []).filter((r) => (projectId && r.projectId === projectId) || r.project === key).map((r) => r.lastActivity)),
+    /** How many conversations it has on this DSH. */
+    sessionsOf: (key: string, projectId?: string) => (recent.data?.projects ?? []).filter((r) => (projectId && r.projectId === projectId) || r.project === key).reduce((n, r) => n + r.sessionIds.length, 0),
     error: recent.error ?? data.catalog.error,
     titles: summaries.byId,
     reload: () => { recent.reload(); data.reload() },
@@ -382,7 +403,7 @@ export function SidebarProjects({ api, t, data }: { api: LayerfsApi, t: ListT, d
         <Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={14} />} onClick={() => projectDialog.open({ mode: 'new' })}>{t('newProject')}</Button>
       </div>
     </div> : <>
-      <ul className={css.projects}>{(listed ?? []).map((item) => <SidebarRow key={idOf(item.row)} item={item} showStore={item.showStore} hideKey={item.hideKey} api={api} titles={data.titles} t={t} onChanged={data.reload} />)}</ul>
+      <ul className={css.projects}>{(listed ?? []).map((item) => <SidebarRow key={idOf(item.row)} item={item} showStore={item.showStore} hideKey={item.hideKey} lastActivity={item.lastActivity} marks={{ t, ...data.marks }} api={api} titles={data.titles} t={t} onChanged={data.reload} />)}</ul>
       {folding ? <button type="button" className={css.foldRow} aria-expanded={all} onClick={() => setAll(!all)}>
         {all ? <IconChevronUpOutlineRegular size={12} /> : <IconChevronDownOutlineRegular size={12} />}
         <span>{all ? t('showFewer') : t('showMore', { n: items.length - SIDEBAR_FOLD })}</span>
