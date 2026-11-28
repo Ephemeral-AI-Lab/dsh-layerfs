@@ -16,7 +16,7 @@ import { useQuery } from '../ui/use-query.ts'
 import type { FolderContents, FolderEntry, FolderPart } from '../../shared/folder-parts.ts'
 import type { SetupKey, SetupModalT } from './locale.ts'
 import type { SetupStatus } from './store.ts'
-import { relativeName } from './summary.ts'
+import { countWords, relativeName } from './summary.ts'
 import css from './setup.module.css'
 
 type Home = 'home' | 'dsh'
@@ -26,22 +26,27 @@ const PART_KEY: Record<FolderPart, SetupKey> = {
   log: 'partLog', trace: 'partTrace', sessions: 'partSessions', scratch: 'partScratch', simulations: 'partSimulations',
 }
 
-/** A folder's line: what it is, then its count (and, for machines, their names). */
-function partLine(e: FolderEntry, which: Home, t: SetupModalT, sessions: number | null): string {
+/** A folder's line: what it is (for machines, their names too). */
+function partText(e: FolderEntry, which: Home, t: SetupModalT): string {
   const what = t(which === 'dsh' && e.name === 'trace' ? 'partCallOutputs' : PART_KEY[e.name])
-  if (e.name === 'machine' && e.count) return `${what} · ${e.names.join(', ')}${e.count > e.names.length ? ', …' : ''}`
-  if (e.name === 'sessions') return sessions == null ? what : `${what} · ${sessions}`
-  return e.count ? `${what} · ${e.count}` : what
+  return e.name === 'machine' && e.count ? `${what} · ${e.names.join(', ')}${e.count > e.names.length ? ', …' : ''}` : what
 }
 
-/** A home's summary: its Stores and machines, or its project conversations. */
-function homeLine(which: Home, entries: readonly FolderEntry[] | undefined, t: SetupModalT, sessions: number | null): string {
-  const count = (name: FolderPart) => entries?.find((e) => e.name === name)?.count ?? 0
-  const label = t(which === 'home' ? 'folderHome' : 'folderDsh')
-  if (!entries) return label
-  return which === 'home'
-    ? `${label} · ${t('homeSummary', { stores: String(count('store')), machines: String(count('machine')) })}`
-    : sessions == null ? label : `${label} · ${t('dshSummary', { sessions: String(sessions) })}`
+/** A folder's count on the right: its entries (project conversations for sessions/), or Empty. */
+function partCount(e: FolderEntry, t: SetupModalT, sessions: number | null): ReactNode {
+  const n = e.name === 'sessions' ? sessions : e.count
+  if (n == null) return null
+  return n ? <span className={css.treeCount}>{n}</span> : <span className={css.treeCount} data-empty="">{t('partEmpty')}</span>
+}
+
+/** A home's chips: its Stores and machines, or its project conversations. */
+function homeChips(which: Home, entries: readonly FolderEntry[] | undefined, t: SetupModalT, sessions: number | null): ReactNode {
+  if (!entries) return null
+  const count = (name: FolderPart) => entries.find((e) => e.name === name)?.count ?? 0
+  const chips = which === 'home'
+    ? [countWords(count('store'), t('storeOne'), t('storeMany')), countWords(count('machine'), t('machineOne'), t('machineMany'))]
+    : sessions == null ? [] : [countWords(sessions, t('conversationOne'), t('conversationMany'))]
+  return <span className={css.treeChips}>{chips.map((c) => <span key={c} className={css.treeChip}>{c}</span>)}</span>
 }
 
 export function FolderTree({ api, s, t, onError }: { api: LayerfsApi, s: SetupStatus, t: SetupModalT, onError: (e: unknown) => void }): ReactNode {
@@ -64,7 +69,8 @@ export function FolderTree({ api, s, t, onError }: { api: LayerfsApi, s: SetupSt
         const toggle = (on = !expanded[which]) => setExpanded((x) => ({ ...x, [which]: on }))
         return (
           <li key={which} role="treeitem" aria-expanded={entries?.length ? isOpen : undefined} aria-label={relativeName(f.root, path)} className={css.treeNode} data-row={which}>
-            <TreeLine name={relativeName(f.root, path)} line={homeLine(which, entries, t, n)} warn={warn} path={path} t={t}
+            <TreeLine name={relativeName(f.root, path)} line={t(which === 'home' ? 'folderHome' : 'folderDsh')}
+              meta={homeChips(which, entries, t, n)} warn={warn} path={path} t={t}
               chevron={entries?.length ? (isOpen ? 'open' : 'closed') : 'none'}
               onActivate={() => (entries?.length ? toggle() : open(which))} onOpen={() => open(which)}
               onKey={(e) => { if (e.key === 'ArrowRight') toggle(true); else if (e.key === 'ArrowLeft') toggle(false) }} />
@@ -72,7 +78,7 @@ export function FolderTree({ api, s, t, onError }: { api: LayerfsApi, s: SetupSt
               <ul role="group" className={css.treeGroup}>
                 {entries!.map((e) => (
                   <li key={e.name} role="treeitem" aria-label={`${e.name}/`} className={css.treeNode} data-part={e.name}>
-                    <TreeLine name={`${e.name}/`} line={partLine(e, which, t, n)} path={`${path}/${e.name}`} t={t} chevron="leaf"
+                    <TreeLine name={`${e.name}/`} line={partText(e, which, t)} meta={partCount(e, t, n)} path={`${path}/${e.name}`} t={t} chevron="leaf"
                       onActivate={() => open(which, e.name)} onOpen={() => open(which, e.name)} onKey={(k) => { if (k.key === 'ArrowLeft') toggle(false) }} />
                   </li>
                 ))}
@@ -85,14 +91,14 @@ export function FolderTree({ api, s, t, onError }: { api: LayerfsApi, s: SetupSt
   )
 }
 
-function TreeLine({ name, line, warn, path, chevron, onActivate, onOpen, onKey, t }: {
-  name: string, line: string, warn?: boolean, path: string, chevron: 'open' | 'closed' | 'none' | 'leaf',
+function TreeLine({ name, line, meta, warn, path, chevron, onActivate, onOpen, onKey, t }: {
+  name: string, line: string, meta?: ReactNode, warn?: boolean, path: string, chevron: 'open' | 'closed' | 'none' | 'leaf',
   onActivate: () => void, onOpen: () => void, onKey: (e: KeyboardEvent) => void, t: SetupModalT
 }): ReactNode {
   const [copied, setCopied] = useState(false)
   const copy = () => { void copyText(path).then((r) => { if (r === 'copied') { setCopied(true); setTimeout(() => setCopied(false), 1000) } }) }
   return (
-    <div className={css.treeLine} tabIndex={0} title={path}
+    <div className={css.treeLine} data-level={chevron === 'leaf' ? 'part' : 'home'} tabIndex={0} title={path}
       onClick={(e) => { if (!(e.target as HTMLElement).closest('button')) onActivate() }}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget) return
@@ -103,6 +109,7 @@ function TreeLine({ name, line, warn, path, chevron, onActivate, onOpen, onKey, 
       </span>
       <span className={css.treeName}>{name}</span>
       <span className={css.treeText} data-warn={warn || undefined}>{line}</span>
+      <span className={css.treeMeta}>{meta}</span>
       <span className={css.treeActions}>
         <Button variant="ghost" size="sm" className={css.treeButton} aria-label={copied ? t('copied') : t('copyPath')} title={copied ? t('copied') : t('copyPath')}
           icon={copied ? <IconCheckOutlineRegular size={14} /> : <IconCopyOutlineRegular size={14} />} onClick={copy} />

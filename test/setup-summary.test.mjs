@@ -16,7 +16,7 @@ await build({
   stdin: { contents: "export * from './src/client/setup/summary.ts'; export { locales } from './src/client/setup/locale.ts'", resolveDir: root, loader: 'ts' },
   outfile: join(out, 'summary.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', logLevel: 'warning',
 })
-const { buildWords, platformRows, canRun, locales, relativeName } = await import(pathToFileURL(join(out, 'summary.mjs')).href)
+const { buildWords, platformRows, canRun, locales, relativeName, tildePath, countWords } = await import(pathToFileURL(join(out, 'summary.mjs')).href)
 rmSync(out, { recursive: true, force: true })
 
 const CLI = 'dd4a2cc40f5c5c23c903fcd8b1de90575663d71d'
@@ -93,4 +93,14 @@ test('folder tree names: a home inside the folder is relative, the folder itself
   assert.equal(relativeName('/u/.layerfs/', '/u/.layerfs/dsh'), 'dsh/')
   assert.equal(relativeName('/u/.layerfs', '/u/.layerfs'), './')
   assert.equal(relativeName('/u/.layerfs', '/u/.layerfs-other/dsh'), '/u/.layerfs-other/dsh')
+})
+
+test('folder tree words: ~ for the user home, plurals for counts', () => {
+  assert.equal(tildePath('/Users/u/.layerfs', '/Users/u'), '~/.layerfs')
+  assert.equal(tildePath('/Users/u', '/Users/u/'), '~')
+  assert.equal(tildePath('/Users/uu/.layerfs', '/Users/u'), '/Users/uu/.layerfs')
+  assert.equal(tildePath('/x', null), '/x')
+  assert.equal(countWords(1, locales.en.storeOne, locales.en.storeMany), '1 Store')
+  assert.equal(countWords(11, locales.en.storeOne, locales.en.storeMany), '11 Stores')
+  assert.equal(countWords(0, locales.en.machineOne, locales.en.machineMany), '0 machines')
 })

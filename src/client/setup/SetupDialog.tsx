@@ -31,7 +31,7 @@ import { useHostEvents } from '../storage/hooks.ts'
 import type { SetupModalT } from './locale.ts'
 import { RuntimePicker } from './RuntimePicker.tsx'
 import { FolderTree } from './FolderTree.tsx'
-import { buildWords, canRun, platformRows, short, type PlatformRow } from './summary.ts'
+import { buildWords, canRun, platformRows, short, tildePath, type PlatformRow } from './summary.ts'
 import { verdictWords } from './verdict.ts'
 import { lately, setupDialog, useSetupStatus, type Piece, type SetupSection, type SetupStatus } from './store.ts'
 import dialog from '../projects/setup/dialog.module.css'
@@ -218,7 +218,7 @@ function FolderRow({ api, s, t }: { api: LayerfsApi, s: SetupStatus, t: SetupMod
   )
   return (
     <>
-      <Row data="folder" wide tile={<IconFolderCloseRegular size={16} />} title={t('folderTitle')} line={f.root} lineMono state={f.state === 'current' && did !== 'created' ? '' : word} warn={f.state !== 'current'} action={actions} />
+      <Row data="folder" wide tile={<IconFolderCloseRegular size={16} />} title={t('folderTitle')} line={<span title={f.root}>{tildePath(f.root, f.userHome)}</span>} lineMono state={f.state === 'current' && did !== 'created' ? '' : word} warn={f.state !== 'current'} action={actions} />
       <FolderTree api={api} s={s} t={t} onError={setError} />
       {locked ? <p className={css.rowNote}>{t(f.rootSource === 'env' ? 'folderSetByEnv' : 'folderSetByConfig')}</p> : null}
       {f.dsh.taken ? <p className={css.rowNote}>{t('folderDshTaken', { taken: f.dsh.taken })}</p> : null}

@@ -176,6 +176,8 @@ export interface SetupStatus {
     readonly next: string | null
     /** The DSH x LayerFS home: its path, and `<root>/dsh` when another DeepSeek Harness owns that one. */
     readonly dsh: { readonly path: string, readonly taken: string | null }
+    /** The user's home folder, so the page can write the folder as `~/…`. */
+    readonly userHome: string
   }
   readonly pieces: { readonly cli: Piece | null, readonly daemon: Piece | null, readonly bundle: Piece | null }
   /** A home that is not ready, in LayerFS's words (`home get` `message` and `fix`). */
@@ -610,6 +612,7 @@ export class LayerfsService extends Service {
         ...(got && got.state !== 'ready' ? { message: got.message ?? null, fix: got.fix ?? null } : {}),
         root: this.folder, rootSource: this.folderSource, next: this.nextFolder(),
         dsh: { path: this.state, taken: this.stateTaken },
+        userHome: homedir(),
       },
       pieces: { cli, daemon, bundle },
       // a home that is not ready: LayerFS's sentence and its fix (2.0 has no warnings list; `home doctor` reports the rest)

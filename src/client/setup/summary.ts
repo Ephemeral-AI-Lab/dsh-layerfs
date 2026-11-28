@@ -111,3 +111,13 @@ export function relativeName(root: string, path: string): string {
   if (path === r) return './'
   return path.startsWith(`${r}/`) ? `${path.slice(r.length + 1)}/` : path
 }
+
+/** `path` under the user's home as `~/…` (the full path stays in the tooltip). */
+export function tildePath(path: string, userHome: string | null | undefined): string {
+  const h = userHome?.replace(/\/+$/, '')
+  if (!h || h === '/') return path
+  return path === h ? '~' : path.startsWith(`${h}/`) ? `~${path.slice(h.length)}` : path
+}
+
+/** A count in words: the `one` key for 1, else the `many` key with `{n}`. */
+export const countWords = (n: number, one: string, many: string): string => (n === 1 ? one : many.replace('{n}', String(n)))

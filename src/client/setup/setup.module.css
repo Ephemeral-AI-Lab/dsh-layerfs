@@ -390,7 +390,7 @@
 
 .rowWide .rowAction { gap: 8px; }
 
-/* the folder row's tree: its two homes, aligned with its text, each opening to the folders it holds */
+/* the folder row's tree: a hairline panel under its text, one line per home, each opening to the folders it holds */
 .tree,
 .treeGroup {
   list-style: none;
@@ -398,26 +398,35 @@
   padding: 0;
 }
 
-.tree { margin: -6px 0 8px 36px; }
-
-.treeGroup {
-  margin-inline-start: 15px;
-  padding-inline-start: 8px;
-  border-inline-start: 0.5px solid var(--dsw-alias-border-l2);
+.tree {
+  margin: -4px 0 12px 44px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+  overflow: hidden;
 }
+
+.tree > .treeNode + .treeNode { border-top: 0.5px solid var(--dsw-alias-border-l2); }
+
+.treeGroup { padding: 0 0 6px; }
 
 .treeLine {
   display: grid;
-  grid-template-columns: 16px max-content minmax(0, 1fr) max-content;
+  grid-template-columns: 16px max-content minmax(0, 1fr) max-content max-content;
   align-items: center;
-  gap: 8px;
-  min-height: 28px;
-  padding: 0 4px 0 6px;
-  border-radius: var(--dsw-radius-md);
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 6px 0 10px;
   font-size: 12px;
   line-height: 18px;
   color: var(--dsw-alias-label-secondary);
   cursor: pointer;
+}
+
+/* a folder inside a home: shorter, indented under the home's name */
+.treeLine[data-level='part'] {
+  min-height: 30px;
+  padding-inline-start: 36px;
 }
 
 .treeLine:focus-visible {
@@ -437,7 +446,14 @@
 
 .treeName {
   font-family: var(--ds-font-family-code);
+  font-size: 12.5px;
+  font-weight: 500;
   color: var(--dsw-alias-label-primary);
+}
+
+.treeLine[data-level='part'] .treeName {
+  font-weight: 400;
+  min-width: 96px;
 }
 
 .treeText {
@@ -448,6 +464,38 @@
 }
 
 .treeText[data-warn] { color: var(--lf-tone-warning-fg); }
+
+.treeMeta {
+  display: inline-flex;
+  justify-content: flex-end;
+}
+
+.treeChips {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.treeChip {
+  padding: 1px 8px;
+  border-radius: 999px;
+  corner-shape: round;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-base);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.treeCount {
+  min-width: 32px;
+  text-align: end;
+  color: var(--dsw-alias-label-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.treeCount[data-empty] { color: var(--dsw-alias-label-tertiary); }
 
 .treeActions {
   display: inline-flex;

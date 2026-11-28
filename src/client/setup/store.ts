@@ -58,6 +58,8 @@ export interface SetupStatus {
     readonly next: string | null
     /** The DSH x LayerFS home: its path, `<root>/dsh` when another DeepSeek Harness owns it, where it moved from. */
     readonly dsh: { readonly path: string, readonly taken: string | null }
+    /** The user's home folder, so the page can write the folder as `~/…`. */
+    readonly userHome: string
   }
   readonly pieces: { readonly cli: Piece | null, readonly daemon: Piece | null, readonly bundle: Piece | null }
   readonly warnings: readonly { readonly code: string, readonly message: string }[]
