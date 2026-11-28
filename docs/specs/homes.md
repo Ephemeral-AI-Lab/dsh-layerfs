@@ -3,6 +3,11 @@
 Status: implementation specification. §2–§6 are built in dsh-layerfs; §7 lists
 what LayerFS itself has to adopt, and §8 the decisions still open.
 
+> Since LayerFS `f83bc8cd8b`, LayerFS has no `LAYERFS_HOME`: callers name a root
+> (`LAYERFS_ROOT`, default `~/.layerfs`) and the home is found in it (the root
+> while it holds `layerfs.json`, else `<root>/home`). Read `LAYERFS_HOME` below
+> as "the home found in the root"; where things live is `layerfs-folder.md`.
+
 ## 1. The rule
 
 DSH uses LayerFS; it does not contain it. There are two homes, each owned by
@@ -185,11 +190,8 @@ dsh-layerfs cannot change LayerFS; these are changes to LayerFS's home design
   in the home it describes, `<home>/preset/` (§5, `src/host/presets/state-dir.ts`).
   Moving a server to another home leaves the old home's preset resources
   running until a Reset runs against that home.
-- **Moving an existing home.** Not done automatically. A server that used the
-  old default `$DSH_HOME/layerfs/home` keeps it by setting `DSH_LAYERFS_HOME` to
-  that path; otherwise it starts on `~/.layerfs`. Whether a LayerFS home can be
-  moved (its records hold absolute paths, such as the daemon's) is LayerFS's to
-  answer.
+- **Moving an existing home.** LayerFS now has `layerfs home move <to>`; the
+  home a server uses follows from its LayerFS folder (`layerfs-folder.md` §3).
 - **Sharing with Connect.** Connect keeps its own home
   (`~/.layerfs-connect/home-2`). Pointing it at `~/.layerfs` needs matching CLI
   builds per host (which §3 allows) and one agreed host daemon.

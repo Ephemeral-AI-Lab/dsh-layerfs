@@ -9,7 +9,8 @@ live 3080 state before it was built.
 
 One folder on the machine holds everything LayerFS-related, by owner:
 
-- the **LayerFS home** (`LAYERFS_HOME`): LayerFS's records, runtime, secrets;
+- the **LayerFS home**: LayerFS's records, runtime, secrets. The folder is
+  LayerFS's root (`LAYERFS_ROOT`), and LayerFS finds the home in it;
 - the **DSH x LayerFS home** (`dsh/`): this plugin's LayerFS-related state for
   one DSH install: project conversations, their bindings and call records,
   scratch folders, team runs, the agent wrapper.
@@ -51,16 +52,17 @@ $DSH_HOME/layerfs.json                     pointer: { "folder": "<path>" }
 
 ## 3. Resolution
 
-- **folder**: config `folder` → `DSH_LAYERFS_FOLDER` → pointer → `~/.layerfs`.
-- **home**: config `home` → `DSH_LAYERFS_HOME` → `LAYERFS_HOME` → `<folder>/home`
-  when it holds `layerfs.json` → `<folder>`. LayerFS's own default is still
-  `~/.layerfs`; a container holding only `home/` and `dsh/` is reported by
-  every client that defaults there (the bare CLI, MCP, Connect) as an outdated
-  home with a fix that moves it aside. So the home stays at `<folder>` until
-  LayerFS moves its default; a `dsh/` folder inside a home is ignored by
-  LayerFS (its layout check reads only a folder without `layerfs.json`; the
-  doctor scans machine/store/sandbox/backup).
-- **dsh**: config `state` (or the older `root`) → `DSH_LAYERFS_STATE` →
+- **folder** (LayerFS's root): config `folder` → `DSH_LAYERFS_FOLDER` →
+  `LAYERFS_ROOT` → pointer → `~/.layerfs`.
+- **home**: LayerFS's rule (`layerfs_v2_0_0` from `f83bc8cd8b`): the folder
+  itself while it holds `layerfs.json` (a home made before the root layout),
+  else `<folder>/home`. There is no separate home override: every CLI call, the
+  agent's managed CLI and the agent SDK get `LAYERFS_ROOT=<folder>` and find the
+  same home. A `dsh/` folder inside a legacy home is ignored by LayerFS. The
+  pinned CLI must have `home move` (the marker of a CLI that reads
+  `LAYERFS_ROOT`; an older one reads only `LAYERFS_HOME` and would fall back to
+  `~/.layerfs`).
+- **dsh**: config `state` → `DSH_LAYERFS_STATE` →
   `<folder>/dsh`. A `dsh/` owned by another DSH_HOME (`dsh.json` `owner`) is
   never shared: that install uses `<folder>/dsh-<8 hex of its DSH_HOME>`.
 - `install` (in dsh.json) names this install in Sandbox names and the runtime

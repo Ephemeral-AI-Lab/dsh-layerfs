@@ -25,7 +25,7 @@ Inputs (ask me for any that are missing, and don't guess them):
 
 - Don't modify DeepSeek Harness or LayerFS sources. dsh-layerfs is a DSH plugin, and
   LayerFS is only built here, never edited.
-- Don't hand-edit the LayerFS home (`~/.layerfs`, or `LAYERFS_HOME`). Only the DSH
+- Don't hand-edit the LayerFS home (found in `~/.layerfs`, or `LAYERFS_ROOT`). Only the DSH
   app (the Runtime → Change dialog or the host API) and the `layerfs` CLI change it.
 - Build LayerFS with **`--profile release`** in every step. Both build tools default
   to debug, and a debug daemon makes docker Workspaces several times slower.
@@ -174,7 +174,7 @@ Inputs (ask me for any that are missing, and don't guess them):
 - Shell access to host operations: in the dsh-layerfs checkout,
   `DSH_LAYERFS_DEV_DIR=<dir> node tools/op.mjs <op> '<json>'` (the `http` op takes
   `{"method","path","body"}`). Below, `L` is the pinned CLI path from
-  `op runtime.status`, run with that server's `LAYERFS_HOME` and `LAYERFS_BUNDLE`
+  `op runtime.status`, run with that server's `LAYERFS_ROOT` and `LAYERFS_BUNDLE`
   (without the bundle, the CLI refuses the docker worker as "of another build").
 
 ## A. Prerequisites
@@ -261,7 +261,7 @@ Inputs (ask me for any that are missing, and don't guess them):
 - Shell access to host operations: in the dsh-layerfs checkout,
   `DSH_LAYERFS_DEV_DIR=<dir> node tools/op.mjs <op> '<json>'` (the `http` op takes
   `{"method","path","body"}`). Below, `L` is the pinned CLI path from
-  `op runtime.status`, run with that server's `LAYERFS_HOME` and `LAYERFS_BUNDLE`.
+  `op runtime.status`, run with that server's `LAYERFS_ROOT` and `LAYERFS_BUNDLE`.
 
 ## A. Prerequisites (CLI)
 
@@ -439,22 +439,22 @@ each docker or Lima machine so its worker is of the new build (close its Sandbox
 first; while the new CLI refuses a worker "of another build", pin the old runtime to
 close and stop, then pin the new one and start). When `layerfs_v2_0_0` moves, check
 out the new tip in the same worktree and repeat steps 2 and 3.
-The LayerFS home is LayerFS's own, apart from DSH: `~/.layerfs` by default
-(`DSH_LAYERFS_HOME`, then `LAYERFS_HOME`, override it). It holds LayerFS's records,
+The LayerFS home is LayerFS's own, apart from DSH, found in the LayerFS folder
+(LayerFS's root, `~/.layerfs` by default): the folder itself while it holds
+`layerfs.json`, else `<folder>/home`. It holds LayerFS's records,
 its runtime, the secrets entered in the panel (`secret/`) and storage
 jobs, statistics and Presets state (`job/`, `stat/`, `preset/`, named for no client); the bucket list
 is read from LayerFS's records in the home. This plugin's per-install state
-(runtime pin, session bindings, scratch) stays in `$DSH_HOME/layerfs`. See [docs/specs/homes.md](docs/specs/homes.md).
+(runtime pin, session bindings, scratch) is in `<folder>/dsh`. See [docs/specs/layerfs-folder.md](docs/specs/layerfs-folder.md).
 
 ### Configuration (`layerfs` row in `cordis.patch.yml`)
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `root` | `$DSH_HOME/layerfs` | Plugin runtime settings, legacy anchors, execution bindings and receipt spool |
-| `projectSessionHome` | `$DSH_HOME/layerfs/project-sessions` | Unpacked project conversation storage; `DSH_LAYERFS_SESSION_HOME` overrides the default |
+| `folder` | the `$DSH_HOME/layerfs.json` pointer, else `~/.layerfs` | The LayerFS folder, LayerFS's root (`DSH_LAYERFS_FOLDER`, then `LAYERFS_ROOT`, override the pointer); the LayerFS home is found in it |
+| `state` | `<folder>/dsh` | The DSH x LayerFS home: runtime pin, sessions, scratch (`DSH_LAYERFS_STATE` overrides) |
 | `cli`, `daemon`, `bundle` | unset | Explicit pins (otherwise saved setting, then env, then the newest runtime installed in the LayerFS home) |
 | `cacheHome` | unset | The XDG cache home holding prepared VM OS images (`<cacheHome>/layerfs/machine-images`, built by LayerFS `tools/machine_image.py`), passed to every CLI as `XDG_CACHE_HOME`. Otherwise the saved setting (Machines → LayerFS runtime), then `DSH_LAYERFS_CACHE_HOME`, then the host's own `XDG_CACHE_HOME`. Without a prepared image, a new Lima machine boots the stock Ubuntu image (about 30 s instead of about 9 s) |
-| `home` | `~/.layerfs` | The LayerFS home (`DSH_LAYERFS_HOME`, then `LAYERFS_HOME`, override the default) |
 | `secrets` | `<home>/secret` | Where bucket keys and PostgreSQL passwords entered in the panel are saved (owner-only files LayerFS reads through `file:` references); `DSH_LAYERFS_SECRETS` overrides the default. A bucket keeps the key file it was connected with; only new saves use a changed folder |
 | `checkpoints` | `turn` | `off` disables per-turn commits |
 | `idleMinutes` | `30` | Close an idle session's Sandbox (it reopens on the next turn) |

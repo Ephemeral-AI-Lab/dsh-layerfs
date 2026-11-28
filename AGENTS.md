@@ -7,7 +7,8 @@ Project conversations use native unpacked DSH logs with additive annotations
 under `<state>/sessions/store` (the DSH x LayerFS home, default `~/.layerfs/dsh`; dev must override), the LayerFS session store
 and trajectory checkpoints, as a DeepSeek Harness (DSH) cordis plugin bundle.
 Current specs: `docs/specs/project-sessions.md`, `docs/specs/layerfs-folder.md` for
-where things live (the LayerFS folder `~/.layerfs`: the LayerFS home, `LAYERFS_HOME`, which
+where things live (the LayerFS folder `~/.layerfs`, LayerFS's root `LAYERFS_ROOT`: the LayerFS
+home found in it (`~/.layerfs` while it holds `layerfs.json`, else `~/.layerfs/home`), which
 holds LayerFS's records, runtime and secrets, and `~/.layerfs/dsh`, this plugin's state; DSH_HOME
 only gets the `layerfs.json` pointer), and `docs/specs/homes.md` for the runtime, secrets and
 storage state in the home. Earlier design docs:
@@ -40,7 +41,7 @@ storage state in the home. Earlier design docs:
     until they make it the feature waits.
 - Never modify `../layerfs-connect` or `../layerfs` either (read-only references).
   Never edit the user's LayerFS home (`~/.layerfs`) by hand, and never point a dev
-  server or test at it: they always use a private home (`DSH_LAYERFS_HOME`). Only
+  server or test at it: they always use a private folder (`DSH_LAYERFS_FOLDER`). Only
   the app (3080) and the CLI change it.
 - **The LayerFS build tracks the latest `layerfs_v2_0_0`.** The pinned CLI, daemon
   and Linux bundle are built from the tip of
@@ -97,7 +98,7 @@ into the one 3080 server. That is expected; coordinate instead of competing for 
 
 - `src/host/` host half (ESM, bundled to `lib/index.js`)
   - `remote.ts` the hand-written `layerfs` Remote (`call {op,args}` + `events` stream)
-  - `service.ts` `ctx.layerfs` (pinned CLI/daemon, LAYERFS_HOME, events, JSON state)
+  - `service.ts` `ctx.layerfs` (pinned CLI/daemon, the LayerFS folder and home, events, JSON state)
   - `layerfs/cli.ts` pinned-CLI SDK (`ctx.layerfs.lfs.<family>.<call>(...)`), port of Connect `host/cli`
   - `routes/` Connect's host HTTP API served as op `http` `{method,path,body}` -> `{status,body}`
   - `sessions/` session binding (`placeOf`: existing binding, pending placement,
@@ -186,7 +187,7 @@ into the one 3080 server. That is expected; coordinate instead of competing for 
   persistence row, plain folder sessions, the LayerFS Projects group, the New Session
   project control, panel UI; cleans up unless `--keep`).
 - Session store portability: a second server sharing the LayerFS home
-  (`DSH_LAYERFS_DEV_DIR=$PWD/.dev-import DSH_LAYERFS_HOME=$PWD/.dev/layerfs-home ... --port 3096`),
+  (`DSH_LAYERFS_DEV_DIR=$PWD/.dev-import DSH_LAYERFS_FOLDER=$PWD/.dev/layerfs ... --port 3096`),
   then `A_DIR=$PWD/.dev B_DIR=$PWD/.dev-import node test/e2e-store-import.mjs` (explicit
   import, open by id alone through the persistence row, folder sessions never stored).
 - Presets: `test/presets.test.mjs` (admission, request-ID reconciliation, restart recovery,
@@ -196,8 +197,8 @@ into the one 3080 server. That is expected; coordinate instead of competing for 
   machines from the home's Presets dialog (head card → Presets → Studio → Stop machines…)
   afterwards. A real Starter Build (`quickstart`: one SQLite Store on docker, 552 commits on
   20 branches) needs only Docker and the bundle and takes under a minute; stop the dev home's
-  docker machine afterwards (`layerfs machine stop docker` with that home's
-  `LAYERFS_HOME` and `LAYERFS_BUNDLE`).
+  docker machine afterwards (`layerfs machine stop docker` with that server's
+  `LAYERFS_ROOT` (its `<dev dir>/layerfs`) and `LAYERFS_BUNDLE`).
 - `node tools/cleanup-dev.mjs` removes leftover `e2e*`/`imp*` Stores through the host API.
 - After side verification passes, merge into the 3080 checkout and check it on 3080
   (see "Shared server on 3080"); that is the last step of every task.
