@@ -62,7 +62,7 @@ function Check({ on, multi }: { on: boolean, multi?: boolean | undefined }): Rea
 }
 
 /** One choice: its mark, name and one note line; the chosen one has a check (a box when `multi`). */
-export function ChoiceTile({ mark, name, note, selected, disabled, tone, title, onSelect, data, multi, locked }: {
+export function ChoiceTile({ mark, name, note, selected, disabled, tone, title, onSelect, data, multi, locked, tag }: {
   mark: ReactNode, name: string, note: ReactNode, selected: boolean, onSelect: () => void
   disabled?: boolean | undefined
   /** The note's tone: `warn` (the item cannot be used now, or the choice has a cost), `accent` (a change this dialog will make). */
@@ -73,8 +73,10 @@ export function ChoiceTile({ mark, name, note, selected, disabled, tone, title, 
   multi?: boolean | undefined
   /** Checked and kept here (changed elsewhere): shown as it is, not greyed. */
   locked?: boolean | undefined
+  /** A tag on the note line, beside the tile's button (a First session tag, or the button that sets it). */
+  tag?: ReactNode
 }): ReactNode {
-  return <button type="button" role={multi ? 'checkbox' : 'radio'} aria-checked={selected} disabled={disabled} aria-readonly={locked || undefined} title={title ?? name}
+  const tile = <button type="button" role={multi ? 'checkbox' : 'radio'} aria-checked={selected} disabled={disabled} aria-readonly={locked || undefined} title={title ?? name}
     className={clsx(css.tile, selected && css.tileOn, locked && css.tileLocked)} onClick={locked ? undefined : onSelect} {...data}>
     <span className={css.tileTop}>
       <span className={css.tileMark} aria-hidden="true">{mark}</span>
@@ -83,6 +85,7 @@ export function ChoiceTile({ mark, name, note, selected, disabled, tone, title, 
     </span>
     <span className={css.tileNote} data-tone={tone}>{note}</span>
   </button>
+  return <div className={css.tileWrap}>{tile}{tag ?? null}</div>
 }
 
 /** The row under the tiles: All N… and + New…, each half the row (one alone takes all of it). */
@@ -113,10 +116,15 @@ export function machineOrder(machines: readonly Machine[], first: string | null 
 
 /** A machine tile's parts: its mark, its note (state, then This Mac or the Store's badge) and whether it can be picked. */
 export function machineTileParts(m: Machine, words: LocationWords, block: TileBlock | undefined, badge: string | null, chosen: boolean) {
-  const os = isHostName(m.name) ? words.hostOs : undefined
+  const host = isHostName(m.name)
+  const os = host ? words.hostOs : undefined
+  // a running machine says what it is (This Mac, Docker); only a state out of the ordinary is named
+  const what = !block && isRunning(m) && (words.platform || words.hostShort)
+    ? (host ? words.hostShort ?? words.thisMac : words.platform?.(m.platform ?? '') ?? words.running)
+    : machineNote(m, words, block)
   return {
     mark: <MachineGlyph platform={m.platform || m.name} os={os} size={15} />,
-    note: [machineNote(m, words, block), badge].filter(Boolean).join(' · '),
+    note: [what, badge].filter(Boolean).join(' · '),
     // a broken machine, or one that cannot run here and that no Start fixes, is not picked here; one already chosen stays shown
     disabled: ((!!block && !block.startable) || m.state === 'broken') && !chosen,
     tone: block ? 'warn' as const : undefined,
@@ -143,7 +151,7 @@ export function MachineGrid({ machines, value, onChange, words, label, current, 
         const badge = current ? (m.name === current ? words.here : null) : m.name === fallback ? words.default : null
         const p = machineTileParts(m, words, blocks.get(m.name), badge, value === m.name)
         const target = !!current && !!targetNote && m.name === value && value !== current
-        return <ChoiceTile key={m.name} mark={p.mark} name={m.name} note={target ? `${p.note} · ${targetNote}` : p.note} tone={target ? 'warn' : p.tone} selected={value === m.name}
+        return <ChoiceTile key={m.name} mark={p.mark} name={m.name} note={target ? `${p.note} · ${targetNote}` : p.note} tone={p.tone} selected={value === m.name}
           disabled={disabled || p.disabled} onSelect={() => onChange(m.name)} data={{ 'data-machine': m.name, 'data-blocked': blocks.has(m.name) ? '' : undefined }} />
       })}
     </TileGrid>

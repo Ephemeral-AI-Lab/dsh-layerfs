@@ -8,7 +8,7 @@
  */
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { Button, IconCheckOutlineRegular, IconChevronLeftOutlineRegular, IconCloseOutlineRegular, IconFolderOpenOutlineRegular, IconInfoOutlineRegular, IconPlusOutlineRegular, IconSearchOutlineRegular, IconSettingsOutlineRegular, Input, Modal, relativeTime } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconCheckOutlineRegular, IconChevronLeftOutlineRegular, IconCloseOutlineRegular, IconEllipsisOutlineRegular, IconFolderOpenOutlineRegular, IconInfoOutlineRegular, Menu, IconPlusOutlineRegular, IconSearchOutlineRegular, IconSettingsOutlineRegular, Input, Modal, relativeTime } from '@deepseek-ai/dsh-client-ui-primitives'
 import { StatusDot } from '../../ui/StatusDot.tsx'
 import type { LayerfsApi } from '../../api.ts'
 import { useQuery } from '../../files/use-query.ts'
@@ -84,8 +84,8 @@ export function ProjectDialog({ api, t, tl, request }: { api: LayerfsApi, t: Set
 }
 
 /** The dialog's head: Back (when opened from the picker), the LayerFS mark (or Back to the form, in a list view), the title, a line under it, and Close. */
-function Head({ title, sub, t, back, onBack, subTitle }: { title: string, sub: ReactNode, t: SetupT, back?: DialogRequest | undefined, onBack?: (() => void) | undefined, subTitle?: string | undefined }): ReactNode {
-  return <header className={css.head}>
+function Head({ title, sub, t, back, onBack, subTitle, className }: { title: string, sub: ReactNode, t: SetupT, back?: DialogRequest | undefined, onBack?: (() => void) | undefined, subTitle?: string | undefined, className?: string | undefined }): ReactNode {
+  return <header className={clsx(css.head, className)}>
     {back && !onBack
       ? <button type="button" className={css.back} onClick={() => projectDialog.open(back)}>
         <IconChevronLeftOutlineRegular size={14} /><span>{t('backToProjects')}</span>
@@ -130,18 +130,54 @@ function Loading({ read, t }: { read: { error: unknown, reload: () => void }, t:
 }
 
 /** A labelled control: every field in the dialog shares this label, hint and error. */
-function Field({ label, hint, error, children, after, id }: { label: string, hint?: string | null | undefined, error?: string | null | undefined, children: ReactNode, after?: ReactNode, id?: string }): ReactNode {
+function Field({ label, hint, error, children, after, id, hideLabel, info }: {
+  label: string, hint?: string | null | undefined, error?: string | null | undefined, children: ReactNode, after?: ReactNode, id?: string
+  /** The control's name for assistive tech only (the placeholder says it on screen). */
+  hideLabel?: boolean | undefined
+  /** An explanation on hover beside the label (instead of a line under the control). */
+  info?: string | undefined
+}): ReactNode {
   const message = error ? <span className={css.error} role="alert">{error}</span> : hint ? <span className={css.hint}>{hint}</span> : null
+  const labelClass = hideLabel ? css.srOnly : css.label
+  const tip = info ? <Info text={info} /> : null
   // buttons beside the control (`after`) stay outside the <label>, so they are not part of the control's name: `id` names the control
   if (after) return <div className={css.field} data-invalid={error ? '' : undefined}>
-    <label className={css.label} htmlFor={id}>{label}</label>
+    <label className={labelClass} htmlFor={id}>{label}{tip}</label>
     <span className={css.inline}>{children}{after}</span>
     {message}
   </div>
   return <div className={css.field} data-invalid={error ? '' : undefined}>
-    <label className={css.field}><span className={css.label}>{label}</span>{children}</label>
+    <label className={css.field}><span className={labelClass}>{label}{tip}</span>{children}</label>
     {message}
   </div>
+}
+
+/** ⓘ beside a label: its explanation on hover and to assistive tech. */
+function Info({ text }: { text: string }): ReactNode {
+  return <span className={css.labelInfo} title={text} role="img" aria-label={text}><IconInfoOutlineRegular size={12} /></span>
+}
+
+/** A section's head: its label (with ⓘ when it has an explanation) and, on the right, its tabs or link. */
+function SectionHead({ label, info, id, right }: { label: string, info?: string | undefined, id?: string | undefined, right?: ReactNode }): ReactNode {
+  return <div className={css.labelRow}>
+    <h3 id={id} className={css.label}>{label}{info ? <Info text={info} /> : null}</h3>
+    {right ?? null}
+  </div>
+}
+
+/** One line under the tiles saying what a choice costs (a transfer, a shared Store losing a machine). */
+function NoteLine({ children }: { children: ReactNode }): ReactNode {
+  return <p className={css.noteLine} role="note"><IconInfoOutlineRegular size={13} /><span>{children}</span></p>
+}
+
+/** The footer's ⋯: Hide from sidebar (and the words once it is hidden). */
+function MoreMenu({ t, hidden, disabled, onHide }: { t: SetupT, hidden: boolean, disabled?: boolean | undefined, onHide: () => void }): ReactNode {
+  const [open, setOpen] = useState(false)
+  if (hidden) return <span className={css.footNote}>{t('hidden')}</span>
+  return <Menu open={open} onClose={() => setOpen(false)} portal align="start" items={[{ id: 'hide', label: t('hide') }]}
+    onSelect={(id) => { setOpen(false); if (id === 'hide') onHide() }}
+    anchor={<Button type="button" variant="ghost" size="sm" icon={<IconEllipsisOutlineRegular size={16} />} aria-label={t('more')} title={t('more')} aria-haspopup="menu" aria-expanded={open}
+      disabled={disabled} onClick={() => setOpen((v) => !v)} />} />
 }
 
 /** A group with the same label style as a field. */
@@ -156,7 +192,7 @@ function Group({ label, hint, children }: { label: string, hint?: string | undef
 // ---------- pieces ----------
 
 /** The tiles' words; `os` names the host machine (This Mac, unisolated; This computer, sandboxed; This PC). */
-const wordsOf = (t: SetupT, os?: string): LocationWords => ({ thisMac: t(os === 'linux' ? 'thisLinux' : os === 'windows' ? 'thisPc' : 'thisMac'), hostOs: os === 'linux' ? 'linux' : os === 'windows' || os === 'other' ? 'pc' : 'mac', running: t('running'), stopped: t('stopped'), default: t('default'), here: t('here'), blocked: t('machineBlocked'), engineDown: t('engineDown'), state: (s) => setupStateWord(s, t) })
+const wordsOf = (t: SetupT, os?: string): LocationWords => ({ thisMac: t(os === 'linux' ? 'thisLinux' : os === 'windows' ? 'thisPc' : 'thisMac'), hostOs: os === 'linux' ? 'linux' : os === 'windows' || os === 'other' ? 'pc' : 'mac', running: t('running'), stopped: t('stopped'), default: t('default'), here: t('here'), blocked: t('machineBlocked'), engineDown: t('engineDown'), state: (s) => setupStateWord(s, t), hostShort: t(hostWordKey(os)), platform: (p) => (p === 'docker' ? t('platDocker') : p === 'lima' ? t('platLima') : p === 'host' ? t(hostWordKey(os)) : p || t('running')) })
 
 /** + New machine: Home's New machine page (the dialog closes). */
 const newMachine = (api: LayerfsApi) => () => { projectDialog.close(); openStorage(api, 'machines:new') }
@@ -459,7 +495,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const countWords = (s: StoreRow) => { const n = s.projectsCount ?? s.projects.length; return n === 1 ? t('oneProject') : t('projects', { n }) }
   const storeNote = (s: StoreRow) => storeKindOf(s) === 'postgresql'
     ? `${s.postgresql?.target ?? ''}${s.name === last?.name ? ` · ${t('lastUsedNote')}` : ''}`
-    : `${machineWord(s.machine ?? '')} · ${s.name === last?.name ? t('lastUsedNote') : countWords(s)}`
+    : [machineWord(s.machine ?? ''), s.name === last?.name ? t('lastUsedNote') : (s.projectsCount ?? s.projects.length) ? countWords(s) : null].filter(Boolean).join(' · ')
   const mlist = kind === 'sqlite' ? machines : offered
   const mcurrent = existing?.machine ?? null
   const mfallback = !existing ? fallback : null
@@ -517,36 +553,34 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
             </>}>
             <Input id={`${id}-folder`} ref={folderInput} value={source} className={css.mono} placeholder="/Users/me/code/shop" autoComplete="off" spellCheck={false} onChange={(e) => typeSource(e.target.value)} />
           </Field> : null}
-          <Field label={t('name')} error={nameError} hint={slug && slug !== name.trim() ? t('savedAs', { slug }) : importing && !nameTyped && source.trim() ? t('nameFollows') : null} id={`${id}-name`}
-            after={importing ? undefined : <Button type="button" variant="outline" size="sm" icon={<IconFolderOpenOutlineRegular size={14} />} onClick={() => chooseFrom('folder')}>{t('fromFolderBtn')}</Button>}>
-            <Input id={`${id}-name`} ref={nameInput} value={name} placeholder={t('namePlaceholder')} autoComplete="off" spellCheck={false} data-modal-autofocus="" onChange={(e) => { setName(e.target.value); setNameTyped(e.target.value.trim() !== '') }} />
+          <Field label={t('name')} hideLabel={!importing} error={nameError} hint={slug && slug !== name.trim() ? t('savedAs', { slug }) : importing && !nameTyped && source.trim() ? t('nameFollows') : null} id={`${id}-name`}
+            after={importing ? undefined : <Button type="button" variant="outline" size="sm" icon={<IconFolderOpenOutlineRegular size={14} />} aria-label={t('fromFolderBtn')} title={t('fromFolderBtn')} onClick={() => chooseFrom('folder')} />}>
+            <Input id={`${id}-name`} ref={nameInput} value={name} placeholder={importing ? t('namePlaceholder') : t('projectNamePlaceholder')} autoComplete="off" spellCheck={false} data-modal-autofocus="" onChange={(e) => { setName(e.target.value); setNameTyped(e.target.value.trim() !== '') }} />
           </Field>
 
           <section ref={storeSection} className={css.field} aria-labelledby={`${id}-store`}>
-            <div className={css.labelRow}>
-              <h3 id={`${id}-store`} className={css.label}>{t('store')}</h3>
+            <SectionHead label={t('store')} id={`${id}-store`} right={
               <div className={css.kindTabs} role="tablist" aria-label={t('storeKind')}>
                 {(['sqlite', 'postgresql'] as const).map((k) => <button key={k} type="button" role="tab" aria-selected={kind === k} className={css.kindTab} onClick={() => switchKind(k)}>
                   <StoreKindGlyph kind={k} size={12} />{k === 'postgresql' ? t('kindPgTitle') : t('kindSqliteTitle')}
                   <span className={css.kindCount}>{stores.filter((s) => storeKindOf(s) === k).length}</span>
                 </button>)}
-              </div>
-            </div>
+              </div>} />
             {fellBack ? <SectionNote>{t('lastFellBack', { store: last.name })}</SectionNote> : null}
             {tileStores.length ? <TileGrid label={t('store')}>
               {tileStores.map((s) => <ChoiceTile key={s.name} mark={<StoreKindGlyph kind={storeKindOf(s)} size={15} />} name={s.name} note={storeNote(s)}
                 selected={existing?.name === s.name} onSelect={() => choose({ kind: 'existing', store: s.name })} data={{ 'data-store': s.name }} />)}
             </TileGrid> : null}
-            <TileActions all={kindStores.length > tileStores.length ? { label: t('allStoresKind', { n: kindStores.length, kind: kindTitle }), onClick: () => setSub('stores') } : null}
+            <TileActions all={kindStores.length > tileStores.length ? { label: t('allN', { n: kindStores.length }), onClick: () => setSub('stores') } : null}
               add={{ label: kind === 'postgresql' ? t('connectPg') : t('newSqlite'), selected: creatingStore, onClick: () => { if (!creatingStore) choose({ kind: kind === 'postgresql' ? 'pg' : 'sqlite' }) } }} />
             {creatingStore ? <div ref={details} className={css.newStorePanel}>
-              <Field label={t('storeName')} error={storeNameError} hint={storeConflictNotice ? null : t('storeNameHint')}>
+              <Field label={t('storeName')} error={storeNameError} >
                 <Input value={storeName ?? autoStoreName} className={css.mono} placeholder={autoStoreName || 'projects'} autoComplete="off" spellCheck={false}
                   onChange={(e) => setStoreName(e.target.value)} />
               </Field>
               {storeConflictNotice ? <p className={css.storeConflictNotice} role="status">{t('storeNameAutoHint', { taken: slug, store: chosenStoreName })}</p> : null}
               {kind === 'postgresql' ? <>
-                <Field label={t('url')} hint={t('urlHint')} error={urlError}>
+                <Field label={t('url')} info={t('urlHint')} error={urlError}>
                   <Input value={url} className={css.mono} placeholder="postgresql://db.internal:5432/app" autoComplete="off" spellCheck={false} onChange={(e) => setUrl(e.target.value)} />
                 </Field>
                 {linuxLocalhost ? <PgLocalhostNotice message={t('urlLocalhostWarn')} actionLabel={t('urlLocalhostUseIpv4')} onReplace={() => setUrl(replaceLocalhostWithIpv4(url))} /> : null}
@@ -554,34 +588,29 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
                   <Field label={t('user')} error={attempted && loginProblem === 'user' ? t('needUser') : null}>
                     <Input value={pgUser} className={css.mono} autoComplete="off" spellCheck={false} aria-label={t('user')} onChange={(e) => setPgUser(e.target.value)} />
                   </Field>
-                  <Field label={t('password')} error={attempted && loginProblem === 'password' ? t('needPassword') : null}>
+                  <Field label={t('password')} info={t('passwordHint')} error={attempted && loginProblem === 'password' ? t('needPassword') : null}>
                     <Input value={pgPassword} className={css.mono} type="password" autoComplete="new-password" spellCheck={false} aria-label={t('password')} onChange={(e) => setPgPassword(e.target.value)} />
                   </Field>
                 </div>
-                <p className={css.hint}>{t('passwordHint')}</p>
               </> : null}
             </div> : null}
             {attempted && !ok[1] && existing ? <span className={css.error} role="alert">{t('pickStore')}</span> : null}
           </section>
 
           <section ref={machineSection} className={css.field} aria-labelledby={`${id}-machine`}>
-            <h3 id={`${id}-machine`} className={css.label}>{kind === 'sqlite' ? t('stepMachine') : t('attachedMachines')}</h3>
+            <SectionHead id={`${id}-machine`} label={kind === 'sqlite' ? t('stepMachine') : t('attachedMachines')} info={kind === 'sqlite' ? t('locationHint') : t('pgAnyAttached')} />
             {kind === 'sqlite' ? <>
               <MachineGrid machines={machines} value={chosenSqlite} onChange={setSqliteMachine} words={words} label={t('stepMachine')}
-                current={mcurrent} fallback={mfallback} blocks={blocks} targetNote={t('transferHere')}
-                allLabel={t('allMachines', { n: machines.length })} onAll={() => setSub('machines')} newLabel={t('newMachine')} onNew={newMachine(api)} />
+                current={mcurrent} fallback={mfallback} blocks={blocks}
+                allLabel={t('allN', { n: machines.length })} onAll={() => setSub('machines')} newLabel={t('newMachine')} onNew={newMachine(api)} />
               {moving
-                ? <TransferBox>{transferWords(t, existing!, machineWord(existing!.machine ?? ''), machineWord(chosenSqlite), Math.max(0, existing!.projectsCount ?? existing!.projects.length))}</TransferBox>
-                : <SectionNote>{t('locationHint')}</SectionNote>}
+                ? <NoteLine>{transferWords(t, existing!, machineWord(chosenSqlite), Math.max(0, existing!.projectsCount ?? existing!.projects.length))}</NoteLine>
+                : null}
             </> : <>
-              <PgGrid t={t} api={api} tiles={pgTileList} onToggle={toggleAdd} onAll={() => setSub('machines')} />
-              {firstOptions.length > 1 ? <div className={css.firstOn}>
-                <span>{t('firstSessionOn')}</span>
-                <div className={css.kindTabs} role="radiogroup" aria-label={t('firstSessionOn')}>
-                  {firstOptions.map((m) => <button key={m} type="button" role="radio" aria-checked={chosenPg === m} className={css.kindTab} onClick={() => setPgChoice(m)}>{m}</button>)}
-                </div>
-              </div> : null}
-              <SectionNote>{t('pgAnyAttached')}</SectionNote>
+              <PgGrid t={t} api={api} tiles={pgTileList} onToggle={toggleAdd} onAll={() => setSub('machines')}
+                // several machines could run the first session: the chosen one wears First session, the others offer to take it
+                tagOf={firstOptions.length > 1 ? (m) => (m === chosenPg ? <span className={css.tileTag}>{t('firstSession')}</span>
+                  : firstOptions.includes(m) ? <button type="button" className={clsx(css.tileTag, css.tileTagBtn)} data-needed={chosenPg ? undefined : ''} onClick={() => setPgChoice(m)}>{t('makeFirst')}</button> : null) : undefined} />
               {attempted && !chosenPg ? <span className={css.error} role="alert">{pgChecked.length ? t('pickFirst') : t('needAttach')}</span> : null}
             </>}
             {(kind === 'sqlite' ? machines.length : pgTileList.length) === 0 ? <p className={css.notice}>{t('noMachines')}</p> : null}
@@ -598,7 +627,6 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
         <Button type="submit" variant="primary" disabled={running || !data} aria-busy={running} icon={running ? <StatusDot state="ongoing" size={13} /> : undefined}>
           {running ? t('creating')
             : moving ? t(importing ? 'transferAndImport' : 'transferAndCreate')
-              : adds.length ? t(importing ? 'attachAndImport' : 'attachAndCreate', { n: adds.length })
                 : importing ? t('import') : t('create')}
         </Button>
       </div>
@@ -625,15 +653,10 @@ function MachineListView({ t, api, machines, value, current, fallback, blocks, w
   </>
 }
 
-/** The SQLite transfer's words: the file, its size, from and to, and who moves with it. */
-function transferWords(t: SetupT, store: StoreRow, from: string, to: string, others: number): string {
-  const size = store.size ? ` (${bytes(store.size.bytes)})` : ''
-  return t(others > 1 ? 'transferWarn' : others === 1 ? 'transferWarnOne' : 'transferWarnAlone', { store: store.name, size, from, to, n: others })
-}
-
-/** A choice with a cost (a SQLite Store transfers, PostgreSQL machines detach): a box under the tiles. */
-function TransferBox({ children }: { children: ReactNode }): ReactNode {
-  return <p className={css.transferBox} role="note"><IconInfoOutlineRegular size={14} /><span>{children}</span></p>
+/** The SQLite transfer in one line: the Store, where to, its size, and who goes with it. */
+function transferWords(t: SetupT, store: StoreRow, to: string, others: number): string {
+  const size = store.size ? bytes(store.size.bytes) : null
+  return [t('transferTo', { store: store.name, to }), size, others === 1 ? t('othersGoOne') : others > 1 ? t('othersGo', { n: others }) : null].filter(Boolean).join(' · ')
 }
 
 /** One PostgreSQL machine tile: checked (attached, or to attach), what it shows, and whether it can change here. */
@@ -661,31 +684,35 @@ function pgTilesOf({ all, attached, adds, removes, offered, blocks, words, t, lo
     const row = attached.find((a) => a.machine === m.name)
     if (row) {
       const removing = removes.includes(m.name)
-      const reach = row.reached === 'ok' ? (row.reach?.latencyMs != null ? t('reachableMs', { ms: row.reach.latencyMs }) : t('reachable'))
-        : row.reached === 'failed' ? t('cantReach') : t('attachedUnchecked')
+      const reach = row.reached === 'ok' ? (row.reach?.latencyMs != null ? t('pgReachOk', { ms: row.reach.latencyMs }) : t('reachable'))
+        : row.reached === 'failed' ? t('cantReach') : t('notChecked')
       const note = removing ? t('willDetach') : isRunning(m) ? reach : `${t('stopped')} · ${reach}`
       return { m, mark, checked: !removing, locked: lock, disabled: false, note, tone: removing || row.reached === 'failed' ? 'warn' : undefined, group: 0 }
     }
     if (offered.some((x) => x.name === m.name)) {
       const adding = adds.includes(m.name)
-      return { m, mark, checked: adding, locked: false, disabled: false, note: adding ? t('willAttach') : t('notAttached'), tone: adding ? 'accent' : undefined, group: 1 }
+      return { m, mark, checked: adding, locked: false, disabled: false, note: adding ? t('willAttach') : words.platform?.(m.platform ?? '') ?? t('running'), tone: adding ? 'accent' : undefined, group: 1 }
     }
     const block = blocks.get(m.name)
-    return { m, mark, checked: false, locked: false, disabled: true, note: block ? machineNote(m, words, block) : m.state === 'broken' ? setupStateWord('broken', t) : t('startToAttach'), tone: block ? 'warn' : undefined, group: 2 }
+    return { m, mark, checked: false, locked: false, disabled: true, note: block ? machineNote(m, words, block) : m.state === 'broken' ? setupStateWord('broken', t) : t('stopped'), tone: block ? 'warn' : undefined, group: 2 }
   })
   return tiles.sort((a, b) => a.group - b.group || Number(isHostName(b.m.name)) - Number(isHostName(a.m.name)) || a.m.name.localeCompare(b.m.name))
 }
 
 /** The PostgreSQL machine tiles (checkboxes): at most TILE_CAP, every checked one shown, then All N machines and New machine. */
-function PgGrid({ t, api, tiles, onToggle, onAll, disabled }: { t: SetupT, api: LayerfsApi, tiles: PgTile[], onToggle: (machine: string) => void, onAll: () => void, disabled?: boolean | undefined }): ReactNode {
+function PgGrid({ t, api, tiles, onToggle, onAll, disabled, tagOf }: {
+  t: SetupT, api: LayerfsApi, tiles: PgTile[], onToggle: (machine: string) => void, onAll: () => void, disabled?: boolean | undefined
+  /** A tag on a checked tile (First session, or the button that makes it the first). */
+  tagOf?: ((machine: string) => ReactNode) | undefined
+}): ReactNode {
   const shown = capChecked(tiles, TILE_CAP, (x) => x.checked)
   return <>
     {shown.length ? <CheckGrid label={t('attachedMachines')}>
       {shown.map((x) => <ChoiceTile key={x.m.name} multi locked={x.locked} mark={x.mark}
         name={x.m.name} note={x.note} tone={x.tone} selected={x.checked} disabled={disabled || x.disabled} title={x.locked ? `${x.m.name} · ${t('detachInSettings')}` : undefined}
-        onSelect={() => onToggle(x.m.name)} data={{ 'data-machine': x.m.name }} />)}
+        onSelect={() => onToggle(x.m.name)} data={{ 'data-machine': x.m.name }} tag={x.checked ? tagOf?.(x.m.name) : undefined} />)}
     </CheckGrid> : null}
-    <TileActions all={tiles.length > shown.length ? { label: t('allMachines', { n: tiles.length }), onClick: onAll } : null} add={{ label: t('newMachine'), onClick: newMachine(api) }} />
+    <TileActions all={tiles.length > shown.length ? { label: t('allN', { n: tiles.length }), onClick: onAll } : null} add={{ label: t('newMachine'), onClick: newMachine(api) }} />
   </>
 }
 
@@ -734,8 +761,7 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
     ? t('sessionsLast', { sessions: sessions === 1 ? t('oneSession') : t('sessions', { n: sessions }), ago: agoWords(lastAt, t) })
     : <span className={css.mono}>{project.key}</span>
   const head = <Head title={name} sub={headLine} subTitle={project.key} t={t} back={busy ? undefined : back} />
-  const hide = hidden ? <span className={css.footNote}>{t('hidden')}</span>
-    : <Button variant="ghost" size="sm" disabled={!!busy} onClick={() => { sidebarHidden.hide(project.projectId ?? project.key); setHidden(true) }}>{t('hide')}</Button>
+  const hide = <MoreMenu t={t} hidden={hidden} disabled={!!busy} onHide={() => { sidebarHidden.hide(project.projectId ?? project.key); setHidden(true) }} />
   if (!view.data) return <>{head}<div className={css.body}><Loading read={view} t={t} /></div></>
   if (!store) {
     return <>{head}
@@ -751,12 +777,11 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
   const machines = machinesFor(view.data, pg ? 'postgresql' : 'sqlite')
   const blocks = tileBlocks(view.data.machines, platforms, view.data.computer?.os)
   const startWords = startWordsOf(t)
-  const kindWords = pg ? t('kindPg') : t('kindSqlite')
   const pgFail = pg ? formatSessionFailure(pgStoreFailure(store), null, t, store.name, store) : null
   const storeCard = <section className={css.field}>
     <div className={css.labelRow}>
       <h3 className={css.label}>{t('store')}</h3>
-      <button type="button" className={css.labelLink} onClick={() => { projectDialog.close(); openStorage(api, `store:${store.name}`) }}>{t('sfOpenStore')}</button>
+      <button type="button" className={css.labelLink} onClick={() => { projectDialog.close(); openStorage(api, `store:${store.name}`) }}>{t('open')}</button>
     </div>
     <div className={css.storeCard}>
       <span className={css.tileMark} aria-hidden="true"><StoreKindGlyph kind={store.kind} size={18} /></span>
@@ -764,9 +789,12 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
         <span className={css.storeCardHead}>
           <span className={css.kindName}>{store.name}</span>
           {pg && pgFail ? <span className={clsx(css.storeStatusTag, store.state === 'broken' ? css.storeStatusError : css.storeStatusWarn)}>{pgFail.short}</span>
-            : pg && store.state === 'ready' ? <span className={css.storeStatusReady}>{t('pgReadyBadge')}</span> : null}
+            : null}
         </span>
-        <span className={css.kindBlurb}>{[kindWords, pg ? store.postgresql?.target : null, store.size ? bytes(store.size.bytes) : null, others === 1 ? t('sharedOne') : others ? t('shared', { n: others }) : t('alone')].filter(Boolean).join(' · ')}</span>
+        <span className={css.kindBlurb}>
+          {pg ? <span className={css.monoNote}>{store.postgresql?.target ?? ''}</span> : (isHostName(store.machine ?? '') ? t(hostWordKey(view.data.computer?.os)) : store.machine)}
+          {[store.size ? bytes(store.size.bytes) : null, others + 1 === 1 ? t('oneProject') : t('projects', { n: others + 1 })].filter(Boolean).map((w) => ` · ${w}`).join('')}
+        </span>
       </span>
     </div>
     {pgFail ? <p className={clsx(css.pgStoreNotice, store.state === 'broken' && css.pgStoreNoticeError)} role="alert">{pgFail.message}</p> : null}
@@ -785,12 +813,12 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
       <div className={css.body}><div className={css.fields}>
         {storeCard}
         <section className={css.field}>
-          <h3 className={css.label}>{t('stepMachine')}</h3>
+          <SectionHead label={t('stepMachine')} info={t('locationHint')} />
           <MachineGrid machines={machines} value={chosen} onChange={(m) => setTarget(m === current ? null : m)} words={words} label={t('stepMachine')} current={current}
-            disabled={!!busy} blocks={blocks} targetNote={t('transferHere')} allLabel={t('allMachines', { n: machines.length })} onAll={() => setSub(true)} newLabel={t('newMachine')} onNew={newMachine(api)} />
+            disabled={!!busy} blocks={blocks} allLabel={t('allN', { n: machines.length })} onAll={() => setSub(true)} newLabel={t('newMachine')} onNew={newMachine(api)} />
           {chosen !== current
-            ? <TransferBox>{transferWords(t, store, hostWord(current), hostWord(chosen), others)}</TransferBox>
-            : <SectionNote>{t('locationHint')}</SectionNote>}
+            ? <NoteLine>{transferWords(t, store, hostWord(chosen), others)}</NoteLine>
+            : null}
           {/* moving starts no machine: each stopped one it needs has its own Start here */}
           {chosen !== current ? <StartFirst names={stoppedOf([current, chosen], view.data)} words={startWords} start={(m) => startMachine(api, m)} onStarted={view.reload} /> : null}
           {error ? <p className={css.error} role="alert">{error}</p> : null}
@@ -823,7 +851,6 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
     else setPgAdds((had) => (had.includes(m) ? had.filter((x) => x !== m) : [...had, m]))
   }
   const changed = adds.length > 0 || removes.length > 0
-  const what = [adds.length ? t('attachN', { n: adds.length }) : null, removes.length ? t('detachN', { n: removes.length }) : null].filter(Boolean).join(', ')
   const save = () => run('save', async () => {
     await attachMachines(api, store.name, adds)
     for (const m of removes) await detachMachine(api, store.name, m)
@@ -833,11 +860,11 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
     <div className={css.body}><div className={css.fields}>
       {storeCard}
       <section className={css.field}>
-        <h3 className={css.label}>{t('attachedMachines')}</h3>
+        <SectionHead label={t('attachedMachines')} info={t('pgAnyAttached')} />
         <PgGrid t={t} api={api} tiles={tiles} onToggle={toggle} onAll={() => setSub(true)} disabled={!!busy} />
-        {removes.length
-          ? <TransferBox>{t(others > 1 ? 'detachWarnShared' : others === 1 ? 'detachWarnSharedOne' : 'detachWarn', { machines: removes.join(', '), n: others })}</TransferBox>
-          : <SectionNote>{attached.length ? t('pgAnyAttached') : t('pgNotConnectedYet')}</SectionNote>}
+        {removes.length && others
+          ? <NoteLine>{t(others === 1 ? 'loseOne' : 'loseMany', { machines: removes.join(', '), n: others })}</NoteLine>
+          : !attached.length && !adds.length ? <NoteLine>{t('pgNotConnectedYet')}</NoteLine> : null}
         {error ? <p className={css.error} role="alert">{error}</p> : null}
       </section>
     </div></div>
@@ -848,7 +875,7 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
           ? <>
             <Button variant="outline" disabled={!!busy} onClick={() => { setPgAdds([]); setPgRemoves([]) }}>{t('cancel')}</Button>
             <Button variant="primary" disabled={!!busy} icon={busy ? <StatusDot state="ongoing" size={13} /> : undefined} onClick={() => void save()}>
-              {busy ? t('saving') : t('saveChanges', { what })}
+              {busy ? t('saving') : t('save')}
             </Button>
           </>
           : <Button variant="primary" disabled={!!busy} onClick={() => projectDialog.close()}>{t('done')}</Button>}
@@ -882,7 +909,7 @@ function Pick({ api, t, tl }: { api: LayerfsApi, t: SetupT, tl: ListT }): ReactN
   const rank = (i: ProjectItem) => (i.availability.canRun || i.availability.canStart ? 0 : i.row.catalogState === 'removed' || i.row.catalogState === 'identity-mismatch' ? 2 : 1)
   items.sort((a, b) => rank(a) - rank(b) || sessionsOf(b.row) - sessionsOf(a.row) || nameOf(a.row).localeCompare(nameOf(b.row)))
   return <>
-    <Head title={t('pickTitle')} sub={t('pickSub')} t={t} />
+    <Head title={t('pickTitle')} sub={t('pickSub')} t={t} className={css.pickHead} />
     <div className={css.searchRow}>
       <IconSearchOutlineRegular size={15} className={css.searchIcon} />
       <input className={css.search} value={query} placeholder={t('search')} aria-label={t('search')} data-modal-autofocus="" onChange={(e) => setQuery(e.target.value)} />

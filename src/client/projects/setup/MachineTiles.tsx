@@ -35,6 +35,10 @@ export interface LocationWords {
   engineDown?: string | undefined
   /** Another LayerFS machine state (busy, broken, blocked, unknown…) in the caller's locale (RV4 NOTE 9: never the raw word in zh). */
   state: (state: string) => string
+  /** A running machine's kind in a word (Docker, Lima VM), for tiles that name what it is rather than that it runs. */
+  platform?: ((platform: string) => string) | undefined
+  /** The host machine in a word (This Mac), for those tiles. */
+  hostShort?: string | undefined
 }
 
 const NO_BLOCKS: ReadonlyMap<string, TileBlock> = new Map()
