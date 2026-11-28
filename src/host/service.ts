@@ -26,7 +26,7 @@ function packageRoot(): string {
     dir = up
   }
 }
-import { bundleStamp, cleanRuntimes, daemonStamp, installRuntime, installedRuntimes, leasePin, runningCommands, runtimeRoot, verdictOf, type BuildStamp, type RuntimeCleanup, type Verdict } from './layerfs/runtime-home.ts'
+import { bundleStamp, cleanRuntimes, daemonStamp, installRuntime, installedRuntimes, leasePin, runningCommands, runtimePieces, runtimeRoot, verdictOf, type BuildStamp, type RuntimeCleanup, type Verdict } from './layerfs/runtime-home.ts'
 import type { LayerfsRemote } from './remote.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -274,8 +274,8 @@ export class LayerfsService extends Service {
   readonly statDir: string
   readonly checkpoints: 'turn' | 'off'
   readonly idleMinutes: number
-  /** `<root>/runtime.json`: the CLI/daemon chosen in the UI (wins over env). */
-  readonly settings: JsonFile<{ cli?: string, daemon?: string, bundle?: string, cacheHome?: string }>
+  /** `<state>/runtime.json`: the installed runtime chosen in the UI, by id (`runtime`; wins over env), and the image cache. */
+  readonly settings: JsonFile<{ runtime?: string, cacheHome?: string }>
   private pin!: { cli: string | null, daemon: string | null, bundle: string | null, cacheHome: string | null, cacheHomeSource: RuntimeStatus['cacheHomeSource'], source: RuntimeStatus['source'] }
   private sdk: Lfs | undefined
   private hostDaemonRecorded: Promise<unknown> | undefined
@@ -372,13 +372,15 @@ export class LayerfsService extends Service {
 
   private resolvePin(): void {
     const saved = this.settings.read()
-    const c = abs(this.config.cli), s = abs(saved.cli), e = abs(process.env.DSH_LAYERFS_CLI)
+    // a saved pin names an installed runtime by id, found in this home (a moved home keeps its runtimes)
+    const r = typeof saved.runtime === 'string' && /^[0-9A-Za-z_.+-]+$/.test(saved.runtime) ? runtimePieces(this.home, saved.runtime) : undefined
+    const c = abs(this.config.cli), s = r?.cli, e = abs(process.env.DSH_LAYERFS_CLI)
     // nothing pinned: the newest runtime installed in the LayerFS home
     const h = c || s || e ? undefined : installedRuntimes(this.home)[0]
     const cli = c ?? s ?? e ?? h?.cli ?? null
     const source = c ? 'config' : s ? 'settings' : e ? 'env' : h ? 'home' : 'none'
-    const daemon = (c ? abs(this.config.daemon) : s ? abs(saved.daemon) : e ? abs(process.env.DSH_LAYERFS_DAEMON) : h?.daemon) ?? null
-    const bundle = (c ? abs(this.config.bundle) : s ? abs(saved.bundle) : h ? h.bundle ?? undefined : undefined) ?? abs(process.env.DSH_LAYERFS_BUNDLE) ?? abs(process.env.LAYERFS_BUNDLE) ?? null
+    const daemon = (c ? abs(this.config.daemon) : s ? r!.daemon : e ? abs(process.env.DSH_LAYERFS_DAEMON) : h?.daemon) ?? null
+    const bundle = (c ? abs(this.config.bundle) : s ? r!.bundle ?? undefined : h ? h.bundle ?? undefined : undefined) ?? abs(process.env.DSH_LAYERFS_BUNDLE) ?? abs(process.env.LAYERFS_BUNDLE) ?? null
     // prepared machine images: independent of which CLI is pinned
     const cc = abs(this.config.cacheHome), cs = abs(saved.cacheHome), ce = abs(process.env.DSH_LAYERFS_CACHE_HOME)
     const cacheHome = cc ?? cs ?? ce ?? null
@@ -774,7 +776,7 @@ export class LayerfsService extends Service {
     }
     if (next.cacheHome && (!abs(next.cacheHome) || !existsSync(next.cacheHome) || !statSync(next.cacheHome).isDirectory())) throw new CliError('InvalidInput', 'The machine image cache must be an absolute path to an existing folder')
     const cacheHome = next.cacheHome !== undefined ? next.cacheHome : next.cli === null ? null : this.settings.read().cacheHome ?? null
-    let pin: { cli: string | null, daemon: string | null, bundle?: string | null } = next
+    let pin: { id?: string, cli: string | null, daemon: string | null, bundle?: string | null } = next
     if (next.cli !== null) {
       if (!abs(next.cli) || !existsSync(next.cli)) throw new CliError('InvalidInput', 'The CLI must be an absolute path to an existing file')
       if (next.daemon !== null && (!abs(next.daemon) || !existsSync(next.daemon))) throw new CliError('InvalidInput', 'The daemon must be an absolute path to an existing file')
@@ -795,7 +797,7 @@ export class LayerfsService extends Service {
         throw new CliError(error?.code === 'InvalidInput' ? 'InvalidInput' : 'Failed', `Could not install the runtime into the LayerFS home: ${error?.message ?? error}`)
       }
     }
-    this.settings.write({ ...(pin.cli === null ? {} : { cli: pin.cli, ...(pin.daemon ? { daemon: pin.daemon } : {}), ...(pin.bundle ? { bundle: pin.bundle } : {}) }), ...(cacheHome ? { cacheHome } : {}) })
+    this.settings.write({ ...(pin.id ? { runtime: pin.id } : {}), ...(cacheHome ? { cacheHome } : {}) })
     this.resolvePin()
     // the host machine follows the new daemon (the installed copy in the home)
     if (pin.daemon) await this.ensureHostDaemon(true)
@@ -817,7 +819,8 @@ export class LayerfsService extends Service {
    */
   async cleanRuntimes(): Promise<RuntimeCleanup> {
     const saved = this.settings.read()
-    const pinned = [this.pin.cli, this.pin.daemon, this.pin.bundle, saved.cli, saved.daemon, saved.bundle,
+    const kept = typeof saved.runtime === 'string' ? runtimePieces(this.home, saved.runtime) : undefined
+    const pinned = [this.pin.cli, this.pin.daemon, this.pin.bundle, kept?.cli, kept?.daemon, kept?.bundle,
       this.config.cli, this.config.daemon, this.config.bundle,
       process.env.DSH_LAYERFS_CLI, process.env.DSH_LAYERFS_DAEMON, process.env.DSH_LAYERFS_BUNDLE, process.env.LAYERFS_BUNDLE]
     let machines: unknown = null

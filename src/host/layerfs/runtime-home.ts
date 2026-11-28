@@ -60,6 +60,16 @@ export function installedRuntimes(home: string): InstalledRuntime[] {
   return found.sort((a, b) => b.at - a.at || b.id.localeCompare(a.id))
 }
 
+/**
+ * An installed runtime's pieces by id (`<home>/runtime/<id>`): its CLI, and the
+ * daemon and bundle it holds. The CLI path is answered even when it is missing,
+ * so a pin naming a removed runtime reports that file rather than another pin.
+ */
+export function runtimePieces(home: string, id: string): { cli: string, daemon: string | null, bundle: string | null } {
+  const found = installedRuntimes(home).find((r) => r.id === id)
+  return found ?? { cli: join(runtimeRoot(home), id, 'bin', 'layerfs'), daemon: null, bundle: null }
+}
+
 /** The folder name for a CLI build: `<version>-<sha256 of the CLI, 12>`. */
 export function runtimeId(cli: string, version: string): string {
   const v = String(version || 'unknown').replace(/[^0-9A-Za-z_.+-]/g, '-')

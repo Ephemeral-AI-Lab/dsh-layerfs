@@ -5,7 +5,7 @@
 //   node --test test/homes.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -82,6 +82,38 @@ test('runtime install: a different daemon or bundle for the same CLI is refused,
     assert.equal(H.installedRuntimes(f.home).length, 2)
     assert.ok(!H.installedRuntimes(f.home).some((r) => r.id.includes('.tmp-')))
   } finally { f.done() }
+})
+
+test('a saved pin names an installed runtime by id: it follows the home when the home moves into <folder>/home', () => {
+  const f = fixture()
+  const keys = ['DSH_HOME', 'LAYERFS_ROOT', 'DSH_LAYERFS_CLI', 'DSH_LAYERFS_DAEMON', 'DSH_LAYERFS_BUNDLE', 'LAYERFS_BUNDLE', 'DSH_LAYERFS_FOLDER', 'DSH_LAYERFS_STATE']
+  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]))
+  try {
+    for (const k of keys) delete process.env[k]
+    process.env.DSH_HOME = join(f.dir, 'dsh')
+    const folder = join(f.dir, 'folder')
+    process.env.DSH_LAYERFS_FOLDER = folder
+    // a home made before the root layout: the folder itself holds layerfs.json and runtime/
+    mkdirSync(folder, { recursive: true }); writeFileSync(join(folder, 'layerfs.json'), '{}')
+    const a = H.installRuntime(folder, '2.0.0', { cli: join(f.src, 'layerfs'), daemon: join(f.src, 'layerfs-daemon'), bundle: join(f.src, 'bundle', 'linux-aarch64') })
+    H.installRuntime(folder, '2.0.0', { cli: join(f.src, 'layerfs'), daemon: null, bundle: null })
+    mkdirSync(join(folder, 'dsh'), { recursive: true })
+    writeFileSync(join(folder, 'dsh', 'runtime.json'), JSON.stringify({ runtime: a.id }))
+    const before = new H.LayerfsService(new H.Context(), {})
+    assert.deepEqual([before.home, before.cli, before.daemon, before.bundle], [folder, a.cli, a.daemon, a.bundle])
+    // `layerfs home move <folder>/home`: LayerFS's entries move, dsh/ stays
+    mkdirSync(join(folder, 'home'))
+    for (const name of ['layerfs.json', 'runtime']) renameSync(join(folder, name), join(folder, 'home', name))
+    const after = new H.LayerfsService(new H.Context(), {})
+    const dir = join(folder, 'home', 'runtime', a.id)
+    assert.deepEqual([after.home, after.cli, after.daemon, after.bundle], [join(folder, 'home'), join(dir, 'bin', 'layerfs'), join(dir, 'bin', 'layerfs-daemon'), join(dir, 'bundle', 'linux-aarch64')])
+    // a pin naming a runtime that is gone points at its missing CLI, never at another runtime
+    writeFileSync(join(folder, 'dsh', 'runtime.json'), JSON.stringify({ runtime: '2.0.0-000000000000' }))
+    assert.equal(new H.LayerfsService(new H.Context(), {}).cli, join(folder, 'home', 'runtime', '2.0.0-000000000000', 'bin', 'layerfs'))
+  } finally {
+    for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v }
+    f.done()
+  }
 })
 
 test('service defaults: the LayerFS home is <folder>/home (or the folder itself while it holds layerfs.json) and apart from DSH_HOME; secrets in <home>/secret; plugin state in <folder>/dsh', () => {

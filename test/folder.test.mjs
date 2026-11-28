@@ -149,33 +149,6 @@ test('a dsh/ owned by another DSH_HOME is never shared: this install uses dsh-<8
   } finally { m.done() }
 })
 
-/** An older build's `$DSH_HOME/layerfs`: plugin state, project sessions by owner key, scratch and anchors. */
-function oldState(old) {
-  const key = 'k'.repeat(64), stale = 's'.repeat(64)
-  put(join(old, 'sessions.json'), JSON.stringify({ sessions: { 'session-1': { project: 'st/app' } } }))
-  put(join(old, 'runtime.json'), JSON.stringify({ cli: '/pinned/layerfs' }))
-  put(join(old, 'simulations', 'run-1', 'run.json'), '{"run":1}')
-  put(join(old, 'trace', 'outputs', 'abc.json'), '{"out":1}')
-  put(join(old, 'trace', 'calls.jsonl'), '{"old":"stand-in log"}\n')
-  put(join(old, 'store-machines.json'), '{}')
-  put(join(old, 'scratch', 'README.md'), '# Scratch\n')
-  put(join(old, 'projects', 'st', 'app', 'sessions', 'session-1', 'work.txt'), 'scratch work')
-  const ps = join(old, 'project-sessions')
-  put(join(ps, 'owners.json'), JSON.stringify({ version: 1, sessions: { 'session-1': { project: 'st/app', key }, 'session-2': { project: 'st/app', key } } }))
-  put(join(ps, 'deleted.json'), JSON.stringify({ version: 1, sessions: {} }))
-  put(join(ps, 'project-catalog.json'), JSON.stringify({ 'pid-1': { key: 'st/app' } }))
-  put(join(ps, 'migration-backups', 'b1', 'session.v4.jsonl'), '{"backup":1}\n')
-  const owned = join(ps, 'projects', key, 'sessions', '--cwd--', 'session-1')
-  put(join(owned, 'session.v4.jsonl'), '{"version":4,"id":"session-1"}\n')
-  put(join(owned, 'layerfs.json'), JSON.stringify({ version: 1, sessionId: 'session-1', project: 'st/app' }))
-  put(join(owned, 'receipts.jsonl'), '{"id":"r1"}\n')
-  put(join(owned, 'layerfs.json.bak'), 'old combined copy')
-  // only a log file and no sidecar: still moves
-  put(join(ps, 'projects', key, 'sessions', '--cwd--', 'session-2', 'session.v4.jsonl'), '{"version":4,"id":"session-2"}\n')
-  // a copy an older log migration left under another owner key: not moved
-  put(join(ps, 'projects', stale, 'sessions', '--cwd--', 'session-1', 'session.v4.jsonl'), '{"stale":true}\n')
-  return { key, ps }
-}
 
 test('checkFolder accepts an absolute folder and refuses anything else', () => {
   const m = machine()
