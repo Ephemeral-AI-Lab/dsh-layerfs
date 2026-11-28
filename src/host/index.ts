@@ -6,7 +6,7 @@
  *
  * Composition (each part registers operations on the `layerfs` Remote):
  *   remote.ts       the `layerfs` Remote namespace (call + events)
- *   service.ts      ctx.layerfs: pinned CLI/daemon, LAYERFS_HOME, state, events
+ *   service.ts      ctx.layerfs: pinned CLI/daemon, the LayerFS folder and home, state, events
  *   routes/         Connect's host HTTP API as the `http` operation (Machines, Storage, projects)
  *   sessions/       session binding, scratch folders, checkpoints, session store
  *   logs/           LayerFS's own call log labelled with sessions

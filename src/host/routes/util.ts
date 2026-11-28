@@ -12,7 +12,7 @@ export { PAGE, fixOf, pages }
 export interface RouteHost {
   /** The SDK over the pinned CLI (resolved per call: the pin can change). */
   lfs(): Lfs
-  /** LAYERFS_HOME. */
+  /** The LayerFS home (found in the LayerFS folder, LAYERFS_ROOT). */
   readonly home: string
   /** The plugin root (`$DSH_HOME/layerfs`): this DSH install's own state. */
   readonly root: string

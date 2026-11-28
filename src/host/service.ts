@@ -1,6 +1,6 @@
 /**
  * `ctx.layerfs`: the pinned LayerFS runtime for this DSH host — which CLI and
- * daemon, which LAYERFS_HOME, the SDK-shaped client over them, host events,
+ * daemon, the LayerFS folder (LAYERFS_ROOT) and its home, the SDK-shaped client over them, host events,
  * and the plugin's own durable state file.
  */
 import { Service, type Context } from '@deepseek-ai/cordis'
