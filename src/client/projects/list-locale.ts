@@ -21,6 +21,10 @@ const en = {
   unavailableWhy: 'This conversation can’t run: {reason}',
   machineStopped: 'Machine stopped', machineUnavailable: 'Machine unavailable', storeUnavailable: 'Store unavailable',
   notVerified: 'Not verified', removed: 'Removed', replaced: 'Replaced',
+  removeProject: 'Remove {project}', removeTitle: 'Remove {project}?', removeAction: 'Remove conversations',
+  removeBodyOne: 'This project is gone from LayerFS. Its 1 conversation on this DSH is deleted with its checkpoints, and the project leaves the sidebar. This cannot be undone.',
+  removeBodyMany: 'This project is gone from LayerFS. Its {n} conversations on this DSH are deleted with their checkpoints, and the project leaves the sidebar. This cannot be undone.',
+  refusalRefusal: 'Refused', refusalUsage: 'This call does not fit the running LayerFS', refusalUnavailable: 'LayerFS is unavailable', refusalUnknown: 'Outcome unknown', inTheWay: 'In the way:', phase: 'phase {phase}', operation: 'operation {op}',
   foldCenter: 'Fold sidebar with LayerFS Center open', reviewStart: 'Review the machine before starting it.', openingSession: 'Opening a session…', openingConversation: 'Opening the conversation…',
   start: 'Start', startNamed: 'Start {machine}', startFailed: 'Could not start the project’s machine.', startMachineFor: 'Start machine {machine} for {project}',
 }
@@ -43,6 +47,10 @@ const zh: typeof en = {
   unavailableWhy: '此对话无法运行：{reason}',
   machineStopped: '机器已停止', machineUnavailable: '机器不可用', storeUnavailable: '存储不可用',
   notVerified: '未验证', removed: '已移除', replaced: '已被替换',
+  removeProject: '移除 {project}', removeTitle: '移除 {project}？', removeAction: '移除对话',
+  removeBodyOne: '此项目已从 LayerFS 中移除。它在此 DSH 上的 1 个对话将连同检查点一起删除，项目也会离开侧边栏。此操作无法撤销。',
+  removeBodyMany: '此项目已从 LayerFS 中移除。它在此 DSH 上的 {n} 个对话将连同检查点一起删除，项目也会离开侧边栏。此操作无法撤销。',
+  refusalRefusal: '已拒绝', refusalUsage: '此调用与运行中的 LayerFS 不匹配', refusalUnavailable: 'LayerFS 不可用', refusalUnknown: '结果未知', inTheWay: '阻碍：', phase: '阶段 {phase}', operation: '操作 {op}',
   foldCenter: '保持 LayerFS 中心打开并折叠侧栏', reviewStart: '请先核对要启动的机器。', openingSession: '正在打开会话…', openingConversation: '正在打开对话…',
   start: '启动', startNamed: '启动 {machine}', startFailed: '无法启动项目所在的机器。', startMachineFor: '为 {project} 启动机器 {machine}',
 }
