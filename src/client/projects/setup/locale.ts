@@ -35,7 +35,7 @@ const en = {
   user: 'User', password: 'Password', passwordHint: 'Saved by this computer for this Store: the password goes to LayerFS on stdin and is never shown again.',
   runsOn: 'Runs on', locationHint: 'Where the Store file lives. Its projects’ sessions run there.', runsOnPg: 'Where this session runs. It changes nothing for the Store: each session picks its own machine.',
   newMachine: 'New machine', noMachines: 'No machine can run this kind of Store. Add one in Home.',
-  default: 'Default', thisMac: 'This Mac, unisolated', thisLinux: 'This computer, sandboxed', thisPc: 'This PC', running: 'Running', stopped: 'Stopped', stateReady: 'Ready', stateBusy: 'Busy', stateBlocked: 'Blocked', stateBroken: 'Broken', stateUnknown: 'Unknown', stoppedFirst: 'Stopped · {machine}', startNamed: 'Start {machine}', here: 'Store is here',
+  default: 'Default', thisMac: 'This Mac, unisolated', thisLinux: 'This computer, sandboxed', thisPc: 'This PC', running: 'Running', stopped: 'Stopped', stateReady: 'Ready', stateBusy: 'Busy', stateBlocked: 'Blocked', stateBroken: 'Broken', stateUnknown: 'Unknown', stoppedFirst: 'Stopped · {machine}', startNamed: 'Start {machine}', here: 'here',
   working: 'Working…',
   moveWarn: 'Moves the whole Store {store} to {machine}: its {n} other projects run there too. Refused while any of them has a Sandbox.',
   create: 'Create and open', import: 'Import and open', creating: 'Creating…',
@@ -65,9 +65,9 @@ const en = {
   allStores: 'All {n} Stores', allMachines: 'All {n} machines', chooseStore: 'Choose a Store', chooseMachine: 'Choose a machine', forProject: 'For {name}', back: 'Back',
   filterStoresList: 'Filter by name, machine or address', filterMachines: 'Filter machines', noMachineMatch: 'No machine matches.',
   grpRunning: 'Running', grpStopped: 'Stopped', grpCantRun: 'Can’t run here now', storeKind: 'Kind of Store', lastUsedNote: 'last used',
-  sessionsLast: '{sessions} · last one {ago}', agoNow: 'just now', agoMinutes: '{n} min ago', agoHours: '{n} h ago', agoDays: '{n} d ago', agoMonths: '{n} mo ago', agoYears: '{n} y ago',
+  sessionsLast: '{sessions} · {ago}', agoNow: 'just now', agoMinutes: '{n} min ago', agoHours: '{n} h ago', agoDays: '{n} d ago', agoMonths: '{n} mo ago', agoYears: '{n} y ago',
   allStoresKind: 'All {n} {kind} Stores', attachedMachines: 'Attached machines', chooseMachines: 'Attach machines', firstSessionOn: 'First session on',
-  willAttach: 'Will attach', willDetach: 'Will detach', notAttached: 'Running · not attached', startToAttach: 'Stopped · start it to attach',
+  willAttach: '+ attach', willDetach: '− detach', notAttached: 'Running · not attached', startToAttach: 'Stopped · start it to attach',
   reachable: 'Reachable', reachableMs: 'Reachable · {ms} ms', cantReach: 'Can’t reach', attachedUnchecked: 'Attached · not checked yet',
   grpAttached: 'Attached', grpCanAttach: 'Can attach', grpCantAttach: 'Can’t attach now', detachInSettings: 'detach it in the project’s settings',
   pgAnyAttached: 'Any attached machine can run this project’s sessions; each session picks one when it starts.',
@@ -80,6 +80,9 @@ const en = {
   detachWarn: 'Detaching {machines} is refused while a Sandbox of this Store runs there.',
   detachWarnShared: 'Detaching {machines} is refused while a Sandbox of this Store runs there. The Store is shared: its {n} other projects stop running there too.',
   detachWarnSharedOne: 'Detaching {machines} is refused while a Sandbox of this Store runs there. The Store is shared: its 1 other project stops running there too.',
+  allN: 'All {n}', platDocker: 'Docker', platLima: 'Lima VM', projectNamePlaceholder: 'Project name', firstSession: 'First session', makeFirst: 'Make first',
+  transferTo: 'Transfers {store} to {to}', othersGoOne: '1 other project goes too', othersGo: '{n} other projects go too', notChecked: 'Not checked',
+  open: 'Open', loseOne: '1 other project loses {machines}', loseMany: '{n} other projects lose {machines}', save: 'Save', more: 'More',
 }
 
 const zh: typeof en = {
@@ -114,7 +117,7 @@ const zh: typeof en = {
   user: '用户', password: '密码', passwordHint: '由这台电脑为此 Store 保存：密码经标准输入交给 LayerFS，之后不再显示。',
   runsOn: '运行于', locationHint: '存储文件所在的位置，其中项目的会话也在那里运行。', runsOnPg: '此会话运行的位置。不会改变 Store：每个会话各自选择机器。',
   newMachine: '新建机器', noMachines: '没有机器能运行这类存储。请在“主页”中添加。',
-  default: '默认', thisMac: '本机，无隔离', thisLinux: '这台电脑，沙箱隔离', thisPc: '这台 PC', running: '运行中', stopped: '已停止', stateReady: '就绪', stateBusy: '忙碌', stateBlocked: '受阻', stateBroken: '损坏', stateUnknown: '未知', stoppedFirst: '已停止 · {machine}', startNamed: '启动 {machine}', here: '存储在这里',
+  default: '默认', thisMac: '本机，无隔离', thisLinux: '这台电脑，沙箱隔离', thisPc: '这台 PC', running: '运行中', stopped: '已停止', stateReady: '就绪', stateBusy: '忙碌', stateBlocked: '受阻', stateBroken: '损坏', stateUnknown: '未知', stoppedFirst: '已停止 · {machine}', startNamed: '启动 {machine}', here: '在此',
   working: '处理中…',
   moveWarn: '会把整个存储 {store} 移到 {machine}：其中另外 {n} 个项目也会在那里运行。任一项目有 Sandbox 时会被拒绝。',
   create: '创建并打开', import: '导入并打开', creating: '正在创建…',
@@ -144,9 +147,9 @@ const zh: typeof en = {
   allStores: '全部 {n} 个存储', allMachines: '全部 {n} 台机器', chooseStore: '选择存储', chooseMachine: '选择机器', forProject: '用于 {name}', back: '返回',
   filterStoresList: '按名称、机器或地址筛选', filterMachines: '筛选机器', noMachineMatch: '没有匹配的机器。',
   grpRunning: '运行中', grpStopped: '已停止', grpCantRun: '目前无法在此运行', storeKind: '存储类型', lastUsedNote: '上次使用',
-  sessionsLast: '{sessions} · 最近一次 {ago}', agoNow: '刚刚', agoMinutes: '{n} 分钟前', agoHours: '{n} 小时前', agoDays: '{n} 天前', agoMonths: '{n} 个月前', agoYears: '{n} 年前',
+  sessionsLast: '{sessions} · {ago}', agoNow: '刚刚', agoMinutes: '{n} 分钟前', agoHours: '{n} 小时前', agoDays: '{n} 天前', agoMonths: '{n} 个月前', agoYears: '{n} 年前',
   allStoresKind: '全部 {n} 个 {kind} 存储', attachedMachines: '挂接的机器', chooseMachines: '挂接机器', firstSessionOn: '首个会话运行于',
-  willAttach: '将挂接', willDetach: '将解除挂接', notAttached: '运行中 · 未挂接', startToAttach: '已停止 · 启动后才能挂接',
+  willAttach: '+ 挂接', willDetach: '− 解除', notAttached: '运行中 · 未挂接', startToAttach: '已停止 · 启动后才能挂接',
   reachable: '可达', reachableMs: '可达 · {ms} ms', cantReach: '无法连接', attachedUnchecked: '已挂接 · 尚未检查',
   grpAttached: '已挂接', grpCanAttach: '可挂接', grpCantAttach: '目前无法挂接', detachInSettings: '可在项目设置中解除挂接',
   pgAnyAttached: '任何挂接的机器都能运行此项目的会话；每个会话启动时各自选择一台。',
@@ -159,6 +162,9 @@ const zh: typeof en = {
   detachWarn: '此存储的 Sandbox 在 {machines} 上运行时，解除挂接会被拒绝。',
   detachWarnShared: '此存储的 Sandbox 在 {machines} 上运行时，解除挂接会被拒绝。此存储是共用的：另外 {n} 个项目也将不再在那里运行。',
   detachWarnSharedOne: '此存储的 Sandbox 在 {machines} 上运行时，解除挂接会被拒绝。此存储是共用的：另外 1 个项目也将不再在那里运行。',
+  allN: '全部 {n}', platDocker: 'Docker', platLima: 'Lima 虚拟机', projectNamePlaceholder: '项目名称', firstSession: '首个会话', makeFirst: '设为首个',
+  transferTo: '把 {store} 转移到 {to}', othersGoOne: '另外 1 个项目一同转移', othersGo: '另外 {n} 个项目一同转移', notChecked: '未检查',
+  open: '打开', loseOne: '另外 1 个项目将失去 {machines}', loseMany: '另外 {n} 个项目将失去 {machines}', save: '保存', more: '更多',
 }
 
 export const locales = { en, zh }
