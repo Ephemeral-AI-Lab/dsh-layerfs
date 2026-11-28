@@ -77,10 +77,16 @@ test('sidebar projects: Projects in sidebar adds a project without sessions, and
   assert.deepEqual(sidebarProjects(recent, catalog, {}, undefined, { 'p-gone': 90 }).map((r) => r.row.key), ['s1/app'], 'an added project the catalog lacks is not listed')
 })
 
-// DSH owns these nodes. Catch accidental reintroduction of either DOM workaround.
+// DSH owns these nodes. The Center launcher stays inside public extension
+// points. The Workspaces switch is the one allowed DOM workaround (2026-11-28,
+// DSH has no header slot): it may only add its own host beside the stock
+// header's actions, and falls back to the footer when that row is missing.
 test('the Workspaces switch and Center launcher stay inside public extension points', () => {
-  for (const path of ['projects/WorkspacesView.tsx', 'projects/workspaces.module.css', 'storage/index.tsx']) {
-    const source = readFileSync(new URL(`../src/client/${path}`, import.meta.url), 'utf8')
-    assert.doesNotMatch(source, /createPortal|MutationObserver|document\.(?:querySelector|addEventListener)|:global\(\[class\*=/, path)
-  }
+  const read = (path) => readFileSync(new URL(`../src/client/${path}`, import.meta.url), 'utf8')
+  assert.doesNotMatch(read('storage/index.tsx'), /createPortal|MutationObserver|document\.(?:querySelector|addEventListener)|:global\(\[class\*=/, 'storage/index.tsx')
+  const view = read('projects/WorkspacesView.tsx')
+  assert.equal(view.match(/document\.querySelector/g)?.length, 1, 'one lookup: the header actions row')
+  assert.match(view, /insertBefore\(element, actions\)/, 'our host goes beside DSH\'s actions, never inside')
+  assert.doesNotMatch(view, /(?<!element)\.(?:remove|replaceWith|setAttribute|classList)\b/, 'nothing of DSH\'s is removed or restyled')
+  assert.match(view, /return <ViewSwitch t=\{t\} rail=\{!wide\} \/>/, 'footer fallback when the header row is not found')
 })

@@ -1,5 +1,18 @@
-/** The public footer action selects the LayerFS Workspaces occupant. */
-import { useState, useSyncExternalStore, type ReactNode } from 'react'
+/**
+ * LayerFS projects inside the sidebar's Workspaces section, behind a switch.
+ *
+ * - LayerFS view: a `sidebar.workspaces` registration below the stock browser's
+ *   priority shadows it while registered; its own header holds the switch.
+ * - DSH view: the stock browser, untouched except for our switch placed in its
+ *   header just before its actions. DSH has no header seam, so the button is
+ *   portalled from an always-mounted `sidebar.footer.action` entry into a host
+ *   element beside the header's actions row, found by its CSS-module class.
+ *   This is a deliberate workaround the user allowed (2026-11-28) until DSH
+ *   offers a header slot; if DSH's markup changes and the row is not found,
+ *   the switch falls back to the footer. The rail keeps the footer switch.
+ */
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import { Button, IconChecklistOutlineRegular, IconFolderCloseRegular, IconFolderOpenOutlineRegular, IconPlusOutlineRegular, IconSearchOutlineRegular, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -15,6 +28,8 @@ import css from './workspaces.module.css'
 const SLOT = 'sidebar.workspaces'
 /** Below the stock browser's default 0: the lowest priority renders. */
 const PRIORITY = -10
+/** The stock header's actions row (view options, add workspace), inside the sidebar's region. */
+const HEADER_ACTIONS = '[class*="_regionArea"] [class*="_sectionHeader"] > [class*="_headerActions"]'
 /** DSH's own namespace and key for the section label. */
 const DSH_NS = 'workspace'
 
@@ -99,10 +114,41 @@ function LayerfsWorkspaces({ wide, expandSidebar, api, sessionSource, dshT, t }:
   return <WideWorkspaces api={api} sessionSource={sessionSource} dshT={dshT} t={t} />
 }
 
-/** DSH owns its header. Offer the switch in the public sidebar footer. */
-function FooterSwitch({ wide, t }: { wide: boolean, t: ListT }): ReactNode {
+/**
+ * Keep one host element of ours just before the stock header's actions row
+ * while the DSH view shows. The stock browser can re-render or remount, so a
+ * body observer re-places the host when it is detached or displaced.
+ */
+function useHeaderHost(active: boolean): HTMLElement | null {
+  const [host, setHost] = useState<HTMLElement | null>(null)
+  useEffect(() => {
+    if (!active) return
+    const element = document.createElement('span')
+    element.className = css.host ?? ''
+    element.dataset.layerfsViewSwitchHost = ''
+    let frame = 0
+    const place = () => {
+      const actions = document.querySelector(HEADER_ACTIONS)
+      if (!actions) { element.remove(); setHost(null); return }
+      // Beside, not inside: the actions row has a fixed max width that would clip DSH's last button.
+      if (actions.previousElementSibling !== element) actions.parentElement?.insertBefore(element, actions)
+      setHost(element)
+    }
+    const observer = new MutationObserver(() => { if (!frame) frame = requestAnimationFrame(() => { frame = 0; place() }) })
+    observer.observe(document.body, { childList: true, subtree: true })
+    place()
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); element.remove(); setHost(null) }
+  }, [active])
+  return active ? host : null
+}
+
+/** Always mounted at the sidebar foot: in the DSH view it puts the switch in the stock header (the footer only when that header is not found, or on the rail). */
+function HeaderSwitch({ wide, t }: { wide: boolean, t: ListT }): ReactNode {
   const view = useView()
-  return view === 'dsh' ? <ViewSwitch t={t} rail={!wide} /> : null
+  const host = useHeaderHost(wide && view === 'dsh')
+  if (view !== 'dsh') return null
+  if (host) return createPortal(<ViewSwitch t={t} />, host)
+  return <ViewSwitch t={t} rail={!wide} />
 }
 
 /**
@@ -113,7 +159,7 @@ export function registerWorkspacesView(scope: any, api: LayerfsApi): void {
   const dshT = scope.locale.bind(DSH_NS)
   scope.effect(() => scope.slots.inject('sidebar.footer.action', () => scope.slots.register({
     name: 'sidebar.footer.action', id: 'dsh-layerfs.workspaces-view', locale: LIST_NS,
-  }, FooterSwitch)), 'dsh-layerfs: Workspaces view switch')
+  }, HeaderSwitch)), 'dsh-layerfs: Workspaces view switch')
   scope.effect(() => {
     let dispose: (() => void) | undefined
     const sync = () => {
