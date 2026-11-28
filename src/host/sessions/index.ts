@@ -140,9 +140,7 @@ export function apply(ctx: Context): void {
   ctx.plugin(LayerfsSessions)
   ctx.inject(['layerfsSessions', 'layerfs', 'layerfsRemote', 'workspaceRegistry'], (ctx) => {
     const sessions = ctx.layerfsSessions
-    retireOldFolder(ctx.layerfs.state, ctx.workspaceRegistry as any, () => sessions.ensureScratchWorkspace(),
-      async (workspaceId, sessionId) => { await ctx.workspaceRegistry.get(workspaceId as never)?.attachSession(sessionId as never) },
-      (message) => ctx.logger('layerfs').info(message))
+    retireOldFolder(ctx.layerfs.state, ctx.workspaceRegistry as any, (message) => ctx.logger('layerfs').info(message))
       .catch((error: any) => ctx.logger('layerfs').warn('dsh-layerfs: retiring the old folder failed: %s', error?.message ?? error))
     /*
      * Persistence seam (DIP-2, accepted before release). DSH's persistence is a

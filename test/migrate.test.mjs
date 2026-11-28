@@ -94,7 +94,7 @@ test('migrateLayout brings an older home to the current layout once', () => {
   } finally { rmSync(base, { recursive: true, force: true }) }
 })
 
-test('retireOldFolder moves the old Scratch workspace\'s conversations, unregisters old workspaces and deletes the old folder', async () => {
+test('retireOldFolder unregisters the old folder\'s workspaces and deletes the old folder', async () => {
   const { base, state, old } = fixture()
   try {
     migrateLayout(state)
@@ -103,10 +103,9 @@ test('retireOldFolder moves the old Scratch workspace\'s conversations, unregist
       { id: 'w-proj', path: join(old, 'projects', 's', 'p'), sessionIds: [] },
       { id: 'w-mine', path: '/Users/me/code', sessionIds: ['session-y'] },
     ]
-    const deleted = [], attached = []
+    const deleted = []
     const registry = { list: () => workspaces, delete: async (id) => { deleted.push(id); return true } }
-    await retireOldFolder(state, registry, async () => ({ workspaceId: 'w-new' }), async (w, s) => { attached.push([w, s]) })
-    assert.deepEqual(attached, [['w-new', 'session-x']])
+    await retireOldFolder(state, registry)
     assert.deepEqual(deleted.sort(), ['w-old', 'w-proj'])
     assert.ok(!existsSync(old))
     assert.ok(!existsSync(join(state, 'sessions', 'backups')))
@@ -116,7 +115,7 @@ test('retireOldFolder moves the old Scratch workspace\'s conversations, unregist
     assert.equal(record.install, 'a'.repeat(64))
     // a second start has nothing left to do
     deleted.length = 0
-    await retireOldFolder(state, registry, async () => { throw new Error('not again') }, async () => {})
+    await retireOldFolder(state, registry)
     assert.deepEqual(deleted, [])
   } finally { rmSync(base, { recursive: true, force: true }) }
 })

@@ -15,9 +15,9 @@
  *   the Scratch folder.
  *
  * {@link retireOldFolder} then (with the workspace registry, once the host is
- * up) moves the old Scratch workspace's conversations to the current one,
- * unregisters every workspace in the old folder, and deletes that folder and
- * `sessions/backups`. Temporary: removed once every install has run it.
+ * up) unregisters every workspace in the old folder (their DSH conversations
+ * stay, ungrouped: DSH lists a session only under its own cwd), and deletes
+ * that folder and `sessions/backups`. Temporary: removed once every install has run it.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, cpSync } from 'node:fs'
 import { join } from 'node:path'
@@ -156,24 +156,19 @@ interface Registry {
 
 /**
  * Finish the move away from an older build's folder (dsh.json `migratedFrom`):
- * its Scratch workspace's conversations join `scratch`, every workspace
- * registered inside it is unregistered (logs are never deleted), then the old
- * folder and `sessions/backups` are deleted and `migratedFrom` is dropped.
+ * every workspace registered inside it is unregistered (logs are never
+ * deleted), then the old folder and `sessions/backups` are deleted and
+ * `migratedFrom` is dropped.
  */
-export async function retireOldFolder(state: string, registry: Registry, scratch: () => Promise<{ workspaceId: string }>, attach: (workspaceId: string, sessionId: string) => Promise<void>, log: (message: string) => void = () => {}): Promise<void> {
+export async function retireOldFolder(state: string, registry: Registry, log: (message: string) => void = () => {}): Promise<void> {
   const record: any = readDshRecord(state)
   const old: string | undefined = record?.migratedFrom
   if (!record || (record.layout ?? 1) < LAYOUT || !old) return
   const stale = registry.list().filter((w) => under(w.path, old))
-  const orphans = stale.filter((w) => w.path === join(old, 'scratch')).flatMap((w) => w.sessionIds.map(String))
-  if (orphans.length) {
-    const { workspaceId } = await scratch()
-    for (const id of orphans) await attach(workspaceId, id)
-  }
   for (const w of stale) await registry.delete(String(w.id) as never)
   rmSync(old, { recursive: true, force: true })
   rmSync(join(state, 'sessions', 'backups'), { recursive: true, force: true })
   const { migratedFrom: _from, migratedAt: _at, ...rest } = record
   writeJson(dshRecordPath(state), rest)
-  log(`dsh-layerfs: removed ${old} (${stale.length} workspaces unregistered, ${orphans.length} conversations moved to Scratch)`)
+  log(`dsh-layerfs: removed ${old} (${stale.length} workspaces unregistered)`)
 }
