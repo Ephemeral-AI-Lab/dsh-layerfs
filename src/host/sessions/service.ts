@@ -1549,21 +1549,20 @@ export class LayerfsSessions extends Service {
 
   /**
    * The project conversations (owner-routed logs, bindings, pending choices)
-   * whose Store is one of `stores`. A Store ID decides when both sides know it;
-   * otherwise the Store name does. The project-session home may be shared by
-   * several DSH homes, so conversations of other LayerFS homes stay.
+   * whose Store is one of `stores`, by Store name. The project-session home may
+   * be shared by several DSH homes, so conversations of other LayerFS homes stay.
    */
   projectConversations(stores: readonly HomeStore[]): { id: string, project: string }[] {
     const persistence = this.ctx.get?.('sessionPersistence' as never) as any
     const state = this.state.read()
-    const ours = (project: string | null | undefined, storeId?: string): boolean => {
+    const ours = (project: string | null | undefined): boolean => {
       const name = project ? storeOf(project) : undefined
-      return !!name && stores.some((s) => s.name === name && (!s.id || !storeId || s.id === storeId))
+      return !!name && stores.some((s) => s.name === name)
     }
     const found = new Map<string, string>()
     for (const id of persistence?.ownedSessionIds?.() ?? []) {
       const project = persistence.ownerOf?.(id)?.project
-      if (ours(project, persistence.storeIdOf?.(id))) found.set(id, project)
+      if (ours(project)) found.set(id, project)
     }
     for (const b of Object.values(state.sessions)) if (b.project && (b.kind === 'project' || b.kind === 'shared') && ours(b.project)) found.set(b.sessionId, b.project)
     for (const [id, p] of Object.entries(state.pending)) if (ours(p.project)) found.set(id, p.project)

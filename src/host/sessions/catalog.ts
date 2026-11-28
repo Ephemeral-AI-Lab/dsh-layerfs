@@ -16,8 +16,6 @@ export interface ProjectIdentity {
   id: string
   name: string
   created: number
-  /** Store identity, kept only on rows recorded by older builds. */
-  storeId?: string
 }
 export interface CatalogProject {
   projectId: string

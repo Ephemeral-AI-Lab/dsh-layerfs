@@ -6,12 +6,10 @@ import { SessionPersistence, SessionPersistenceNotFoundError } from '@deepseek-a
 import { randomUUID } from 'node:crypto'
 import { closeSync, cpSync, existsSync, fsyncSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync, writeSync } from 'node:fs'
 import { dirname, join, relative, sep } from 'node:path'
-import { homedir } from 'node:os'
 import { ProjectCatalog, type ProjectIdentity, type CatalogProject } from './sessions/catalog.ts'
 import { CliError } from './layerfs/cli.ts'
-import { relayout } from './folder.ts'
 import {
-  compactInvocations, foldRead, RECEIPT_CAP, RECEIPT_META, receiptDisposition, readOnlyOperation, withReceiptMeta,
+  foldRead, RECEIPT_CAP, RECEIPT_META, receiptDisposition, readOnlyOperation, withReceiptMeta,
   type Invocation, type ReceiptMeta,
 } from './layerfs/tracing.ts'
 
@@ -19,46 +17,34 @@ export const name = 'dsh-layerfs-session-persistence'
 export type Config = jsonl.Config
 export const Config = jsonl.Config
 
-type Owner = { project: string, key: string, identity?: ProjectIdentity }
+/** A project session's route: `key` and `identity.id` are both the project UUID. */
+type Owner = { project: string, key: string, identity: ProjectIdentity }
 type Routes = { version: 1, sessions: Record<string, Owner> }
 /** Conversations deleted on purpose: never imported back implicitly. */
 type Deleted = { version: 1, sessions: Record<string, { project: string, at: number }> }
 
 /**
- * Receipts live beside their session's `layerfs.json`, one JSON object per
- * line, so a metadata read never parses a long session's history:
+ * A session's LayerFS files sit in `layerfs/` beside its log
+ * (docs/specs/layerfs-folder.md §2), one receipt per line, so a metadata read
+ * never parses a long session's history:
  *
- * - `layerfs.json` keeps annotations only (`version`, `sessionId`, `project`,
+ * - `binding.json` keeps annotations only (`version`, `sessionId`, `project`,
  *   `title`, `checkpoints`, `archive`, `bindingKind`, `codeBranch`, ...).
- * - `receipts.jsonl` keeps `invocations`, append-only. A write is one
+ * - `calls.jsonl` keeps the receipts, append-only. A write is one
  *   `writeSync` on a descriptor opened `a+` (`O_APPEND`) and no fsync per line:
  *   the tool call already ran and its tagged call-log line rebuilds the receipt
  *   (see tracing.ts), so a crash losing the unsynced tail does not lose a call.
  *   Migration and compaction fsync because they move data.
- *
- * A combined sidecar (the old layout, `invocations` inside `layerfs.json`) is
- * converted once, by the first read or write that meets it, and nothing reads
- * the in-file array. Conversion writes and fsyncs the receipts file first,
- * then rewrites the metadata, keeping the original as `.bak`; a crash in
- * between leaves the combined file as the source, so the next touch converts
- * it again, reproduces the same receipts and never loses one. A half-converted
- * session (both files) is therefore never read as two disagreeing sources.
  *
  * The byte budget bounds an outlier session (83k receipts is ~55 MB). When the
  * file would exceed it, compaction keeps the newest complete lines and puts a
  * marker at the top recording how many older receipts were dropped.
  */
 const RECEIPTS_FILE = 'calls.jsonl'
-/** LayerFS's files beside a session log sit in `layerfs/` (docs/specs/layerfs-folder.md §2). */
 const SIDECAR_DIR = 'layerfs'
 const SIDECAR_FILE = 'binding.json'
-/** A session folder's sidecar path; an older folder's files are put in `layerfs/` first. */
-export function sidecarOf(sessionDir: string): string {
-  if (existsSync(join(sessionDir, 'layerfs.json')) || existsSync(join(sessionDir, 'receipts.jsonl'))) {
-    try { relayout(sessionDir) } catch { /* read where it is next time */ }
-  }
-  return join(sessionDir, SIDECAR_DIR, SIDECAR_FILE)
-}
+/** A session folder's sidecar path. */
+export function sidecarOf(sessionDir: string): string { return join(sessionDir, SIDECAR_DIR, SIDECAR_FILE) }
 /** Receipts bytes retained per session; past this the oldest lines are dropped. */
 const RECEIPT_BYTE_BUDGET = 32 * 1024 * 1024
 /** First line of a compacted receipts file; it is not a receipt. */
@@ -250,14 +236,14 @@ function copySnapshot(snapshot: any): any {
   return copy
 }
 
-/** A storage key: the project UUID, or the 64-hex key of an owner recorded before project UUIDs. */
-const OWNER_KEY = /^(?:[a-f0-9]{64}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/
+/** An owner's key and identity: the project UUID. */
+const PROJECT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /** A damaged routing index must not silently turn project sessions normal. */
 function readRoutes(path: string): Routes {
   const routes = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : { version: 1, sessions: {} }
   if (routes?.version !== 1 || !routes.sessions || typeof routes.sessions !== 'object' || Array.isArray(routes.sessions)) throw new Error('Invalid LayerFS session ownership index')
   for (const owner of Object.values(routes.sessions) as any[]) {
-    if (!owner || !OWNER_KEY.test(owner.key) || typeof owner.project !== 'string' || !/^[a-z0-9][a-z0-9_.-]*\/[a-z0-9][a-z0-9_.-]*$/.test(owner.project)) throw new Error('Invalid LayerFS session owner identity')
+    if (!owner || !PROJECT_UUID.test(owner.key) || !PROJECT_UUID.test(owner.identity?.id) || typeof owner.project !== 'string' || !/^[a-z0-9][a-z0-9_.-]*\/[a-z0-9][a-z0-9_.-]*$/.test(owner.project)) throw new Error('Invalid LayerFS session owner identity')
   }
   return routes
 }
@@ -329,8 +315,7 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
   private headerCache?: HeaderCache
   /**
    * Parsed sidecars kept for the trajectory's frequent reads, by file path and
-   * identity. A long project session's `layerfs.json` carries tens of thousands
-   * of receipts (tens of MB), so re-parsing it on every event would dominate the
+   * identity. Re-parsing `binding.json` on every event would dominate the
    * Trajectory tab. The identity is the same one the header cache trusts
    * (`logIdentity`): a rewrite replaces the inode, so a hit is a fresh read.
    * Bounded by count and source bytes.
@@ -372,7 +357,7 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
   private get service(): any { return (this as any).ctx.get('layerfs') }
   private get sessions(): any { return (this as any).ctx.get('layerfsSessions') }
   private get store(): any { return this.sessions?.store }
-  get projectHome(): string { return this.service?.projectSessionHome ?? join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'layerfs', 'sessions') }
+  get projectHome(): string { return this.service.projectSessionHome }
   /** The one stock JSONL root every project session lives under (nothing else may sit there). */
   get storeRoot(): string { return join(this.projectHome, 'store') }
   /**
@@ -416,27 +401,22 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     const owner = this.owners.sessions[id]
     return owner ? { project: owner.project } : undefined
   }
-  /** The Store ID recorded with a conversation's owner, when its identity is known. */
-  storeIdOf(id: string): string | undefined { return this.owners.sessions[id]?.identity?.storeId }
   ownedSessionIds(project?: string, projectId?: string): string[] {
     if (!this.stock || !this.service) return []
-    return Object.entries(this.owners.sessions).filter(([, owner]) => (!project || owner.project === project) && (!projectId || (owner.identity?.id ?? owner.key) === projectId)).map(([id]) => id)
+    return Object.entries(this.owners.sessions).filter(([, owner]) => (!project || owner.project === project) && (!projectId || owner.identity.id === projectId)).map(([id]) => id)
   }
   get catalog(): ProjectCatalog {
     if (this.catalogInstance?.root !== this.projectHome) this.catalogInstance = { root: this.projectHome, catalog: new ProjectCatalog(() => this.service.lfs, this.projectHome) }
     return this.catalogInstance.catalog
   }
-  projectIdOf(id: string): string | undefined {
-    const owner = this.owners.sessions[id]
-    return owner?.identity?.id ?? owner?.key
-  }
+  projectIdOf(id: string): string | undefined { return this.owners.sessions[id]?.identity.id }
   /** Reading local logs requires no Store. Execution and archive writes must
    * freshly find the owner's project UUID at its address, including on an
    * already mounted session; a missing or different UUID blocks them. */
   async assertSessionIdentity(id: string): Promise<CatalogProject | undefined> {
     const owner = this.owners.sessions[id]
     if (!owner) return undefined
-    const expected = owner.identity?.id ?? owner.key
+    const expected = owner.identity.id
     const row = await this.catalog.resolve(owner.project, { claim: false }).catch((error: any) => {
       if (error?.code === 'ProjectIdentityChanged') throw new CliError('ProjectIdentityChanged', 'The project identity changed. Conversation history was retained and execution is blocked.')
       throw error
@@ -448,11 +428,11 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     const rows = await this.catalog.list()
     // Owners whose project is not listed live keep a row, so their histories stay reachable.
     for (const owner of Object.values(this.owners.sessions)) {
-      const id = owner.identity?.id ?? owner.key
+      const id = owner.identity.id
       if (rows.some((row) => row.projectId === id)) continue
       const [store, name] = owner.project.split('/')
       const row: CatalogProject = { projectId: id, identity: owner.identity, key: owner.project, name, store, kind: null, machine: null,
-        created: owner.identity?.created ?? null, lastSeen: 0, catalogState: 'unavailable', catalogError: 'The original project identity cannot currently be verified.', storeState: null }
+        created: owner.identity.created ?? null, lastSeen: 0, catalogState: 'unavailable', catalogError: 'The original project identity cannot currently be verified.', storeState: null }
       this.catalog.remember(row)
       rows.push(row)
     }
@@ -473,7 +453,7 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     }
     return pending
   }
-  async projectBackend(project: string): Promise<any> { const row = await this.catalog.resolve(project); return this.backend({ project, key: row.projectId, identity: row.identity }) }
+  async projectBackend(project: string): Promise<any> { const row = await this.catalog.resolve(project); return this.backend({ project, key: row.projectId, identity: row.identity! }) }
   private async target(id: string, header?: any): Promise<any> {
     // Prototype-based unit fakes predate routing and intentionally use local only.
     if (!this.stock) return this.local
@@ -483,11 +463,8 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     const state = this.sessions?.state.read()
     const project = state?.sessions[id]?.project ?? state?.pending[id]?.project ?? (header?.parentSession ? this.owners.sessions[header.parentSession]?.project : undefined)
     if (project) {
-      // Legacy bindings can coexist with a stock log. Do not publish a new
-      // route until migrateProject has copied and validated that history.
-      if (await this.stock.stat(id)) return this.stock
       const row = await this.catalog.resolve(project)
-      const next = { project, key: row.projectId, identity: row.identity }
+      const next = { project, key: row.projectId, identity: row.identity! }
       this.setOwner(id, next)
       return this.backend(next)
     }
@@ -534,11 +511,11 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     withFileLock(`${path}.lock`, () => { const value = this.readDeleted(); delete value.sessions[id]; atomicJson(path, value) })
   }
   /**
-   * Delete owner-routed project conversations: the unpacked log folder (with
-   * its `layerfs.json` sidecar) and the owner route, plus a deletion record so
-   * store sync and open-by-id never import them back implicitly. A loaded
-   * session's writer is retired first; later writes go nowhere. Logs outside
-   * this project-session home (stock or legacy) are never touched.
+   * Delete owner-routed project conversations: the log folder (with its
+   * `layerfs/` sidecar) and the owner route, plus a deletion record so store
+   * sync and open-by-id never import them back implicitly. A loaded session's
+   * writer is retired first; later writes go nowhere. Logs outside the
+   * project-session store are never touched.
    * @returns the ids whose route or log was removed.
    */
   async deleteSessions(ids: readonly string[]): Promise<string[]> {
@@ -580,8 +557,9 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     return removed
   }
 
-  /** Move a session only when its owner changes before work starts, or as an
-   * explicit legacy migration. Copy and validate first; retain source as backup. */
+  /** Move a session only when its owner changes before work starts (including
+   * its first placement out of normal storage, and imports). Copy and validate
+   * first; retain source as backup. */
   async migrateProject(session: any, project: string | null): Promise<void> {
     const id = typeof session === 'string' ? session : String(session.id)
     const previous = this.migrations.get(id) ?? Promise.resolve()
@@ -601,7 +579,7 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     const oldOwner = this.owners.sessions[id]
     const row = project ? await this.catalog.resolve(project) : undefined
     if (oldOwner && row && oldOwner.project === project) await this.assertSessionIdentity(id)
-    const newOwner: Owner | undefined = row ? { project: project!, key: oldOwner?.project === project ? oldOwner.key : row.projectId, identity: row.identity } : undefined
+    const newOwner: Owner | undefined = row ? { project: project!, key: row.projectId, identity: row.identity! } : undefined
     const source = oldOwner ? await this.backend(oldOwner) : this.stock
     const destination = newOwner ? await this.backend(newOwner) : this.stock
     if (source === destination) {
@@ -681,7 +659,6 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
   }
   /** Carry a sidecar and its receipts to the session's new folder, receipts first. */
   private copySidecar(source: string, target: string, project: string | null): void {
-    this.convertCombined(source)
     const meta: any = JSON.parse(readFileSync(source, 'utf8'))
     if (project) meta.project = project
     const sourceReceipts = receiptsPathOf(source)
@@ -701,7 +678,7 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     try { return this.wrap(await (await this.target(id, header)).create(header, options)) } finally {
       this.invalidateHeader(id)
       this.invalidateSidecar(id)
-      this.invalidateDiscovery(this.owners.sessions[id]?.project)
+      if (this.service) this.invalidateDiscovery(this.owners.sessions[id]?.project)
     }
   }
   async flush() {
@@ -837,7 +814,7 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     }
   }
   private rememberSidecar(path: string, id: string, key: string, bytes: number, meta: any): void {
-    // Replacing the metadata does not touch receipts.jsonl; keep its parsed cache.
+    // Replacing the metadata does not touch calls.jsonl; keep its parsed cache.
     this.forgetSidecarEntry(path)
     this.sidecars.set(path, { id, key, bytes, meta, value: this.sidecarValue(path, meta) })
     this.sidecarPaths.set(id, path)
@@ -886,36 +863,9 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     this.rememberReceipts(path, identity.key, load)
     return load
   }
-  /** Receipts for a sidecar: its sibling file (a combined sidecar is converted before anything reads it). */
+  /** Receipts for a sidecar: its sibling `calls.jsonl`. */
   private receiptsFor(sidecarPath: string): ReceiptLoad {
     return this.receiptLoadAt(sidecarPath) ?? { receipts: [], dropped: 0, skipped: 0, bytes: 0 }
-  }
-  /**
-   * Fold a combined sidecar's in-file receipts out, inside its lock: the
-   * original is kept as `.bak`, writes and refusals go durably to
-   * `receipts.jsonl` (replacing any file a crashed conversion left), reads fold
-   * into the counter, and `invocations` leaves `meta`. The caller then writes
-   * `meta`. Returns whether there was anything to convert.
-   */
-  private foldCombined(path: string, text: string | undefined, meta: any): boolean {
-    const combined = Array.isArray(meta.invocations) ? meta.invocations : undefined
-    delete meta.invocations
-    if (combined === undefined) return false
-    if (text !== undefined) this.backupSidecar(path, text)
-    const folded = compactInvocations(meta[RECEIPT_META], combined)
-    meta[RECEIPT_META] = folded.meta
-    this.writeReceipts(path, folded.invocations)
-    return true
-  }
-  /** Convert a combined sidecar to the split layout, once, under its lock (see {@link foldCombined}); returns the metadata now on disk. */
-  private convertCombined(path: string): any {
-    return withFileLock(`${path}.lock`, () => {
-      const text = existsSync(path) ? readFileSync(path, 'utf8') : undefined
-      if (text === undefined) return undefined
-      const meta = JSON.parse(text)
-      if (this.foldCombined(path, text, meta)) atomicJson(path, meta)
-      return meta
-    })
   }
   /** What a `cached: true` read shares: metadata plus a lazy receipts property. */
   private sidecarValue(path: string, meta: any): SessionSidecar {
@@ -940,19 +890,19 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     return copy
   }
   /**
-   * The session's `layerfs.json`, kept while the file's identity holds. `cached`
+   * The session's `binding.json`, kept while the file's identity holds. `cached`
    * shares the value (the Trajectory tab rereads on every event); every other
    * caller gets a copy, so it can keep or mutate it freely. A sidecar passed in
    * by a caller that has already stat'ed the log (`snapshot`) avoids that stat.
    * An absent sidecar is never cached, so one written later shows next read.
    *
-   * A metadata read never opens `receipts.jsonl`: `invocations` is lazy. A caller
+   * A metadata read never opens `calls.jsonl`: `invocations` is lazy. A caller
    * that touches it pays for the retained receipts; paged readers use
-   * {@link readReceipts}. A combined sidecar is converted here first.
+   * {@link readReceipts}.
    */
   async readSidecar(id: string, options: { cached?: boolean, snapshot?: any } = {}): Promise<SessionSidecar | undefined> {
     const path = await this.sidecarPath(id, options.snapshot)
-    let identity = this.sidecarIdentity(path)
+    const identity = this.sidecarIdentity(path)
     if (identity === undefined) { this.invalidateSidecar(id); return undefined }
     const kept = this.sidecars.get(path)
     if (kept?.key === identity.key) {
@@ -961,15 +911,8 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
       this.sidecars.set(path, kept)
       return options.cached ? kept.value : this.sidecarCopy(path, kept.meta)
     }
-    let value = this.readSidecarFile(path)
-    if (value === undefined) { this.invalidateSidecar(id); return undefined }
-    if (Array.isArray(value.invocations)) {
-      value = this.convertCombined(path)
-      identity = this.sidecarIdentity(path)
-      if (!identity || !value) { this.invalidateSidecar(id); return undefined }
-    }
-    const meta: any = { ...value }
-    delete meta.invocations
+    const meta = this.readSidecarFile(path)
+    if (meta === undefined) { this.invalidateSidecar(id); return undefined }
     this.rememberSidecar(path, id, identity.key, identity.bytes, meta)
     const entry = this.sidecars.get(path)!
     return options.cached ? entry.value : this.sidecarCopy(path, entry.meta)
@@ -978,23 +921,13 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
    * One session's receipts, paged: `from` indexes retained order, oldest first
    * (a negative value counts back from the newest, so `{ from: -50 }` is the
    * newest page), and `limit` bounds the result. The file is streamed from disk
-   * once per identity; stale entries are never served after a write. A
-   * combined sidecar is converted first, so this and the whole read agree.
+   * once per identity; stale entries are never served after a write.
    */
   async readReceipts(id: string, options: { from?: number, limit?: number, snapshot?: any } = {}): Promise<ReceiptPage> {
     const path = await this.sidecarPath(id, options.snapshot)
-    // A cached entry is a converted file; otherwise check this one once.
-    const identity = this.sidecarIdentity(path)
-    if (identity && this.sidecars.get(path)?.key !== identity.key && Array.isArray(this.readSidecarFile(path)?.invocations)) this.convertCombined(path)
     return pageOf(this.receiptsFor(path), options.from, options.limit)
   }
-  /** The original combined sidecar, kept for recovery the one time it is rewritten. */
-  private backupSidecar(path: string, text: string): void {
-    const backup = `${path}.bak`
-    if (existsSync(backup)) return
-    atomicBytes(backup, text)
-  }
-  /** Write all receipts (migration, import merge and the count cap), atomically and durably. */
+  /** Write all receipts (an assigned array, import merge and the count cap), atomically and durably. */
   private writeReceipts(sidecarPath: string, rows: readonly any[], dropped = 0): void {
     // Same marker B1's byte compaction writes: the cumulative count a reader
     // skips and reports as `dropped`/`truncated`.
@@ -1053,13 +986,11 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
    * paying a disk flush per tool call would slow every turn for no recoverable
    * data. A tail left without a newline by a crash gets one first.
    */
-  private appendReceipt(sidecarPath: string, receipt: any, { compact = true } = {}): boolean {
+  private appendReceipt(sidecarPath: string, receipt: any): boolean {
     const path = receiptsPathOf(sidecarPath)
     let compacted = false
-    // A conversion's first append does not compact: converting a combined file
-    // keeps every receipt, and the cap starts applying to later writes.
     try {
-      if (compact && statSync(path).size > this.receiptBudgetBytes) { this.compactReceipts(path); compacted = true }
+      if (statSync(path).size > this.receiptBudgetBytes) { this.compactReceipts(path); compacted = true }
     } catch { /* no receipts file yet */ }
     const fd = openSync(path, 'a+', 0o600)
     try {
@@ -1114,10 +1045,7 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     // appenders cannot migrate or rewrite on top of a stale read.
     withFileLock(`${path}.lock`, () => {
       const text = existsSync(path) ? readFileSync(path, 'utf8') : undefined
-      const raw: any = text === undefined ? { version: 1, sessionId: id, project, invocations: [] } : JSON.parse(text)
-      const value: any = { ...raw }
-      // A combined sidecar (and a new one) is converted first: its receipts go beside it.
-      this.foldCombined(path, text, value)
+      const value: any = text === undefined ? { version: 1, sessionId: id, project } : JSON.parse(text)
       if (!value.version) value.version = 1
       if (!value.sessionId) value.sessionId = id
       if (!value.project) value.project = project
@@ -1153,8 +1081,7 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
    * Fold one read-only host call into the session's receipt counter instead of
    * writing a receipt: called by `traceInvocation` through the process-wide
    * sink. The metadata counter is bumped under the sidecar lock and the cached
-   * read sees it immediately (no TTL); a combined sidecar is converted here
-   * too, so its first observation folds its read receipts. A refusal is
+   * read sees it immediately (no TTL). A refusal is
    * recorded separately as a receipt but still moves the counter's last
    * outcome, so the aggregate line stays truthful.
    */
@@ -1170,8 +1097,6 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     withFileLock(`${path}.lock`, () => {
       const text = existsSync(path) ? readFileSync(path, 'utf8') : undefined
       const meta: any = text === undefined ? { version: 1, sessionId: id, project: owner.project } : JSON.parse(text)
-      // A combined sidecar is converted first (its reads fold into the counter).
-      this.foldCombined(path, text, meta)
       if (!meta.version) meta.version = 1
       if (!meta.project) meta.project = owner.project
       meta[RECEIPT_META] = foldRead(meta[RECEIPT_META], { operation, at, outcome }, { count: outcome === 'success', cap: this.receiptLimit })
@@ -1198,14 +1123,9 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     withFileLock(`${path}.lock`, () => {
       const text = existsSync(path) ? readFileSync(path, 'utf8') : undefined
       const meta: any = text === undefined ? { version: 1, sessionId: id, project: owner.project } : JSON.parse(text)
-      // A combined sidecar is converted first: writes/refusals go durably
-      // beside the file, reads fold into the counter (see foldCombined).
-      const converted = this.foldCombined(path, text, meta)
       if (!meta.version) meta.version = 1
       if (!meta.project) meta.project = owner.project
-      // Metadata lands before the append: a crash in between leaves the combined
-      // file (or the prior small one) authoritative, and a retry can only add
-      // receipts, never overwrite appended ones with the old in-file array.
+      // Metadata lands before the append; a retry can only add receipts.
       meta.projectId = this.projectIdOf(id)
       meta.projectIdentity = owner.identity
       if (observe) {
@@ -1218,7 +1138,7 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
       }
       atomicJson(path, meta)
       const receiptKey = fileIdentity(receiptsPathOf(path))?.key
-      const compacted = this.appendReceipt(path, invocation, { compact: !converted })
+      const compacted = this.appendReceipt(path, invocation)
       const identity = this.sidecarIdentity(path)
       if (identity) this.rememberSidecar(path, id, identity.key, identity.bytes, meta)
       else this.forgetSidecar(path)

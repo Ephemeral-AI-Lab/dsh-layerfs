@@ -27,6 +27,8 @@ await build({
 const P = await import(pathToFileURL(join(out, 'persistence.mjs')).href)
 const scratch = mkdtempSync(join(tmpdir(), 'dsh-header-cache-'))
 test.after(() => { rmSync(out, { recursive: true, force: true }); rmSync(scratch, { recursive: true, force: true }) })
+/** An owner route's key and identity: the project UUID. */
+const PROJECT_ID = '00000000-0000-4000-8000-000000000001'
 
 const handle = (header) => ({
   id: header.id, header, access: 'write',
@@ -173,12 +175,12 @@ test('deleteSessions invalidates the deleted session', async () => {
   const log = join(scratch, 'outside.jsonl')
   mkdirSync(home, { recursive: true })
   writeFileSync(log, '{"version":4}\n')
-  const key = 'a'.repeat(64)
-  writeFileSync(join(home, 'owners.json'), JSON.stringify({ version: 1, sessions: { s6: { project: 'st/app', key } } }))
+  const key = PROJECT_ID
+  writeFileSync(join(home, 'owners.json'), JSON.stringify({ version: 1, sessions: { s6: { project: 'st/app', key, identity: { id: key, name: 'app', created: 1 } } } }))
   const backend = new MemoryBackend(log, { version: 4, id: 's6', createdAt: 1, title: 'old' })
   const w = persistence(backend, {
     service: { projectSessionHome: home },
-    owners: { s6: { project: 'st/app', key } },
+    owners: { s6: { project: 'st/app', key, identity: { id: key, name: 'app', created: 1 } } },
   })
   Object.defineProperty(w, 'backend', { value: async () => backend })
   assert.equal((await w.stat('s6')).header.title, 'old')
@@ -229,7 +231,7 @@ function sidecarFixture(name) {
   writeFileSync(log, `${JSON.stringify({ version: 4, id: 's1', createdAt: 1 })}\n`)
   return { dir, log, sidecar: join(dir, 'layerfs', 'binding.json'), backend: new FileBackend(log) }
 }
-const sidecarValue = (title, extra = {}) => ({ version: 1, sessionId: 's1', project: 'st/app', invocations: [], title, ...extra })
+const sidecarValue = (title, extra = {}) => ({ version: 1, sessionId: 's1', project: 'st/app', title, ...extra })
 /** Count the cache's real file reads (the method is overridable for exactly this). */
 function countingReads(w) {
   const counts = { reads: 0 }
@@ -278,7 +280,8 @@ test('another process changing the sidecar file is re-read', async () => {
   assert.equal((await w.readSidecar('s1')).title, 'before')
   assert.equal(reads.reads, 1)
   // A second writer (the same path, another process): a new inode/size/mtime/ctime.
-  writeFileSync(f.sidecar, JSON.stringify(sidecarValue('after', { invocations: [{ id: 'external' }] })))
+  writeFileSync(f.sidecar, JSON.stringify(sidecarValue('after')))
+  writeFileSync(join(dirname(f.sidecar), 'calls.jsonl'), `${JSON.stringify({ id: 'external' })}\n`)
   const after = await w.readSidecar('s1')
   assert.equal(after.title, 'after')
   assert.deepEqual(after.invocations, [{ id: 'external' }])
@@ -288,11 +291,11 @@ test('another process changing the sidecar file is re-read', async () => {
 test('updateSidecar is visible to the next read, then another writer invalidates it', async () => {
   const home = join(scratch, 'sidecar-update-home')
   mkdirSync(home, { recursive: true })
-  const key = 'a'.repeat(64)
-  writeFileSync(join(home, 'owners.json'), JSON.stringify({ version: 1, sessions: { s1: { project: 'st/app', key } } }))
+  const key = PROJECT_ID
+  writeFileSync(join(home, 'owners.json'), JSON.stringify({ version: 1, sessions: { s1: { project: 'st/app', key, identity: { id: key, name: 'app', created: 1 } } } }))
   const f = sidecarFixture('sidecar-update')
   writeFileSync(f.sidecar, JSON.stringify(sidecarValue('old')))
-  const w = persistence(f.backend, { service: { projectSessionHome: home }, owners: { s1: { project: 'st/app', key } } })
+  const w = persistence(f.backend, { service: { projectSessionHome: home }, owners: { s1: { project: 'st/app', key, identity: { id: key, name: 'app', created: 1 } } } })
   Object.defineProperty(w, 'backend', { value: async () => f.backend })
   const reads = countingReads(w)
   assert.equal((await w.readSidecar('s1')).title, 'old')
@@ -329,11 +332,11 @@ test('deleteSessions invalidates a cached sidecar', async () => {
   const log = join(dir, 'session.jsonl')
   writeFileSync(log, '{"version":4}\n')
   mkdirSync(join(dir, 'layerfs'), { recursive: true })
-  writeFileSync(join(dir, 'layerfs', 'binding.json'), JSON.stringify({ version: 1, sessionId: 's6', project: 'st/app', invocations: [] }))
-  const key = 'a'.repeat(64)
-  writeFileSync(join(home, 'owners.json'), JSON.stringify({ version: 1, sessions: { s6: { project: 'st/app', key } } }))
+  writeFileSync(join(dir, 'layerfs', 'binding.json'), JSON.stringify({ version: 1, sessionId: 's6', project: 'st/app' }))
+  const key = PROJECT_ID
+  writeFileSync(join(home, 'owners.json'), JSON.stringify({ version: 1, sessions: { s6: { project: 'st/app', key, identity: { id: key, name: 'app', created: 1 } } } }))
   const backend = new MemoryBackend(log, { version: 4, id: 's6', createdAt: 1 })
-  const w = persistence(backend, { service: { projectSessionHome: home }, owners: { s6: { project: 'st/app', key } } })
+  const w = persistence(backend, { service: { projectSessionHome: home }, owners: { s6: { project: 'st/app', key, identity: { id: key, name: 'app', created: 1 } } } })
   Object.defineProperty(w, 'backend', { value: async () => backend })
   assert.ok(await w.readSidecar('s6'))
   assert.equal(w.sidecarPaths.has('s6'), true)
